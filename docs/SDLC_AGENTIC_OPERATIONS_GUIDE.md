@@ -18,8 +18,8 @@ The ecosystem is composed of 8 interlocking Antigravity skills. These skills uti
 3. **`sdlc-docs-wiki`**: Maintains synchronization across the project's documentation (`/wiki`, `README.md`, architectures).
 4. **`sdlc-tdd-implement`**: Handles Svelte 5 / TS implementation using strict Test-Driven Development and clean-room principles.
 5. **`sdlc-test-coverage`**: Manages unit, component, and E2E testing using Vitest and Playwright.
-6. **`sdlc-quality-gate`**: Enforces pre-merge quality (static analysis, a11y, production builds).
-7. **`sdlc-release-changelog`**: Handles SemVer, Git tags, and automated CHANGELOG generation.
+6. **`sdlc-quality-gate`**: Enforces pre-merge quality (static analysis, a11y, production builds, DevSecOps scanning, and Lighthouse profiling).
+7. **`sdlc-release-changelog`**: Handles SemVer, Git tags, automated CHANGELOG generation, Docker containerization, and Kubernetes/Helm deployments.
 8. **`sdlc-help`**: An interactive guide providing diagnostics and command recipes for humans and agents alike.
 
 ---
@@ -56,8 +56,8 @@ When you have a feature idea and want the agents to handle documentation, implem
    - Subagent 2 uses `sdlc-test-coverage` to write the tests.
    - Subagent 3 uses `sdlc-docs-wiki` to update the wiki.
 3. **Join Phase**: The master agent waits for subagents to complete.
-4. **Quality Gate**: `sdlc-quality-gate` is triggered to run `npx svelte-check` and accessibility audits.
-5. **Release**: `sdlc-release-changelog` bumps the version.
+4. **Quality Gate**: `sdlc-quality-gate` is triggered to run security scans, `npx svelte-check`, performance profiling, and accessibility audits.
+5. **Release**: `sdlc-release-changelog` bumps the version, builds the Docker image, and executes a Helm deployment.
 
 ### Scenario B: Generating Strict Architecture Documentation
 When you need to define a system before writing code, using our enterprise templates.

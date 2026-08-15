@@ -1,0 +1,35 @@
+name: Publish Wiki
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'wiki/**'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Sync Wiki
+        run: |
+          # Set up git config
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Clone the wiki repository
+          git clone https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.wiki.git /tmp/wiki
+          
+          # Copy all files from our wiki directory to the wiki repository
+          cp -r wiki/* /tmp/wiki/
+          
+          # Commit and push changes
+          cd /tmp/wiki
+          git add .
+          git diff-index --quiet HEAD || git commit -m "docs: auto-publish wiki from repository"
+          git push origin HEAD:master

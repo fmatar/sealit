@@ -27,10 +27,10 @@ flowchart TD
     end
     
     S1 -->|Fork Contract| ParallelFork
-    ParallelFork -->|Join & Converge| S4["3. Quality Gate (sdlc-quality-gate)\n• svelte-check\n• Vitest Suite Execution\n• WCAG a11y & Memory Safety"]
+    ParallelFork -->|Join & Converge| S4["3. Quality Gate (sdlc-quality-gate)\n• Security (npm audit/SAST)\n• Observability (Lighthouse)\n• svelte-check & Vitest\n• WCAG a11y & Memory Safety"]
     
     S4 --> Checkpoint{"Adaptive Review Checkpoint"}
-    Checkpoint -->|User Approval| S5["4. Release & Changelog (sdlc-release-changelog)\n• SemVer Bump\n• Keep a Changelog\n• GitHub Release"]
+    Checkpoint -->|User Approval| S5["4. Release & Deploy (sdlc-release-changelog)\n• SemVer & GitHub Release\n• Docker Containerization\n• Kubernetes/Helm Deploy"]
 ```
 
 ---
@@ -44,7 +44,7 @@ When a single feature or bug is initiated:
    - **Worker 1 (Dev)**: Implements UI components and math/audio logic.
    - **Worker 2 (QA)**: Implements Vitest test suites verifying the schema contract and edge cases.
    - **Worker 3 (Tech Writer)**: Writes documentation in `wiki/` and generates Mermaid diagrams.
-3. **Join & Audit (`sdlc-quality-gate`)**: Run `npx svelte-check --tsconfig ./tsconfig.json` and execute all test suites together.
+3. **Join & Audit (`sdlc-quality-gate`)**: Execute security scans (blocking on criticals), run `npx svelte-check --tsconfig ./tsconfig.json`, run Lighthouse CI, and execute all test suites together.
 
 ---
 
@@ -69,9 +69,9 @@ When multiple independent features or techniques are added at once (e.g. *Physio
 
 - [ ] **Step 1: Triage & Contract**: Formulate RFC / Issue on GitHub (`sdlc-feature-spec`).
 - [ ] **Step 2: Fork Concurrent Tracks**: Launch parallel tasks for Implementation, Tests, and Documentation.
-- [ ] **Step 3: Join & Quality Gate**: Run `svelte-check`, full Vitest test suite, and a11y audit (`sdlc-quality-gate`).
+- [ ] **Step 3: Join & Quality Gate**: Run security scans, `svelte-check`, full Vitest test suite, Lighthouse profiling, and a11y audit (`sdlc-quality-gate`).
 - [ ] **Step 4: Review Checkpoint**: Present completed walkthrough artifact to the user.
-- [ ] **Step 5: Release (Optional)**: Trigger `sdlc-release-changelog` to publish version.
+- [ ] **Step 5: Release & Deploy (Optional)**: Trigger `sdlc-release-changelog` to publish version, build Docker image, and deploy via Helm.
 
 ---
 

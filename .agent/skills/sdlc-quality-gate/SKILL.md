@@ -1,7 +1,7 @@
 ---
 name: sdlc-quality-gate
-description: Enforces rigorous pre-merge and pre-release quality checks, including Svelte 5 static analysis (svelte-check), TypeScript verification, WCAG 2.1 AA accessibility (a11y) auditing, audio lifecycle safety, and production build sanity.
-version: 1.1.0
+description: Enforces rigorous pre-merge and pre-release quality checks, including Svelte 5 static analysis, TypeScript verification, WCAG 2.1 AA a11y, audio lifecycle safety, production builds, security/SAST scanning, and Lighthouse observability.
+version: 1.2.0
 license: Apache 2.0
 ---
 
@@ -11,7 +11,7 @@ Use this skill before merging pull requests, cutting releases, or completing maj
 
 ---
 
-## 🛡️ The 5 Pillars of NoteZen Quality
+## 🛡️ The 7 Pillars of NoteZen Quality
 
 ```mermaid
 graph TD
@@ -20,6 +20,8 @@ graph TD
     A --> D[3. WCAG 2.1 AA Accessibility: a11y]
     A --> E[4. Web Audio Lifecycle & Memory]
     A --> F[5. Responsive 60fps Render Performance]
+    A --> G[6. Security & Vulnerability Scanning]
+    A --> H[7. Observability & Lighthouse Profiling]
 ```
 
 ---
@@ -56,6 +58,18 @@ pnpm build
 ### 5. Performance & Mobile Responsive Check
 - [ ] Canvas SVG rendering maintains smooth 60fps on mobile viewports (iOS Safari, Android Chrome).
 - [ ] Zen Mode fills 100% of viewport without unwanted horizontal/vertical scrolling or layout shift.
+
+### 6. Security & Vulnerability Scanning (DevSecOps)
+Run dependency audits and basic SAST checks:
+- [ ] Run `npm audit` or equivalent.
+- [ ] Block the flow on High/Critical vulnerabilities.
+- [ ] Log Low-Severity vulnerabilities to the final cycle report (e.g., via Slack integration).
+- [ ] Ensure no plain-text secrets are committed (secrets scanning).
+
+### 7. Observability & Lighthouse Profiling
+Ensure the application is performant and observable in production:
+- [ ] Run Lighthouse CI to capture objective performance profiling metrics (Core Web Vitals).
+- [ ] Verify basic production telemetry integration is scaffolded.
 
 ---
 

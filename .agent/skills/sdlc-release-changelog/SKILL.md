@@ -1,7 +1,7 @@
 ---
 name: sdlc-release-changelog
-description: Manages Semantic Versioning (SemVer), conventional changelogs (CHANGELOG.md adhering to Keep a Changelog standard), Git tagging, and GitHub release creation.
-version: 1.1.0
+description: Manages Semantic Versioning (SemVer), conventional changelogs (CHANGELOG.md adhering to Keep a Changelog standard), Git tagging, GitHub release creation, Docker containerization, and Kubernetes/Helm deployments.
+version: 1.2.0
 license: Apache 2.0
 ---
 
@@ -63,6 +63,8 @@ We strictly adhere to the [Keep a Changelog](https://keepachangelog.com/en/1.0.0
    git tag -a vX.Y.Z -m "Release vX.Y.Z"
    ```
 5. **Create GitHub Release**: Use GitHub MCP tools to publish the release with formatted release notes derived from `CHANGELOG.md`.
+6. **Containerization (Docker)**: Build and publish the application as a provider-agnostic Docker image tagged with `vX.Y.Z` and `latest`.
+7. **Deployment (Kubernetes / Helm)**: Generate or update Helm charts for the release and apply the deployment to the Kubernetes cluster to ensure zero-downtime rolling updates.
 
 ---
 
