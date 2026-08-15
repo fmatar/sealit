@@ -14,7 +14,7 @@ done
 
 echo "🚀 Downloading NoteZen SDLC Installer..."
 if [ -n "$GITHUB_TOKEN" ]; then
-    curl -H "Authorization: token $GITHUB_TOKEN" -sL https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/install.java -o /tmp/notezen-install.java
+    curl -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github.v3.raw" -sL "https://api.github.com/repos/fmatar/agentic-sdlc-framework/contents/install.java?ref=main" -o /tmp/notezen-install.java
 else
     curl -sL https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/install.java -o /tmp/notezen-install.java
 fi
