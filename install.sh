@@ -13,10 +13,15 @@ for arg in "$@"; do
 done
 
 echo "🚀 Downloading NoteZen SDLC Installer..."
+
+# Create a safe temporary directory to avoid Java class name conflicts
+TMP_DIR=$(mktemp -d)
+INSTALL_SCRIPT="$TMP_DIR/install.java"
+
 if [ -n "$GITHUB_TOKEN" ]; then
-    curl -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github.v3.raw" -sL "https://api.github.com/repos/fmatar/agentic-sdlc-framework/contents/install.java?ref=main" -o /tmp/notezen-install.java
+    curl -H "Authorization: token $GITHUB_TOKEN" -sL "https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/install.java" -o "$INSTALL_SCRIPT"
 else
-    curl -sL https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/install.java -o /tmp/notezen-install.java
+    curl -sL "https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/install.java" -o "$INSTALL_SCRIPT"
 fi
 
 if ! command -v jbang &> /dev/null; then
@@ -27,4 +32,4 @@ if ! command -v jbang &> /dev/null; then
 fi
 
 echo "⚡ Running JBang Installer with $FLAG..."
-jbang /tmp/notezen-install.java $FLAG
+jbang "$INSTALL_SCRIPT" $FLAG
