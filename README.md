@@ -43,15 +43,17 @@ The framework operates via 8 interlocking "skills" located in `.agent/skills/`. 
 *   [JBang](https://www.jbang.dev/) (For installation)
 
 ### Installation
-You can install the framework skills into a new project or globally using the included JBang installer, which features a deterministic workflow engine execution pattern:
+The easiest way to install the framework (either into a new project or globally) is using our one-liner `curl` script. It will automatically download the deterministic workflow engine installer and install JBang if you don't already have it:
 
 ```bash
-# Install to your current project's .agent/ directory
-./install.java --local .
+# Install to your current project's .agent/ directory (Local)
+curl -sL https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/install.sh | bash
 
 # Or install globally for all your projects
-./install.java --global
+curl -sL https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/install.sh | bash -s -- --global
 ```
+
+*(Alternatively, if you already have the repository cloned and JBang installed, you can simply run `./install.java --local .` or `./install.java --global` directly).*
 
 ### Triggering the Framework
 You can command your agent to handle everything autonomously:
