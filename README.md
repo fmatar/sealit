@@ -43,14 +43,19 @@ The framework operates via 8 interlocking "skills" located in `.agent/skills/`. 
 *   [JBang](https://www.jbang.dev/) (For installation)
 
 ### Installation
+Since this is a private repository, you will need a GitHub Personal Access Token (PAT) with repository read access.
+
 The easiest way to install the framework (either into a new project or globally) is using our one-liner `curl` script. It will automatically download the deterministic workflow engine installer and install JBang if you don't already have it:
 
 ```bash
-# Install to your current project's .agent/ directory (Local)
-curl -sL https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/install.sh | bash
+# 1. Export your Personal Access Token
+export GITHUB_TOKEN="ghp_your_token_here"
+
+# 2. Install to your current project's .agent/ directory (Local)
+curl -H "Authorization: token $GITHUB_TOKEN" -sL https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/install.sh | bash
 
 # Or install globally for all your projects
-curl -sL https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/install.sh | bash -s -- --global
+curl -H "Authorization: token $GITHUB_TOKEN" -sL https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/install.sh | bash -s -- --global
 ```
 
 *(Alternatively, if you already have the repository cloned and JBang installed, you can simply run `./install.java --local .` or `./install.java --global` directly).*

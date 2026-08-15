@@ -13,7 +13,11 @@ for arg in "$@"; do
 done
 
 echo "🚀 Downloading NoteZen SDLC Installer..."
-curl -sL https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/install.java -o /tmp/notezen-install.java
+if [ -n "$GITHUB_TOKEN" ]; then
+    curl -H "Authorization: token $GITHUB_TOKEN" -sL https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/install.java -o /tmp/notezen-install.java
+else
+    curl -sL https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/install.java -o /tmp/notezen-install.java
+fi
 
 if ! command -v jbang &> /dev/null; then
     echo "⚠️ JBang is not installed. Installing JBang..."
