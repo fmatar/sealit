@@ -39,7 +39,19 @@ The framework operates via 8 interlocking "skills" located in `.agent/skills/`. 
 
 ### Prerequisites
 *   Node.js (v20+)
-*   An active Antigravity workspace mapped to this repository.
+*   An active Antigravity workspace.
+*   [JBang](https://www.jbang.dev/) (For installation)
+
+### Installation
+You can install the framework skills into a new project or globally using the included JBang installer, which features a deterministic workflow engine execution pattern:
+
+```bash
+# Install to your current project's .agent/ directory
+./install.java --local .
+
+# Or install globally for all your projects
+./install.java --global
+```
 
 ### Triggering the Framework
 You can command your agent to handle everything autonomously:
