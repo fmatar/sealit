@@ -2,8 +2,8 @@
 # NoteZen Agentic SDLC Framework Installer
 set -e
 
-# Default to local install
-FLAG="--local ."
+ORIGINAL_DIR=$(pwd)
+FLAG="--local $ORIGINAL_DIR"
 
 # Parse args (if --global is passed)
 for arg in "$@"; do
@@ -12,17 +12,16 @@ for arg in "$@"; do
     fi
 done
 
-echo "🚀 Downloading NoteZen SDLC Installer..."
-
-# Create a safe temporary directory to avoid Java class name conflicts
+echo "🚀 Downloading NoteZen SDLC Framework..."
 TMP_DIR=$(mktemp -d)
-INSTALL_SCRIPT="$TMP_DIR/install.java"
 
 if [ -n "$GITHUB_TOKEN" ]; then
-    curl -H "Authorization: token $GITHUB_TOKEN" -sL "https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/install.java" -o "$INSTALL_SCRIPT"
+    git clone --quiet --depth 1 "https://x-access-token:$GITHUB_TOKEN@github.com/fmatar/agentic-sdlc-framework.git" "$TMP_DIR/notezen"
 else
-    curl -sL "https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/install.java" -o "$INSTALL_SCRIPT"
+    git clone --quiet --depth 1 "https://github.com/fmatar/agentic-sdlc-framework.git" "$TMP_DIR/notezen"
 fi
+
+cd "$TMP_DIR/notezen"
 
 if ! command -v jbang &> /dev/null; then
     echo "⚠️ JBang is not installed. Installing JBang..."
@@ -31,5 +30,8 @@ if ! command -v jbang &> /dev/null; then
     export PATH="$HOME/.jbang/bin:$PATH"
 fi
 
-echo "⚡ Running JBang Installer with $FLAG..."
-jbang "$INSTALL_SCRIPT" $FLAG
+echo "⚡ Running JBang Installer..."
+jbang install.java $FLAG
+
+# Cleanup
+rm -rf "$TMP_DIR"
