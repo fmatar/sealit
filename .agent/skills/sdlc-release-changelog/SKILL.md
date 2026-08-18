@@ -15,7 +15,7 @@ Use this skill when preparing releases, tagging production builds, calculating v
 
 Given a version number `MAJOR.MINOR.PATCH`:
 - **MAJOR** (`X.0.0`): Breaking architectural shifts, database/store breaking migrations, or removed public APIs.
-- **MINOR** (`0.X.0`): New breathwork techniques, new geometry visualizers, new audio synthesis capabilities, or non-breaking feature additions.
+- **MINOR** (`0.X.0`): New business logic techniques, new geometry visualizers, new audio synthesis capabilities, or non-breaking feature additions.
 - **PATCH** (`0.0.X`): Bug fixes, CSS layout corrections, audio pop glitches, and documentation enhancements.
 
 ---
@@ -38,8 +38,8 @@ We strictly adhere to the [Keep a Changelog](https://keepachangelog.com/en/1.0.0
 
 ### Added
 - **Physiological Sigh**: Dual-crested stepped wave geometry for acute panic and anxiety relief.
-- **Nadi Shodhana**: Lemniscate ($\infty$) loop geometry with stereo Web Audio panning.
-- **Stereo Spatialization**: Web Audio `StereoPannerNode` for bilateral breath guidance.
+- **Nadi Shodhana**: complex feature ($\infty$) loop geometry with stereo modern web APIs panning.
+- **Stereo Spatialization**: modern web APIs `StereoPannerNode` for bilateral breath guidance.
 
 ### Changed
 - Refactored `insetPolygon` to support parametric continuous Bezier and ellipse curves.

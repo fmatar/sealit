@@ -1,6 +1,6 @@
 <div align="center">
-  <img src="https://via.placeholder.com/150" alt="NoteZen Logo" width="120" height="120" />
-  <h1>NoteZen Agentic SDLC Framework</h1>
+  <img src="https://via.placeholder.com/150" alt="Logo" width="120" height="120" />
+  <h1>Agentic SDLC Framework</h1>
   <p><b>State-of-the-Art Autonomous Software Development Lifecycle Orchestration</b></p>
 
   [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
@@ -11,9 +11,9 @@
 
 ---
 
-## ⚡ What is NoteZen Agentic SDLC?
+## ⚡ What is the Agentic SDLC Framework?
 
-NoteZen Agentic SDLC Framework is a **Hybrid Orchestration** system that transforms standard coding agents (like Google Antigravity) into a highly disciplined, multi-agent engineering team. Instead of letting agents write code aimlessly, this framework enforces industry best practices (SVPG PRDs, IEEE 29148 SRS, Simon Brown C4 Architecture) and automates the entire software lifecycle from ideation to Kubernetes deployment.
+The Agentic SDLC Framework is a **Hybrid Orchestration** system that transforms standard coding agents (like Google Antigravity) into a highly disciplined, multi-agent engineering team. Instead of letting agents write code aimlessly, this framework enforces industry best practices (SVPG PRDs, IEEE 29148 SRS, Simon Brown C4 Architecture) and automates the entire software lifecycle from ideation to Kubernetes deployment.
 
 ## 🚀 Key Features
 

@@ -7,7 +7,7 @@ license: Apache 2.0
 
 # SDLC Testing & Test Coverage Skill (`sdlc-test-coverage`)
 
-Use this skill when writing unit tests, adding integration tests, auditing test coverage, or validating zero-regression stability across the NoteZen application.
+Use this skill when writing unit tests, adding integration tests, auditing test coverage, or validating zero-regression stability across the The Project application.
 
 ---
 

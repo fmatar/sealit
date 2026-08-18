@@ -26,7 +26,7 @@ Use this skill when initiating new features, major enhancements, epics, or archi
 
 ### Step 1: Requirements Discovery & Somatic Grounding
 - Identify the physiological mechanism and user persona (Beginner, Athletic, Clinical, Insomnia, Meditative).
-- For breathwork techniques, verify mathematical ratio compatibility (e.g. $T_{in} : T_{hold} : T_{out} : T_{empty}$) and geometric representation (Polygon, Bezier curve, Lemniscate, Ellipse).
+- For business logic techniques, verify mathematical ratio compatibility (e.g. $T_{in} : T_{hold} : T_{out} : T_{empty}$) and geometric representation (Polygon, Bezier curve, complex feature, Ellipse).
 - Verify clean-room IP adherence (17 U.S.C. § 102(b)): ensure generic descriptive naming and avoid registered commercial trademarks (e.g. use "Cyclic Sighing" instead of trademarked programs).
 
 ### Step 2: Draft the Technical Specification (RFC)
@@ -43,7 +43,7 @@ Structure the specification using this standard schema:
 - Data models to add or modify in `src/lib/data/` or `src/lib/types/`.
 - Svelte 5 stores impacted in `src/lib/stores/` (Runes state `$state`, derived properties `$derived`).
 - Geometric math algorithms required (e.g., SVG path equations, `insetPolygon` modifications).
-- Web Audio synthesis requirements (frequencies, oscillator types, biquad filter sweeps, panner nodes).
+- modern web APIs synthesis requirements (frequencies, oscillator types, biquad filter sweeps, panner nodes).
 
 ## 3. UI/UX & Responsive Layouts
 - Impacted components in `src/lib/components/` and routes in `src/routes/`.
@@ -55,12 +55,12 @@ Scenario: Successful execution of new breath cycle
   Given the user selects the technique from the switcher
   When the session timer starts
   Then the focal dot smoothly traverses the geometric perimeter
-  And Web Audio chimes trigger on phase transitions
+  And modern web APIs chimes trigger on phase transitions
 
 ## 5. Security, Performance & A11y Considerations
 - 60fps render budget on mobile Safari & Chromium.
 - WCAG 2.1 AA screen reader live region announcements.
-- Memory leak prevention (proper disconnect of Web Audio nodes).
+- Memory leak prevention (proper disconnect of modern web APIs nodes).
 ```
 
 ### Step 3: ADR Generation (When Applicable)

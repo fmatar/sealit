@@ -13,7 +13,7 @@ Use this skill whenever features, techniques, data models, or architectural patt
 
 ## 📚 Documentation Ecosystem
 
-NoteZen maintains two synchronized documentation layers:
+The Project maintains two synchronized documentation layers:
 
 1. **Root Readme & Guides (`README.md`)**: User-facing onboarding, feature list, quickstart commands, keyboard shortcuts table, and tech stack overview.
 2. **Product & Architecture Wiki (`wiki/`)**: Deep-dive technical specifications, scientific foundations, design system tokens, monetization, roadmap, and ADRs.
@@ -28,7 +28,7 @@ When updating or adding documentation to `wiki/`:
 wiki/
 ├── Home.md                          # Product vision, core value proposition & quick links
 ├── Somatic-Science.md               # Physiological foundations, HRV, vagal brake, RSA
-├── Architecture-and-Tech-Stack.md   # Svelte 5, Runes, Tailwind v4, Web Audio, SVG Math
+├── Architecture-and-Tech-Stack.md   # Svelte 5, Runes, Tailwind v4, modern web APIs, SVG Math
 ├── Design-System.md                 # Editorial zen philosophy, typography, colors, tokens
 ├── Roadmap.md                       # Phased development plans & milestones
 ├── Legal-and-IP.md                  # 17 U.S.C. § 102(b) clean-room provenance & disclaimers

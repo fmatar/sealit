@@ -7,7 +7,7 @@ license: Apache 2.0
 
 # SDLC Compliance Auditor (`sdlc-analyze`)
 
-Use this skill to audit a repository for adherence to the NoteZen Agentic SDLC standards. It evaluates both frontend (Svelte) and backend (Quarkus) projects, producing an informational dashboard or blocking execution when run in strict mode.
+Use this skill to audit a repository for adherence to the The Project standards. It evaluates both frontend (Svelte) and backend (Quarkus) projects, producing an informational dashboard or blocking execution when run in strict mode.
 
 ## 📋 Core Responsibilities
 1. **Documentation Audit**: Verifies the presence and completeness of PRDs, SRSs, C4 Architecture, and ADRs in `docs/specs/`.

@@ -21,7 +21,7 @@ flowchart TD
     
     subgraph ParallelFork ["⚡ Concurrent Fork Phase (invoke_subagent)"]
         direction LR
-        T1["Track A: Implementation\n(sdlc-tdd-implement)\n• Svelte 5 Runes\n• SVG Math Geometry\n• Web Audio Synthesizer"]
+        T1["Track A: Implementation\n(sdlc-tdd-implement)\n• Svelte 5 Runes\n• SVG Math Geometry\n• modern web APIs Synthesizer"]
         T2["Track B: Test Engineering\n(sdlc-test-coverage)\n• Vitest Unit Tests\n• Store State Mocks\n• Coverage Assertions"]
         T3["Track C: Documentation & Wiki\n(sdlc-docs-wiki)\n• /wiki deep-dives\n• Somatic Science\n• Mermaid Diagrams"]
     end
@@ -56,7 +56,7 @@ When multiple independent features or techniques are added at once (e.g. *Physio
    {
      "Subagents": [
        { "Role": "Physiological Sigh Engineer", "Prompt": "Implement Physiological Sigh geometry & audio" },
-       { "Role": "Nadi Shodhana Engineer", "Prompt": "Implement Nadi Shodhana Lemniscate & stereo panner" },
+       { "Role": "Nadi Shodhana Engineer", "Prompt": "Implement Nadi Shodhana complex feature & stereo panner" },
        { "Role": "Extended Exhale Engineer", "Prompt": "Implement 4-0-6-0 Ellipse pacing" }
      ]
    }

@@ -1,6 +1,6 @@
 ---
 name: sdlc-quality-gate
-description: Enforces rigorous pre-merge and pre-release quality checks, including Svelte 5 static analysis, TypeScript verification, WCAG 2.1 AA a11y, audio lifecycle safety, production builds, security/SAST scanning, and Lighthouse observability.
+description: Enforces rigorous pre-merge and pre-release quality checks, including Svelte 5 static analysis, TypeScript verification, WCAG 2.1 AA a11y, production builds, security/SAST scanning, and Lighthouse observability.
 version: 1.2.0
 license: Apache 2.0
 ---
@@ -11,14 +11,14 @@ Use this skill before merging pull requests, cutting releases, or completing maj
 
 ---
 
-## 🛡️ The 7 Pillars of NoteZen Quality
+## 🛡️ The 7 Pillars of The Project Quality
 
 ```mermaid
 graph TD
     A[Quality Gate] --> B[1. Static Type Checking: svelte-check]
     A --> C[2. Production Build: pnpm build]
     A --> D[3. WCAG 2.1 AA Accessibility: a11y]
-    A --> E[4. Web Audio Lifecycle & Memory]
+    A --> E[4. modern web APIs Lifecycle & Memory]
     A --> F[5. Responsive 60fps Render Performance]
     A --> G[6. Security & Vulnerability Scanning]
     A --> H[7. Observability & Lighthouse Profiling]

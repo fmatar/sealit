@@ -1,13 +1,13 @@
 ---
 name: sdlc-help
-description: Interactive user and agent guide for the NoteZen SDLC ecosystem. Provides command recipes, workflow diagrams, decision matrices, and tool diagnostics.
+description: Interactive user and agent guide for the The Project SDLC ecosystem. Provides command recipes, workflow diagrams, decision matrices, and tool diagnostics.
 version: 1.1.0
 license: Apache 2.0
 ---
 
 # SDLC Guide, Recipes & Tool Diagnostics (`sdlc-help`)
 
-Use this skill when you need guidance on how to navigate the NoteZen SDLC ecosystem, select the right skill for a task, run parallel workstreams, or use copy-paste prompt recipes.
+Use this skill when you need guidance on how to navigate the The Project SDLC ecosystem, select the right skill for a task, run parallel workstreams, or use copy-paste prompt recipes.
 
 ---
 
@@ -17,7 +17,7 @@ Use this skill when you need guidance on how to navigate the NoteZen SDLC ecosys
 | :--- | :--- | :--- |
 | **Fix a bug or build a feature using parallel pipelines** | **`sdlc-flow`** | *"Run parallel sdlc-flow for [description]"* |
 | **Scope requirements, write RFC, record ADR, file GitHub issue** | **`sdlc-feature-spec`** | *"Draft a spec / issue for [feature]"* |
-| **Write Svelte 5 code, runes, SVG geometry, Web Audio** | **`sdlc-tdd-implement`** | *"Implement [component/store/math module]"* |
+| **Write Svelte 5 code, runes, SVG geometry, modern web APIs** | **`sdlc-tdd-implement`** | *"Implement [component/store/math module]"* |
 | **Write Vitest unit tests, check test coverage** | **`sdlc-test-coverage`** | *"Run tests and check coverage threshold"* |
 | **Update `/wiki` docs, README, Mermaid state diagrams** | **`sdlc-docs-wiki`** | *"Sync wiki and docs for recent changes"* |
 | **Pre-commit audit, type-check (`svelte-check`), a11y audit** | **`sdlc-quality-gate`** | *"Run quality gate checks"* |
