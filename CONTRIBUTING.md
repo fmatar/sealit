@@ -1,6 +1,6 @@
-# Contributing to NoteZen Agentic SDLC
+# Contributing to The Project
 
-First off, thank you for considering contributing to NoteZen! It's people like you that make this framework kick-ass.
+First off, thank you for considering contributing to The Project! It's people like you that make this framework kick-ass.
 
 ## 🤖 Developing with Agents
 

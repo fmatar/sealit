@@ -1,5 +1,5 @@
 #!/bin/bash
-# NoteZen Agentic SDLC Framework Installer
+# The Project Installer
 set -e
 
 ORIGINAL_DIR=$(pwd)
@@ -12,16 +12,16 @@ for arg in "$@"; do
     fi
 done
 
-echo "🚀 Downloading NoteZen SDLC Framework..."
+echo "🚀 Downloading The Project SDLC Framework..."
 TMP_DIR=$(mktemp -d)
 
 if [ -n "$GITHUB_TOKEN" ]; then
-    git clone --quiet --depth 1 "https://x-access-token:$GITHUB_TOKEN@github.com/fmatar/agentic-sdlc-framework.git" "$TMP_DIR/notezen"
+    git clone --quiet --depth 1 "https://x-access-token:$GITHUB_TOKEN@github.com/fmatar/agentic-sdlc-framework.git" "$TMP_DIR/The Project"
 else
-    git clone --quiet --depth 1 "https://github.com/fmatar/agentic-sdlc-framework.git" "$TMP_DIR/notezen"
+    git clone --quiet --depth 1 "https://github.com/fmatar/agentic-sdlc-framework.git" "$TMP_DIR/The Project"
 fi
 
-cd "$TMP_DIR/notezen"
+cd "$TMP_DIR/The Project"
 
 if ! command -v jbang &> /dev/null; then
     echo "⚠️ JBang is not installed. Installing JBang..."

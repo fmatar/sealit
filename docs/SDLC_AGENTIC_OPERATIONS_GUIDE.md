@@ -1,6 +1,6 @@
-# NoteZen Agentic SDLC Operations Guide
+# The Project Operations Guide
 
-Welcome to the **NoteZen Agentic Software Development Lifecycle (SDLC) Operations Guide**. This document provides comprehensive instructions on how to install, configure, and utilize the autonomous multi-agent ecosystem designed for this repository.
+Welcome to the **The Project Agentic Software Development Lifecycle (SDLC) Operations Guide**. This document provides comprehensive instructions on how to install, configure, and utilize the autonomous multi-agent ecosystem designed for this repository.
 
 This ecosystem transforms standard coding agents into an orchestrated "services agentic operation." It enforces industry best practices (SVPG PRDs, IEEE 29148 SRS, Simon Brown C4 Architecture) and automates the entire lifecycle from ideation to release.
 

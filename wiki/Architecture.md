@@ -1,6 +1,6 @@
-# NoteZen Fork-Join Architecture
+# The Project Fork-Join Architecture
 
-NoteZen utilizes a highly parallelized "Fork-Join" architecture orchestrated by `sdlc-flow`.
+The Project utilizes a highly parallelized "Fork-Join" architecture orchestrated by `sdlc-flow`.
 
 ## The Pipeline
 1. **Intake**: A GitHub Issue (Bug or Feature) triggers the flow.

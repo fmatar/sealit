@@ -18,7 +18,7 @@ The Agentic SDLC Framework is a **Hybrid Orchestration** system that transforms 
 ## 🚀 Key Features
 
 *   **Parallel Fork-Join Execution**: The `sdlc-flow` orchestrator establishes a specification contract, then forks concurrent subagents for Implementation, Testing, and Documentation.
-*   **Built-in DevSecOps**: The `sdlc-quality-gate` runs static typing (`svelte-check`), Vitest suites, WCAG a11y audits, basic SAST/npm audits, and Lighthouse performance profiling before any code is merged.
+*   **Built-in DevSecOps**: The `sdlc-quality-gate` runs static typing (`svelte-check`), Vitest suites, Quarkus PMD/CPD, Checkstyle, WCAG a11y audits, SAST audits, and Lighthouse performance profiling before any code is merged.
 *   **Automated Releases & Deployments**: `sdlc-release-changelog` automatically manages Semantic Versioning (SemVer), keeps an automated changelog, generates provider-agnostic Docker containers, and deploys via Helm to your Kubernetes cluster.
 *   **Template-Driven**: Automatically scaffolds enterprise-grade PRDs, SRS, ADRs, and Architecture diagrams.
 
@@ -29,8 +29,8 @@ The framework operates via 8 interlocking "skills" located in `.agent/skills/`. 
 1.  **`sdlc-flow`**: Master orchestrator. Runs end-to-end parallel pipelines.
 2.  **`sdlc-feature-spec`**: Generates structured documentation (PRD, SRS, C4, ADRs).
 3.  **`sdlc-docs-wiki`**: Synchronizes documentation across `/wiki` and the project.
-4.  **`sdlc-tdd-implement`**: Svelte 5 / TypeScript coding using strict Test-Driven Development.
-5.  **`sdlc-test-coverage`**: Vitest and Playwright test engineering.
+4.  **`sdlc-tdd-implement`**: Svelte 5 UI and Quarkus/Java API coding using strict Test-Driven Development.
+5.  **`sdlc-test-coverage`**: Vitest, Playwright, and JUnit test engineering.
 6.  **`sdlc-quality-gate`**: Pre-merge quality, security, and performance audits.
 7.  **`sdlc-release-changelog`**: Version bumping, Docker containerization, and K8s/Helm deployment.
 8.  **`sdlc-help`**: Interactive diagnostic guide.

@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.concurrent.Callable;
 
 @Command(name = "install", mixinStandardHelpOptions = true, version = "1.0",
-        description = "Installs the NoteZen Agentic SDLC Framework skills and templates.")
+        description = "Installs the The Project skills and templates.")
 public class install implements Callable<Integer> {
 
     @Option(names = {"-g", "--global"}, description = "Install globally to ~/.gemini/config/skills")
@@ -34,7 +34,7 @@ public class install implements Callable<Integer> {
             return 1;
         }
 
-        System.out.println("🚀 Initializing NoteZen Installer Workflow...");
+        System.out.println("🚀 Initializing The Project Installer Workflow...");
 
         WorkflowEngine engine = new WorkflowEngine();
         
