@@ -1,14 +1,14 @@
 ---
 name: sdlc-flow
-description: Master SDLC orchestrator driving end-to-end feature implementation, bug fixes, and releases using an 8-stage lifecycle, Kanban state transitions, strict test coverage enforcement, and parallel subagent peer reviews.
-version: 3.1.0
+description: Master SDLC orchestrator driving end-to-end feature implementation, bug fixes, and releases using an 8-stage lifecycle, Kanban state transitions, strict test coverage enforcement, developer showcase onboarding, and parallel subagent peer reviews.
+version: 3.2.0
 license: Apache 2.0
 allowed-tools: run_command, view_file, invoke_subagent, manage_subagents, mcp_github-mcp-server_issue_read, mcp_github-mcp-server_add_issue_comment, mcp_github-mcp-server_create_pull_request, mcp_github-mcp-server_pull_request_review_write, mcp_github-mcp-server_issue_write
 ---
 
 # SDLC Master Lifecycle Orchestrator (`sdlc-flow`)
 
-Use this skill to execute end-to-end software development workflows for GitHub Issues or direct feature requests. `sdlc-flow` coordinates an 8-stage lifecycle enforcing strict contract specification, continuous test coverage validation, Kanban state tracking (`sdlc-kanban`), and parallel subagent peer review.
+Use this skill to execute end-to-end software development workflows for GitHub Issues or direct feature requests. `sdlc-flow` coordinates an 8-stage lifecycle enforcing strict contract specification, continuous test coverage validation, developer onboarding/showcase hygiene, Kanban state tracking (`sdlc-kanban`), and parallel subagent peer review.
 
 ---
 
@@ -19,7 +19,7 @@ flowchart TD
     S1["1. Intake & Contract Specification\n(sdlc-feature-spec & status:ready)"] --> S2["2. Branch & Kanban In-Progress\n(feature/issue-#<id>-<title> & status:in-progress)"]
     S2 --> S3["3. TDD Implementation\n(sdlc-tdd-implement)\n• Svelte 5 Runes\n• Quarkus Java 25"]
     S3 --> S4["4. Test & Coverage Enforcement\n(sdlc-test-coverage)\n• >= 90% Line & Branch Coverage on Diff\n• JaCoCo & Vitest Auto-Generation Loop"]
-    S4 --> S5["5. Documentation & Changelog Sync\n(sdlc-docs-wiki)\n• docs/specs/, CHANGELOG.md, OpenSpec"]
+    S4 --> S5["5. Documentation, Showcase & Changelog Sync\n(sdlc-docs-wiki)\n• Root README 4-Step Quickstart & BYOA\n• docs/specs/, CHANGELOG.md, OpenSpec"]
     S5 --> S6["6. Pull Request Creation\n(create_pull_request & status:in-review)"]
     
     subgraph ParallelReview ["⚡ Parallel Review & Gate Phase"]
@@ -56,9 +56,16 @@ flowchart TD
 - Target modified lines: `git diff --name-only main`.
 - **Enforce $\ge$ 90% line and branch coverage**. Auto-write tests if coverage is below threshold.
 
-### Stage 5: Documentation & Changelog Sync (`sdlc-docs-wiki`)
-- Update functional specs in `docs/specs/`.
-- Append conventional commit entry to `CHANGELOG.md` under `[Unreleased]` with ticket URL link.
+### Stage 5: Documentation, Showcase & Changelog Sync (`sdlc-docs-wiki`)
+- **Developer Showcase Invariant**:
+  - Keep root `README.md` updated with an immediate, copy-pasteable **5-Minute Developer Quickstart**:
+    1. *CLI Installation*
+    2. *Local Cluster / Environment Bootstrap*
+    3. *Exploring Pre-built Showcase Examples* with source code
+    4. *Bring Your Own App (BYOA)* workflow (scaffold, deploy, and evaluate).
+  - Include polyglot benchmark comparisons (latency, memory, container size) when new archetypes or templates are introduced.
+- **Contract & Spec Sync**: Update functional specs in `docs/specs/` and `/wiki`.
+- **Changelog Sync**: Append conventional commit entry to `CHANGELOG.md` under `[Unreleased]` with ticket URL link.
 - Update OpenSpec delta specs if active.
 
 ### Stage 6: Pull Request Opening (`sdlc-kanban`)
@@ -68,7 +75,7 @@ flowchart TD
 
 ### Stage 7: Parallel Subagent Peer Review (`sdlc-peer-review`)
 - Call `invoke_subagent` launching a subagent with role `"Peer Reviewer"`, loading [`sdlc-peer-review/SKILL.md`](../sdlc-peer-review/SKILL.md).
-- Subagent audits the PR diff, verifies conventions and coverage, and posts comments directly to the PR via `pull_request_review_write`.
+- Subagent audits the PR diff, verifies conventions, quickstart validity, and coverage, and posts comments directly to the PR via `pull_request_review_write`.
 
 ### Stage 8: Quality Gate & Release (`sdlc-quality-gate` & `sdlc-kanban`)
 - Validate full build (`./mvnw clean package`, `npm run build`), Spotless formatting (`./mvnw spotless:check`), type checking (`npx svelte-check`), and security scanning.
