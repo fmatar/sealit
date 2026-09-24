@@ -1,7 +1,7 @@
 ---
 name: sdlc-peer-review
-description: Parallel peer reviewer subagent that audits git diffs, verifies >= 90% test coverage, checks Svelte 5 / Quarkus project rules, and posts formal review comments to GitHub PRs.
-version: 1.0.0
+description: Parallel peer reviewer subagent that audits git diffs, verifies >= 90% test coverage, validates developer showcase onboarding quickstarts, checks Svelte 5 / Quarkus project rules, and posts formal review comments to GitHub PRs.
+version: 1.1.0
 license: Apache 2.0
 allowed-tools: run_command, view_file, mcp_github-mcp-server_pull_request_read, mcp_github-mcp-server_get_file_contents, mcp_github-mcp-server_add_comment_to_pending_review, mcp_github-mcp-server_pull_request_review_write
 ---
@@ -27,6 +27,9 @@ Use this skill when invoked as a parallel reviewer subagent via `invoke_subagent
    - Confirm specs in `docs/specs/` or inline docstrings are updated.
 5. **Kanban & Issue Association**:
    - Confirm PR description explicitly includes `Fixes #<id>` linking to a tracked GitHub issue tagged `status:in-review`.
+6. **Developer Showcase & Quickstart Validity**:
+   - Confirm root `README.md` maintains a functional, copy-pasteable **5-Minute Developer Quickstart**.
+   - If new features, CLI commands, or archetypes were introduced, confirm runnable examples and the BYOA contract are updated.
 
 ---
 

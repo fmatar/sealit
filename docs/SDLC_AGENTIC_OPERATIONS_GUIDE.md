@@ -19,7 +19,7 @@ The ecosystem is composed of 12 interlocking Antigravity skills. These skills ut
 4. **`sdlc-test-coverage`**: Manages unit, integration, and coverage verification using JaCoCo and Vitest, enforcing $\ge$ 90% coverage on modified lines.
 5. **`sdlc-peer-review`**: Parallel subagent that audits git diffs, verifies conventions and coverage, and posts formal review comments to GitHub PRs.
 6. **`sdlc-kanban`**: Manages GitHub Projects v2, ticket lifecycle transitions (`status:*`), WIP limits, and syncs living `docs/KANBAN.md`.
-7. **`sdlc-docs-wiki`**: Maintains synchronization across the project's documentation (`docs/specs/`, `CHANGELOG.md`, `docs/KANBAN.md`, `/wiki`, OpenSpec).
+7. **`sdlc-docs-wiki`**: Maintains synchronization across the project's documentation (root README Developer Showcase quickstart, `docs/specs/`, `CHANGELOG.md`, `docs/KANBAN.md`, `/wiki`, OpenSpec).
 8. **`sdlc-quality-gate`**: Enforces pre-merge quality (Spotless formatting, static analysis, a11y, production builds, test port isolation, and DevSecOps scanning).
 9. **`sdlc-release-changelog`**: Handles SemVer, Git tags, automated Keep-a-Changelog updates, Docker containerization, and Kubernetes/Helm deployments.
 10. **`sdlc-analyze`**: Compliance auditor evaluating repository health against framework standards.
@@ -59,7 +59,7 @@ When you have a GitHub Issue and want the agent to handle branch creation, TDD i
 2. **Branching**: `sdlc-flow` checks out `feature/issue-#1031-<title>`.
 3. **Implementation**: `sdlc-tdd-implement` writes failing tests and implements Svelte 5 runes and Quarkus reactive logic.
 4. **Coverage Enforcer**: `sdlc-test-coverage` validates line and branch coverage against the diff ($\ge$ 90%).
-5. **Docs Sync**: `sdlc-docs-wiki` updates `docs/specs/`, `CHANGELOG.md`, and inline docstrings.
+5. **Docs & Showcase Sync**: `sdlc-docs-wiki` updates the root `README.md` 5-minute quickstart, `docs/specs/`, `CHANGELOG.md`, and inline docstrings.
 6. **Pull Request**: `sdlc-flow` pushes the branch and opens a PR linking `Fixes #1031`.
 7. **Parallel Review**: `sdlc-flow` invokes a subagent running `sdlc-peer-review` to audit the PR diff and post formal comments.
 8. **Quality Gate**: `sdlc-quality-gate` verifies Spotless, builds, and security scans.

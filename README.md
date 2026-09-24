@@ -40,29 +40,44 @@ The framework operates via interlocking skills located in `.agent/skills/`. Each
 11. **`sdlc-initialize`**: Interactive full-stack project bootstrapper and skill installer.
 12. **`sdlc-help`**: Interactive diagnostic guide and prompt recipes.
 
-## 🛠️ Getting Started
+## ⏱️ 5-Minute Developer Quickstart
 
-### Installation
+Get up and running with the Agentic SDLC Framework in four simple stages:
 
-Install the framework locally to your project's `.agent/` (or `.agents/`) directory:
+### Step 1: Toolchain & Framework Installation
+Install the framework locally to your project's `.agent/` (or `.agents/`) directory, or install globally to `~/.gemini/config/skills`:
 
 ```bash
 # Export GitHub Token (if installing from private repository)
 export GITHUB_TOKEN="ghp_your_token_here"
 
-# Install locally
+# Install locally into current workspace
 curl -H "Authorization: token $GITHUB_TOKEN" -sL "https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/install.sh" | bash
+
+# Or install globally for all Antigravity agent sessions:
+curl -sL "https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/install.sh" | bash -s -- --global
 ```
 
-Alternatively, run `./install.java --local .` directly with JBang.
+*Alternatively, run `./install.java --local .` or `./install.java --global` directly with JBang.*
 
-### Triggering the Framework
+### Step 2: Bootstrap or Baseline Health Audit
+- **Greenfield Projects**: Trigger `sdlc-initialize` to scaffold a full-stack Svelte 5 + Quarkus Java 25 app with configured quality gates:
+  > *"Run sdlc-initialize to scaffold a new full-stack project."*
+- **Existing Codebases**: Trigger `sdlc-analyze` to compute a compliance baseline score:
+  > *"Run sdlc-analyze to audit project health and test coverage compliance."*
 
-Command your agent to handle everything autonomously:
-> *"Trigger the sdlc-flow skill to execute issue #1031. Create the branch, implement with TDD, enforce >= 90% test coverage, open a PR, and run a peer review subagent."*
+### Step 3: Explore Interactive Guidance & Living Board
+- Ask your agent for the skill decision matrix and prompt recipes:
+  > *"Run sdlc-help to see the SDLC decision matrix and recipes."*
+- Inspect or refresh the in-repo living board:
+  ```bash
+  .agent/skills/sdlc-kanban/scripts/kanban-sync.sh
+  cat docs/KANBAN.md
+  ```
 
-Or invoke individual skills:
-> *"Use sdlc-test-coverage to audit coverage on modified lines and auto-generate missing tests."*
+### Step 4: Bring Your Own App (BYOA) Workflow
+Plug the Agentic SDLC skills into any repository and trigger end-to-end autonomous execution:
+> *"Trigger sdlc-flow to execute issue #1031. Create the feature branch, implement with strict TDD, enforce >= 90% test coverage, sync README showcase and CHANGELOG, open a PR, and dispatch a peer review subagent."*
 
 ## 📖 Documentation
 Detailed documentation is available in [`docs/SDLC_AGENTIC_OPERATIONS_GUIDE.md`](./docs/SDLC_AGENTIC_OPERATIONS_GUIDE.md) and the [`wiki/`](./wiki/) directory.

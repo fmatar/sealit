@@ -1,7 +1,7 @@
 ---
 name: sdlc-help
 description: Interactive user and agent guide for the Agentic SDLC ecosystem. Provides command recipes, workflow diagrams, decision matrices, and tool diagnostics.
-version: 2.0.0
+version: 2.1.0
 license: Apache 2.0
 allowed-tools: run_command, view_file
 ---
@@ -22,7 +22,7 @@ Use this skill when you need guidance on navigating the Agentic SDLC ecosystem, 
 | **Enforce $\ge$ 90% line and branch test coverage** | **`sdlc-test-coverage`** | *"Run tests and enforce 90% coverage"* |
 | **Audit PR diff as an independent subagent** | **`sdlc-peer-review`** | *"Run subagent peer review on PR"* |
 | **Manage GitHub Projects v2 & living KANBAN board** | **`sdlc-kanban`** | *"Sync Kanban board and update issue status"* |
-| **Update specs, CHANGELOG.md, OpenSpec delta** | **`sdlc-docs-wiki`** | *"Sync docs and changelog"* |
+| **Update root README quickstart, specs, CHANGELOG** | **`sdlc-docs-wiki`** | *"Sync showcase docs and changelog"* |
 | **Pre-commit audit, formatting, type-check, a11y** | **`sdlc-quality-gate`** | *"Run quality gate checks"* |
 | **Bump SemVer, tag release, Docker build** | **`sdlc-release-changelog`** | *"Cut a release vX.Y.Z"* |
 | **Audit repository compliance and quality health** | **`sdlc-analyze`** | *"Audit repository compliance"* |
@@ -46,7 +46,7 @@ Use this skill when you need guidance on navigating the Agentic SDLC ecosystem, 
 4. Test & Coverage Enforcer (sdlc-test-coverage: >= 90% Diff Coverage Loop)
    │
    ▼
-5. Documentation & Changelog Sync (sdlc-docs-wiki)
+5. Documentation, Showcase & Changelog Sync (sdlc-docs-wiki)
    │
    ▼
 6. Pull Request Creation (create_pull_request & status:in-review)
@@ -63,7 +63,7 @@ Use this skill when you need guidance on navigating the Agentic SDLC ecosystem, 
 ## 📋 Copy-Paste Prompt Recipes
 
 ### 1. The Autonomous Issue-to-PR Executor Recipe
-> *"Execute `sdlc-flow` on issue #<id>. Fetch the issue, create the feature branch, implement the feature using Svelte 5 / Quarkus TDD, enforce $\ge$ 90% test coverage, sync CHANGELOG.md and specs, push and open a PR, and trigger a peer review subagent."*
+> *"Execute `sdlc-flow` on issue #<id>. Fetch the issue, create the feature branch, implement the feature using Svelte 5 / Quarkus TDD, enforce $\ge$ 90% test coverage, sync README showcase, CHANGELOG.md and specs, push and open a PR, and trigger a peer review subagent."*
 
 ### 2. The Project Kanban & Board Manager Recipe
 > *"Run `sdlc-kanban` to configure GitHub Projects v2 views, transition issue #<id> to `status:in-progress`, and refresh `docs/KANBAN.md`."*

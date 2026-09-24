@@ -1,7 +1,7 @@
 ---
 name: sdlc-analyze
 description: SDLC compliance auditor that evaluates repository health, documentation presence, test coverage, static analysis, and a11y.
-version: 2.0.0
+version: 2.1.0
 license: Apache 2.0
 allowed-tools: run_command, view_file
 ---
@@ -14,7 +14,7 @@ Use this skill to audit a repository for adherence to enterprise software qualit
 
 ## 📋 Core Responsibilities
 
-1. **Documentation Audit**: Verifies the presence and completeness of PRDs, SRSs, C4 Architecture, and ADRs in `docs/specs/` and `wiki/`.
+1. **Documentation & Showcase Audit**: Verifies the presence of the root `README.md` Developer Showcase (5-minute quickstart, BYOA contract), PRDs, SRSs, C4 Architecture, and ADRs in `docs/specs/` and `wiki/`.
 2. **Frontend Analysis**: Runs `svelte-check`, Vitest coverage asserts, and Accessibility (a11y) audits.
 3. **Backend Analysis**: Evaluates Quarkus project compliance using Maven plugins (Spotless, PMD, Checkstyle, JaCoCo coverage $\ge$ 90%).
 4. **Report Generation**: Outputs `docs/SDLC_COMPLIANCE_REPORT.md` as a health score artifact.
@@ -27,7 +27,8 @@ Use this skill to audit a repository for adherence to enterprise software qualit
 ### 1. Identify Project Structure
 - Check if the repository contains `package.json` (Frontend) and/or `pom.xml` (Backend).
 
-### 2. Documentation Audit
+### 2. Documentation & Showcase Audit
+- Check root `README.md` for a complete **5-Minute Developer Quickstart** (< 5 min time-to-first-run, BYOA workflow, runnable examples).
 - Check `docs/specs/` and `docs/templates/` for required architecture documents.
 - Verify `CHANGELOG.md` exists and tracks `[Unreleased]`.
 - Verify `docs/KANBAN.md` living board exists and reflects active issues.

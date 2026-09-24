@@ -17,7 +17,7 @@ Use this skill whenever features, data models, or architectural patterns are add
 1. **Root Developer Onboarding & Showcase (`README.md`)**:
    - **5-Minute Developer Quickstart**: A runnable, copy-pasteable onboarding guide with 4 stages:
      1. *CLI / Toolchain Installation*
-     2. *Local Environment / Cluster Bootstrap* (e.g. `fluo cluster up`)
+     2. *Local Environment / Cluster Bootstrap* (e.g. `install.sh`, `docker compose up`, or cluster bootstrap)
      3. *Exploring Pre-built Showcase Examples* with source code and benchmark metrics
      4. *Bring Your Own App (BYOA)*: scaffolding, container contract, deployment, and live evaluation.
    - **Polyglot Archetypes Matrix**: Comparative performance metrics (cold-start latency, memory footprint, container size, framework stack).
@@ -74,3 +74,10 @@ Append entries under `[Unreleased]` following Keep a Changelog categories (`Adde
 ### Step 4: Update Wiki & Navigation
 - Ensure new topics are indexed in `wiki/_Sidebar.md`.
 - Verify all relative markdown links resolve without broken anchors.
+
+---
+
+## ⏭️ Next Recommended Step
+
+Once documentation, developer showcase quickstart, and specs are synchronized:
+👉 **Transition to [`sdlc-quality-gate`](../sdlc-quality-gate/SKILL.md)** to execute pre-merge audits and static verification.
