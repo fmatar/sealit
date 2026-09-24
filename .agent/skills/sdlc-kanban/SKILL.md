@@ -1,0 +1,176 @@
+---
+name: sdlc-kanban
+description: Manages GitHub Projects (Projects v2) and repository Kanban boards, automates ticket lifecycle state transitions (Backlog -> Ready -> In Progress -> Review -> Done), enforces WIP limits, and maintains living docs/KANBAN.md.
+version: 2.1.0
+license: Apache 2.0
+allowed-tools: run_command, view_file, write_to_file, replace_file_content, mcp_github-mcp-server_issue_read, mcp_github-mcp-server_issue_write, mcp_github-mcp-server_list_issues
+---
+
+# SDLC GitHub Projects & Kanban Management Skill (`sdlc-kanban`)
+
+Use this skill to orchestrate project boards, manage issue lifecycles, enforce Work-In-Progress (WIP) limits, synchronize GitHub Projects v2, and maintain living Kanban dashboards across GitHub and repository documentation.
+
+---
+
+## 🏗️ Dual-Plane Kanban Architecture
+
+`sdlc-kanban` operates on two complementary planes:
+1. **GitHub Projects v2 (Cloud Board)**: Full-featured GitHub Projects board with custom fields, multi-view setups (Board, Table, Roadmap, Sprint, Quality Gate), and automated card transitions.
+2. **Repository Living Board (`docs/KANBAN.md`)**: Version-controlled, zero-dependency Markdown board rendered in the repo and updated via `.agent/skills/sdlc-kanban/scripts/kanban-sync.sh`.
+
+```mermaid
+flowchart TD
+    Issue["GitHub Issue #<id>"] --> Labels["5-Stage Label Machine\n(status:*)"]
+    Issue --> CloudBoard["GitHub Project v2 (Cloud)"]
+    Issue --> LivingBoard["docs/KANBAN.md (Living Repo Board)"]
+
+    subgraph Views ["🎨 GitHub Project v2 Views"]
+        V1["1. Kanban Board View\n• Status columns with WIP limits"]
+        V2["2. Triage & Priority Table View\n• Sorted by Priority (P0-P3)"]
+        V3["3. Roadmap / Timeline View\n• Milestone & Epic tracking"]
+        V4["4. Sprint / Iteration View\n• Current sprint backlog"]
+        V5["5. Quality Gate Audit View\n• Filter: In Review"]
+    end
+    CloudBoard --> Views
+
+    subgraph SyncEngine ["⚡ Repository Sync Engine"]
+        S1[".agent/skills/sdlc-kanban/scripts/kanban-sync.sh"] --> LivingBoard
+    end
+```
+
+---
+
+## ⚡ 5-Stage Kanban State Machine
+
+Deterministic state transitions enforced across GitHub issue labels and project cards:
+
+| State / Label | Phase in Lifecycle | Description & Exit Criteria |
+| :--- | :--- | :--- |
+| `status:backlog` | Intake | Triaged, awaiting architectural scoping. |
+| `status:ready` | Contract Specification | Specification approved (`sdlc-feature-spec`), Gherkin acceptance criteria defined. |
+| `status:in-progress` | TDD & Implementation | Active branch created, TDD implementation underway (`sdlc-tdd-implement`). |
+| `status:in-review` | Peer Review & Gates | PR opened, parallel subagent review (`sdlc-peer-review`) & quality gates active. |
+| `status:done` | Verification & Release | PR merged, release tagged (`sdlc-release-changelog`), issue closed. |
+
+```mermaid
+stateDiagram-v2
+    [*] --> Backlog: Issue Created
+    Backlog --> Ready: Stage 1 (sdlc-feature-spec Contract Approved)
+    Ready --> InProgress: Stage 2 & 3 (Branch & TDD Implement)
+    InProgress --> InReview: Stage 6 & 7 (PR & Subagent Review)
+    InReview --> InProgress: Changes Requested / Failing Gate
+    InReview --> Done: Stage 8 (Quality Gate Passed & Merged)
+    Done --> [*]
+```
+
+---
+
+## 🛠️ Core Capabilities & CLI Automation
+
+### 1. Ensure GitHub Project Exists & Link Repository
+```bash
+# 1. Check if project already exists for owner
+gh project list --owner <owner> --format json
+
+# 2. If not found, create project
+gh project create --owner <owner> --title "<repo-name> Board"
+
+# 3. Link project to the repository (shows in repo's Projects tab)
+gh project link <project-number> --owner <owner> --repo <repo-name>
+```
+
+### 2. Configure Standardized Custom Fields
+- **`Status`** (Single Select): `Backlog`, `Ready`, `In Progress`, `In Review`, `Done`
+- **`Priority`** (Single Select): `P0 - Critical`, `P1 - High`, `P2 - Medium`, `P3 - Low`
+- **`Component`** (Single Select): `Backend`, `Frontend`, `Documentation`, `DevOps`
+- **`Estimate`** (Number): Story points (1, 2, 3, 5, 8)
+
+```bash
+# Create custom fields
+gh project field-create <project-number> --owner <owner> --name "Priority" --data-type SINGLE_SELECT --single-select-options "P0 - Critical,P1 - High,P2 - Medium,P3 - Low"
+gh project field-create <project-number> --owner <owner> --name "Component" --data-type SINGLE_SELECT --single-select-options "Backend,Frontend,Documentation,DevOps"
+gh project field-create <project-number> --owner <owner> --name "Estimate" --data-type NUMBER
+```
+
+### 3. Five Recommended GitHub Project Views
+
+| View Name | Layout | Group By / Sort | Purpose & Best Practice |
+|---|---|---|---|
+| **1. Kanban Board** | `Board` | Group by `Status` | Primary execution view. Limits Work In Progress (WIP: max 3-5 in "In Progress"). |
+| **2. Triage & Backlog** | `Table` | Sort by `Priority`, Filter `Status: Backlog, Ready` | Grooming and scoping view for new issues. |
+| **3. Epic Roadmap** | `Roadmap` | Group by `Milestone`, Date range | Strategic view tracking releases and feature epics. |
+| **4. Sprint Iteration** | `Board` | Filter `Iteration: @current` | Focuses on issues committed to the active delivery sprint. |
+| **5. Quality Gate & PRs** | `Table` | Filter `Status: In Review` | DevSecOps and peer review view tracking PR checks and coverage. |
+
+> [!TIP]
+> Use `gh project view <number> --owner <owner> --web` to open and fine-tune view layout configurations in the GitHub web interface.
+
+---
+
+## 🔄 Automated Lifecycle State Transitions
+
+### Transitioning Issue Labels
+```bash
+# Transition to Ready
+gh issue edit <id> --remove-label "status:backlog" --add-label "status:ready"
+
+# Transition to In Progress
+gh issue edit <id> --remove-label "status:ready,status:backlog" --add-label "status:in-progress"
+
+# Transition to In Review
+gh issue edit <id> --remove-label "status:in-progress" --add-label "status:in-review"
+
+# Transition to Done
+gh issue edit <id> --remove-label "status:in-review" --add-label "status:done"
+```
+
+### Transitioning Project v2 Cards
+```bash
+# Add issue to project
+ITEM_ID=$(gh project item-add <project-number> --owner <owner> --url <issue-url> --format json | jq -r '.id')
+
+# Move card status
+gh project item-edit --id "$ITEM_ID" --project-id "$PROJECT_ID" --field-id "$STATUS_FIELD_ID" --single-select-option-id "$OPTION_ID"
+```
+
+---
+
+## 📊 Synchronizing Living Repo Board (`docs/KANBAN.md`)
+
+Execute the built-in synchronization script to refresh the Markdown board directly from the GitHub API:
+
+```bash
+.agent/skills/sdlc-kanban/scripts/kanban-sync.sh
+```
+
+### Structure of `docs/KANBAN.md`
+```markdown
+# 📋 Project Kanban Board
+
+> **Last Synced**: YYYY-MM-DD HH:MM:SS UTC  
+> **Repository**: [owner/repo]
+
+| 📥 Backlog | 📋 Ready | ⚡ In Progress | 🔍 In Review | ✅ Done |
+| :--- | :--- | :--- | :--- | :--- |
+| [#25 Helm](url) | [#24 Scale-to-Zero](url) | [#18 Telemetry](url) `[M2]` | [#17 Workbench](url) | [#16 Shell](url) |
+```
+
+---
+
+## 🚦 Work-In-Progress (WIP) Limits
+
+To prevent cognitive fragmentation and subagent saturation:
+* **Max 3-5 tickets `status:in-progress`** simultaneously.
+* **Max 2-3 tickets `status:in-review`** awaiting peer review.
+
+> [!IMPORTANT]
+> If limits are exceeded, halt intake and prioritize clearing review bottlenecks with `sdlc-peer-review`.
+
+---
+
+## ⏭️ Integration with `sdlc-flow`
+
+* **Stage 1 (Contract)**: `sdlc-flow` verifies issue is scoped and tags `status:ready`.
+* **Stage 2 (Branch)**: `sdlc-flow` tags issue `status:in-progress`, assigns Milestone, and runs `kanban-sync.sh`.
+* **Stage 6 (PR)**: `sdlc-flow` tags issue `status:in-review`.
+* **Stage 8 (Merge)**: `sdlc-flow` tags issue `status:done`, closes issue, and runs `kanban-sync.sh` to update `docs/KANBAN.md`.

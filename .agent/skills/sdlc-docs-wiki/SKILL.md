@@ -1,40 +1,38 @@
 ---
 name: sdlc-docs-wiki
-description: Maintains comprehensive, synchronized documentation across the project, including the /wiki directory, README.md, Mermaid diagrams, API references, ADRs, and somatic science explanations.
-version: 1.1.0
+description: Synchronizes documentation across the project, including docs/specs/, CHANGELOG.md conventional commits, /wiki, OpenSpec delta specs, and inline code docs.
+version: 2.0.0
 license: Apache 2.0
+allowed-tools: run_command, view_file, write_to_file, replace_file_content
 ---
 
 # SDLC Documentation & Wiki Synchronization Skill (`sdlc-docs-wiki`)
 
-Use this skill whenever features, techniques, data models, or architectural patterns are added, modified, or deprecated. This skill enforces continuous documentation hygiene.
+Use this skill whenever features, data models, or architectural patterns are added, modified, or deprecated. This skill enforces continuous documentation hygiene across code and specs.
 
 ---
 
-## 📚 Documentation Ecosystem
+## 📚 Synchronized Documentation Targets
 
-The Project maintains two synchronized documentation layers:
-
-1. **Root Readme & Guides (`README.md`)**: User-facing onboarding, feature list, quickstart commands, keyboard shortcuts table, and tech stack overview.
-2. **Product & Architecture Wiki (`wiki/`)**: Deep-dive technical specifications, scientific foundations, design system tokens, monetization, roadmap, and ADRs.
+1. **Functional Architectural Specs (`docs/specs/`)**: Detailed specifications, data contracts, and domain rules per feature area.
+2. **Conventional Changelog (`CHANGELOG.md`)**: Adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). Records changes under `[Unreleased]` with ticket links.
+3. **Living Kanban Board (`docs/KANBAN.md`)**: Version-controlled visual board synchronized via `sdlc-kanban` (`.agent/skills/sdlc-kanban/scripts/kanban-sync.sh`).
+4. **Repository Wiki & Architecture (`wiki/`)**: Deep-dive system architecture, ADRs, C4 diagrams, and deployment guides.
+5. **Inline Code Documentation**: Javadoc on Java/Quarkus services and TSDoc on TypeScript/Svelte 5 runes and components.
+6. **OpenSpec Change Synchronization**: If OpenSpec delta specs are present, sync changes across `openspec/specs/`.
 
 ---
 
 ## 🗂️ Wiki Structure Standard
 
-When updating or adding documentation to `wiki/`:
-
-```
+```text
 wiki/
-├── Home.md                          # Product vision, core value proposition & quick links
-├── Somatic-Science.md               # Physiological foundations, HRV, vagal brake, RSA
-├── Architecture-and-Tech-Stack.md   # Svelte 5, Runes, Tailwind v4, modern web APIs, SVG Math
-├── Design-System.md                 # Editorial zen philosophy, typography, colors, tokens
-├── Roadmap.md                       # Phased development plans & milestones
-├── Legal-and-IP.md                  # 17 U.S.C. § 102(b) clean-room provenance & disclaimers
-├── Technique-[Name].md              # Deep dive per breathing technique
-├── _Sidebar.md                      # Navigation hierarchy for GitHub Wiki
-└── _Footer.md                       # Universal footer branding
+├── Home.md                          # Vision, architecture overview, and quick navigation
+├── Architecture.md                  # C4 diagrams, runtime interactions, and Fork-Join model
+├── Skills-Reference.md              # Documentation of available agentic skills
+├── ADR-00X-[title].md               # Architectural Decision Records
+├── _Sidebar.md                      # GitHub Wiki sidebar navigation
+└── _Footer.md                       # Footer navigation and branding
 ```
 
 ---
@@ -42,34 +40,28 @@ wiki/
 ## 🛠️ Step-by-Step Documentation Workflow
 
 ### Step 1: Detect Code Changes & Impact
-Identify what changed in the codebase:
-- New breathing technique added $\rightarrow$ Create `wiki/Technique-[Name].md` and update `wiki/Somatic-Science.md`, `wiki/_Sidebar.md`, and `README.md`.
-- New UI state or audio engine feature $\rightarrow$ Update `wiki/Feature-[Name].md` and `wiki/Architecture-and-Tech-Stack.md`.
-- New keyboard shortcut or configuration option $\rightarrow$ Update the shortcuts table in `README.md`.
+Inspect `git diff --name-only main` to identify modified surfaces:
+- New backend endpoint or service $\rightarrow$ Update `docs/specs/<service>.md` and Javadoc.
+- New frontend component or rune store $\rightarrow$ Update `docs/specs/<ui-feature>.md` and TSDoc.
+- Architectural shift $\rightarrow$ Add `wiki/ADR-00X-[title].md` and update `wiki/Architecture.md`.
 
-### Step 2: Write Technical & Scientific Prose
-- **Tone**: Zen editorial, scientifically rigorous, concise, and elegant.
-- **Formulas**: Render LaTeX math expressions for frequencies ($432\text{Hz}$), ratios ($4:7:8$), and baroreceptor resonance ($0.1\text{Hz}$).
-- **Mermaid Diagrams**: Include clear Mermaid class, state, or flow diagrams for data flows and state machines.
+### Step 2: Update `CHANGELOG.md`
+Append entries under `[Unreleased]` following Keep a Changelog categories (`Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`):
+```markdown
+### Added
+- feat(assistant): implement email cc idempotency and timezone handling ([#1031](https://github.com/org/repo/issues/1031))
 
-```mermaid
-stateDiagram-v2
-    [*] --> Inhale: 432Hz Bowl Chime
-    Inhale --> Hold: 324Hz Bowl Chime
-    Hold --> Exhale: 288Hz Bowl Chime
-    Exhale --> Retention: Low Muted Tone
-    Retention --> Inhale: Cycle Completed
+### Fixed
+- fix(sync): prevent concurrent event race condition during calendar sync ([#1058](https://github.com/org/repo/issues/1058))
 ```
 
-### Step 3: Update `_Sidebar.md`
-Ensure any new wiki article is indexed in `wiki/_Sidebar.md` with appropriate emoji prefixes and hierarchical grouping.
-
-### Step 4: Validate Cross-Links
-Verify that all markdown relative links (e.g. `[Somatic Science](./wiki/Somatic-Science.md)`) resolve correctly without dead anchors.
+### Step 3: Update Wiki & Navigation
+- Ensure new topics are indexed in `wiki/_Sidebar.md`.
+- Verify all relative markdown links resolve without broken anchors.
 
 ---
 
 ## ⏭️ Next Recommended Step
 
-Once documentation and `/wiki` synchronization is complete:
-👉 **Transition to [`sdlc-quality-gate`](../sdlc-quality-gate/SKILL.md)** to run full static analysis, a11y checks, and production build verification.
+Once documentation and specs are synchronized:
+👉 **Transition to [`sdlc-quality-gate`](../sdlc-quality-gate/SKILL.md)** to execute pre-merge audits and static verification.

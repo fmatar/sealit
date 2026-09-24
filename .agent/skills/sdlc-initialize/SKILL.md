@@ -1,51 +1,60 @@
 ---
 name: sdlc-initialize
-description: Project bootstrap installer that scaffolds new full-stack (Svelte + Quarkus) repositories via dynamic interview and installs 3rd-party skills.
-version: 1.0.0
+description: Project bootstrap installer that scaffolds new full-stack (Svelte 5 + Quarkus Java 25) repositories via dynamic interview and configures agentic SDLC workflows.
+version: 2.0.0
 license: Apache 2.0
+allowed-tools: run_command, view_file, write_to_file
 ---
 
 # SDLC Initialization Installer (`sdlc-initialize`)
 
-Use this skill to scaffold a brand new full-stack project or initialize the Agentic SDLC within an existing workspace. This skill conducts an interactive architectural interview before generating code.
+Use this skill to scaffold a brand new full-stack project or initialize the Agentic SDLC framework within an existing workspace.
+
+---
 
 ## 📋 Core Responsibilities
-1. **Interactive Architecture Interview**: Determine target users, full-stack vs backend, OIDC security, and Maven structure.
-2. **Dynamic Quarkus Scaffolding**: Generate `pom.xml` with required extensions (e.g. `quarkus-oidc`) and strict static checks (PMD, Checkstyle, Jacoco).
-3. **Frontend Svelte Scaffolding**: Scaffold the adjacent Svelte frontend.
-4. **Agentic Boilerplate**: Setup `docs/templates/` and `docs/specs/`.
-5. **Third-Party Skill Installation**: Download/install external dependencies like `impeccable`, `i-have-adhd`, `ponytail`, and `jvm-skills`.
+
+1. **Interactive Architecture Interview**: Determine stack scope (Full-Stack vs Backend API), authentication requirements (OIDC/Keycloak), database tier, and module structure.
+2. **Quarkus Backend Scaffolding**: Scaffold Maven project configured with Java 25, Mutiny reactive extensions, Spotless formatting, JaCoCo $\ge$ 90% threshold, and random test port isolation (`quarkus.http.test-port=0`).
+3. **Svelte 5 Frontend Scaffolding**: Scaffold modern SvelteKit UI with Svelte 5 Runes, Tailwind CSS, and Vitest.
+4. **Agentic Framework Setup**: Copy `.agent/skills/` and `docs/templates/` into the project root.
 
 ---
 
 ## 🛠️ Execution Workflow
 
 ### 1. Interactive Interview
-The agent must use the `ask_question` or `/grill-me` tool to ask the user the following questions sequentially:
-1. **Scope**: "Are we scaffolding a Full-Stack project (Svelte + Quarkus) or just a Backend (Quarkus)?"
-2. **Scale**: "What is the expected target number of users/scale? (Helps determine database sizing and caching extensions)"
-3. **Security**: "What are the security requirements? (e.g. OIDC, JWT, Keycloak, or none)"
-4. **Architecture**: "Should this be a single module or a Multi-module Maven project (api, core, infrastructure)?"
-5. **Quality Checks**: "Confirm enforcement of hardened security, PMD, and Jacoco?"
+Collect requirements:
+1. **Scope**: Full-Stack (Svelte 5 + Quarkus) or Backend API (Quarkus)?
+2. **Security**: OIDC / Keycloak, JWT, or none?
+3. **Persistence**: PostgreSQL Reactive (Hibernate Reactive Panache), Flyway migrations.
+4. **Architecture**: Single module or multi-module Maven project.
 
 ### 2. Scaffold Quarkus Backend
-Based on the interview:
-- Run the Quarkus Maven plugin: `npx quarkus create app ...` or `mvn io.quarkus.platform:quarkus-maven-plugin:create ...`
-- Add required extensions based on Security answers (`quarkus-oidc`, `quarkus-resteasy-reactive`, etc.)
-- Modify `pom.xml` to include Maven Enforcer, PMD, Checkstyle, and Jacoco plugins for strict compliance.
+- Run Quarkus Maven plugin:
+  ```bash
+  mvn io.quarkus.platform:quarkus-maven-plugin:create \
+      -DprojectGroupId=com.example \
+      -DprojectArtifactId=backend-server \
+      -Dextensions="resteasy-reactive-jackson,hibernate-reactive-panache,reactive-pg-client"
+  ```
+- Configure `com.diffplug.spotless:spotless-maven-plugin` in `pom.xml`.
+- Configure `quarkus.http.test-port=0` in `application.properties` to avoid parallel test collisions.
 
-### 3. Scaffold Svelte Frontend
-If Full-Stack was selected:
-- Run `npx sv create <project-name>-ui` adjacent to the backend.
+### 3. Scaffold Svelte 5 Frontend
+If Full-Stack was chosen:
+- Scaffold modern Svelte 5 app:
+  ```bash
+  npx sv create frontend-ui
+  ```
 
-### 4. Install 3rd-Party Skills
-Execute the following to fetch skills into `.agent/skills/`:
-- **impeccable**: `npx impeccable install`
-- **i-have-adhd**: `curl -sSL https://raw.githubusercontent.com/ayghri/i-have-adhd/main/skills/i-have-adhd/SKILL.md -o .agent/skills/i-have-adhd/SKILL.md`
-- **ponytail**: Fetch from `https://github.com/dietrichgebert/ponytail`
-- **jvm-skills**: Fetch applicable JVM/Quarkus skills from `jvm-skills.com` or relevant repos.
+### 4. Install Agentic SDLC Skills
+- Copy `.agent/skills/` (all 12 skills) and `docs/templates/` into the target workspace.
+- Ensure executable permissions on script assets: `chmod +x .agent/skills/sdlc-kanban/scripts/kanban-sync.sh`.
+- Initialize `docs/specs/`, `docs/KANBAN.md`, and `CHANGELOG.md` with Keep a Changelog template.
 
 ---
 
 ## ⏭️ Next Recommended Step
-Once scaffolding is complete, trigger `sdlc-feature-spec` to draft the initial PRD/SRS for the first feature, and run `sdlc-analyze` to establish a baseline compliance score.
+
+Once initialized, trigger **`sdlc-feature-spec`** to draft the initial PRD/SRS for the first feature, and run **`sdlc-analyze`** to establish a baseline health report.

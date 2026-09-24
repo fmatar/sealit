@@ -1,22 +1,23 @@
 ---
 name: sdlc-release-changelog
 description: Manages Semantic Versioning (SemVer), conventional changelogs (CHANGELOG.md adhering to Keep a Changelog standard), Git tagging, GitHub release creation, Docker containerization, and Kubernetes/Helm deployments.
-version: 1.2.0
+version: 2.0.0
 license: Apache 2.0
+allowed-tools: run_command, view_file, write_to_file, replace_file_content, mcp_github-mcp-server_get_latest_release
 ---
 
 # SDLC Release & Changelog Management Skill (`sdlc-release-changelog`)
 
-Use this skill when preparing releases, tagging production builds, calculating version bumps, updating `CHANGELOG.md`, and generating GitHub Releases.
+Use this skill when preparing releases, tagging production builds, calculating SemVer version bumps, updating `CHANGELOG.md`, and generating GitHub Releases.
 
 ---
 
 ## 🏷️ Versioning Philosophy (SemVer 2.0.0)
 
 Given a version number `MAJOR.MINOR.PATCH`:
-- **MAJOR** (`X.0.0`): Breaking architectural shifts, database/store breaking migrations, or removed public APIs.
-- **MINOR** (`0.X.0`): New business logic techniques, new geometry visualizers, new audio synthesis capabilities, or non-breaking feature additions.
-- **PATCH** (`0.0.X`): Bug fixes, CSS layout corrections, audio pop glitches, and documentation enhancements.
+- **MAJOR** (`X.0.0`): Breaking architectural shifts, database schema breaking migrations, or removed public API contracts.
+- **MINOR** (`0.X.0`): New features, new service integrations, or non-breaking API/UI additions.
+- **PATCH** (`0.0.X`): Bug fixes, performance optimizations, security patches, and minor styling updates.
 
 ---
 
@@ -25,7 +26,7 @@ Given a version number `MAJOR.MINOR.PATCH`:
 We strictly adhere to the [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) standard.
 
 ### Standard Categories
-- `Added` for new features or techniques.
+- `Added` for new features or capabilities.
 - `Changed` for changes in existing functionality.
 - `Deprecated` for soon-to-be removed features.
 - `Removed` for now removed features.
@@ -34,19 +35,18 @@ We strictly adhere to the [Keep a Changelog](https://keepachangelog.com/en/1.0.0
 
 ### Example `CHANGELOG.md` Entry
 ```markdown
-## [0.2.0] - 2026-08-15
+## [1.1.0] - 2026-09-22
 
 ### Added
-- **Physiological Sigh**: Dual-crested stepped wave geometry for acute panic and anxiety relief.
-- **Nadi Shodhana**: complex feature ($\infty$) loop geometry with stereo modern web APIs panning.
-- **Stereo Spatialization**: modern web APIs `StereoPannerNode` for bilateral breath guidance.
+- feat(auth): implement OIDC token validation and refresh lifecycle ([#101](https://github.com/org/repo/issues/101))
+- feat(events): add reactive event publisher and deduplication ([#102](https://github.com/org/repo/issues/102))
 
 ### Changed
-- Refactored `insetPolygon` to support parametric continuous Bezier and ellipse curves.
-- Updated `CustomizerModal` with haptic intensity slider.
+- chore(test): configure random quarkus http test port (0) to eliminate parallel build collisions ([#103](https://github.com/org/repo/issues/103))
 
 ### Fixed
-- Fixed audio oscillator click on rapid phase reset in Safari iOS.
+- fix(api): resolve race condition in concurrent user session updates ([#104](https://github.com/org/repo/issues/104))
+- style: apply spotless formatting fixes
 ```
 
 ---
@@ -54,21 +54,20 @@ We strictly adhere to the [Keep a Changelog](https://keepachangelog.com/en/1.0.0
 ## 🚀 Release Workflow Steps
 
 1. **Calculate Next Version**: Inspect git log since last tag to determine whether change is `patch`, `minor`, or `major`.
-2. **Update `package.json`**: Update the `"version"` field.
-3. **Update `CHANGELOG.md`**: Convert `[Unreleased]` changes into a versioned release header with date.
+2. **Update Project Descriptors**: Update `"version"` in `package.json` (frontend) and `<version>` in `pom.xml` (backend).
+3. **Update `CHANGELOG.md`**: Convert `[Unreleased]` changes into a versioned release header with the release date.
 4. **Git Commit & Tag**:
    ```bash
-   git add package.json CHANGELOG.md
+   git add package.json pom.xml CHANGELOG.md
    git commit -m "chore(release): vX.Y.Z"
    git tag -a vX.Y.Z -m "Release vX.Y.Z"
    ```
-5. **Create GitHub Release**: Use GitHub MCP tools to publish the release with formatted release notes derived from `CHANGELOG.md`.
-6. **Containerization (Docker)**: Build and publish the application as a provider-agnostic Docker image tagged with `vX.Y.Z` and `latest`.
-7. **Deployment (Kubernetes / Helm)**: Generate or update Helm charts for the release and apply the deployment to the Kubernetes cluster to ensure zero-downtime rolling updates.
+5. **Create GitHub Release**: Publish the release with formatted release notes derived from `CHANGELOG.md`.
+6. **Containerization (Docker)**: Build and publish container images tagged with `vX.Y.Z` and `latest`.
+7. **Deployment (Kubernetes / Helm)**: Update Helm release values and apply deployment rolling updates.
 
 ---
 
 ## ⏭️ Next Recommended Step
 
-Once the release is cut and tagged:
-👉 **Transition to [`sdlc-help`](../sdlc-help/SKILL.md)** or monitor production stability and user feedback.
+- Post release verification: Monitor observability dashboards, error trackers, and deployment health.

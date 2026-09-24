@@ -1,5 +1,5 @@
 #!/bin/bash
-# The Project Installer
+# Agentic SDLC Framework Installer
 set -e
 
 ORIGINAL_DIR=$(pwd)
@@ -12,21 +12,20 @@ for arg in "$@"; do
     fi
 done
 
-echo "🚀 Downloading The Project SDLC Framework..."
+echo "🚀 Downloading Agentic SDLC Framework..."
 TMP_DIR=$(mktemp -d)
 
 if [ -n "$GITHUB_TOKEN" ]; then
-    git clone --quiet --depth 1 "https://x-access-token:$GITHUB_TOKEN@github.com/fmatar/agentic-sdlc-framework.git" "$TMP_DIR/The Project"
+    git clone --quiet --depth 1 "https://x-access-token:$GITHUB_TOKEN@github.com/fmatar/agentic-sdlc-framework.git" "$TMP_DIR/agentic-sdlc-framework"
 else
-    git clone --quiet --depth 1 "https://github.com/fmatar/agentic-sdlc-framework.git" "$TMP_DIR/The Project"
+    git clone --quiet --depth 1 "https://github.com/fmatar/agentic-sdlc-framework.git" "$TMP_DIR/agentic-sdlc-framework"
 fi
 
-cd "$TMP_DIR/The Project"
+cd "$TMP_DIR/agentic-sdlc-framework"
 
 if ! command -v jbang &> /dev/null; then
     echo "⚠️ JBang is not installed. Installing JBang..."
     curl -sL https://jbang.dev/app/setup | bash
-    # Source the env for this session
     export PATH="$HOME/.jbang/bin:$PATH"
 fi
 

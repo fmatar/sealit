@@ -1,94 +1,91 @@
 ---
 name: sdlc-test-coverage
-description: Configures, writes, and runs unit tests, store tests, component tests, and E2E tests using Vitest and Playwright, while enforcing test coverage metrics (@vitest/coverage-v8) and edge-case regression validation.
-version: 1.1.0
+description: Stack-aware unit and integration test runner enforcing >= 90% line and branch coverage on modified lines across Quarkus backend (JaCoCo) and Svelte 5 frontend (Vitest).
+version: 2.0.0
 license: Apache 2.0
+allowed-tools: run_command, view_file, write_to_file, replace_file_content
 ---
 
 # SDLC Testing & Test Coverage Skill (`sdlc-test-coverage`)
 
-Use this skill when writing unit tests, adding integration tests, auditing test coverage, or validating zero-regression stability across the The Project application.
+Use this skill when writing unit and integration tests, auditing test coverage, and validating zero-regression stability across the application.
 
 ---
 
-## 🎯 Testing Architecture & Coverage Goals
+## 🎯 Testing Architecture & Minimum Coverage Threshold
 
-| Tier | Tooling | Target Area | Minimum Coverage Threshold |
+| Stack Tier | Tooling | Target Directory | Minimum Coverage Threshold |
 | :--- | :--- | :--- | :--- |
-| **Unit & Math** | Vitest | `src/lib/geometry/`, math helpers, polygon insets | **90%+ Statements / Branches** |
-| **State & Stores** | Vitest | `src/lib/stores/`, session timing, streak counters | **85%+ Statements / Branches** |
-| **Audio Synthesis** | Vitest (Mocked AudioContext) | `src/lib/audio/`, tone frequencies, envelopes | **80%+ Statements** |
-| **E2E & UI** | Playwright / Chrome DevTools | User flows, Zen mode, keyboard shortcuts, canvas rendering | Core happy paths & responsive |
+| **Backend API & Core** | JUnit 5, RestAssured, JaCoCo | `src/main/java/` (Quarkus) | **$\ge$ 90% Line & Branch Coverage** |
+| **Frontend State & Runes** | Vitest | `src/lib/stores/`, `src/lib/state/` | **$\ge$ 90% Line & Branch Coverage** |
+| **Frontend Components & UI** | Vitest, Testing Library | `src/lib/components/` | **$\ge$ 85% Line Coverage** |
+| **End-to-End User Flows** | Playwright | `tests/e2e/` | Happy paths, auth, core interactions |
+
+> [!IMPORTANT]
+> **Strict Diff Coverage Requirement**: All net-new and modified lines in the git diff (`git diff --name-only main`) must achieve **$\ge$ 90% test coverage**.
 
 ---
 
-## 🛠️ Vitest Configuration & Execution
+## 🛠️ Execution & Automated Coverage Loop
 
-### Running Tests
+### 1. Identify Modified Files
 ```bash
-# Run unit tests in watch mode
-pnpm test
-
-# Run unit tests once (CI mode)
-pnpm test:run
-
-# Run tests with test coverage report
-pnpm test:coverage
+git diff --name-only main
 ```
 
-### Writing Math / Geometry Unit Tests
-Example test for parametric polygon generation:
-```typescript
-import { describe, it, expect } from 'vitest';
-import { generatePolygonPoints, insetPolygon } from '$lib/geometry/polygons';
-
-describe('Geometry Engine: Polygon Insets', () => {
-  it('generates correct vertex count for regular hexagon', () => {
-    const points = generatePolygonPoints(6, 100, 100, 50);
-    expect(points).toHaveLength(6);
-  });
-
-  it('correctly calculates parallel inner inset path without self-intersection', () => {
-    const original = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 50, y: 86.6 }];
-    const insets = insetPolygon(original, 5);
-    expect(insets).toHaveLength(original.length);
-  });
-});
+### 2. Backend Execution (Quarkus / Java)
+```bash
+./mvnw clean test jacoco:report
 ```
+- Parse the generated JaCoCo coverage summary: `target/site/jacoco/index.html` or `target/site/jacoco/jacoco.csv`.
+- Inspect missed branches and lines specifically for modified classes.
 
-### Writing Svelte 5 Store Unit Tests
+### 3. Frontend Execution (Svelte 5 / TypeScript)
+```bash
+npm run test:coverage
+```
+- Parse the generated Vitest coverage summary: `coverage/index.html` or terminal coverage summary table.
+
+### 4. Automated Feedback Loop
+If coverage on changed lines is below **90%**:
+1. Identify exact uncovered methods, branches, or boundary conditions.
+2. Automatically write corresponding unit/integration test cases.
+3. Re-run test suites until coverage passes the $\ge$ 90% threshold.
+
+---
+
+## 📋 Example Svelte 5 Store Test (Vitest)
+
 ```typescript
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { SessionStore } from '$lib/stores/session.svelte';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { UserSessionState } from '$lib/state/session.svelte';
 
-describe('SessionStore Reactive Runes', () => {
-  let session: SessionStore;
+describe('UserSessionState Runes', () => {
+  let session: UserSessionState;
 
   beforeEach(() => {
-    session = new SessionStore();
+    session = new UserSessionState();
   });
 
-  it('advances breath phases smoothly upon timer trigger', () => {
-    expect(session.currentPhaseIndex).toBe(0);
-    session.advancePhase();
-    expect(session.currentPhaseIndex).toBe(1);
+  it('correctly updates state and computes derived properties', () => {
+    expect(session.isAuthenticated).toBe(false);
+    session.setToken('jwt-token-xyz');
+    expect(session.isAuthenticated).toBe(true);
+    expect(session.token).toBe('jwt-token-xyz');
+  });
+
+  it('handles logout and cleans sensitive state', () => {
+    session.setToken('jwt-token-xyz');
+    session.logout();
+    expect(session.isAuthenticated).toBe(false);
+    expect(session.token).toBeNull();
   });
 });
 ```
-
----
-
-## 📋 Coverage Verification Checklist
-
-1. **Math Precision**: Boundary conditions (0, negative values, extreme aspect ratios, float precision).
-2. **Phase Transitions**: Handling last-phase $\rightarrow$ first-phase loop cycles without index out-of-bounds.
-3. **Audio Node Lifecycle**: Ensuring audio context disconnects cleanly during component unmount to prevent memory leaks.
-4. **LocalStorage Persistence**: Mocking `localStorage` for streaks and mindful practice minutes.
-5. **Coverage Report Generation**: Verify that running `pnpm test:coverage` outputs an HTML or text table meeting project thresholds.
 
 ---
 
 ## ⏭️ Next Recommended Step
 
-Once unit/integration tests pass and meet coverage thresholds:
-👉 **Transition to [`sdlc-docs-wiki`](../sdlc-docs-wiki/SKILL.md)** to update product documentation, `/wiki` deep-dives, and README with the verified changes.
+Once unit/integration tests pass and meet the 90% coverage threshold:
+👉 **Transition to [`sdlc-docs-wiki`](../sdlc-docs-wiki/SKILL.md)** to synchronize documentation, `CHANGELOG.md`, and architectural specs.

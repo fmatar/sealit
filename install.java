@@ -12,8 +12,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
 
-@Command(name = "install", mixinStandardHelpOptions = true, version = "1.0",
-        description = "Installs the The Project skills and templates.")
+@Command(name = "install", mixinStandardHelpOptions = true, version = "2.0",
+        description = "Installs the Agentic SDLC Framework skills and templates.")
 public class install implements Callable<Integer> {
 
     @Option(names = {"-g", "--global"}, description = "Install globally to ~/.gemini/config/skills")
@@ -34,7 +34,7 @@ public class install implements Callable<Integer> {
             return 1;
         }
 
-        System.out.println("🚀 Initializing The Project Installer Workflow...");
+        System.out.println("🚀 Initializing Agentic SDLC Framework Installer...");
 
         WorkflowEngine engine = new WorkflowEngine();
         
@@ -48,7 +48,13 @@ public class install implements Callable<Integer> {
             System.out.println("Note: Global installation skips docs/templates.");
         } else {
             Path targetPath = Paths.get(localTarget);
-            Path targetSkills = targetPath.resolve(".agent").resolve("skills");
+            // Check if workspace already uses .agents or .agent
+            Path targetSkills;
+            if (Files.exists(targetPath.resolve(".agents").resolve("skills"))) {
+                targetSkills = targetPath.resolve(".agents").resolve("skills");
+            } else {
+                targetSkills = targetPath.resolve(".agent").resolve("skills");
+            }
             Path targetDocs = targetPath.resolve("docs").resolve("templates");
             
             engine.addTask(new CopyTask("Install Local Skills", Paths.get(sourceSkills), targetSkills));
@@ -66,7 +72,7 @@ public class install implements Callable<Integer> {
         }
     }
 
-    // --- Quarkus-Flow Inspired Deterministic Engine ---
+    // --- Deterministic Engine ---
 
     static class WorkflowEngine {
         private final List<WorkflowTask> tasks = new ArrayList<>();
@@ -131,7 +137,7 @@ public class install implements Callable<Integer> {
 
                 @Override
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                    Files.copy(file, target.resolve(source.relativize(file)), StandardCopyOption.REPLACE_EXISTING);
+                    Files.copy(file, target.resolve(source.relativize(file)), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES);
                     return FileVisitResult.CONTINUE;
                 }
             });
