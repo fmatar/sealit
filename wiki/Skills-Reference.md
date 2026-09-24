@@ -1,18 +1,87 @@
-# Agentic Skills Reference
+# 🧠 Agentic Skills Reference
 
-The following core skills exist in `.agent/skills/`:
+The **Agentic SDLC Framework** is powered by 12 interlocking skills located in `.agent/skills/`. Each skill encapsulates a discrete software engineering discipline and defines an explicit **"Next Recommended Step"** for autonomous workflow chaining.
 
-| Skill | Role | Description |
-|---|---|---|
-| `sdlc-flow` | Master Orchestrator | Runs the end-to-end 8-stage issue-to-PR automated pipeline. |
-| `sdlc-feature-spec` | Product Owner / Architect | Generates PRD, SRS, C4 architecture, and standard GitHub issues. |
-| `sdlc-tdd-implement` | Engineer | Full-stack Svelte 5 / Quarkus Java 25 coding with strict TDD. |
-| `sdlc-test-coverage` | QA Engineer | Runs tests and enforces $\ge$ 90% diff line and branch coverage. |
-| `sdlc-peer-review` | Peer Reviewer | Parallel subagent auditing PR diffs and posting formal reviews. |
-| `sdlc-docs-wiki` | Technical Writer | Synchronizes `docs/specs/`, `CHANGELOG.md`, and `/wiki`. |
-| `sdlc-quality-gate` | Security & Quality Auditor | Pre-merge Spotless, static typing, port isolation, and SAST audits. |
-| `sdlc-release-changelog` | DevOps / Release Engineer | Handles SemVer, containerization, and Helm deployments. |
-| `sdlc-kanban` | Project Manager / Scrum Master | Manages GitHub Projects, Kanban state transitions (`status:*`), and WIP limits. |
-| `sdlc-help` | Support & Guide | Interactive diagnostics and copy-paste prompt recipes. |
-| `sdlc-analyze` | Compliance Auditor | Audits repository adherence to SDLC quality standards. |
-| `sdlc-initialize` | Bootstrap Installer | Scaffolds new full-stack projects and installs skills. |
+---
+
+## 🗺️ Skills Domain Topology
+
+```mermaid
+flowchart TD
+    classDef orch fill:#1E1B4B,stroke:#6366F1,stroke-width:2px,color:#EEF2FF
+    classDef spec fill:#064E3B,stroke:#10B981,stroke-width:2px,color:#ECFDF5
+    classDef code fill:#0F172A,stroke:#38BDF8,stroke-width:2px,color:#F8FAFC
+    classDef gate fill:#701A75,stroke:#D946EF,stroke-width:2px,color:#FDF4FF
+    classDef ops fill:#78350F,stroke:#F59E0B,stroke-width:2px,color:#FEF3C7
+
+    subgraph OrchestrationDomain ["🧭 Orchestration & Planning"]
+        Flow["sdlc-flow<br/>(Master Orchestrator)"]:::orch
+        Kanban["sdlc-kanban<br/>(Scrum & Projects v2)"]:::orch
+        Help["sdlc-help<br/>(Interactive Guide)"]:::orch
+    end
+
+    subgraph ArchitectureDomain ["📋 Specification & Contract"]
+        Spec["sdlc-feature-spec<br/>(PRD, SRS & C4 Models)"]:::spec
+    end
+
+    subgraph EngineeringDomain ["💻 Engineering & Verification"]
+        TDD["sdlc-tdd-implement<br/>(Svelte 5 & Quarkus Java 25)"]:::code
+        Coverage["sdlc-test-coverage<br/>(>= 90% Diff Coverage Loop)"]:::code
+    end
+
+    subgraph GovernanceDomain ["🛡️ Quality, Review & Compliance"]
+        Review["sdlc-peer-review<br/>(Parallel Subagent Reviewer)"]:::gate
+        Gate["sdlc-quality-gate<br/>(DevSecOps & Spotless)"]:::gate
+        Audit["sdlc-analyze<br/>(SDLC Compliance Auditor)"]:::gate
+    end
+
+    subgraph ReleaseDomain ["🚀 Documentation & Operations"]
+        Docs["sdlc-docs-wiki<br/>(Developer Showcase & Specs)"]:::ops
+        Release["sdlc-release-changelog<br/>(SemVer, Docker & Helm)"]:::ops
+        Init["sdlc-initialize<br/>(Full-Stack Scaffolder)"]:::ops
+    end
+
+    Flow --> Spec
+    Spec --> Kanban
+    Kanban --> TDD
+    TDD --> Coverage
+    Coverage --> Docs
+    Docs --> Flow
+    Flow --> Review
+    Flow --> Gate
+    Gate --> Release
+```
+
+---
+
+## 📋 Comprehensive Skills Directory
+
+| Skill | Role Persona | Primary Responsibilities | Allowed Tools | Autonomous Next Step |
+| :--- | :--- | :--- | :--- | :--- |
+| **`sdlc-flow`** | Master Orchestrator | Drives the 8-stage issue-to-PR pipeline, Kanban transitions, coverage, and subagent reviews. | `run_command`, `view_file`, `invoke_subagent`, `github-mcp` | 👉 `sdlc-feature-spec` |
+| **`sdlc-feature-spec`** | Product Owner / Architect | Generates SVPG PRDs, IEEE 29148 SRS, C4 architecture diagrams, ADRs, and GitHub issues. | `run_command`, `view_file`, `write_to_file`, `github-mcp` | 👉 `sdlc-kanban` & `sdlc-flow` |
+| **`sdlc-tdd-implement`** | Full-Stack Engineer | Strict TDD feature implementation using Svelte 5 Runes and Quarkus Java 25 Mutiny reactive streams. | `run_command`, `view_file`, `write_to_file`, `replace_file_content` | 👉 `sdlc-test-coverage` |
+| **`sdlc-test-coverage`** | QA Automation Engineer | Executes JaCoCo & Vitest against git diff, enforcing $\ge 90\%$ line and branch coverage in a loop. | `run_command`, `view_file`, `write_to_file`, `replace_file_content` | 👉 `sdlc-docs-wiki` |
+| **`sdlc-peer-review`** | Peer Reviewer Subagent | Independently audits PR diffs, verifies quickstart validity, checks reactive rules, and posts PR reviews. | `run_command`, `view_file`, `github-mcp` | 👉 Back to `sdlc-flow` |
+| **`sdlc-kanban`** | Scrum Master / Project Lead | Manages GitHub Projects v2 views, 5-stage label transitions (`status:*`), WIP limits, and `docs/KANBAN.md`. | `run_command`, `view_file`, `write_to_file`, `github-mcp` | 👉 `sdlc-flow` |
+| **`sdlc-docs-wiki`** | Technical Writer | Synchronizes root README showcase quickstart, `docs/specs/`, `CHANGELOG.md`, `docs/KANBAN.md`, and `/wiki`. | `run_command`, `view_file`, `write_to_file`, `replace_file_content` | 👉 `sdlc-quality-gate` |
+| **`sdlc-quality-gate`** | DevSecOps Auditor | Enforces Spotless formatting, SvelteKit typing, test port isolation, WCAG 2.1 AA a11y, and SAST. | `run_command`, `view_file` | 👉 `sdlc-release-changelog` |
+| **`sdlc-release-changelog`** | DevOps Engineer | Manages SemVer 2.0.0, Keep a Changelog updates, Git tagging, GitHub releases, Docker, and Helm. | `run_command`, `view_file`, `write_to_file`, `github-mcp` | 👉 Deployment Monitoring |
+| **`sdlc-analyze`** | Compliance Auditor | Evaluates repo health, 5-minute quickstart validity, test coverage, and generates compliance scorecard. | `run_command`, `view_file` | 👉 `sdlc-flow` / `sdlc-test-coverage` |
+| **`sdlc-initialize`** | Bootstrap Installer | Scaffolds greenfield Svelte 5 + Quarkus projects and configures all 12 agentic skills and assets. | `run_command`, `view_file`, `write_to_file` | 👉 `sdlc-feature-spec` |
+| **`sdlc-help`** | Support & Diagnostics | Diagnostic CLI and prompt recipes to guide developers and agents through the ecosystem. | `run_command`, `view_file` | 👉 Skill of choice |
+
+---
+
+## ⚡ Autonomous Handoff Protocol
+
+Skills do not operate in silos. Every skill returns a standardized handoff block:
+
+```markdown
+---
+## ⏭️ Next Recommended Step
+Once [current-phase-criteria] is satisfied:
+👉 **Transition to [`sdlc-<next-skill>`](../sdlc-<next-skill>/SKILL.md)** to execute [next-phase-action].
+```
+
+This invariant allows autonomous agents to chain multi-stage engineering tasks without needing human intervention at every step.
