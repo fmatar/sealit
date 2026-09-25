@@ -5,7 +5,7 @@
 > To refresh this board: `.agent/skills/sdlc-kanban/scripts/kanban-sync.sh`
 
 > **Repository**: `fmatar/agentic-sdlc-framework`  
-> **Last Synced**: `2026-09-25 07:17:45 UTC`
+> **Last Synced**: `2026-09-25 07:23:47 UTC`
 
 ---
 
