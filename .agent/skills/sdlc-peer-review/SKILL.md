@@ -1,27 +1,32 @@
 ---
 name: sdlc-peer-review
-description: Parallel peer reviewer subagent that audits git diffs, verifies >= 90% test coverage, validates developer showcase onboarding quickstarts, checks Svelte 5 / Quarkus project rules, and posts formal review comments to GitHub PRs.
-version: 1.1.0
+description: Parallel peer reviewer subagent that audits git diffs, verifies Dual-Gate quality (>= 85% coverage, >= 80% mutation score), detects Uncle Bob test smells and mock abuse, validates developer showcase onboarding quickstarts, and posts formal review comments to GitHub PRs.
+version: 2.0.0
 license: Apache 2.0
 allowed-tools: run_command, view_file, mcp_github-mcp-server_pull_request_read, mcp_github-mcp-server_get_file_contents, mcp_github-mcp-server_add_comment_to_pending_review, mcp_github-mcp-server_pull_request_review_write
 ---
 
 # SDLC Parallel Peer Reviewer Skill (`sdlc-peer-review`)
 
-Use this skill when invoked as a parallel reviewer subagent via `invoke_subagent` to independently audit Pull Requests.
+Use this skill when invoked as a parallel reviewer subagent via `invoke_subagent` to independently audit Pull Requests. This skill acts as a senior software craftsman inspecting code quality, architectural boundaries, and test craftsmanship.
 
 ---
 
-## 🔍 Audit Checklist
+## 🔍 Comprehensive Audit Checklist
 
 1. **Code Standards & Architecture**:
    - **Frontend**: Svelte 5 runes (`$state`, `$derived`, `$props`) used correctly; no legacy Svelte 4 reactivity or raw DOM mutators.
    - **Backend**: Quarkus reactive standards (Mutiny `Uni`/`Multi`, Panache Reactive); no thread-blocking database queries or split packages.
 2. **Security & Input Hygiene**:
    - Validate null checks, input sanitization, boundaries, and secure token/secret handling (zero plaintext credentials).
-3. **Coverage Compliance**:
-   - Inspect coverage reports (JaCoCo `target/site/jacoco/index.html` or Vitest `coverage/index.html`).
-   - Confirm modified line coverage meets or exceeds **$\ge$ 90%**.
+3. **Dual-Gate Testing & Test Craftsmanship (Uncle Bob Standard)**:
+   - **Diff Coverage**: Confirm modified line and branch coverage meets or exceeds **$\ge$ 85%** (JaCoCo `target/site/jacoco/index.html` or Vitest `coverage/index.html`).
+   - **Mutation Kill Score**: Confirm mutation testing score reaches **$\ge$ 80%** on modified classes (PITest `target/pit-reports/index.html` or Stryker `reports/mutation/mutation.html`).
+   - **Audit for Test Smells (Uncle Bob)**:
+     - ❌ *Flag trivial getter/setter or record field tests* written solely to inflate coverage.
+     - ❌ *Flag tests of third-party framework plumbing* ("Don't test code you didn't write" - e.g. testing Panache entity persistence mechanics or Svelte runtime reactivity).
+     - ❌ *Flag mock abuse*: Flag tests verifying internal mechanical call sequences on mock collaborators rather than testing observable state, outputs, or boundary contracts.
+     - ❌ *Flag assertion-free tests* (`assertDoesNotThrow` without validating resulting state).
 4. **Documentation & Changelog**:
    - Confirm `CHANGELOG.md` reflects changes under `[Unreleased]` with ticket links.
    - Confirm specs in `docs/specs/` or inline docstrings are updated.
@@ -36,10 +41,14 @@ Use this skill when invoked as a parallel reviewer subagent via `invoke_subagent
 ## 🛠️ Execution & Posting
 
 1. Inspect the diff against `main` or base branch (`git diff origin/main...HEAD`).
-2. Synthesize line-specific review comments.
+2. Synthesize line-specific review comments highlighting architectural improvements or test smell remediation.
 3. Call `pull_request_review_write` via `github-mcp-server`:
    - Set event to `APPROVE` if all checks pass.
-   - Set event to `REQUEST_CHANGES` if coverage is $<90\%$ or if critical bugs/violations exist.
+   - Set event to `REQUEST_CHANGES` if:
+     - Line/branch diff coverage is $<85\%$.
+     - Mutation score is $<80\%$.
+     - Test suite contains severe test smells, mock abuse, or zero-assertion coverage hacks.
+     - Critical bugs, regressions, or security issues exist.
    - Include the structured markdown review body with metrics.
 
 ---

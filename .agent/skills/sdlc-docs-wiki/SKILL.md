@@ -38,6 +38,7 @@ wiki/
 ├── Home.md                          # Vision, architecture overview, and quick navigation
 ├── Architecture.md                  # C4 diagrams, runtime interactions, and Fork-Join model
 ├── Skills-Reference.md              # Documentation of available agentic skills
+├── Traceability.md                  # 7-layer traceability thread, 6 Project v2 views, custom fields
 ├── ADR-00X-[title].md               # Architectural Decision Records
 ├── _Sidebar.md                      # GitHub Wiki sidebar navigation
 └── _Footer.md                       # Footer navigation and branding
@@ -74,6 +75,19 @@ Append entries under `[Unreleased]` following Keep a Changelog categories (`Adde
 ### Step 4: Update Wiki & Navigation
 - Ensure new topics are indexed in `wiki/_Sidebar.md`.
 - Verify all relative markdown links resolve without broken anchors.
+
+### Step 5: Publishing Wiki Pages to GitHub
+GitHub Wiki is a Git repository (`https://github.com/<owner>/<repo>.wiki.git`).
+- **Automated Publishing**: Push changes to `main`. `.github/workflows/publish-wiki.yml` automatically syncs all files from `wiki/` directly to the GitHub Wiki.
+- **First-Time Initializing**: If GitHub Wiki has never been used, visit `https://github.com/<owner>/<repo>/wiki` and click *"Create the first page"* to initialize the wiki repository.
+- **Direct CLI Publishing**:
+  ```bash
+  TMP_WIKI=$(mktemp -d)
+  git clone "https://x-access-token:$GITHUB_TOKEN@github.com/<owner>/<repo>.wiki.git" "$TMP_WIKI"
+  cp -r wiki/* "$TMP_WIKI/"
+  cd "$TMP_WIKI" && git add . && git commit -m "docs: sync wiki pages" && git push origin master
+  rm -rf "$TMP_WIKI"
+  ```
 
 ---
 

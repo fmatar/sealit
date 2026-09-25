@@ -26,7 +26,7 @@ flowchart TD
 
     subgraph EngineeringDomain ["💻 Engineering & Verification"]
         TDD["sdlc-tdd-implement<br/>(Svelte 5 & Quarkus Java 25)"]:::code
-        Coverage["sdlc-test-coverage<br/>(>= 90% Diff Coverage Loop)"]:::code
+        Coverage["sdlc-test-coverage<br/>(Dual-Gate Diff Coverage & Mutation)"]:::code
     end
 
     subgraph GovernanceDomain ["🛡️ Quality, Review & Compliance"]
@@ -60,15 +60,15 @@ flowchart TD
 | :--- | :--- | :--- | :--- | :--- |
 | **`sdlc-flow`** | Master Orchestrator | Drives the 8-stage issue-to-PR pipeline, Kanban transitions, coverage, and subagent reviews. | `run_command`, `view_file`, `invoke_subagent`, `github-mcp` | 👉 `sdlc-feature-spec` |
 | **`sdlc-feature-spec`** | Product Owner / Architect | Generates SVPG PRDs, IEEE 29148 SRS, C4 architecture diagrams, ADRs, and GitHub issues. | `run_command`, `view_file`, `write_to_file`, `github-mcp` | 👉 `sdlc-kanban` & `sdlc-flow` |
-| **`sdlc-tdd-implement`** | Full-Stack Engineer | Strict TDD feature implementation using Svelte 5 Runes and Quarkus Java 25 Mutiny reactive streams. | `run_command`, `view_file`, `write_to_file`, `replace_file_content` | 👉 `sdlc-test-coverage` |
-| **`sdlc-test-coverage`** | QA Automation Engineer | Executes JaCoCo & Vitest against git diff, enforcing $\ge 90\%$ line and branch coverage in a loop. | `run_command`, `view_file`, `write_to_file`, `replace_file_content` | 👉 `sdlc-docs-wiki` |
-| **`sdlc-peer-review`** | Peer Reviewer Subagent | Independently audits PR diffs, verifies quickstart validity, checks reactive rules, and posts PR reviews. | `run_command`, `view_file`, `github-mcp` | 👉 Back to `sdlc-flow` |
+| **`sdlc-tdd-implement`** | Full-Stack Engineer | Strict TDD feature implementation (Uncle Bob's 3 Laws & TPP) using Svelte 5 Runes and Quarkus Java 25. | `run_command`, `view_file`, `write_to_file`, `replace_file_content` | 👉 `sdlc-test-coverage` |
+| **`sdlc-test-coverage`** | QA Automation Engineer | Enforces Dual-Gate testing: diff coverage ($\ge 85\%$) and mutation kill score ($\ge 80\%$) via PITest & Stryker. | `run_command`, `view_file`, `write_to_file`, `replace_file_content` | 👉 `sdlc-docs-wiki` |
+| **`sdlc-peer-review`** | Peer Reviewer Subagent | Independently audits PR diffs, detects Uncle Bob test smells and mock abuse, verifies mutation score, and posts PR reviews. | `run_command`, `view_file`, `github-mcp` | 👉 Back to `sdlc-flow` |
 | **`sdlc-kanban`** | Scrum Master / Project Lead | Manages GitHub Projects v2 views, 5-stage label transitions (`status:*`), WIP limits, and `docs/KANBAN.md`. | `run_command`, `view_file`, `write_to_file`, `github-mcp` | 👉 `sdlc-flow` |
 | **`sdlc-docs-wiki`** | Technical Writer | Synchronizes root README showcase quickstart, `docs/specs/`, `CHANGELOG.md`, `docs/KANBAN.md`, and `/wiki`. | `run_command`, `view_file`, `write_to_file`, `replace_file_content` | 👉 `sdlc-quality-gate` |
-| **`sdlc-quality-gate`** | DevSecOps Auditor | Enforces Spotless formatting, SvelteKit typing, test port isolation, WCAG 2.1 AA a11y, and SAST. | `run_command`, `view_file` | 👉 `sdlc-release-changelog` |
+| **`sdlc-quality-gate`** | DevSecOps Auditor | Enforces Spotless formatting, SvelteKit typing, test port isolation, Dual-Gate mutation defense, WCAG a11y, and SAST. | `run_command`, `view_file` | 👉 `sdlc-release-changelog` |
 | **`sdlc-release-changelog`** | DevOps Engineer | Manages SemVer 2.0.0, Keep a Changelog updates, Git tagging, GitHub releases, Docker, and Helm. | `run_command`, `view_file`, `write_to_file`, `github-mcp` | 👉 Deployment Monitoring |
-| **`sdlc-analyze`** | Compliance Auditor | Evaluates repo health, 5-minute quickstart validity, test coverage, and generates compliance scorecard. | `run_command`, `view_file` | 👉 `sdlc-flow` / `sdlc-test-coverage` |
-| **`sdlc-initialize`** | Bootstrap Installer | Scaffolds greenfield Svelte 5 + Quarkus projects and configures all 12 agentic skills and assets. | `run_command`, `view_file`, `write_to_file` | 👉 `sdlc-feature-spec` |
+| **`sdlc-analyze`** | Compliance Auditor | Evaluates repo health, 5-minute quickstart validity, Dual-Gate test coverage, and mutation score compliance. | `run_command`, `view_file` | 👉 `sdlc-flow` / `sdlc-test-coverage` |
+| **`sdlc-initialize`** | Bootstrap Installer | Scaffolds greenfield Svelte 5 + Quarkus projects configuring PITest, Stryker, and all 12 agentic skills. | `run_command`, `view_file`, `write_to_file` | 👉 `sdlc-feature-spec` |
 | **`sdlc-help`** | Support & Diagnostics | Diagnostic CLI and prompt recipes to guide developers and agents through the ecosystem. | `run_command`, `view_file` | 👉 Skill of choice |
 
 ---

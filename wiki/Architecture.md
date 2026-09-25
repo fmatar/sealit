@@ -1,6 +1,6 @@
 # 🏛️ Agentic SDLC Architecture
 
-The **Agentic SDLC Framework** orchestrates an autonomous, multi-agent engineering lifecycle. Coding agents are structured into specialized roles governed by strict engineering contracts, continuous test-coverage enforcement ($\ge 90\%$), parallel subagent peer reviews, and automated release deployment.
+The **Agentic SDLC Framework** orchestrates an autonomous, multi-agent engineering lifecycle. Coding agents are structured into specialized roles governed by strict engineering contracts, Robert C. Martin (Uncle Bob) TDD craftsmanship, continuous Dual-Gate test and mutation defense ($\ge 85\%$ diff coverage, $\ge 80\%$ mutation score), parallel subagent peer reviews, and automated release deployment.
 
 ---
 
@@ -22,11 +22,11 @@ flowchart TD
         S1 --> S2
     end
 
-    subgraph EngineeringPhase ["🛠️ Phase 2: TDD & Coverage Loop"]
-        S3["3. Clean-Room TDD Implementation<br/>sdlc-tdd-implement<br/>Svelte 5 Runes & Quarkus Java 25"]:::devNode
-        S4{"4. Coverage Gate<br/>sdlc-test-coverage<br/>Diff Coverage >= 90%?"}:::devNode
+    subgraph EngineeringPhase ["🛠️ Phase 2: TDD & Mutation Defense"]
+        S3["3. Clean-Room TDD Implementation<br/>sdlc-tdd-implement<br/>Uncle Bob's 3 Laws & TPP"]:::devNode
+        S4{"4. Dual-Gate Quality<br/>sdlc-test-coverage<br/>Cov >= 85% & Mut >= 80%?"}:::devNode
         S3 --> S4
-        S4 -- "Missing Tests" --> S3
+        S4 -- "Missing Tests or Surviving Mutants" --> S3
     end
 
     S2 --> S3
@@ -91,13 +91,13 @@ sequenceDiagram
     Spec-->>Board: Tag ticket status:ready
     Flow->>Board: Checkout branch & set status:in-progress
     
-    loop Test-Driven Development Loop
-        Flow->>TDD: Write failing unit tests & implementation
-        Flow->>QA: Audit diff test coverage (JaCoCo & Vitest)
-        alt Coverage < 90%
-            QA-->>TDD: Feedback uncovered branches & lines
-        else Coverage >= 90%
-            QA-->>Flow: Coverage gate verified (>= 90%)
+    loop Test-Driven Development & Mutation Defense Loop
+        Flow->>TDD: Write failing unit tests & implementation (3 Laws of TDD)
+        Flow->>QA: Audit diff test coverage & run PITest/Stryker mutation defense
+        alt Coverage < 85% or Mutation Score < 80%
+            QA-->>TDD: Feedback uncovered branches & surviving mutants
+        else Coverage >= 85% & Mutation Score >= 80%
+            QA-->>Flow: Dual-Gate verified (Cov >= 85%, Mut >= 80%)
         end
     end
 
@@ -130,16 +130,18 @@ sequenceDiagram
 * Enforces WIP limit (max 3–5 tickets in progress).
 
 ### Stage 3: Clean-Room TDD Implementation (`sdlc-tdd-implement`)
-* Strict Test-Driven Development: writes failing unit tests before implementation code.
+* Strictly enforces **Uncle Bob's Three Laws of TDD** and the **Transformation Priority Premise (TPP)**.
+* Writes failing unit tests for degenerate cases before writing production code.
 * Frontend: Modern Svelte 5 Runes (`$state`, `$derived`, `$props`).
 * Backend: Quarkus Java 25 reactive streams (Mutiny `Uni`/`Multi`, Hibernate Reactive Panache).
+* Eliminates test smells: no trivial getter tests, no testing third-party framework plumbing, no mock abuse.
 
-### Stage 4: Test & Coverage Enforcement (`sdlc-test-coverage`)
+### Stage 4: Dual-Gate Test & Mutation Enforcement (`sdlc-test-coverage`)
 * Executes unit and integration test suites:
-  * Backend: `./mvnw clean test jacoco:report`
-  * Frontend: `npm run test:coverage`
+  * Backend: `./mvnw clean test jacoco:report` and `./mvnw test-compile org.pitest:pitest-maven:mutationCoverage`
+  * Frontend: `npm run test:coverage` and `npx stryker run`
 * Computes coverage strictly against the git diff (`git diff --name-only main`).
-* **Threshold**: $\ge 90\%$ line and branch coverage required. Automatically authors missing tests until the gate passes.
+* **Dual-Gate Threshold**: $\ge 85\%$ line and branch coverage on diff AND $\ge 80\%$ mutation kill score on modified classes. Automatically authors missing tests and kills surviving mutants until the gate passes.
 
 ### Stage 5: Documentation, Showcase & Changelog Sync (`sdlc-docs-wiki`)
 * **Developer Showcase Invariant**: Updates the root `README.md` with a frictionless **5-Minute Developer Quickstart** (< 5 min time-to-first-run) and Bring Your Own App (BYOA) contract.
@@ -151,7 +153,7 @@ sequenceDiagram
 
 ### Stage 7: Parallel Subagent Peer Review (`sdlc-peer-review`)
 * Spawns an independent peer reviewer subagent via `invoke_subagent`.
-* Audits PR diff for reactive patterns, security hygiene, coverage compliance, and quickstart validity.
+* Audits PR diff for reactive patterns, security hygiene, Dual-Gate coverage and mutation defense, and Uncle Bob test smells (mock abuse, tautological tests).
 * Posts structured review comments and calls `pull_request_review_write` (`APPROVE` / `REQUEST_CHANGES`).
 
 ### Stage 8: Quality Gate & Release (`sdlc-quality-gate` & `sdlc-release-changelog`)

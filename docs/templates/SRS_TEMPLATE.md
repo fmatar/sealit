@@ -9,8 +9,12 @@
 [Identify the software product(s) to be produced by name. Explain what the software will and will not do.]
 ### 1.3 Definitions, Acronyms, and Abbreviations
 [Define all terms, acronyms, and abbreviations required to interpret the SRS properly.]
-### 1.4 References
-[List all referenced documents (e.g., PRD, API documentation).]
+### 1.4 References & Traceability Matrix
+- **Parent PRD**: [Link to PRD]
+- **Tracking GitHub Issue**: [#<id>](https://github.com/org/repo/issues/<id>)
+- **GitHub Project Card**: [Project Link](https://github.com/users/.../projects/...)
+- **Target Branch**: `feature/issue-#<id>-<slug>`
+- **Downstream Unit/Integration Test Suites**: `src/test/java/...` / `src/lib/...test.ts`
 
 ## 2. Overall Description
 ### 2.1 Product Perspective

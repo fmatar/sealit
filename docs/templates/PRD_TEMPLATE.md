@@ -1,10 +1,14 @@
 # Product Requirements Document (PRD)
 
-## 1. Meta
+## 1. Meta & Traceability
 - **Title**: [Feature/Project Name]
-- **Author(s)**: [Name]
+- **Tracking GitHub Issue**: [#<id>](https://github.com/org/repo/issues/<id>)
+- **GitHub Project Card**: [Project Link](https://github.com/users/.../projects/...)
+- **Target Branch**: `feature/issue-#<id>-<slug>`
+- **C4 Architecture Model**: [Link to Architecture Model](wiki/Architecture)
+- **Author(s)**: [Name / Agent]
 - **Status**: [Draft / In Review / Approved / Shipped]
-- **Target Release**: [Version / Date]
+- **Target Release / Milestone**: [Version / Date]
 
 ## 2. Problem Alignment (The "Why")
 - **Problem Statement**: What specific user problem are we solving?

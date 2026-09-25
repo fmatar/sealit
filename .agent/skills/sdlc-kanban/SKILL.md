@@ -1,7 +1,7 @@
 ---
 name: sdlc-kanban
-description: Manages GitHub Projects (Projects v2) and repository Kanban boards, automates ticket lifecycle state transitions (Backlog -> Ready -> In Progress -> Review -> Done), enforces WIP limits, and maintains living docs/KANBAN.md.
-version: 2.1.0
+description: Manages GitHub Projects (Projects v2) and repository Kanban boards, automates ticket lifecycle state transitions (Backlog -> Ready -> In Progress -> Review -> Done), enforces WIP limits, provisions 6 traceable project views, and maintains living docs/KANBAN.md.
+version: 3.0.0
 license: Apache 2.0
 allowed-tools: run_command, view_file, write_to_file, replace_file_content, mcp_github-mcp-server_issue_read, mcp_github-mcp-server_issue_write, mcp_github-mcp-server_list_issues
 ---
@@ -67,43 +67,43 @@ stateDiagram-v2
 
 ## 🛠️ Core Capabilities & CLI Automation
 
-### 1. Ensure GitHub Project Exists & Link Repository
+### 1. Turnkey GitHub Project v2 Setup & Provisioning
+Run the automated script to provision the project, link it to the repository, and create all traceability fields:
 ```bash
-# 1. Check if project already exists for owner
-gh project list --owner <owner> --format json
+# Ensure gh CLI has project scope
+gh auth refresh -s project,read:project
 
-# 2. If not found, create project
-gh project create --owner <owner> --title "<repo-name> Board"
-
-# 3. Link project to the repository (shows in repo's Projects tab)
-gh project link <project-number> --owner <owner> --repo <repo-name>
+# Run turnkey provisioner
+.agent/skills/sdlc-kanban/scripts/project-setup.sh
 ```
 
-### 2. Configure Standardized Custom Fields
+### 2. Standardized Traceability Custom Fields
 - **`Status`** (Single Select): `Backlog`, `Ready`, `In Progress`, `In Review`, `Done`
 - **`Priority`** (Single Select): `P0 - Critical`, `P1 - High`, `P2 - Medium`, `P3 - Low`
-- **`Component`** (Single Select): `Backend`, `Frontend`, `Documentation`, `DevOps`
+- **`Component`** (Single Select): `Backend`, `Frontend`, `DevOps`, `Documentation`, `Architecture`
 - **`Estimate`** (Number): Story points (1, 2, 3, 5, 8)
+- **`Spec Link`** (Text): Link to `docs/specs/` or `wiki/` specification
+- **`Quality Gate`** (Single Select): `Pending`, `Passed`, `Failed`
 
 ```bash
-# Create custom fields
-gh project field-create <project-number> --owner <owner> --name "Priority" --data-type SINGLE_SELECT --single-select-options "P0 - Critical,P1 - High,P2 - Medium,P3 - Low"
-gh project field-create <project-number> --owner <owner> --name "Component" --data-type SINGLE_SELECT --single-select-options "Backend,Frontend,Documentation,DevOps"
-gh project field-create <project-number> --owner <owner> --name "Estimate" --data-type NUMBER
+# Manual field creation (if scripting manually)
+gh project field-create <project-number> --owner <owner> --name "Spec Link" --data-type TEXT
+gh project field-create <project-number> --owner <owner> --name "Quality Gate" --data-type SINGLE_SELECT --single-select-options "Pending,Passed,Failed"
 ```
 
-### 3. Five Recommended GitHub Project Views
+### 3. Six Recommended GitHub Project Views (100% Traceability)
 
-| View Name | Layout | Group By / Sort | Purpose & Best Practice |
-|---|---|---|---|
-| **1. Kanban Board** | `Board` | Group by `Status` | Primary execution view. Limits Work In Progress (WIP: max 3-5 in "In Progress"). |
-| **2. Triage & Backlog** | `Table` | Sort by `Priority`, Filter `Status: Backlog, Ready` | Grooming and scoping view for new issues. |
-| **3. Epic Roadmap** | `Roadmap` | Group by `Milestone`, Date range | Strategic view tracking releases and feature epics. |
-| **4. Sprint Iteration** | `Board` | Filter `Iteration: @current` | Focuses on issues committed to the active delivery sprint. |
-| **5. Quality Gate & PRs** | `Table` | Filter `Status: In Review` | DevSecOps and peer review view tracking PR checks and coverage. |
+| View Name | Layout | Group By / Filter | Displayed Fields | Purpose & Best Practice |
+|---|---|---|---|---|
+| **1. ⚡ Kanban Board** | `Board` | Group by `Status` | Title, Priority, Component, Estimate, PR | Primary execution view. Limits WIP (max 3-5 in "In Progress"). |
+| **2. 🎯 Traceability Matrix** | `Table` | Group by `Milestone` or `Component` | Issue #, Title, Status, **Spec Link**, PR, **Quality Gate** | 100% audit trail linking requirements to code and gates. |
+| **3. 📥 Backlog & Triage** | `Table` | Filter: `Status: Backlog, Ready`, Sort: `Priority` | Title, Priority, Component, Estimate | Grooming and scoping view for new issues. |
+| **4. 🏃 Sprint Iteration** | `Board` | Filter `Iteration: @current` | Title, Priority, Assignee, Linked PR | Daily delivery sprint focus for engineers and agents. |
+| **5. 🛡️ Quality Gate & Review** | `Table` | Filter `Status: In Review` | Title, Assignee, Linked PR, Quality Gate | Peer review tracking, catching mutation failures. |
+| **6. 🗺️ Epic Roadmap** | `Roadmap` | Group by `Milestone`, Target Date | Milestone, Epics, Issues | Strategic roadmap tracking releases and epics. |
 
 > [!TIP]
-> Use `gh project view <number> --owner <owner> --web` to open and fine-tune view layout configurations in the GitHub web interface.
+> Use `gh project view <number> --owner <owner> --web` to fine-tune layout configurations in the GitHub web interface.
 
 ---
 
