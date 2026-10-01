@@ -58,7 +58,7 @@ flowchart TD
 
 | Skill | Role Persona | Primary Responsibilities | Allowed Tools | Autonomous Next Step |
 | :--- | :--- | :--- | :--- | :--- |
-| **`sdlc-flow`** | Master Orchestrator | Drives the 8-stage issue-to-PR pipeline, Kanban transitions, coverage, and subagent reviews. | `run_command`, `view_file`, `invoke_subagent`, `github-mcp` | 👉 `sdlc-feature-spec` |
+| **`sdlc-flow`** | Master Orchestrator | Drives the 8-stage issue-to-PR pipeline, session concurrency locking (`.sdlc-session.json`), ad-hoc fast-path, and parallel fork-join subagent reviews. | `run_command`, `view_file`, `write_to_file`, `replace_file_content`, `invoke_subagent`, `manage_subagents`, `send_message`, `call_mcp_tool` | 👉 `sdlc-feature-spec` |
 | **`sdlc-feature-spec`** | Product Owner / Architect | Generates SVPG PRDs, IEEE 29148 SRS, C4 architecture diagrams, ADRs, and GitHub issues. | `run_command`, `view_file`, `write_to_file`, `github-mcp` | 👉 `sdlc-kanban` & `sdlc-flow` |
 | **`sdlc-tdd-implement`** | Full-Stack Engineer | Strict TDD feature implementation (Uncle Bob's 3 Laws & TPP) using Svelte 5 Runes and Quarkus Java 25. | `run_command`, `view_file`, `write_to_file`, `replace_file_content` | 👉 `sdlc-test-coverage` |
 | **`sdlc-test-coverage`** | QA Automation Engineer | Enforces Dual-Gate testing: diff coverage ($\ge 85\%$) and mutation kill score ($\ge 80\%$) via PITest & Stryker. | `run_command`, `view_file`, `write_to_file`, `replace_file_content` | 👉 `sdlc-docs-wiki` |

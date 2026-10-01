@@ -80,4 +80,4 @@ graph TD
 
 To run the full end-to-end autonomous pipeline on any GitHub issue:
 
-> *"Trigger `sdlc-flow` to execute issue #1031. Create the feature branch, implement with Uncle Bob's TDD, enforce Dual-Gate test coverage (>= 85%) and mutation defense (>= 80%), sync README showcase and CHANGELOG, open a PR, and dispatch a peer review subagent."*
+> *"Trigger `sdlc-flow` to execute issue #1031. Check session concurrency, create the feature branch, implement with Uncle Bob's TDD, enforce Dual-Gate test coverage (>= 85%) and mutation defense (>= 80%), sync README showcase and CHANGELOG, open a PR, and dispatch parallel peer review and quality gate subagents."*

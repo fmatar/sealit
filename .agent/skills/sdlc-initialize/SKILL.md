@@ -81,9 +81,10 @@ If Full-Stack was chosen:
   }
   ```
 
-### 4. Install Agentic SDLC Skills
-- Copy `.agent/skills/` (all 12 skills) and `docs/templates/` into the target workspace.
-- Ensure executable permissions on script assets: `chmod +x .agent/skills/sdlc-kanban/scripts/kanban-sync.sh`.
+### 4. Install Agentic SDLC Skills & Engine
+- Copy `.agent/skills/` (all 12 skills), `.agent/scripts/` (including `sdlc-engine.mjs`), and `docs/templates/` into the target workspace.
+- Ensure executable permissions on script assets: `chmod +x .agent/skills/*/scripts/*.sh .agent/scripts/*.mjs`.
+- Run universal stack detection to generate configuration: `node .agent/scripts/sdlc-engine.mjs detect`.
 - Initialize `docs/specs/`, `docs/KANBAN.md`, and `CHANGELOG.md` with Keep a Changelog template.
 
 ---

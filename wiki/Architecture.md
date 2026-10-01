@@ -37,18 +37,18 @@ flowchart TD
         S5 --> S6
     end
 
-    S4 -- "Coverage >= 90%" --> S5
+    S4 -- "Cov >= 85% & Mut >= 80%" --> S5
 
-    subgraph ReviewPhase ["⚡ Phase 4: Parallel Peer Review & Quality Gate"]
-        direction LR
-        S7["7. Subagent Peer Review<br/>invoke_subagent: sdlc-peer-review<br/>Diff Audit & Code Verification"]:::reviewNode
-        S8["8. Quality Gate & Security<br/>sdlc-quality-gate<br/>Spotless, svelte-check, Port 0, SAST"]:::reviewNode
+    subgraph ReviewPhase ["⚡ Phase 4: Stage 7 Fork-Join Parallel Review & Gate"]
+        direction TB
+        S7A["Subagent 1: Peer Reviewer<br/>sdlc-peer-review • Diff & Smells Audit"]:::reviewNode
+        S7B["Subagent 2: Quality Gatekeeper<br/>sdlc-quality-gate • Spotless, Build, a11y"]:::reviewNode
     end
 
     S6 --> ReviewPhase
-
-    Done["Release & Done<br/>sdlc-release-changelog • status:done<br/>SemVer Tag, Docker Container & Helm Deploy"]:::releaseNode
-    ReviewPhase --> Done
+    ReviewPhase --> GateCheck{Review & Gate Passed?}
+    GateCheck -- "Changes Requested / Failing Gate" --> S3
+    GateCheck -- "Approved" --> Done["8. Release & Done<br/>sdlc-release-changelog • status:done<br/>Session Release, SemVer Tag, Docker & Helm"]:::releaseNode
 ```
 
 ---
@@ -62,9 +62,9 @@ stateDiagram-v2
     [*] --> Backlog: New Issue Filed
     Backlog --> Ready: Stage 1 (Contract & Acceptance Criteria Approved)
     Ready --> InProgress: Stage 2 (Feature Branch Checked Out)
-    InProgress --> InProgress: Stage 3 & 4 (TDD & Coverage Loop < 90%)
+    InProgress --> InProgress: Stage 3 & 4 (TDD & Coverage Loop < 85%)
     InProgress --> InReview: Stage 6 (PR Opened & Linked)
-    InReview --> InProgress: Stage 7 (Changes Requested by Peer Subagent)
+    InReview --> InProgress: Stage 7 (Changes Requested / Failing Gate)
     InReview --> Done: Stage 8 (Quality Gate Clean & PR Merged)
     Done --> [*]
 ```
@@ -151,12 +151,13 @@ sequenceDiagram
 * Pushes branch to remote and calls `create_pull_request` linking `Fixes #<id>`.
 * Transitions issue to `status:in-review`.
 
-### Stage 7: Parallel Subagent Peer Review (`sdlc-peer-review`)
-* Spawns an independent peer reviewer subagent via `invoke_subagent`.
-* Audits PR diff for reactive patterns, security hygiene, Dual-Gate coverage and mutation defense, and Uncle Bob test smells (mock abuse, tautological tests).
-* Posts structured review comments and calls `pull_request_review_write` (`APPROVE` / `REQUEST_CHANGES`).
+### Stage 7: Fork-Join Parallel Review & Quality Gate (`invoke_subagent`)
+* Concurrently dispatches read-only auditor subagents via `invoke_subagent`:
+  * **Peer Reviewer (`sdlc-peer-review`)**: Audits PR diff for reactive patterns, security hygiene, Dual-Gate metrics, and Uncle Bob test smells. Posts structured review comments (`APPROVE` / `REQUEST_CHANGES`).
+  * **Quality Gatekeeper (`sdlc-quality-gate`)**: Executes universal quality gate (`sdlc-engine.mjs gate`), Spotless formatting, svelte-check, test port isolation, WCAG a11y, and SAST scanning.
+* If review requests changes or gate fails: reverts Kanban label to `status:in-progress` and rolls session back to Stage 3 (`sdlc-tdd-implement`).
 
-### Stage 8: Quality Gate & Release (`sdlc-quality-gate` & `sdlc-release-changelog`)
-* Pre-merge quality verification: Spotless formatting, SvelteKit static typing, test port isolation (`quarkus.http.test-port=0`), and SAST scanning.
+### Stage 8: Quality Gate Passed, Release & Lock Release (`sdlc-release-changelog` & `sdlc-kanban`)
+* Merges PR into base branch.
 * Increments Semantic Versioning (SemVer 2.0.0), builds Docker container images, and updates Kubernetes/Helm releases.
-* Marks ticket `status:done` and regenerates living [`docs/KANBAN.md`](../docs/KANBAN.md).
+* Marks ticket `status:done`, regenerates living [`docs/KANBAN.md`](../docs/KANBAN.md), and releases the session lock (`node .agent/scripts/sdlc-engine.mjs session release`).

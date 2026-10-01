@@ -38,6 +38,142 @@ export function execCommand(cmd, options = {}) {
   }
 }
 
+// --- Session State & Concurrency Lock ---
+
+const SESSION_FILE = '.sdlc-session.json';
+
+export function getSessionPath(repoRoot = '.') {
+  return path.resolve(repoRoot, '.agent', SESSION_FILE);
+}
+
+export function getSessionStatus(repoRoot = '.') {
+  const sessionPath = getSessionPath(repoRoot);
+  if (!fileExists(sessionPath)) {
+    return { active: false, session: null };
+  }
+
+  const content = readFileSafe(sessionPath);
+  if (!content) {
+    return { active: false, session: null, error: 'Empty session file' };
+  }
+
+  try {
+    const data = JSON.parse(content);
+    return { active: !!data.active, session: data };
+  } catch {
+    return { active: false, session: null, error: 'Corrupted session file' };
+  }
+}
+
+export function startSession({ issueId, branch, stage = 1, stageName = 'Intake & Specification', repoRoot = '.', force = false } = {}) {
+  const sessionPath = getSessionPath(repoRoot);
+  const current = getSessionStatus(repoRoot);
+
+  if (current.active && !force) {
+    throw new Error(`Active SDLC workflow session already in progress for issue #${current.session.issueId} on branch ${current.session.branch} (Stage ${current.session.stage}: ${current.session.stageName}).`);
+  }
+
+  fs.mkdirSync(path.dirname(sessionPath), { recursive: true });
+
+  const session = {
+    active: true,
+    issueId: issueId ? Number(issueId) : null,
+    branch: branch || 'main',
+    stage: Number(stage) || 1,
+    stageName: stageName || 'Intake & Specification',
+    startedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    activeSubagents: []
+  };
+
+  fs.writeFileSync(sessionPath, JSON.stringify(session, null, 2), 'utf8');
+  return { success: true, session };
+}
+
+export function updateSession({ stage, stageName, activeSubagents, repoRoot = '.' } = {}) {
+  const sessionPath = getSessionPath(repoRoot);
+  const current = getSessionStatus(repoRoot);
+
+  if (!current.active) {
+    throw new Error('No active SDLC workflow session found to update.');
+  }
+
+  const session = current.session;
+  if (stage !== undefined) session.stage = Number(stage);
+  if (stageName !== undefined) session.stageName = stageName;
+  if (activeSubagents !== undefined) session.activeSubagents = activeSubagents;
+  session.updatedAt = new Date().toISOString();
+
+  fs.writeFileSync(sessionPath, JSON.stringify(session, null, 2), 'utf8');
+  return { success: true, session };
+}
+
+export function releaseSession(repoRoot = '.') {
+  const sessionPath = getSessionPath(repoRoot);
+  if (fileExists(sessionPath)) {
+    try {
+      fs.unlinkSync(sessionPath);
+      return { success: true, released: true };
+    } catch {
+      return { success: false, released: false, error: 'Failed to delete session file' };
+    }
+  }
+  return { success: true, released: false };
+}
+
+// --- Ad-Hoc Target Routing & Parallel Clustering ---
+
+export function resolveAdHocTargets(files = [], modules = [], repoRoot = '.') {
+  if (!files || files.length === 0) {
+    return {
+      totalFiles: 0,
+      clusters: [],
+      executionStrategy: 'sequential',
+      recommendation: 'No targets specified. Run sequentially.'
+    };
+  }
+
+  const clusterMap = new Map();
+
+  for (const file of files) {
+    const relFile = path.isAbsolute(file) ? path.relative(path.resolve(repoRoot), file) : file;
+    let assignedKey = 'root';
+
+    for (const mod of modules) {
+      if (mod.path !== '.' && (relFile === mod.path || relFile.startsWith(mod.path + '/'))) {
+        assignedKey = mod.name;
+        break;
+      }
+    }
+
+    if (assignedKey === 'root') {
+      const parts = relFile.split(path.sep);
+      assignedKey = parts.length > 1 ? parts[0] : 'root';
+    }
+
+    if (!clusterMap.has(assignedKey)) {
+      clusterMap.set(assignedKey, []);
+    }
+    clusterMap.get(assignedKey).push(relFile);
+  }
+
+  const clusters = Array.from(clusterMap.entries()).map(([clusterName, clusterFiles]) => ({
+    name: clusterName,
+    files: clusterFiles
+  }));
+
+  const isParallel = clusters.length > 1;
+
+  return {
+    totalFiles: files.length,
+    clusters,
+    executionStrategy: isParallel ? 'parallel' : 'sequential',
+    recommendation: isParallel
+      ? `Targets span ${clusters.length} independent domains/modules. Dispatch in parallel subagents for accelerated execution.`
+      : 'All targets belong to the same module/directory. Execute sequentially to avoid merge/compilation hazards.'
+  };
+}
+
 // --- CI Workflow Reverse Engineering ---
 
 export function inspectCIWorkflows(repoRoot = '.') {
@@ -492,6 +628,67 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       return result;
     }
 
+    case 'session': {
+      const sub = args[1] || 'status';
+      result.subcommand = sub;
+
+      if (sub === 'status') {
+        const status = getSessionStatus(repoRoot);
+        console.log('⚡ SDLC Workflow Session Status:');
+        console.log(JSON.stringify(status, null, 2));
+        result.status = status;
+        return result;
+      }
+
+      if (sub === 'start') {
+        let issueId = null, branch = 'main', stage = 1, stageName = 'Intake & Specification', force = false;
+        for (let i = 2; i < args.length; i++) {
+          if (args[i] === '--issue' && args[i + 1]) issueId = args[++i];
+          else if (args[i] === '--branch' && args[i + 1]) branch = args[++i];
+          else if (args[i] === '--stage' && args[i + 1]) stage = args[++i];
+          else if (args[i] === '--name' && args[i + 1]) stageName = args[++i];
+          else if (args[i] === '--force') force = true;
+        }
+        const sessionRes = startSession({ issueId, branch, stage, stageName, repoRoot, force });
+        console.log('🚀 SDLC Workflow Session Started:');
+        console.log(JSON.stringify(sessionRes.session, null, 2));
+        return { ...result, ...sessionRes };
+      }
+
+      if (sub === 'update') {
+        let stage = undefined, stageName = undefined, activeSubagents = undefined;
+        for (let i = 2; i < args.length; i++) {
+          if (args[i] === '--stage' && args[i + 1]) stage = args[++i];
+          else if (args[i] === '--name' && args[i + 1]) stageName = args[++i];
+          else if (args[i] === '--subagents' && args[i + 1]) activeSubagents = args[++i].split(',').map(s => s.trim());
+        }
+        const sessionRes = updateSession({ stage, stageName, activeSubagents, repoRoot });
+        console.log('🔄 SDLC Workflow Session Updated:');
+        console.log(JSON.stringify(sessionRes.session, null, 2));
+        return { ...result, ...sessionRes };
+      }
+
+      if (sub === 'release') {
+        const sessionRes = releaseSession(repoRoot);
+        console.log('🔓 SDLC Workflow Session Released:');
+        console.log(JSON.stringify(sessionRes, null, 2));
+        return { ...result, ...sessionRes };
+      }
+
+      console.error(`Unknown session subcommand: ${sub}`);
+      result.success = false;
+      return result;
+    }
+
+    case 'resolve-targets': {
+      const targetFiles = args.slice(1);
+      const plan = resolveAdHocTargets(targetFiles, config.modules, repoRoot);
+      console.log('🎯 Ad-Hoc Target Routing Plan:');
+      console.log(JSON.stringify(plan, null, 2));
+      result.plan = plan;
+      return result;
+    }
+
     case 'help':
     default: {
       console.log(`
@@ -503,6 +700,8 @@ Usage:
   node .agent/scripts/sdlc-engine.mjs coverage   Run diff coverage gate
   node .agent/scripts/sdlc-engine.mjs mutation   Run mutation defense check
   node .agent/scripts/sdlc-engine.mjs gate       Execute full quality gate (lint, build, test)
+  node .agent/scripts/sdlc-engine.mjs session <status|start|update|release>
+  node .agent/scripts/sdlc-engine.mjs resolve-targets <files...>
       `);
       return result;
     }

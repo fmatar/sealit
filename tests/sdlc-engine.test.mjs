@@ -13,7 +13,13 @@ import {
   matchFilesToModules,
   generateConfig,
   printPreview,
-  runCLI
+  runCLI,
+  getSessionPath,
+  getSessionStatus,
+  startSession,
+  updateSession,
+  releaseSession,
+  resolveAdHocTargets
 } from '../.agent/scripts/sdlc-engine.mjs';
 
 describe('Universal SDLC Engine: Complete Uncle Bob Test Suite', () => {
@@ -494,6 +500,172 @@ jobs:
       const result = runCLI(['gate'], configPath, tmpDir);
       assert.equal(result.command, 'gate');
       assert.equal(result.success, true);
+    });
+
+    it('executes session status CLI command cleanly', () => {
+      const result = runCLI(['session', 'status'], undefined, tmpDir);
+      assert.equal(result.command, 'session');
+      assert.equal(result.subcommand, 'status');
+      assert.equal(result.status.active, false);
+    });
+
+    it('executes session start and release CLI cycle', () => {
+      const startResult = runCLI(['session', 'start', '--issue', '2050', '--branch', 'feature/test-cli'], undefined, tmpDir);
+      assert.equal(startResult.success, true);
+      assert.equal(startResult.session.issueId, 2050);
+
+      const statusResult = runCLI(['session', 'status'], undefined, tmpDir);
+      assert.equal(statusResult.status.active, true);
+      assert.equal(statusResult.status.session.issueId, 2050);
+
+      const updateResult = runCLI(['session', 'update', '--stage', '4', '--name', 'Dual-Gate Verification', '--subagents', 'peer-rev,gatekeeper'], undefined, tmpDir);
+      assert.equal(updateResult.success, true);
+      assert.equal(updateResult.session.stage, 4);
+      assert.deepEqual(updateResult.session.activeSubagents, ['peer-rev', 'gatekeeper']);
+
+      const releaseResult = runCLI(['session', 'release'], undefined, tmpDir);
+      assert.equal(releaseResult.success, true);
+      assert.equal(releaseResult.released, true);
+    });
+
+    it('executes resolve-targets CLI command', () => {
+      const result = runCLI(['resolve-targets', 'backend/User.java', 'frontend/User.svelte'], undefined, tmpDir);
+      assert.equal(result.command, 'resolve-targets');
+      assert.equal(result.plan.executionStrategy, 'parallel');
+    });
+  });
+
+  // ==========================================
+  // Section 8: Session Management & Concurrency Locking
+  // ==========================================
+  describe('Session Management & Concurrency Locking', () => {
+    it('reports session inactive when no session file exists', () => {
+      const status = getSessionStatus(tmpDir);
+      assert.equal(status.active, false);
+      assert.equal(status.session, null);
+    });
+
+    it('starts an active session and writes valid .agent/.sdlc-session.json', () => {
+      const res = startSession({
+        issueId: 1042,
+        branch: 'feature/issue-#1042-test',
+        stage: 1,
+        stageName: 'Intake & Specification',
+        repoRoot: tmpDir
+      });
+      assert.equal(res.success, true);
+      assert.equal(res.session.active, true);
+      assert.equal(res.session.issueId, 1042);
+      assert.equal(res.session.branch, 'feature/issue-#1042-test');
+      assert.equal(res.session.stage, 1);
+
+      const status = getSessionStatus(tmpDir);
+      assert.equal(status.active, true);
+      assert.equal(status.session.issueId, 1042);
+    });
+
+    it('rejects starting a new session if one is already active without force', () => {
+      startSession({
+        issueId: 1042,
+        branch: 'feature/issue-#1042-test',
+        repoRoot: tmpDir
+      });
+
+      assert.throws(() => {
+        startSession({
+          issueId: 1043,
+          branch: 'feature/issue-#1043-other',
+          repoRoot: tmpDir
+        });
+      }, /Active SDLC workflow session already in progress/);
+    });
+
+    it('allows starting a new session over an active one when force is true', () => {
+      startSession({
+        issueId: 1042,
+        branch: 'feature/issue-#1042-test',
+        repoRoot: tmpDir
+      });
+
+      const res = startSession({
+        issueId: 1043,
+        branch: 'feature/issue-#1043-other',
+        repoRoot: tmpDir,
+        force: true
+      });
+      assert.equal(res.success, true);
+      assert.equal(res.session.issueId, 1043);
+    });
+
+    it('updates session stage and active subagents cleanly', () => {
+      startSession({
+        issueId: 1042,
+        branch: 'feature/issue-#1042-test',
+        repoRoot: tmpDir
+      });
+
+      const updateRes = updateSession({
+        stage: 3,
+        stageName: 'Clean-Room TDD Implementation',
+        activeSubagents: ['peer-reviewer-1'],
+        repoRoot: tmpDir
+      });
+      assert.equal(updateRes.success, true);
+      assert.equal(updateRes.session.stage, 3);
+      assert.equal(updateRes.session.stageName, 'Clean-Room TDD Implementation');
+      assert.deepEqual(updateRes.session.activeSubagents, ['peer-reviewer-1']);
+    });
+
+    it('safely releases an active session', () => {
+      startSession({
+        issueId: 1042,
+        branch: 'feature/issue-#1042-test',
+        repoRoot: tmpDir
+      });
+      const releaseRes = releaseSession(tmpDir);
+      assert.equal(releaseRes.success, true);
+      assert.equal(releaseRes.released, true);
+
+      const status = getSessionStatus(tmpDir);
+      assert.equal(status.active, false);
+    });
+
+    it('handles corrupted session file gracefully without crashing', () => {
+      const sessionPath = getSessionPath(tmpDir);
+      fs.mkdirSync(path.dirname(sessionPath), { recursive: true });
+      fs.writeFileSync(sessionPath, 'invalid json {{{');
+
+      const status = getSessionStatus(tmpDir);
+      assert.equal(status.active, false);
+      assert.equal(status.error, 'Corrupted session file');
+    });
+  });
+
+  // ==========================================
+  // Section 9: Ad-Hoc Target Routing & Parallel Clustering
+  // ==========================================
+  describe('Ad-Hoc Target Routing & Parallel Clustering', () => {
+    it('recommends sequential execution when targets belong to the same module/directory', () => {
+      const files = ['backend/src/User.java', 'backend/src/UserTest.java'];
+      const plan = resolveAdHocTargets(files, [
+        { name: 'backend', path: 'backend' },
+        { name: 'frontend', path: 'frontend' }
+      ], tmpDir);
+
+      assert.equal(plan.executionStrategy, 'sequential');
+      assert.equal(plan.clusters.length, 1);
+    });
+
+    it('recommends parallel execution across independent modules', () => {
+      const files = ['backend/src/OrderService.java', 'frontend/src/OrderView.svelte'];
+      const plan = resolveAdHocTargets(files, [
+        { name: 'backend', path: 'backend' },
+        { name: 'frontend', path: 'frontend' }
+      ], tmpDir);
+
+      assert.equal(plan.executionStrategy, 'parallel');
+      assert.equal(plan.clusters.length, 2);
+      assert.ok(plan.recommendation.includes('parallel subagents'));
     });
   });
 });

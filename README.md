@@ -16,10 +16,10 @@ The Agentic SDLC Framework is a **Hybrid Orchestration** system that transforms 
 
 ## 🚀 Key Features
 
-* **Autonomous 8-Stage Lifecycle**: The `sdlc-flow` orchestrator drives intake, branching, TDD implementation, coverage enforcement, docs sync, PR creation, subagent peer review, and release.
+* **Autonomous 8-Stage Lifecycle**: The `sdlc-flow` orchestrator drives intake, branching, TDD implementation, coverage enforcement, docs sync, PR creation, parallel subagent peer review, and release with session concurrency locking (`.agent/.sdlc-session.json`).
 * **Living Kanban & GitHub Projects v2**: The `sdlc-kanban` skill automates ticket state transitions (`status:*`), manages GitHub Projects v2 multi-views, enforces WIP limits, and syncs an in-repo `docs/KANBAN.md` dashboard.
 * **Dual-Gate Testing & Mutation Defense**: Enforces Robert C. Martin (Uncle Bob) craftsmanship with $\ge 85\%$ diff coverage and $\ge 80\%$ mutation kill score (PITest for Quarkus, Stryker for Svelte 5) to eliminate vanity coverage metrics and kill surviving mutants.
-* **Parallel Subagent Peer Review**: Spawns independent subagents via `invoke_subagent` to audit PR diffs, detect test smells (no trivial getter tests, no mock abuse), and post review comments via GitHub MCP.
+* **Fork-Join Parallel Peer Review & Quality Gate**: Spawns independent read-only subagents via `invoke_subagent` to audit PR diffs, detect test smells (no trivial getter tests, no mock abuse), run static gates, and post review comments via GitHub MCP.
 * **Built-in DevSecOps & Quality Gate**: `sdlc-quality-gate` verifies Spotless formatting, static typing (`svelte-check`), test port isolation (`quarkus.http.test-port=0`), WCAG a11y, SAST audits, and production builds.
 * **Automated Releases & Deployments**: `sdlc-release-changelog` automatically manages Semantic Versioning (SemVer), keeps an automated changelog, generates Docker containers, and deploys via Helm.
 
@@ -27,7 +27,7 @@ The Agentic SDLC Framework is a **Hybrid Orchestration** system that transforms 
 
 The framework operates via interlocking skills located in `.agent/skills/`. Each skill defines a "Next Recommended Step," allowing agents to chain workflows autonomously:
 
-1. **`sdlc-flow`**: Master orchestrator running the 8-stage issue-to-PR automated pipeline with Dual-Gate test and mutation enforcement.
+1. **`sdlc-flow`**: Master orchestrator running the 8-stage issue-to-PR automated pipeline with session concurrency locking, ad-hoc fast-path routing, and parallel fork-join subagent reviews.
 2. **`sdlc-feature-spec`**: Generates structured PRD/SRS documentation, C4 diagrams, and GitHub issues.
 3. **`sdlc-tdd-implement`**: Svelte 5 UI and Quarkus Java 25 coding adhering to Uncle Bob's Three Laws of TDD and the Transformation Priority Premise (TPP).
 4. **`sdlc-test-coverage`**: Dual-Gate test enforcer requiring $\ge 85\%$ diff coverage and $\ge 80\%$ mutation score via PITest & Stryker.
@@ -77,7 +77,7 @@ curl -sL "https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/i
 
 ### Step 4: Bring Your Own App (BYOA) Workflow
 Plug the Agentic SDLC skills into any repository and trigger end-to-end autonomous execution:
-> *"Trigger sdlc-flow to execute issue #1031. Create the feature branch, implement with Uncle Bob's TDD, enforce Dual-Gate test coverage (>= 85%) and mutation defense (>= 80%), sync README showcase and CHANGELOG, open a PR, and dispatch a peer review subagent."*
+> *"Trigger sdlc-flow to execute issue #1031. Check session concurrency, create the feature branch, implement with Uncle Bob's TDD, enforce Dual-Gate test coverage (>= 85%) and mutation defense (>= 80%), sync README showcase and CHANGELOG, open a PR, and dispatch parallel peer review and quality gate subagents."*
 
 ## 📖 Documentation
 Detailed documentation is available in [`docs/SDLC_AGENTIC_OPERATIONS_GUIDE.md`](./docs/SDLC_AGENTIC_OPERATIONS_GUIDE.md) and the [`wiki/`](./wiki/) directory.

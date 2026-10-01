@@ -52,10 +52,10 @@ Use this skill when you need guidance on navigating the Agentic SDLC ecosystem, 
 6. Pull Request Creation (create_pull_request & status:in-review)
    │
    ▼
-7. Parallel Subagent Peer Review (sdlc-peer-review: Audit Test Smells & Invariants)
+7. Fork-Join Parallel Review & Quality Gate (invoke_subagent: sdlc-peer-review & sdlc-quality-gate)
    │
    ▼
-8. Quality Gate, Release & Done (sdlc-quality-gate, sdlc-release-changelog & status:done)
+8. Quality Gate Passed, Release Lock & Done (sdlc-release-changelog & status:done)
 ```
 
 ---
@@ -63,7 +63,7 @@ Use this skill when you need guidance on navigating the Agentic SDLC ecosystem, 
 ## 📋 Copy-Paste Prompt Recipes
 
 ### 1. The Autonomous Issue-to-PR Executor Recipe
-> *"Execute `sdlc-flow` on issue #<id>. Fetch the issue, create the feature branch, implement the feature using Uncle Bob's TDD, enforce Dual-Gate test coverage ($\ge 85\%$) and mutation score ($\ge 80\%$), sync README showcase, CHANGELOG.md and specs, push and open a PR, and trigger a peer review subagent."*
+> *"Execute `sdlc-flow` on issue #<id>. Fetch the issue, create the feature branch, implement the feature using Uncle Bob's TDD, enforce Dual-Gate test coverage ($\ge 85\%$) and mutation score ($\ge 80\%$), sync README showcase, CHANGELOG.md and specs, push and open a PR, and trigger parallel peer review and quality gate subagents."*
 
 ### 2. The Project Kanban & Board Manager Recipe
 > *"Run `sdlc-kanban` to configure GitHub Projects v2 views, transition issue #<id> to `status:in-progress`, and refresh `docs/KANBAN.md`."*
@@ -83,17 +83,26 @@ Use this skill when you need guidance on navigating the Agentic SDLC ecosystem, 
 ### 7. The Project Bootstrapper Recipe
 > *"Run `sdlc-initialize` to scaffold a full-stack Svelte 5 + Quarkus project with PITest and Stryker configured for agentic SDLC workflows."*
 
+### 8. The Ad-Hoc Fast-Path & Parallel Fan-Out Recipe
+> *"Execute an ad-hoc test implementation on the active branch: resolve targets for `backend/UserService.java` and `frontend/UserView.svelte`, and dispatch parallel subagents without re-triggering the full intake lifecycle."*
+
+### 9. The Session State & Concurrency Lock Recipe
+> *"Run `node .agent/scripts/sdlc-engine.mjs session status` to inspect the active in-flight ticket, or `node .agent/scripts/sdlc-engine.mjs session release` to safely clear a completed or cancelled workflow lock."*
+
 ---
 
 ## 🛠️ Tooling & Diagnostics Checklist
 
-1. **Universal SDLC Engine Diagnostics (Polyglot / Multi-Module)**:
+1. **Universal SDLC Engine Diagnostics (Polyglot / Multi-Module / Session)**:
    ```bash
-   node .agent/scripts/sdlc-engine.mjs detect     # Probe stack & preview configuration
-   node .agent/scripts/sdlc-engine.mjs test       # Run tests for touched modules
-   node .agent/scripts/sdlc-engine.mjs coverage   # Run diff coverage check (>= 85%)
-   node .agent/scripts/sdlc-engine.mjs mutation   # Run mutation defense check (>= 80%)
-   node .agent/scripts/sdlc-engine.mjs gate       # Run full quality gate
+   node .agent/scripts/sdlc-engine.mjs session status      # Inspect active workflow lock & stage
+   node .agent/scripts/sdlc-engine.mjs session release     # Release or reset session lock
+   node .agent/scripts/sdlc-engine.mjs resolve-targets ... # Analyze target files for parallel subagents
+   node .agent/scripts/sdlc-engine.mjs detect              # Probe stack & preview configuration
+   node .agent/scripts/sdlc-engine.mjs test                # Run tests for touched modules
+   node .agent/scripts/sdlc-engine.mjs coverage            # Run diff coverage check (>= 85%)
+   node .agent/scripts/sdlc-engine.mjs mutation            # Run mutation defense check (>= 80%)
+   node .agent/scripts/sdlc-engine.mjs gate                # Run full quality gate
    ```
 
 2. **Frontend Type Checking & Mutation Testing**:

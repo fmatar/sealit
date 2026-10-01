@@ -30,19 +30,40 @@ The ecosystem is composed of 12 interlocking Antigravity skills. These skills ut
 
 ## 2. Installation & Setup
 
-These skills are natively loaded via the `.agent/skills/` (or `.agents/skills/`) directory in your workspace.
+The framework provides a zero-dependency, ultra-fast installer (`install.sh`) that installs skills, the universal execution engine, and templates in under 2 seconds.
+
+### Quick Installation
+
+```bash
+# 1. Local installation into active workspace (with automatic stack discovery):
+curl -sL "https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/install.sh" | bash
+
+# 2. Global installation for all Antigravity agent sessions:
+curl -sL "https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/install.sh" | bash -s -- --global
+
+# 3. Enterprise JBang CLI execution (optional):
+jbang install.java --local .
+```
+
+### What Gets Installed
+- **Skills (`.agent/skills/`)**: All 12 specialized SDLC skills.
+- **Universal Engine (`.agent/scripts/sdlc-engine.mjs`)**: Polyglot stack detector, session concurrency manager, and quality gate runner.
+- **Templates (`docs/templates/`)**: PRD, SRS, C4 Architecture, and ADR templates.
+- **Config (`.agent/sdlc-config.json`)**: Auto-generated configuration tailored to your repository's stack.
 
 ### Prerequisites
-- Node.js (v20+)
-- Java 21+ / Java 25 (Temurin or GraalVM)
-- JBang (for deterministic installation)
-- An active Antigravity workspace mapped to your repository.
+- **Node.js (v20+)**: Required for running the universal engine (`sdlc-engine.mjs`).
+- **Java 21+ / 25**: Only required for Quarkus backend projects, PITest mutation testing, or running `install.java`.
+- **An active Antigravity workspace** mapped to your repository.
 
-### Initialization
-To verify the ecosystem is loaded, ask the agent:
+### Verification
+To verify the ecosystem is loaded, ask your agent:
 > *"List available skills"*
 
-You should see the `sdlc-*` skills listed. If they are not active, ensure your Antigravity agent has access to the `.agent/skills/` directory.
+You should see the 12 `sdlc-*` skills listed. You can also inspect detected stack settings:
+```bash
+node .agent/scripts/sdlc-engine.mjs detect
+```
 
 ---
 
@@ -52,17 +73,17 @@ You should see the `sdlc-*` skills listed. If they are not active, ensure your A
 When you have a GitHub Issue and want the agent to handle branch creation, TDD implementation, coverage and mutation enforcement, docs sync, PR creation, and subagent peer review automatically.
 
 **Command/Prompt:**
-> *"Trigger sdlc-flow to execute issue #1031. Create the feature branch, implement the feature with Uncle Bob's TDD, enforce Dual-Gate test coverage (>= 85%) and mutation defense (>= 80%), sync specs and changelog, open a PR, and run a peer review subagent."*
+> *"Trigger sdlc-flow to execute issue #1031. Check session concurrency, create the feature branch, implement the feature with Uncle Bob's TDD, enforce Dual-Gate test coverage (>= 85%) and mutation defense (>= 80%), sync specs and changelog, open a PR, and dispatch parallel peer review and quality gate subagents."*
 
 **What Happens Under the Hood:**
-1. **Spec & Intake Phase**: `sdlc-feature-spec` reads the issue, comments progress, and scaffolds acceptance criteria.
-2. **Branching**: `sdlc-flow` checks out `feature/issue-#1031-<title>`.
+1. **Spec & Intake Phase**: `sdlc-engine` locks the session, and `sdlc-feature-spec` reads the issue, comments progress, and scaffolds acceptance criteria.
+2. **Branching**: `sdlc-flow` checks out `feature/issue-#1031-<title>` and tags `status:in-progress`.
 3. **Implementation**: `sdlc-tdd-implement` strictly applies Uncle Bob's Three Laws of TDD and the Transformation Priority Premise (TPP) across Svelte 5 and Quarkus reactive logic.
 4. **Dual-Gate Enforcer**: `sdlc-test-coverage` validates line/branch diff coverage ($\ge 85\%$) via JaCoCo/Vitest and mutation kill score ($\ge 80\%$) via PITest/Stryker.
-5. **Docs & Showcase Sync**: `sdlc-docs-wiki` updates the root `README.md` 5-minute quickstart, `docs/specs/`, `CHANGELOG.md`, and inline docstrings.
-6. **Pull Request**: `sdlc-flow` pushes the branch and opens a PR linking `Fixes #1031`.
-7. **Parallel Review**: `sdlc-flow` invokes a subagent running `sdlc-peer-review` to audit the PR diff for test smells, mock abuse, and mutation scores.
-8. **Quality Gate**: `sdlc-quality-gate` verifies Spotless, builds, port isolation, and security scans.
+5. **Docs & Showcase Sync**: `sdlc-docs-wiki` updates the root `README.md` 5-minute quickstart, `docs/specs/`, `CHANGELOG.md`, and commits them before PR creation so the PR diff contains the full contract.
+6. **Pull Request**: `sdlc-flow` pushes the branch and opens a PR linking `Fixes #1031` (`status:in-review`).
+7. **Fork-Join Parallel Review & Gate**: `sdlc-flow` concurrently invokes read-only subagents (`sdlc-peer-review` and `sdlc-quality-gate`) to audit the PR diff and run full quality gate checks. If changes are requested, the ticket reverts to `status:in-progress` and rolls back to Stage 3.
+8. **Release & Lock Release**: `sdlc-release-changelog` tags the release, merges the PR, updates Kanban, and releases the session lock (`session release`).
 
 ### Scenario B: Generating Strict Architecture Documentation
 When you need to define a system before writing code, using enterprise templates.
