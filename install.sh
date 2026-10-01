@@ -71,17 +71,51 @@ if [[ "$USE_JBANG" == true ]]; then
     if [[ "$SKIP_DETECT" == true ]]; then
         FLAG="$FLAG --skip-detect"
     fi
-    exec jbang install.java $FLAG
+    if [[ -f "install.java" ]]; then
+        exec jbang install.java $FLAG
+    else
+        exec jbang "https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/install.java" $FLAG
+    fi
 fi
 
 # --- Source Resolution & Extraction ---
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR=""
 IN_GIT_REPO=false
-if command -v git &>/dev/null && git -C "$SCRIPT_DIR" rev-parse --is-inside-work-tree &>/dev/null; then
-    IN_GIT_REPO=true
+
+if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    if command -v git &>/dev/null && git -C "$SCRIPT_DIR" rev-parse --is-inside-work-tree &>/dev/null; then
+        if [[ -n "$(git -C "$SCRIPT_DIR" ls-tree -d HEAD .agent/skills 2>/dev/null)" ]]; then
+            IN_GIT_REPO=true
+        fi
+    fi
 fi
 
 echo "⚡ Installing Agentic SDLC Framework ($MODE mode)..."
+
+# Download archive if not running from inside the framework repository
+if [[ "$IN_GIT_REPO" == false ]]; then
+    TMP_DIR="$(mktemp -d)"
+    trap 'rm -rf "$TMP_DIR"' EXIT
+    AUTH_TOKEN="${GITHUB_TOKEN:-}"
+    if [[ -z "$AUTH_TOKEN" ]] && command -v gh &>/dev/null; then
+        AUTH_TOKEN="$(gh auth token 2>/dev/null || true)"
+    fi
+
+    if [[ -n "$AUTH_TOKEN" ]]; then
+        if ! curl -sL -H "Authorization: token $AUTH_TOKEN" "$ARCHIVE_URL" | tar -xz -C "$TMP_DIR" --strip-components=1; then
+            echo "❌ Failed to download or unpack repository archive." >&2
+            echo "   Please check network connection and verify token permissions." >&2
+            exit 1
+        fi
+    else
+        if ! curl -sL "$ARCHIVE_URL" | tar -xz -C "$TMP_DIR" --strip-components=1; then
+            echo "❌ Failed to download or unpack repository archive." >&2
+            echo "   If this is a private repository, export GITHUB_TOKEN=... or authenticate with 'gh auth login'." >&2
+            exit 1
+        fi
+    fi
+fi
 
 if [[ "$MODE" == "global" ]]; then
     DEST_SKILLS="$HOME/.gemini/config/skills"
@@ -92,11 +126,6 @@ if [[ "$MODE" == "global" ]]; then
         git -C "$SCRIPT_DIR" archive HEAD .agent/skills/ | tar -x -C "$DEST_SKILLS" --strip-components=2
         git -C "$SCRIPT_DIR" archive HEAD .agent/scripts/ | tar -x -C "$DEST_SCRIPTS" --strip-components=2
     else
-        TMP_DIR="$(mktemp -d)"
-        trap 'rm -rf "$TMP_DIR"' EXIT
-        CURL_HEADERS=()
-        [[ -n "${GITHUB_TOKEN:-}" ]] && CURL_HEADERS=(-H "Authorization: token $GITHUB_TOKEN")
-        curl -sL "${CURL_HEADERS[@]}" "$ARCHIVE_URL" | tar -xz -C "$TMP_DIR" --strip-components=1
         cp -R "${TMP_DIR}/.agent/skills/." "$DEST_SKILLS/"
         [[ -d "${TMP_DIR}/.agent/scripts" ]] && cp -R "${TMP_DIR}/.agent/scripts/." "$DEST_SCRIPTS/"
     fi
@@ -135,11 +164,6 @@ if [[ "$IN_GIT_REPO" == true ]]; then
         git -C "$SCRIPT_DIR" archive HEAD docs/templates/ | tar -x -C "$DEST_TEMPLATES" --strip-components=2
     fi
 else
-    TMP_DIR="$(mktemp -d)"
-    trap 'rm -rf "$TMP_DIR"' EXIT
-    CURL_HEADERS=()
-    [[ -n "${GITHUB_TOKEN:-}" ]] && CURL_HEADERS=(-H "Authorization: token $GITHUB_TOKEN")
-    curl -sL "${CURL_HEADERS[@]}" "$ARCHIVE_URL" | tar -xz -C "$TMP_DIR" --strip-components=1
     cp -R "${TMP_DIR}/.agent/skills/." "$DEST_SKILLS/"
     [[ -d "${TMP_DIR}/.agent/scripts" ]] && cp -R "${TMP_DIR}/.agent/scripts/." "$DEST_SCRIPTS/"
     [[ -d "${TMP_DIR}/docs/templates" ]] && cp -R "${TMP_DIR}/docs/templates/." "$DEST_TEMPLATES/"
@@ -161,7 +185,7 @@ if [[ "$SKIP_DETECT" == false ]]; then
     if command -v node &> /dev/null && [[ -f "${DEST_SCRIPTS}/sdlc-engine.mjs" ]]; then
         echo ""
         echo "🔍 Running Universal Stack Detection..."
-        (cd "$TARGET_ABS" && node "${AGENT_DIR_NAME}/scripts/sdlc-engine.mjs" detect) || echo "⚠️ Stack detection skipped or non-fatal."
+        (cd "$TARGET_ABS" && node "${DEST_SCRIPTS}/sdlc-engine.mjs" detect) || echo "⚠️ Stack detection skipped or non-fatal."
     fi
 fi
 

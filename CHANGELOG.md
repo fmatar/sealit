@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - refactor(quality-gate): add Spotless formatting checks and random test port isolation (`quarkus.http.test-port=0`)
 
 ### Fixed
+- fix(installer): resolve `BASH_SOURCE[0]` unbound variable and empty array expansion when piped via stdin (`curl ... | bash`)
 - fix(install): resolve directory name spacing issue in `install.sh`
 - fix(install): add support for `.agents` and `.agent` paths in `install.java`
 - fix(install): preserve file attributes and script execution permissions during installation in `install.java`
