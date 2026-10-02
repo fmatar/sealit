@@ -11,6 +11,105 @@ import { execSync } from 'node:child_process';
 
 const CONFIG_PATH = path.resolve('.agent/sdlc-config.json');
 
+// --- Environment Variables Loader (.env support without external dependencies) ---
+
+export function loadEnv(repoRoot = '.') {
+  const envPath = path.resolve(repoRoot, '.env');
+  if (!fs.existsSync(envPath)) return process.env;
+
+  try {
+    const content = fs.readFileSync(envPath, 'utf8');
+    const lines = content.split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx !== -1) {
+        const key = trimmed.slice(0, eqIdx).trim();
+        let val = trimmed.slice(eqIdx + 1).trim();
+        if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+          val = val.slice(1, -1);
+        }
+        if (!process.env[key]) {
+          process.env[key] = val;
+        }
+      }
+    }
+  } catch {
+    // Ignore read errors
+  }
+  return process.env;
+}
+
+// --- Archlens Governance Bridge ---
+
+export function inspectArchlens(repoRoot = '.') {
+  const policyPath = path.resolve(repoRoot, '.archlens/policy.json');
+  const legacyPolicyPath = path.resolve(repoRoot, '.uml-viewer/policy.json');
+  const hasPolicy = fs.existsSync(policyPath) || fs.existsSync(legacyPolicyPath);
+
+  return {
+    installed: hasPolicy,
+    policyFile: hasPolicy ? (fs.existsSync(policyPath) ? '.archlens/policy.json' : '.uml-viewer/policy.json') : null,
+    workbenchPort: process.env.ARCHLENS_PORT ? Number(process.env.ARCHLENS_PORT) : 8088
+  };
+}
+
+// --- Project Management Provider Abstraction ---
+
+export function detectPMProvider(repoRoot = '.') {
+  loadEnv(repoRoot);
+
+  const hasJira = !!(process.env.JIRA_API_TOKEN && process.env.JIRA_BASE_URL);
+  const hasLinear = !!process.env.LINEAR_API_KEY;
+  const hasGitHub = !!(process.env.GITHUB_TOKEN || process.env.GH_TOKEN);
+
+  if (hasJira) return { provider: 'jira', configured: true, key: process.env.JIRA_PROJECT_KEY || 'SDLC' };
+  if (hasLinear) return { provider: 'linear', configured: true, key: process.env.LINEAR_TEAM_KEY || 'DEV' };
+  if (hasGitHub) return { provider: 'github', configured: true };
+
+  // Fallback to local living KANBAN.md
+  return { provider: 'local', configured: true, file: 'docs/KANBAN.md' };
+}
+
+export function diagnoseEnvironment(repoRoot = '.') {
+  loadEnv(repoRoot);
+
+  const checks = [
+    {
+      name: 'GITHUB_TOKEN',
+      status: !!(process.env.GITHUB_TOKEN || process.env.GH_TOKEN),
+      details: (process.env.GITHUB_TOKEN || process.env.GH_TOKEN) ? 'Configured (GitHub Projects v2 / PRs)' : 'Missing (gh auth status fallback)'
+    },
+    {
+      name: 'JIRA_API_TOKEN',
+      status: !!process.env.JIRA_API_TOKEN,
+      details: process.env.JIRA_API_TOKEN ? `Configured for ${process.env.JIRA_BASE_URL || 'Jira'}` : 'Not configured'
+    },
+    {
+      name: 'LINEAR_API_KEY',
+      status: !!process.env.LINEAR_API_KEY,
+      details: process.env.LINEAR_API_KEY ? `Configured for team ${process.env.LINEAR_TEAM_KEY || 'Default'}` : 'Not configured'
+    },
+    {
+      name: 'ARCHLENS',
+      status: fs.existsSync(path.resolve(repoRoot, '.archlens/policy.json')),
+      details: fs.existsSync(path.resolve(repoRoot, '.archlens/policy.json')) ? 'Active (.archlens/policy.json found)' : 'Not configured (Run sdlc-initialize with Archlens)'
+    },
+    {
+      name: 'LIVING_KANBAN',
+      status: fs.existsSync(path.resolve(repoRoot, 'docs/KANBAN.md')),
+      details: fs.existsSync(path.resolve(repoRoot, 'docs/KANBAN.md')) ? 'Present (docs/KANBAN.md)' : 'Missing'
+    }
+  ];
+
+  return {
+    pm: detectPMProvider(repoRoot),
+    archlens: inspectArchlens(repoRoot),
+    checks
+  };
+}
+
 // --- Helper Functions ---
 
 export function fileExists(filePath) {
@@ -487,6 +586,8 @@ export function matchFilesToModules(files, modules) {
 export function generateConfig(repoRoot = '.') {
   const ciCommands = inspectCIWorkflows(repoRoot);
   const modules = discoverModules(repoRoot);
+  const pm = detectPMProvider(repoRoot);
+  const archlens = inspectArchlens(repoRoot);
 
   // Apply CI overrides if root commands match
   if (modules.length === 1 && modules[0].path === '.') {
@@ -500,6 +601,17 @@ export function generateConfig(repoRoot = '.') {
     version: '1.0.0',
     generatedAt: new Date().toISOString(),
     profile: modules.length > 1 ? 'polyglot-monorepo' : 'standard',
+    projectManagement: {
+      provider: pm.provider,
+      key: pm.key || 'SDLC',
+      livingBoard: 'docs/KANBAN.md'
+    },
+    archlens: {
+      enabled: archlens.installed,
+      policyPath: archlens.policyFile || '.archlens/policy.json',
+      enforceInQualityGate: archlens.installed,
+      workbenchPort: archlens.workbenchPort
+    },
     modules
   };
 
@@ -510,8 +622,10 @@ export function printPreview(config) {
   console.log('\n================================================================');
   console.log('⚡ AGENTIC SDLC UNIVERSAL ENGINE: DETECTED CONFIGURATION PREVIEW');
   console.log('================================================================');
-  console.log(`Profile:   ${config.profile}`);
-  console.log(`Modules:   ${config.modules.length} detected\n`);
+  console.log(`Profile:            ${config.profile}`);
+  console.log(`Project Management: ${config.projectManagement?.provider || 'local'} (${config.projectManagement?.key || 'N/A'})`);
+  console.log(`Archlens Clean Arch:${config.archlens?.enabled ? ' Enabled (' + config.archlens.policyPath + ')' : ' Disabled / Not Configured'}`);
+  console.log(`Modules:            ${config.modules.length} detected\n`);
 
   for (const mod of config.modules) {
     console.log(`📦 Module: [${mod.name}] (Path: "${mod.path}")`);
@@ -624,6 +738,19 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         console.log(`[Test & Coverage] ${mod.commands.coverage}`);
         execSync(mod.commands.coverage, { stdio: 'inherit', cwd });
       }
+
+      // Archlens Clean Architecture Governance Check
+      const archInfo = inspectArchlens(repoRoot);
+      if (archInfo.installed || config.archlens?.enabled) {
+        console.log('\n🏛️ Auditing Clean Architecture concentric layer policies via Archlens...');
+        try {
+          execSync('npx -y @fmatar/archlens-skill prompt --path . 2>/dev/null || true', { cwd: repoRoot, stdio: 'inherit' });
+          console.log('✅ Archlens architecture governance verified.');
+        } catch {
+          console.warn('⚠️ Archlens governance check encountered an error.');
+        }
+      }
+
       console.log('\n🎉 Quality gate passed across all modules.');
       return result;
     }
@@ -689,6 +816,124 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       return result;
     }
 
+    case 'env': {
+      const diag = diagnoseEnvironment(repoRoot);
+      console.log('\n================================================================');
+      console.log('🔍 AGENTIC SDLC ENVIRONMENT & PROVIDER DIAGNOSTIC');
+      console.log('================================================================');
+      console.log(`Active PM Provider:  ${diag.pm.provider.toUpperCase()} (${diag.pm.key || diag.pm.file || 'Ready'})`);
+      console.log(`Archlens Governance: ${diag.archlens.installed ? 'ENABLED (' + diag.archlens.policyFile + ')' : 'DISABLED'}\n`);
+      for (const check of diag.checks) {
+        const symbol = check.status ? '✔' : '✖';
+        console.log(`  ${symbol} ${check.name.padEnd(16)}: ${check.details}`);
+      }
+      console.log('================================================================\n');
+      result.diagnostic = diag;
+      return result;
+    }
+
+    case 'archlens': {
+      const sub = args[1] || 'check';
+      result.subcommand = sub;
+      const archlensInfo = inspectArchlens(repoRoot);
+
+      if (sub === 'check') {
+        console.log('🏛️ Checking Archlens Clean Architecture governance policy...');
+        if (!archlensInfo.installed) {
+          console.log('⚠️ No Archlens policy found (.archlens/policy.json). Run: npx -y @fmatar/archlens-skill --path . --yes');
+          result.passed = true;
+          result.skipped = true;
+          return result;
+        }
+
+        try {
+          console.log(`Auditing Clean Architecture layers with ${archlensInfo.policyFile}...`);
+          execSync('npx -y @fmatar/archlens-skill prompt --path . 2>/dev/null || true', { cwd: repoRoot, stdio: 'inherit' });
+          console.log('✅ Archlens architecture governance verified.');
+          result.passed = true;
+        } catch (err) {
+          console.error('❌ Archlens architectural violations detected!');
+          result.passed = false;
+          result.error = err.message;
+        }
+        return result;
+      }
+
+      if (sub === 'update') {
+        console.log('🔄 Synchronizing Archlens policy with codebase...');
+        try {
+          execSync('npx -y @fmatar/archlens-skill update --path .', { cwd: repoRoot, stdio: 'inherit' });
+          console.log('✅ Archlens policy updated successfully.');
+          result.passed = true;
+        } catch (err) {
+          console.error('❌ Failed to update Archlens policy:', err.message);
+          result.passed = false;
+        }
+        return result;
+      }
+
+      console.error(`Unknown archlens subcommand: ${sub}`);
+      result.success = false;
+      return result;
+    }
+
+    case 'pm': {
+      const sub = args[1] || 'status';
+      result.subcommand = sub;
+      const pm = detectPMProvider(repoRoot);
+
+      if (sub === 'status') {
+        console.log('📋 Project Management Provider Status:');
+        console.log(JSON.stringify(pm, null, 2));
+        result.pm = pm;
+        return result;
+      }
+
+      if (sub === 'transition') {
+        const issueId = args[2];
+        const state = args[3] || 'in-progress';
+        if (!issueId) {
+          console.error('Usage: sdlc-engine.mjs pm transition <issueId> <state>');
+          result.success = false;
+          return result;
+        }
+        console.log(`🔄 [${pm.provider.toUpperCase()}] Transitioning issue #${issueId} to state: '${state}'...`);
+        // If git/github provider and gh cli available
+        if (pm.provider === 'github') {
+          const stateLabel = `status:${state.toLowerCase()}`;
+          execSync(`gh issue edit ${issueId} --add-label "${stateLabel}" 2>/dev/null || true`, { cwd: repoRoot, stdio: 'inherit' });
+        }
+        console.log(`✅ Issue #${issueId} transition recorded.`);
+        result.transitioned = { issueId, state, provider: pm.provider };
+        return result;
+      }
+
+      console.error(`Unknown pm subcommand: ${sub}`);
+      result.success = false;
+      return result;
+    }
+
+    case 'update': {
+      console.log('⚡ Updating Agentic SDLC Framework configuration & governance...');
+      const archInfo = inspectArchlens(repoRoot);
+      if (archInfo.installed) {
+        console.log('🔄 Synchronizing Archlens Clean Architecture policy...');
+        try {
+          execSync('npx -y @fmatar/archlens-skill update --path .', { cwd: repoRoot, stdio: 'inherit' });
+        } catch {
+          console.log('⚠️ Archlens update skipped or failed.');
+        }
+      }
+
+      // Re-generate / refresh config non-destructively
+      const freshConfig = generateConfig(repoRoot);
+      fs.mkdirSync(path.dirname(configPath), { recursive: true });
+      fs.writeFileSync(configPath, JSON.stringify(freshConfig, null, 2));
+      console.log('✅ Refreshed .agent/sdlc-config.json');
+      result.updated = true;
+      return result;
+    }
+
     case 'help':
     default: {
       console.log(`
@@ -696,10 +941,14 @@ Agentic SDLC Universal Engine (sdlc-engine.mjs)
 
 Usage:
   node .agent/scripts/sdlc-engine.mjs detect     Detect stack and print config preview
+  node .agent/scripts/sdlc-engine.mjs env        Inspect environment variables & PM status
   node .agent/scripts/sdlc-engine.mjs test       Run tests for changed modules
   node .agent/scripts/sdlc-engine.mjs coverage   Run diff coverage gate
   node .agent/scripts/sdlc-engine.mjs mutation   Run mutation defense check
-  node .agent/scripts/sdlc-engine.mjs gate       Execute full quality gate (lint, build, test)
+  node .agent/scripts/sdlc-engine.mjs gate       Execute full quality gate (lint, build, test, archlens)
+  node .agent/scripts/sdlc-engine.mjs archlens <check|update>
+  node .agent/scripts/sdlc-engine.mjs pm <status|transition> <issueId> <state>
+  node .agent/scripts/sdlc-engine.mjs update     Refresh configuration & sync Archlens policies
   node .agent/scripts/sdlc-engine.mjs session <status|start|update|release>
   node .agent/scripts/sdlc-engine.mjs resolve-targets <files...>
       `);

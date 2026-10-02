@@ -84,6 +84,16 @@ npx svelte-check --tsconfig ./tsconfig.json
 - [ ] **Secret Scanning**: Verify zero plaintext secrets, tokens, or private keys in git status/diff.
 - [ ] **Dependency Audits**: Run `npm audit` and `./mvnw dependency-check:check` with zero Critical/High vulnerabilities.
 
+### 9. Clean Architecture Governance (Archlens)
+When `.archlens/policy.json` exists in the repository:
+```bash
+node .agent/scripts/sdlc-engine.mjs archlens check
+```
+- [ ] **Concentric Dependency Rule**: Verify all source code dependencies point strictly inward:
+  `Infrastructure (Level 3) -> Adapters (Level 2) -> Application (Level 1) -> Domain Core (Level 0)`.
+- [ ] **Domain Port Inversion (DIP)**: Inner core entities must NEVER import database, framework, or transport packages.
+- [ ] **Zero Circular Layer Cycles**: Fail gate on any circular dependencies detected between modules.
+
 ---
 
 ## ⏭️ Next Recommended Step

@@ -80,13 +80,16 @@ Use this skill when you need guidance on navigating the Agentic SDLC ecosystem, 
 ### 6. The Repository Compliance Auditor Recipe
 > *"Run `sdlc-analyze --strict` to audit repo health, Dual-Gate test coverage thresholds, and documentation completeness."*
 
-### 7. The Project Bootstrapper Recipe
-> *"Run `sdlc-initialize` to scaffold a full-stack Svelte 5 + Quarkus project with PITest and Stryker configured for agentic SDLC workflows."*
+### 7. The Universal Project Bootstrapper & Onboarding Recipe
+> *"Run `sdlc-initialize` to auto-detect the repository stack, optionally configure Archlens Clean Architecture governance and dynamic workbench, select the Project Management provider (GitHub, Jira, Linear, or Local), and wire SDLC workflows."*
 
-### 8. The Ad-Hoc Fast-Path & Parallel Fan-Out Recipe
+### 8. The Framework & Governance Synchronizer Recipe
+> *"Run `node .agent/scripts/sdlc-engine.mjs update` to synchronize the framework skills, refresh .agent/sdlc-config.json, and update .archlens/policy.json."*
+
+### 9. The Ad-Hoc Fast-Path & Parallel Fan-Out Recipe
 > *"Execute an ad-hoc test implementation on the active branch: resolve targets for `backend/UserService.java` and `frontend/UserView.svelte`, and dispatch parallel subagents without re-triggering the full intake lifecycle."*
 
-### 9. The Session State & Concurrency Lock Recipe
+### 10. The Session State & Concurrency Lock Recipe
 > *"Run `node .agent/scripts/sdlc-engine.mjs session status` to inspect the active in-flight ticket, or `node .agent/scripts/sdlc-engine.mjs session release` to safely clear a completed or cancelled workflow lock."*
 
 ---
@@ -95,14 +98,18 @@ Use this skill when you need guidance on navigating the Agentic SDLC ecosystem, 
 
 1. **Universal SDLC Engine Diagnostics (Polyglot / Multi-Module / Session)**:
    ```bash
-   node .agent/scripts/sdlc-engine.mjs session status      # Inspect active workflow lock & stage
-   node .agent/scripts/sdlc-engine.mjs session release     # Release or reset session lock
-   node .agent/scripts/sdlc-engine.mjs resolve-targets ... # Analyze target files for parallel subagents
-   node .agent/scripts/sdlc-engine.mjs detect              # Probe stack & preview configuration
-   node .agent/scripts/sdlc-engine.mjs test                # Run tests for touched modules
-   node .agent/scripts/sdlc-engine.mjs coverage            # Run diff coverage check (>= 85%)
-   node .agent/scripts/sdlc-engine.mjs mutation            # Run mutation defense check (>= 80%)
-   node .agent/scripts/sdlc-engine.mjs gate                # Run full quality gate
+   node .agent/scripts/sdlc-engine.mjs env                # Verify environment variables, PM provider & Archlens
+   node .agent/scripts/sdlc-engine.mjs detect             # Probe stack & preview configuration
+   node .agent/scripts/sdlc-engine.mjs archlens check     # Audit Clean Architecture concentric layer policy
+   node .agent/scripts/sdlc-engine.mjs pm status          # Check active PM provider (GitHub/Jira/Linear/Local)
+   node .agent/scripts/sdlc-engine.mjs update             # Sync framework & Archlens policies
+   node .agent/scripts/sdlc-engine.mjs session status     # Inspect active workflow lock & stage
+   node .agent/scripts/sdlc-engine.mjs session release    # Release or reset session lock
+   node .agent/scripts/sdlc-engine.mjs resolve-targets .. # Analyze target files for parallel subagents
+   node .agent/scripts/sdlc-engine.mjs test               # Run tests for touched modules
+   node .agent/scripts/sdlc-engine.mjs coverage           # Run diff coverage check (>= 85%)
+   node .agent/scripts/sdlc-engine.mjs mutation           # Run mutation defense check (>= 80%)
+   node .agent/scripts/sdlc-engine.mjs gate               # Run full quality gate (lint, build, test, archlens)
    ```
 
 2. **Frontend Type Checking & Mutation Testing**:

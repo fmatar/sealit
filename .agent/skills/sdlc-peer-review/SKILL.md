@@ -15,6 +15,10 @@ Use this skill when invoked as a parallel reviewer subagent via `invoke_subagent
 ## 🔍 Comprehensive Audit Checklist
 
 1. **Code Standards & Architecture**:
+   - **Clean Architecture & DIP (Archlens)**:
+     - Verify dependencies strictly point inward: `Infrastructure -> Adapters -> Application -> Domain Core`.
+     - Verify Dependency Inversion Principle (DIP): domain ports (interfaces) declared in inner layers; external adapters (DB, REST clients) implement them in outer layers.
+     - Zero domain leaks: Domain entities must never import frameworks, ORMs, or HTTP abstractions.
    - **Frontend**: Svelte 5 runes (`$state`, `$derived`, `$props`) used correctly; no legacy Svelte 4 reactivity or raw DOM mutators.
    - **Backend**: Quarkus reactive standards (Mutiny `Uni`/`Multi`, Panache Reactive); no thread-blocking database queries or split packages.
 2. **Security & Input Hygiene**:

@@ -35,8 +35,13 @@ echo "📦 Target Repository: $REPO_FULL"
 echo "👤 Owner: $OWNER"
 echo "📋 Project Title: $PROJECT_TITLE"
 
-# 4. Check if project already exists
-PROJECT_NUM=$(gh project list --owner "$OWNER" --format json | jq -r ".projects[] | select(.title == \"$PROJECT_TITLE\") | .number" 2>/dev/null || echo "")
+# 4. Check if project already exists (matching repo name or SDLC Board title)
+PROJECT_NUM=$(gh project list --owner "$OWNER" --format json 2>/dev/null | jq -r --arg repo "$REPO_NAME" --arg title "$PROJECT_TITLE" '
+  .projects[] | select(
+    (.title | ascii_downcase) == ($repo | ascii_downcase) or
+    (.title | ascii_downcase) == ($title | ascii_downcase) or
+    (.title | ascii_downcase | contains($repo | ascii_downcase))
+  ) | .number' | head -n 1)
 
 if [ -z "$PROJECT_NUM" ]; then
     echo "✨ Creating GitHub Project v2: '$PROJECT_TITLE'..."
