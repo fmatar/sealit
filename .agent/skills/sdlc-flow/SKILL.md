@@ -71,13 +71,14 @@ node .agent/scripts/sdlc-engine.mjs session status
 ### Stage 1: Intake & Contract Specification (`sdlc-feature-spec`)
 - Ensure project stack is detected and `.agent/sdlc-config.json` is initialized: `node .agent/scripts/sdlc-engine.mjs detect`.
 - Fetch issue requirements using `issue_read` via `call_mcp_tool` (or native tool).
+- Ensure ticket is assigned to the authenticated user (`gh api user -q .login` or `@me`) and linked to the repository's GitHub Project.
 - Post initial progress comment: `"🚀 Starting automated execution for ticket #<id>..."`
 - Formulate RFC / PRD, architecture schema, and Gherkin acceptance criteria.
 - **Kanban Transition (`sdlc-kanban`)**: Tag ticket with `status:ready`.
 
 ### Stage 2: Branch & Kanban Automation (`sdlc-kanban`)
 - **Session Update**: `node .agent/scripts/sdlc-engine.mjs session update --stage 2 --name "Branch & Kanban Automation"`.
-- **Kanban Transition (`sdlc-kanban`)**: Tag ticket with `status:in-progress`, assign to active Milestone, and sync board (`kanban-sync.sh`).
+- **Kanban Transition (`sdlc-kanban`)**: Tag ticket with `status:in-progress`, ensure assigned to the current user, assign to active Milestone, and sync board (`kanban-sync.sh`).
 - Verify clean git status (`git status --porcelain`).
 - Create and checkout branch: `git checkout -b feature/issue-#<id>-<kebab-case-title>`.
 

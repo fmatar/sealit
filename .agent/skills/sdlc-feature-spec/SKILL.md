@@ -67,8 +67,19 @@ If introducing new architectural patterns, libraries, or storage models:
 - Create `wiki/ADR-00X-[title].md` or `docs/specs/adr/` following the Michael Nygard format (Title, Status, Context, Decision, Consequences).
 
 ### Step 4: GitHub Issue Creation
-Call `issue_write` via `github-mcp-server` to create the structured ticket:
+Determine the active logged-in user and repository project dynamically:
+```bash
+ASSIGNEE=$(gh api user -q .login 2>/dev/null || gh auth status 2>&1 | grep "account" | awk '{print $NF}')
+OWNER=$(gh repo view --json owner -q .owner.login 2>/dev/null)
+REPO_NAME=$(gh repo view --json name -q .name 2>/dev/null)
+# Resolve project name matching repository name or SDLC board
+PROJECT_NAME=$(gh project list --owner "$OWNER" --format json 2>/dev/null | jq -r --arg repo "$REPO_NAME" '.projects[] | select((.title | ascii_downcase) | contains($repo | ascii_downcase)) | .title' | head -n 1)
+```
+
+Create the structured ticket (using `gh issue create` or `issue_write`):
 - **Title**: `feat(<component>): <short action-oriented title>`
+- **Assignee**: Current logged-in user (`$ASSIGNEE`, e.g. `@me` or resolved login)
+- **Project**: Target repository project (`$PROJECT_NAME`, passing `--project "$PROJECT_NAME"` if found)
 - **Body**:
   - `## User Story`
   - `## Technical Context & Scope`
