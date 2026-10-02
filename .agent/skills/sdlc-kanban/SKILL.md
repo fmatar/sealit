@@ -12,17 +12,24 @@ Use this skill to orchestrate project boards, manage issue lifecycles, enforce W
 
 ---
 
-## 🏗️ Dual-Plane Kanban Architecture
+## 🏗️ Multi-Provider & Dual-Plane Kanban Architecture
 
-`sdlc-kanban` operates on two complementary planes:
-1. **GitHub Projects v2 (Cloud Board)**: Full-featured GitHub Projects board with custom fields, multi-view setups (Board, Table, Roadmap, Sprint, Quality Gate), and automated card transitions.
-2. **Repository Living Board (`docs/KANBAN.md`)**: Version-controlled, zero-dependency Markdown board rendered in the repo and updated via `.agent/skills/sdlc-kanban/scripts/kanban-sync.sh`.
+`sdlc-kanban` operates dynamically across multiple cloud and offline providers configured via `.agent/sdlc-config.json` or environment variables:
+1. **GitHub Projects v2**: Full-featured board with custom fields, multi-view setups (Board, Table, Roadmap, Sprint, Quality Gate), and automated transitions via `gh` CLI or `github-mcp-server`.
+2. **Jira (Atlassian)**: Enterprise agile issue tracking mapped to SDLC lifecycle states via `jira-mcp-server` or Jira REST API.
+3. **Linear**: High-performance issue tracking mapped via `linear-mcp-server`.
+4. **Repository Living Board (`docs/KANBAN.md`)**: Version-controlled, zero-dependency Markdown board rendered in the repo and always updated as an offline, transparent audit trail.
 
 ```mermaid
 flowchart TD
-    Issue["GitHub Issue #<id>"] --> Labels["5-Stage Label Machine\n(status:*)"]
-    Issue --> CloudBoard["GitHub Project v2 (Cloud)"]
-    Issue --> LivingBoard["docs/KANBAN.md (Living Repo Board)"]
+    Issue["Task / Issue #<id>"] --> ProviderRouter{"Active PM Provider\n(sdlc-engine.mjs pm)"}
+    ProviderRouter -->|GitHub| CloudBoard["GitHub Project v2 (Cloud)"]
+    ProviderRouter -->|Jira| JiraBoard["Jira Cloud / Server Board"]
+    ProviderRouter -->|Linear| LinearBoard["Linear Team Board"]
+    ProviderRouter -->|Local| LivingBoard["docs/KANBAN.md (Living Repo Board)"]
+    CloudBoard --> LivingBoard
+    JiraBoard --> LivingBoard
+    LinearBoard --> LivingBoard
 
     subgraph Views ["🎨 GitHub Project v2 Views"]
         V1["1. Kanban Board View\n• Status columns with WIP limits"]
