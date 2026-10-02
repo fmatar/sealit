@@ -60,18 +60,30 @@ curl -sL "https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/i
 
 *Alternatively, run `./install.java --local .` or `./install.java --global` directly with JBang.*
 
-### Step 2: Bootstrap or Baseline Health Audit
-- **Greenfield Projects**: Trigger `sdlc-initialize` to scaffold a full-stack Svelte 5 + Quarkus Java 25 app with configured quality gates:
-  > *"Run sdlc-initialize to scaffold a new full-stack project."*
-- **Existing Codebases**: Trigger `sdlc-analyze` to compute a compliance baseline score:
-  > *"Run sdlc-analyze to audit project health and test coverage compliance."*
+To update the framework and sync Archlens policies at any time:
+```bash
+./install.sh --update
+# or via SDLC engine:
+node .agent/scripts/sdlc-engine.mjs update
+```
+
+### Step 2: Bootstrap, Configure & Diagnose Environment
+- Configure environment credentials (copy `.env.example` to `.env`):
+  ```bash
+  cp .env.example .env
+  node .agent/scripts/sdlc-engine.mjs env
+  ```
+- **Universal Interactive Wizard (`sdlc-initialize`)**: Auto-detects your polyglot stack, configures Archlens Clean Architecture concentric layer governance, and wires your Project Management provider (GitHub Projects, Jira, Linear, or Local):
+  > *"Run sdlc-initialize to onboard this project with Agentic SDLC."*
+- **Audit Baseline Health**: Trigger `sdlc-analyze` to compute a compliance baseline score:
+  > *"Run sdlc-analyze to audit project health, Clean Architecture, and mutation testing defense."*
 
 ### Step 3: Explore Interactive Guidance & Living Board
-- Ask your agent for the skill decision matrix and prompt recipes:
+- Ask your agent for the skill decision matrix, diagnostics, and prompt recipes:
   > *"Run sdlc-help to see the SDLC decision matrix and recipes."*
 - Inspect or refresh the in-repo living board:
   ```bash
-  .agent/skills/sdlc-kanban/scripts/kanban-sync.sh
+  node .agent/scripts/sdlc-engine.mjs pm status
   cat docs/KANBAN.md
   ```
 

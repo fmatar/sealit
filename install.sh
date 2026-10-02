@@ -10,6 +10,8 @@ TARGET_DIR="$ORIGINAL_DIR"
 MODE="local"
 SKIP_DETECT=false
 USE_JBANG=false
+IS_UPDATE=false
+WITH_ARCHLENS=false
 REPO_URL="https://github.com/fmatar/agentic-sdlc-framework"
 ARCHIVE_URL="${REPO_URL}/archive/refs/heads/main.tar.gz"
 
@@ -29,6 +31,14 @@ while [[ $# -gt 0 ]]; do
                 shift
             fi
             ;;
+        -u|--update)
+            IS_UPDATE=true
+            shift
+            ;;
+        --with-archlens)
+            WITH_ARCHLENS=true
+            shift
+            ;;
         --skip-detect)
             SKIP_DETECT=true
             shift
@@ -44,6 +54,8 @@ while [[ $# -gt 0 ]]; do
             echo "Options:"
             echo "  -l, --local [DIR]   Install locally into target project directory (default: current directory)"
             echo "  -g, --global        Install globally into ~/.gemini/config/skills"
+            echo "  -u, --update        Update framework skills, scripts, and sync Archlens policies"
+            echo "      --with-archlens Configure Archlens Clean Architecture governance & MCP"
             echo "      --skip-detect   Skip automatic stack detection (sdlc-engine detect)"
             echo "      --jbang         Use JBang install.java instead of native POSIX installer"
             echo "  -h, --help          Show this help message"
@@ -180,6 +192,15 @@ echo "   • Skills ($SKILL_COUNT loaded): ${TARGET_ABS}/${AGENT_DIR_NAME}/skill
 echo "   • Engine & Scripts:    ${TARGET_ABS}/${AGENT_DIR_NAME}/scripts"
 echo "   • Specs & Templates:   ${TARGET_ABS}/docs/templates"
 
+# --- Archlens Governance Setup (if requested or updating) ---
+if [[ "$WITH_ARCHLENS" == true ]] || [[ "$IS_UPDATE" == true && -d "${TARGET_ABS}/.archlens" ]]; then
+    if command -v npx &> /dev/null; then
+        echo ""
+        echo "🏛️ Synchronizing Archlens Clean Architecture Governance..."
+        (cd "$TARGET_ABS" && npx -y @fmatar/archlens-skill update --path . 2>/dev/null || npx -y @fmatar/archlens-skill --path . --yes --mcp) || echo "⚠️ Archlens setup skipped or non-fatal."
+    fi
+fi
+
 # --- Turnkey Stack Probing ---
 if [[ "$SKIP_DETECT" == false ]]; then
     if command -v node &> /dev/null && [[ -f "${DEST_SCRIPTS}/sdlc-engine.mjs" ]]; then
@@ -190,5 +211,9 @@ if [[ "$SKIP_DETECT" == false ]]; then
 fi
 
 echo ""
-echo "🎉 Agentic SDLC Framework is ready!"
+if [[ "$IS_UPDATE" == true ]]; then
+    echo "🎉 Agentic SDLC Framework has been updated successfully!"
+else
+    echo "🎉 Agentic SDLC Framework is ready!"
+fi
 echo "👉 Prompt your Antigravity agent: \"Run sdlc-flow for issue #<id>\" or \"Run sdlc-help\""

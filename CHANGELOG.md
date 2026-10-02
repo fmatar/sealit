@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- feat(wizard): universal detect-first interactive wizard in `sdlc-initialize` (v4.0.0) with structured `ask_question` modals, polyglot starter templates, Archlens Clean Architecture opt-in, and multi-provider PM setup
+- feat(archlens): native Archlens Clean Architecture concentric layer governance in `sdlc-quality-gate` (v4.0.0), `sdlc-peer-review` (v2.1.0), and `sdlc-engine.mjs archlens <check|update>`
+- feat(pm): pluggable Project Management provider abstraction supporting GitHub Projects v2, Jira (Atlassian), Linear, and offline `docs/KANBAN.md` in `sdlc-kanban` (v3.1.0) and `sdlc-engine.mjs pm`
+- feat(env): environment diagnostics via `node .agent/scripts/sdlc-engine.mjs env` and documented `.env.example` template covering GitHub, Jira, Linear, and Archlens
+- feat(updater): framework update capabilities via `install.sh --update`, `install.sh --with-archlens`, and `node .agent/scripts/sdlc-engine.mjs update`
 - feat(installer): upgrade `install.sh` to zero-dependency universal POSIX installer (<2s runtime) with tarball streaming, automatic stack discovery (`sdlc-engine detect`), and complete `.agent/scripts/` payload; upgrade `install.java` (v3.0) with engine payload, POSIX script permission preservation, and `--skip-detect`
 - feat(orchestration): align 8-stage lifecycle with pre-PR docs sync (Stage 5), PR creation (Stage 6), parallel fork-join peer review & gatekeeper (Stage 7), rejection rollback loop, session concurrency locking (`.agent/.sdlc-session.json`), and ad-hoc fast-path routing in `sdlc-flow` (v5.0.0)
 - feat(engine): add session lifecycle commands (`status`, `start`, `update` with `--subagents`, `release`) and `resolve-targets` parallel clustering in `sdlc-engine.mjs`

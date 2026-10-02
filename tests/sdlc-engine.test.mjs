@@ -19,7 +19,11 @@ import {
   startSession,
   updateSession,
   releaseSession,
-  resolveAdHocTargets
+  resolveAdHocTargets,
+  loadEnv,
+  detectPMProvider,
+  inspectArchlens,
+  diagnoseEnvironment
 } from '../.agent/scripts/sdlc-engine.mjs';
 
 describe('Universal SDLC Engine: Complete Uncle Bob Test Suite', () => {
@@ -666,6 +670,57 @@ jobs:
       assert.equal(plan.executionStrategy, 'parallel');
       assert.equal(plan.clusters.length, 2);
       assert.ok(plan.recommendation.includes('parallel subagents'));
+    });
+  });
+
+  // ==========================================
+  // Section 10: Environment Diagnostics, PM Providers & Archlens
+  // ==========================================
+  describe('Environment Diagnostics, PM Providers & Archlens Bridge', () => {
+    it('correctly loads environment variables from .env file', () => {
+      fs.writeFileSync(path.join(tmpDir, '.env'), 'TEST_SDLC_VAR="hello_sdlc"\n# comment\nANOTHER=123');
+      const env = loadEnv(tmpDir);
+      assert.equal(env.TEST_SDLC_VAR, 'hello_sdlc');
+      assert.equal(env.ANOTHER, '123');
+    });
+
+    it('detects Jira PM provider when JIRA env vars are populated', () => {
+      const originalToken = process.env.JIRA_API_TOKEN;
+      const originalUrl = process.env.JIRA_BASE_URL;
+      try {
+        process.env.JIRA_API_TOKEN = 'mock-jira-token';
+        process.env.JIRA_BASE_URL = 'https://mock.atlassian.net';
+        const pm = detectPMProvider(tmpDir);
+        assert.equal(pm.provider, 'jira');
+        assert.equal(pm.configured, true);
+      } finally {
+        if (originalToken) process.env.JIRA_API_TOKEN = originalToken; else delete process.env.JIRA_API_TOKEN;
+        if (originalUrl) process.env.JIRA_BASE_URL = originalUrl; else delete process.env.JIRA_BASE_URL;
+      }
+    });
+
+    it('detects Archlens policy when .archlens/policy.json is present', () => {
+      fs.mkdirSync(path.join(tmpDir, '.archlens'), { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, '.archlens/policy.json'), '{}');
+
+      const arch = inspectArchlens(tmpDir);
+      assert.equal(arch.installed, true);
+      assert.equal(arch.policyFile, '.archlens/policy.json');
+    });
+
+    it('returns structured environment diagnostics without throwing', () => {
+      const diag = diagnoseEnvironment(tmpDir);
+      assert.ok(diag.pm);
+      assert.ok(diag.archlens);
+      assert.ok(Array.isArray(diag.checks));
+      assert.ok(diag.checks.some(c => c.name === 'ARCHLENS'));
+    });
+
+    it('runs env CLI command cleanly and returns diagnostic data', () => {
+      const res = runCLI(['env'], null, tmpDir);
+      assert.equal(res.command, 'env');
+      assert.ok(res.diagnostic);
+      assert.ok(Array.isArray(res.diagnostic.checks));
     });
   });
 });
