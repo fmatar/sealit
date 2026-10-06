@@ -26,7 +26,7 @@ Use this skill when initiating new features, architectural refactors, or submitt
 
 ### Step 1: Requirements Discovery & Technical Scope
 - Determine feature intent, target personas, and user problem statement.
-- Identify architectural boundaries: frontend components (Svelte 5 UI), backend APIs/services (Quarkus), and database entities.
+- Identify architectural boundaries: frontend components / UI views, backend APIs / microservices, and persistence / storage entities.
 - Identify external service integrations (e.g. OAuth providers, REST APIs, webhooks).
 
 ### Step 2: Draft the Technical Specification (RFC)
@@ -40,9 +40,9 @@ Structure the specification using this standard schema:
 - Target personas and key use cases.
 
 ## 2. Technical Architecture & Data Schema
-- Data models to add/modify (`src/main/java/**` or `src/lib/types/`).
-- Frontend state stores impacted (Svelte 5 Runes: `$state`, `$derived`).
-- Backend endpoints and reactive service contracts (Mutiny `Uni`/`Multi`).
+- Data models to add/modify (entities, DTOs, schemas).
+- Frontend / client state stores impacted.
+- Backend endpoints, reactive/async contracts, and interface ports.
 
 ## 3. UI/UX & Responsive Layouts
 - Impacted routes and components.

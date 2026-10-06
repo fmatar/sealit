@@ -23,15 +23,15 @@ flowchart TD
     BranchIntent -->|No: New Flow| S1["1. Intake & Contract Specification\n(sdlc-feature-spec & session start & status:ready)"]
 
     S1 --> S2["2. Branch & Kanban In-Progress\n(feature/issue-#<id>-<title> & status:in-progress)"]
-    S2 --> S3["3. TDD Implementation\n(sdlc-tdd-implement)\n• Uncle Bob's 3 Laws of TDD & TPP\n• Svelte 5 Runes & Quarkus Reactive"]
-    S3 --> S4["4. Dual-Gate Test & Mutation Gate\n(sdlc-test-coverage)\n• >= 85% Line & Branch Diff Coverage\n• >= 80% Mutation Kill Score (PITest/Stryker)"]
+    S2 --> S3["3. TDD Implementation\n(sdlc-tdd-implement)\n• Uncle Bob's 3 Laws of TDD & TPP\n• Clean Domain & Decoupled Ports"]
+    S3 --> S4["4. Dual-Gate Test & Mutation Gate\n(sdlc-test-coverage)\n• >= 85% Line & Branch Diff Coverage\n• >= 80% Mutation Kill Score"]
     S4 --> S5["5. Documentation, Showcase & Changelog Sync\n(sdlc-docs-wiki)\n• Root README 4-Step Quickstart & BYOA\n• docs/specs/, CHANGELOG.md"]
     S5 --> S6["6. Pull Request Creation\n(create_pull_request & status:in-review)"]
     
     subgraph ParallelForkJoin ["⚡ Stage 7: Fork-Join Parallel Review & Gate (invoke_subagent)"]
         direction TB
-        F1["Subagent 1: Peer Reviewer (sdlc-peer-review)\n• Diff Audit & Test Smells Check\n• PR Review Comments"]
-        F2["Subagent 2: Quality Gatekeeper (sdlc-quality-gate)\n• Spotless, svelte-check, Build, a11y"]
+        F1["Subagent 1: Peer Reviewer (sdlc-peer-review)\n• Diff Audit, Test Smells & DIP Check\n• PR Review Comments"]
+        F2["Subagent 2: Quality Gatekeeper (sdlc-quality-gate)\n• Lint, Build, Dual-Gate, Archlens, a11y"]
     end
     
     S6 --> ParallelForkJoin
@@ -87,7 +87,7 @@ node .agent/scripts/sdlc-engine.mjs session status
 - Strictly apply **Uncle Bob's Three Laws of TDD** and the **Transformation Priority Premise (TPP)**.
 - If modifying legacy code with $<40\%$ baseline coverage, write characterization tests first.
 - Write failing unit tests first for degenerate cases before writing production code.
-- Implement business logic adhering to Svelte 5 Runes (`$state`, `$derived`, `$props`) for UI, and Quarkus reactive standards (Mutiny `Uni`/`Multi`, Panache) for backend.
+- Implement business logic adhering to idiomatic standards for the detected stack (clean domain use cases, reactive streams or async where applicable, decoupled external ports).
 - Reject test smells (no testing trivial getters/setters, no testing framework plumbing, no mock-heavy interaction verification).
 
 ### Stage 4: Dual-Gate Test & Mutation Enforcement (`sdlc-test-coverage`)
@@ -138,7 +138,7 @@ node .agent/scripts/sdlc-engine.mjs session status
     {
       "TypeName": "self",
       "Role": "Quality Gatekeeper",
-      "Prompt": "Load sdlc-quality-gate/SKILL.md. Execute universal quality gate (node .agent/scripts/sdlc-engine.mjs gate), Spotless formatting, svelte-check, build validation, and WCAG a11y audit."
+      "Prompt": "Load sdlc-quality-gate/SKILL.md. Execute universal quality gate (node .agent/scripts/sdlc-engine.mjs gate), formatting, static typing, build validation, DevSecOps, and WCAG a11y audit."
     }
   ]
 }

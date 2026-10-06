@@ -19,8 +19,8 @@ Use this skill when invoked as a parallel reviewer subagent via `invoke_subagent
      - Verify dependencies strictly point inward: `Infrastructure -> Adapters -> Application -> Domain Core`.
      - Verify Dependency Inversion Principle (DIP): domain ports (interfaces) declared in inner layers; external adapters (DB, REST clients) implement them in outer layers.
      - Zero domain leaks: Domain entities must never import frameworks, ORMs, or HTTP abstractions.
-   - **Frontend**: Svelte 5 runes (`$state`, `$derived`, `$props`) used correctly; no legacy Svelte 4 reactivity or raw DOM mutators.
-   - **Backend**: Quarkus reactive standards (Mutiny `Uni`/`Multi`, Panache Reactive); no thread-blocking database queries or split packages.
+   - **Frontend / UI Standards**: Encapsulated fine-grained reactivity (e.g. Svelte 5 Runes, React Hooks, Vue refs); no memory leaks in effects, no unhandled async rejections.
+   - **Backend / Microservice Standards**: Clean domain models, non-blocking I/O where applicable, no split packages or circular layer dependencies.
 2. **Security & Input Hygiene**:
    - Validate null checks, input sanitization, boundaries, and secure token/secret handling (zero plaintext credentials).
 3. **Dual-Gate Testing & Test Craftsmanship (Uncle Bob Standard)**:
