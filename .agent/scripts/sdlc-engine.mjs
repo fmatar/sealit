@@ -1128,7 +1128,18 @@ Usage:
   }
 }
 
-// Execute if run directly as CLI
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {
-  runCLI();
+// Execute if run directly as CLI or via bin wrapper/symlink
+if (process.argv[1]) {
+  try {
+    const isDirect = path.resolve(process.argv[1]) === path.resolve(import.meta.filename);
+    const isRealTarget = fs.realpathSync(process.argv[1]) === path.resolve(import.meta.filename);
+    if (isDirect || isRealTarget) {
+      runCLI();
+    }
+  } catch {
+    // If realpath fails, fallback to direct compare
+    if (path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {
+      runCLI();
+    }
+  }
 }
