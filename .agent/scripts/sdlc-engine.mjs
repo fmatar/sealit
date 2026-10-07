@@ -218,6 +218,73 @@ export function createTicket({ title, type = 'feat', body = '', repoRoot = '.' }
   return { success: true, provider: 'local', issueId, url: `docs/KANBAN.md#${issueId}`, title: fullTitle };
 }
 
+export function installFramework({ targetDir = '.', global = false, repoRoot = '.' } = {}) {
+  const isGlobal = !!global;
+  const packageDir = path.resolve(import.meta.dirname, '../..'); // Root of agentic-sdlc package
+  const sourceSkills = path.resolve(packageDir, '.agent/skills');
+  const sourceScripts = path.resolve(packageDir, '.agent/scripts');
+  const sourceDocs = path.resolve(packageDir, 'docs/templates');
+
+  let destSkills, destScripts, destDocs;
+
+  if (isGlobal) {
+    const home = process.env.HOME || process.env.USERPROFILE || '';
+    destSkills = path.resolve(home, '.gemini/config/skills');
+    destScripts = path.resolve(home, '.gemini/config/scripts');
+    console.log(`⚡ Installing Agentic SDLC Framework globally into ${destSkills}...`);
+  } else {
+    const targetAbs = path.resolve(repoRoot, targetDir);
+    const agentDirName = fs.existsSync(path.resolve(targetAbs, '.agents/skills')) ? '.agents' : '.agent';
+    destSkills = path.resolve(targetAbs, agentDirName, 'skills');
+    destScripts = path.resolve(targetAbs, agentDirName, 'scripts');
+    destDocs = path.resolve(targetAbs, 'docs/templates');
+    console.log(`⚡ Installing Agentic SDLC Framework locally into ${targetAbs}...`);
+  }
+
+  // Ensure directories exist
+  fs.mkdirSync(destSkills, { recursive: true });
+  fs.mkdirSync(destScripts, { recursive: true });
+  if (destDocs) fs.mkdirSync(destDocs, { recursive: true });
+
+  // Recursive copy helper
+  function copyRecursive(src, dest) {
+    if (!fs.existsSync(src)) return;
+    const entries = fs.readdirSync(src, { withFileTypes: true });
+    for (const entry of entries) {
+      const srcPath = path.join(src, entry.name);
+      const destPath = path.join(dest, entry.name);
+      if (entry.isDirectory()) {
+        fs.mkdirSync(destPath, { recursive: true });
+        copyRecursive(srcPath, destPath);
+      } else {
+        fs.copyFileSync(srcPath, destPath);
+        if (entry.name.endsWith('.sh') || entry.name.endsWith('.mjs')) {
+          try { fs.chmodSync(destPath, 0o755); } catch {}
+        }
+      }
+    }
+  }
+
+  copyRecursive(sourceSkills, destSkills);
+  copyRecursive(sourceScripts, destScripts);
+  if (destDocs && fs.existsSync(sourceDocs)) {
+    copyRecursive(sourceDocs, destDocs);
+  }
+
+  const loadedSkills = fs.existsSync(destSkills) ? fs.readdirSync(destSkills).filter(f => fs.statSync(path.join(destSkills, f)).isDirectory()).length : 0;
+  console.log(`✅ Installation complete (${loadedSkills} skills loaded).`);
+  if (!isGlobal) {
+    console.log(`   • Skills:    ${destSkills}`);
+    console.log(`   • Engine:    ${destScripts}`);
+    console.log(`   • Templates: ${destDocs}`);
+  } else {
+    console.log(`   • Skills:    ${destSkills}`);
+    console.log(`   • Scripts:   ${destScripts}`);
+  }
+
+  return { success: true, global: isGlobal, skillsCount: loadedSkills, destSkills, destScripts };
+}
+
 export function startSession({ issueId, branch, stage = 1, stageName = 'Intake & Specification', repoRoot = '.', force = false } = {}) {
   const sessionPath = getSessionPath(repoRoot);
   const current = getSessionStatus(repoRoot);
@@ -1002,6 +1069,19 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       return result;
     }
 
+    case 'init':
+    case 'install': {
+      let targetDir = '.', global = false;
+      for (let i = 1; i < args.length; i++) {
+        if (args[i] === '--global' || args[i] === '-g') global = true;
+        else if ((args[i] === '--target' || args[i] === '-t') && args[i + 1]) targetDir = args[++i];
+        else if (!args[i].startsWith('-') && i === 1) targetDir = args[i];
+      }
+      const installRes = installFramework({ targetDir, global, repoRoot });
+      result.installed = installRes;
+      return result;
+    }
+
     case 'update': {
       console.log('⚡ Updating Agentic SDLC Framework configuration & governance...');
       const archInfo = inspectArchlens(repoRoot);
@@ -1029,6 +1109,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
 Agentic SDLC Universal Engine (sdlc-engine.mjs)
 
 Usage:
+  node .agent/scripts/sdlc-engine.mjs init [--global]  Install framework locally or globally
   node .agent/scripts/sdlc-engine.mjs detect     Detect stack and print config preview
   node .agent/scripts/sdlc-engine.mjs env        Inspect environment variables & PM status
   node .agent/scripts/sdlc-engine.mjs test       Run tests for changed modules

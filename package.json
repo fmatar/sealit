@@ -1,0 +1,47 @@
+{
+  "name": "@fmatar/agentic-sdlc",
+  "version": "5.0.0",
+  "description": "Autonomous Agentic Software Development Lifecycle (SDLC) Framework for AI Coding Agents",
+  "keywords": [
+    "agentic-sdlc",
+    "skills",
+    "antigravity",
+    "ai-agents",
+    "tdd",
+    "clean-architecture",
+    "mutation-testing",
+    "kanban"
+  ],
+  "author": "Fadi Matar",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fmatar/agentic-sdlc-framework.git"
+  },
+  "homepage": "https://github.com/fmatar/agentic-sdlc-framework#readme",
+  "type": "module",
+  "main": "./.agent/scripts/sdlc-engine.mjs",
+  "bin": {
+    "sdlc": "./.agent/scripts/sdlc-engine.mjs",
+    "agentic-sdlc": "./.agent/scripts/sdlc-engine.mjs"
+  },
+  "files": [
+    ".agent/skills",
+    ".agent/scripts",
+    "docs/templates",
+    "install.sh",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "detect": "node .agent/scripts/sdlc-engine.mjs detect",
+    "env": "node .agent/scripts/sdlc-engine.mjs env",
+    "gate": "node .agent/scripts/sdlc-engine.mjs gate",
+    "test": "node .agent/scripts/sdlc-engine.mjs test",
+    "coverage": "node .agent/scripts/sdlc-engine.mjs coverage",
+    "mutation": "node .agent/scripts/sdlc-engine.mjs mutation"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
