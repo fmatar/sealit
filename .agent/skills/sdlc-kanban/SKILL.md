@@ -177,6 +177,7 @@ To prevent cognitive fragmentation and subagent saturation:
 
 ## ⏭️ Integration with `sdlc-flow`
 
+* **Gate 0 (Mandatory Ticket Invariant)**: `sdlc-flow` guarantees every incoming request (feature or bug fix) resolves or auto-provisions a ticket (`#<id>`) before any branch is cut or code is modified.
 * **Stage 1 (Contract)**: `sdlc-flow` verifies issue is scoped and tags `status:ready`.
 * **Stage 2 (Branch)**: `sdlc-flow` tags issue `status:in-progress`, assigns Milestone, and runs `kanban-sync.sh`.
 * **Stage 6 (PR)**: `sdlc-flow` tags issue `status:in-review`.

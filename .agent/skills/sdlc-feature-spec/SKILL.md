@@ -66,7 +66,7 @@ Scenario: Successful entity lifecycle transition
 If introducing new architectural patterns, libraries, or storage models:
 - Create `wiki/ADR-00X-[title].md` or `docs/specs/adr/` following the Michael Nygard format (Title, Status, Context, Decision, Consequences).
 
-### Step 4: GitHub Issue Creation
+### Step 4: Issue & Ticket Creation (Features & Bug Fixes)
 Determine the active logged-in user and repository project dynamically:
 ```bash
 ASSIGNEE=$(gh api user -q .login 2>/dev/null || gh auth status 2>&1 | grep "account" | awk '{print $NF}')
@@ -76,16 +76,30 @@ REPO_NAME=$(gh repo view --json name -q .name 2>/dev/null)
 PROJECT_NAME=$(gh project list --owner "$OWNER" --format json 2>/dev/null | jq -r --arg repo "$REPO_NAME" '.projects[] | select((.title | ascii_downcase) | contains($repo | ascii_downcase)) | .title' | head -n 1)
 ```
 
-Create the structured ticket (using `gh issue create` or `issue_write`):
-- **Title**: `feat(<component>): <short action-oriented title>`
-- **Assignee**: Current logged-in user (`$ASSIGNEE`, e.g. `@me` or resolved login)
-- **Project**: Target repository project (`$PROJECT_NAME`, passing `--project "$PROJECT_NAME"` if found)
-- **Body**:
-  - `## User Story`
-  - `## Technical Context & Scope`
-  - `## Acceptance Criteria (Definition of Done)`
-  - `## Target Files`
-- **Labels**: `feature`, `backend`, `frontend`, `documentation`, `status:ready` (or `status:backlog` if pending review).
+Create the structured ticket using either GitHub CLI (`gh issue create`), MCP `issue_write`, or the unified engine CLI:
+```bash
+# Automated multi-provider creation (GitHub or local docs/KANBAN.md fallback):
+node .agent/scripts/sdlc-engine.mjs ticket create --title "<type>(<component>): <title>" --type <feat|bug> --body "<description>"
+```
+
+#### Ticket Schemas:
+- **For Features (`feat`)**:
+  - **Title**: `feat(<component>): <short action-oriented title>`
+  - **Labels**: `feature`, `status:ready`, `<layer>` (`backend`, `frontend`, etc.)
+  - **Body**:
+    - `## User Story`
+    - `## Technical Context & Scope`
+    - `## Acceptance Criteria (Definition of Done)`
+    - `## Target Files`
+- **For Bug Fixes (`fix`)**:
+  - **Title**: `fix(<component>): <concise symptom or failure>`
+  - **Labels**: `bug`, `status:ready`
+  - **Body**:
+    - `## Bug Description & Impact`
+    - `## Reproduction Steps / Failing Conditions`
+    - `## Expected vs Actual Behavior`
+    - `## Acceptance Criteria (Definition of Done & Regression Test Requirement)`
+    - `## Target Files`
 
 ---
 

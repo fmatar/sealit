@@ -164,9 +164,67 @@ export function getSessionStatus(repoRoot = '.') {
   }
 }
 
+export function createTicket({ title, type = 'feat', body = '', repoRoot = '.' } = {}) {
+  const pm = detectPMProvider(repoRoot);
+  const prefix = type.toLowerCase() === 'bug' || type.toLowerCase() === 'fix' ? 'fix' : 'feat';
+  const fullTitle = title.startsWith(`${prefix}:`) || title.startsWith(`${prefix}(`) ? title : `${prefix}: ${title}`;
+
+  if (pm.provider === 'github') {
+    try {
+      const label = prefix === 'fix' ? 'bug,status:ready' : 'feature,status:ready';
+      const output = execSync(
+        `gh issue create --title "${fullTitle.replace(/"/g, '\\"')}" --body "${(body || fullTitle).replace(/"/g, '\\"')}" --label "${label}"`,
+        { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
+      );
+      const url = output.trim();
+      const match = url.match(/\/issues\/(\d+)/);
+      const issueId = match ? Number(match[1]) : null;
+      return { success: true, provider: 'github', issueId, url, title: fullTitle };
+    } catch (err) {
+      // Fallback to local living KANBAN.md if gh cli fails or unauthenticated
+      console.warn('⚠️ GitHub issue creation failed or CLI not authenticated. Falling back to local docs/KANBAN.md.');
+    }
+  }
+
+  // Local docs/KANBAN.md ticket creation
+  const kanbanPath = path.resolve(repoRoot, 'docs/KANBAN.md');
+  const now = new Date().toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
+  let issueId = Date.now() % 10000; // Generate deterministic unique pseudo-id
+  let content = readFileSafe(kanbanPath);
+
+  if (!content) {
+    fs.mkdirSync(path.dirname(kanbanPath), { recursive: true });
+    content = `# 📋 Project Kanban Board & Traceability Matrix\n\n> **Living Project State & Audit Trail**\n> **Last Synced**: \`${now}\`\n\n---\n\n## 📊 Board Overview\n\n| 📥 Backlog | 📋 Ready | ⚡ In Progress | 🔍 In Review | ✅ Done |\n| :--- | :--- | :--- | :--- | :--- |\n\n---\n\n## 🎯 End-to-End Traceability Matrix\n\n| Issue / Spec | Status | Priority | Component | Milestone | Spec / Contract |\n| :--- | :--- | :--- | :--- | :--- |\n`;
+  }
+
+  const ticketRef = `#${issueId}: ${fullTitle}`;
+  const tableMarker = '| :--- | :--- | :--- | :--- | :--- |\n';
+  const tableIdx = content.indexOf(tableMarker);
+
+  if (tableIdx !== -1) {
+    const insertPos = tableIdx + tableMarker.length;
+    // Insert into Ready column
+    content = content.slice(0, insertPos) + `| | ${ticketRef} | | | |\n` + content.slice(insertPos);
+  }
+
+  const matrixMarker = '## 🎯 End-to-End Traceability Matrix\n\n| Issue / Spec | Status | Priority | Component | Milestone | Spec / Contract |\n| :--- | :--- | :--- | :--- | :--- |\n';
+  const matrixIdx = content.indexOf(matrixMarker);
+  if (matrixIdx !== -1) {
+    const insertPos = matrixIdx + matrixMarker.length;
+    content = content.slice(0, insertPos) + `| **#${issueId}** | \`status:ready\` | \`P1 - High\` | Core | Current | ${fullTitle} |\n` + content.slice(insertPos);
+  }
+
+  fs.writeFileSync(kanbanPath, content, 'utf8');
+  return { success: true, provider: 'local', issueId, url: `docs/KANBAN.md#${issueId}`, title: fullTitle };
+}
+
 export function startSession({ issueId, branch, stage = 1, stageName = 'Intake & Specification', repoRoot = '.', force = false } = {}) {
   const sessionPath = getSessionPath(repoRoot);
   const current = getSessionStatus(repoRoot);
+
+  if (!issueId) {
+    throw new Error('Mandatory Ticket Invariant Violated: Cannot start an SDLC workflow session without a valid issueId (--issue <id>). Create a ticket first via GitHub, PM provider, or sdlc-engine ticket create.');
+  }
 
   if (current.active && !force) {
     throw new Error(`Active SDLC workflow session already in progress for issue #${current.session.issueId} on branch ${current.session.branch} (Stage ${current.session.stage}: ${current.session.stageName}).`);
@@ -176,8 +234,8 @@ export function startSession({ issueId, branch, stage = 1, stageName = 'Intake &
 
   const session = {
     active: true,
-    issueId: issueId ? Number(issueId) : null,
-    branch: branch || 'main',
+    issueId: Number(issueId) || issueId,
+    branch: branch || `feature/issue-#${issueId}`,
     stage: Number(stage) || 1,
     stageName: stageName || 'Intake & Specification',
     startedAt: new Date().toISOString(),
@@ -913,6 +971,37 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       return result;
     }
 
+    case 'ticket': {
+      const sub = args[1] || 'create';
+      result.subcommand = sub;
+
+      if (sub === 'create') {
+        let title = '', type = 'feat', body = '';
+        for (let i = 2; i < args.length; i++) {
+          if (args[i] === '--title' && args[i + 1]) title = args[++i];
+          else if (args[i] === '--type' && args[i + 1]) type = args[++i];
+          else if (args[i] === '--body' && args[i + 1]) body = args[++i];
+        }
+        if (!title) {
+          title = args.slice(2).filter(a => !a.startsWith('--')).join(' ');
+        }
+        if (!title) {
+          console.error('Usage: sdlc-engine.mjs ticket create --title "<title>" [--type feat|bug] [--body "<summary>"]');
+          result.success = false;
+          return result;
+        }
+
+        const ticketRes = createTicket({ title, type, body, repoRoot });
+        console.log('🎫 SDLC Ticket Provisioned:');
+        console.log(JSON.stringify(ticketRes, null, 2));
+        return { ...result, ...ticketRes };
+      }
+
+      console.error(`Unknown ticket subcommand: ${sub}`);
+      result.success = false;
+      return result;
+    }
+
     case 'update': {
       console.log('⚡ Updating Agentic SDLC Framework configuration & governance...');
       const archInfo = inspectArchlens(repoRoot);
@@ -948,6 +1037,7 @@ Usage:
   node .agent/scripts/sdlc-engine.mjs gate       Execute full quality gate (lint, build, test, archlens)
   node .agent/scripts/sdlc-engine.mjs archlens <check|update>
   node .agent/scripts/sdlc-engine.mjs pm <status|transition> <issueId> <state>
+  node .agent/scripts/sdlc-engine.mjs ticket create --title "<title>" [--type feat|bug]
   node .agent/scripts/sdlc-engine.mjs update     Refresh configuration & sync Archlens policies
   node .agent/scripts/sdlc-engine.mjs session <status|start|update|release>
   node .agent/scripts/sdlc-engine.mjs resolve-targets <files...>
