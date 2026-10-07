@@ -16,12 +16,12 @@ Use this skill when writing unit and integration tests, auditing test coverage, 
 
 A high line coverage number without assertion density is a vanity metric ("tests that run code without verifying outcomes"). To ensure tests genuinely defend against defects, this skill enforces a **Dual-Gate Quality Threshold**:
 
-| Stack Tier | Tooling | Target Scope | Dual-Gate Threshold |
+| Stack Tier | Target Scope | Dual-Gate Threshold | Example Toolchains |
 | :--- | :--- | :--- | :--- |
-| **Backend API & Core** | JUnit 5, JaCoCo, **PITest** | `src/main/java/` (Quarkus) | **$\ge$ 85% Line/Branch Diff Coverage**<br/>**$\ge$ 80% Mutation Kill Score** |
-| **Frontend State & Runes** | Vitest, **Stryker Mutator** | `src/lib/stores/`, `src/lib/state/` | **$\ge$ 85% Line/Branch Diff Coverage**<br/>**$\ge$ 80% Mutation Kill Score** |
-| **Frontend UI Components** | Vitest, Testing Library | `src/lib/components/` | **$\ge$ 80% Line Coverage** |
-| **End-to-End User Flows** | Playwright | `tests/e2e/` | Happy paths, auth, core user journeys |
+| **Backend & Core Domain** | Core business logic, APIs, entities | **$\ge$ 85% Line/Branch Diff Coverage**<br/>**$\ge$ 80% Mutation Kill Score** | Java: JaCoCo + PITest<br/>Node/TS: Vitest + Stryker<br/>Python: pytest-cov + mutmut<br/>Go: go test -cover + go-mutesting<br/>Rust: cargo-tarpaulin + cargo-mutants |
+| **Frontend State & Runes** | Stores, reactive models, use cases | **$\ge$ 85% Line/Branch Diff Coverage**<br/>**$\ge$ 80% Mutation Kill Score** | Vitest / Jest + Stryker Mutator |
+| **Frontend UI Components** | Component rendering, UI interaction | **$\ge$ 80% Line Coverage** | Vitest, Testing Library, Playwright Component |
+| **End-to-End User Flows** | Critical integration journeys | Happy paths, auth, core workflows | Playwright, Cypress |
 
 > [!IMPORTANT]
 > **The Dual-Gate Invariant**:
@@ -43,41 +43,32 @@ node .agent/scripts/sdlc-engine.mjs mutation
 ```
 
 ### 2. Manual / Stack-Specific Execution
-
-#### Run Unit & Integration Coverage (JaCoCo):
-```bash
-./mvnw clean test jacoco:report
-```
-- Parse the generated JaCoCo coverage summary: `target/site/jacoco/index.html` or `target/site/jacoco/jacoco.csv`.
-- Inspect missed branches and lines specifically for modified classes.
-
-#### Run Mutation Testing (PITest):
-```bash
-./mvnw test-compile org.pitest:pitest-maven:mutationCoverage -DmutationThreshold=80
-```
-- Parse the generated PITest report in `target/pit-reports/index.html`.
-- For fast iterative runs scoped to modified files:
+Depending on the active stack in `.agent/sdlc-config.json`:
+- **Java / Quarkus / Spring**:
   ```bash
-  ./mvnw test-compile org.pitest:pitest-maven:mutationCoverage -DtargetClasses="com.example.service.*"
+  ./mvnw clean test jacoco:report
+  ./mvnw test-compile org.pitest:pitest-maven:mutationCoverage -DmutationThreshold=80
   ```
-
-### 3. Frontend Coverage & Mutation Execution (Svelte 5 / TypeScript)
-
-#### Run Coverage (Vitest):
-```bash
-npm run test:coverage
-```
-- Parse the generated Vitest coverage summary: `coverage/index.html` or terminal table.
-
-#### Run Mutation Testing (Stryker):
-```bash
-npx stryker run
-```
-- For fast iterative runs scoped to changed files:
+- **Node.js / TypeScript / Svelte 5 / React**:
   ```bash
-  npx stryker run --mutate "src/lib/state/session.svelte.ts"
+  npm run test:coverage
+  npx stryker run
   ```
-- Parse the Stryker HTML report in `reports/mutation/mutation.html`.
+- **Python (pytest & mutmut)**:
+  ```bash
+  pytest --cov=. --cov-report=html
+  mutmut run
+  ```
+- **Go**:
+  ```bash
+  go test -coverprofile=coverage.out ./...
+  go-mutesting ./...
+  ```
+- **Rust**:
+  ```bash
+  cargo tarpaulin --out Html
+  cargo mutants
+  ```
 
 ---
 

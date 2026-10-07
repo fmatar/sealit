@@ -48,13 +48,12 @@ Get up and running with the Agentic SDLC Framework in four simple stages:
 Install the framework locally to your project's `.agent/` (or `.agents/`) directory, or install globally to `~/.gemini/config/skills`:
 
 ```bash
-# Export GitHub Token (if installing from private repository)
-export GITHUB_TOKEN="ghp_your_token_here"
+# Modern zero-install with npx (Recommended):
+npx @fmatar/agentic-sdlc init          # Local project installation
+npx @fmatar/agentic-sdlc init --global # Global installation (~/.gemini/config/skills)
 
-# Install locally into current workspace
-curl -H "Authorization: token $GITHUB_TOKEN" -sL "https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/install.sh" | bash
-
-# Or install globally for all Antigravity agent sessions:
+# Or via turnkey POSIX curl installer:
+curl -sL "https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/install.sh" | bash
 curl -sL "https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/install.sh" | bash -s -- --global
 ```
 
@@ -62,7 +61,7 @@ curl -sL "https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/i
 
 To update the framework and sync Archlens policies at any time:
 ```bash
-./install.sh --update
+npx @fmatar/agentic-sdlc update
 # or via SDLC engine:
 node .agent/scripts/sdlc-engine.mjs update
 ```

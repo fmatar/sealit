@@ -164,9 +164,134 @@ export function getSessionStatus(repoRoot = '.') {
   }
 }
 
+export function createTicket({ title, type = 'feat', body = '', repoRoot = '.' } = {}) {
+  const pm = detectPMProvider(repoRoot);
+  const prefix = type.toLowerCase() === 'bug' || type.toLowerCase() === 'fix' ? 'fix' : 'feat';
+  const fullTitle = title.startsWith(`${prefix}:`) || title.startsWith(`${prefix}(`) ? title : `${prefix}: ${title}`;
+
+  if (pm.provider === 'github') {
+    try {
+      const label = prefix === 'fix' ? 'bug,status:ready' : 'feature,status:ready';
+      const output = execSync(
+        `gh issue create --title "${fullTitle.replace(/"/g, '\\"')}" --body "${(body || fullTitle).replace(/"/g, '\\"')}" --label "${label}"`,
+        { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
+      );
+      const url = output.trim();
+      const match = url.match(/\/issues\/(\d+)/);
+      const issueId = match ? Number(match[1]) : null;
+      return { success: true, provider: 'github', issueId, url, title: fullTitle };
+    } catch (err) {
+      // Fallback to local living KANBAN.md if gh cli fails or unauthenticated
+      console.warn('⚠️ GitHub issue creation failed or CLI not authenticated. Falling back to local docs/KANBAN.md.');
+    }
+  }
+
+  // Local docs/KANBAN.md ticket creation
+  const kanbanPath = path.resolve(repoRoot, 'docs/KANBAN.md');
+  const now = new Date().toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
+  let issueId = Date.now() % 10000; // Generate deterministic unique pseudo-id
+  let content = readFileSafe(kanbanPath);
+
+  if (!content) {
+    fs.mkdirSync(path.dirname(kanbanPath), { recursive: true });
+    content = `# 📋 Project Kanban Board & Traceability Matrix\n\n> **Living Project State & Audit Trail**\n> **Last Synced**: \`${now}\`\n\n---\n\n## 📊 Board Overview\n\n| 📥 Backlog | 📋 Ready | ⚡ In Progress | 🔍 In Review | ✅ Done |\n| :--- | :--- | :--- | :--- | :--- |\n\n---\n\n## 🎯 End-to-End Traceability Matrix\n\n| Issue / Spec | Status | Priority | Component | Milestone | Spec / Contract |\n| :--- | :--- | :--- | :--- | :--- |\n`;
+  }
+
+  const ticketRef = `#${issueId}: ${fullTitle}`;
+  const tableMarker = '| :--- | :--- | :--- | :--- | :--- |\n';
+  const tableIdx = content.indexOf(tableMarker);
+
+  if (tableIdx !== -1) {
+    const insertPos = tableIdx + tableMarker.length;
+    // Insert into Ready column
+    content = content.slice(0, insertPos) + `| | ${ticketRef} | | | |\n` + content.slice(insertPos);
+  }
+
+  const matrixMarker = '## 🎯 End-to-End Traceability Matrix\n\n| Issue / Spec | Status | Priority | Component | Milestone | Spec / Contract |\n| :--- | :--- | :--- | :--- | :--- |\n';
+  const matrixIdx = content.indexOf(matrixMarker);
+  if (matrixIdx !== -1) {
+    const insertPos = matrixIdx + matrixMarker.length;
+    content = content.slice(0, insertPos) + `| **#${issueId}** | \`status:ready\` | \`P1 - High\` | Core | Current | ${fullTitle} |\n` + content.slice(insertPos);
+  }
+
+  fs.writeFileSync(kanbanPath, content, 'utf8');
+  return { success: true, provider: 'local', issueId, url: `docs/KANBAN.md#${issueId}`, title: fullTitle };
+}
+
+export function installFramework({ targetDir = '.', global = false, repoRoot = '.' } = {}) {
+  const isGlobal = !!global;
+  const packageDir = path.resolve(import.meta.dirname, '../..'); // Root of agentic-sdlc package
+  const sourceSkills = path.resolve(packageDir, '.agent/skills');
+  const sourceScripts = path.resolve(packageDir, '.agent/scripts');
+  const sourceDocs = path.resolve(packageDir, 'docs/templates');
+
+  let destSkills, destScripts, destDocs;
+
+  if (isGlobal) {
+    const home = process.env.HOME || process.env.USERPROFILE || '';
+    destSkills = path.resolve(home, '.gemini/config/skills');
+    destScripts = path.resolve(home, '.gemini/config/scripts');
+    console.log(`⚡ Installing Agentic SDLC Framework globally into ${destSkills}...`);
+  } else {
+    const targetAbs = path.resolve(repoRoot, targetDir);
+    const agentDirName = fs.existsSync(path.resolve(targetAbs, '.agents/skills')) ? '.agents' : '.agent';
+    destSkills = path.resolve(targetAbs, agentDirName, 'skills');
+    destScripts = path.resolve(targetAbs, agentDirName, 'scripts');
+    destDocs = path.resolve(targetAbs, 'docs/templates');
+    console.log(`⚡ Installing Agentic SDLC Framework locally into ${targetAbs}...`);
+  }
+
+  // Ensure directories exist
+  fs.mkdirSync(destSkills, { recursive: true });
+  fs.mkdirSync(destScripts, { recursive: true });
+  if (destDocs) fs.mkdirSync(destDocs, { recursive: true });
+
+  // Recursive copy helper
+  function copyRecursive(src, dest) {
+    if (!fs.existsSync(src)) return;
+    const entries = fs.readdirSync(src, { withFileTypes: true });
+    for (const entry of entries) {
+      const srcPath = path.join(src, entry.name);
+      const destPath = path.join(dest, entry.name);
+      if (entry.isDirectory()) {
+        fs.mkdirSync(destPath, { recursive: true });
+        copyRecursive(srcPath, destPath);
+      } else {
+        fs.copyFileSync(srcPath, destPath);
+        if (entry.name.endsWith('.sh') || entry.name.endsWith('.mjs')) {
+          try { fs.chmodSync(destPath, 0o755); } catch {}
+        }
+      }
+    }
+  }
+
+  copyRecursive(sourceSkills, destSkills);
+  copyRecursive(sourceScripts, destScripts);
+  if (destDocs && fs.existsSync(sourceDocs)) {
+    copyRecursive(sourceDocs, destDocs);
+  }
+
+  const loadedSkills = fs.existsSync(destSkills) ? fs.readdirSync(destSkills).filter(f => fs.statSync(path.join(destSkills, f)).isDirectory()).length : 0;
+  console.log(`✅ Installation complete (${loadedSkills} skills loaded).`);
+  if (!isGlobal) {
+    console.log(`   • Skills:    ${destSkills}`);
+    console.log(`   • Engine:    ${destScripts}`);
+    console.log(`   • Templates: ${destDocs}`);
+  } else {
+    console.log(`   • Skills:    ${destSkills}`);
+    console.log(`   • Scripts:   ${destScripts}`);
+  }
+
+  return { success: true, global: isGlobal, skillsCount: loadedSkills, destSkills, destScripts };
+}
+
 export function startSession({ issueId, branch, stage = 1, stageName = 'Intake & Specification', repoRoot = '.', force = false } = {}) {
   const sessionPath = getSessionPath(repoRoot);
   const current = getSessionStatus(repoRoot);
+
+  if (!issueId) {
+    throw new Error('Mandatory Ticket Invariant Violated: Cannot start an SDLC workflow session without a valid issueId (--issue <id>). Create a ticket first via GitHub, PM provider, or sdlc-engine ticket create.');
+  }
 
   if (current.active && !force) {
     throw new Error(`Active SDLC workflow session already in progress for issue #${current.session.issueId} on branch ${current.session.branch} (Stage ${current.session.stage}: ${current.session.stageName}).`);
@@ -176,8 +301,8 @@ export function startSession({ issueId, branch, stage = 1, stageName = 'Intake &
 
   const session = {
     active: true,
-    issueId: issueId ? Number(issueId) : null,
-    branch: branch || 'main',
+    issueId: Number(issueId) || issueId,
+    branch: branch || `feature/issue-#${issueId}`,
     stage: Number(stage) || 1,
     stageName: stageName || 'Intake & Specification',
     startedAt: new Date().toISOString(),
@@ -913,6 +1038,50 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       return result;
     }
 
+    case 'ticket': {
+      const sub = args[1] || 'create';
+      result.subcommand = sub;
+
+      if (sub === 'create') {
+        let title = '', type = 'feat', body = '';
+        for (let i = 2; i < args.length; i++) {
+          if (args[i] === '--title' && args[i + 1]) title = args[++i];
+          else if (args[i] === '--type' && args[i + 1]) type = args[++i];
+          else if (args[i] === '--body' && args[i + 1]) body = args[++i];
+        }
+        if (!title) {
+          title = args.slice(2).filter(a => !a.startsWith('--')).join(' ');
+        }
+        if (!title) {
+          console.error('Usage: sdlc-engine.mjs ticket create --title "<title>" [--type feat|bug] [--body "<summary>"]');
+          result.success = false;
+          return result;
+        }
+
+        const ticketRes = createTicket({ title, type, body, repoRoot });
+        console.log('🎫 SDLC Ticket Provisioned:');
+        console.log(JSON.stringify(ticketRes, null, 2));
+        return { ...result, ...ticketRes };
+      }
+
+      console.error(`Unknown ticket subcommand: ${sub}`);
+      result.success = false;
+      return result;
+    }
+
+    case 'init':
+    case 'install': {
+      let targetDir = '.', global = false;
+      for (let i = 1; i < args.length; i++) {
+        if (args[i] === '--global' || args[i] === '-g') global = true;
+        else if ((args[i] === '--target' || args[i] === '-t') && args[i + 1]) targetDir = args[++i];
+        else if (!args[i].startsWith('-') && i === 1) targetDir = args[i];
+      }
+      const installRes = installFramework({ targetDir, global, repoRoot });
+      result.installed = installRes;
+      return result;
+    }
+
     case 'update': {
       console.log('⚡ Updating Agentic SDLC Framework configuration & governance...');
       const archInfo = inspectArchlens(repoRoot);
@@ -940,6 +1109,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
 Agentic SDLC Universal Engine (sdlc-engine.mjs)
 
 Usage:
+  node .agent/scripts/sdlc-engine.mjs init [--global]  Install framework locally or globally
   node .agent/scripts/sdlc-engine.mjs detect     Detect stack and print config preview
   node .agent/scripts/sdlc-engine.mjs env        Inspect environment variables & PM status
   node .agent/scripts/sdlc-engine.mjs test       Run tests for changed modules
@@ -948,6 +1118,7 @@ Usage:
   node .agent/scripts/sdlc-engine.mjs gate       Execute full quality gate (lint, build, test, archlens)
   node .agent/scripts/sdlc-engine.mjs archlens <check|update>
   node .agent/scripts/sdlc-engine.mjs pm <status|transition> <issueId> <state>
+  node .agent/scripts/sdlc-engine.mjs ticket create --title "<title>" [--type feat|bug]
   node .agent/scripts/sdlc-engine.mjs update     Refresh configuration & sync Archlens policies
   node .agent/scripts/sdlc-engine.mjs session <status|start|update|release>
   node .agent/scripts/sdlc-engine.mjs resolve-targets <files...>
@@ -957,7 +1128,18 @@ Usage:
   }
 }
 
-// Execute if run directly as CLI
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {
-  runCLI();
+// Execute if run directly as CLI or via bin wrapper/symlink
+if (process.argv[1]) {
+  try {
+    const isDirect = path.resolve(process.argv[1]) === path.resolve(import.meta.filename);
+    const isRealTarget = fs.realpathSync(process.argv[1]) === path.resolve(import.meta.filename);
+    if (isDirect || isRealTarget) {
+      runCLI();
+    }
+  } catch {
+    // If realpath fails, fallback to direct compare
+    if (path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {
+      runCLI();
+    }
+  }
 }

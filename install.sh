@@ -135,8 +135,8 @@ if [[ "$MODE" == "global" ]]; then
     mkdir -p "$DEST_SKILLS" "$DEST_SCRIPTS"
 
     if [[ "$IN_GIT_REPO" == true ]]; then
-        git -C "$SCRIPT_DIR" archive HEAD .agent/skills/ | tar -x -C "$DEST_SKILLS" --strip-components=2
-        git -C "$SCRIPT_DIR" archive HEAD .agent/scripts/ | tar -x -C "$DEST_SCRIPTS" --strip-components=2
+        cp -R "${SCRIPT_DIR}/.agent/skills/." "$DEST_SKILLS/"
+        [[ -d "${SCRIPT_DIR}/.agent/scripts" ]] && cp -R "${SCRIPT_DIR}/.agent/scripts/." "$DEST_SCRIPTS/"
     else
         cp -R "${TMP_DIR}/.agent/skills/." "$DEST_SKILLS/"
         [[ -d "${TMP_DIR}/.agent/scripts" ]] && cp -R "${TMP_DIR}/.agent/scripts/." "$DEST_SCRIPTS/"
@@ -171,9 +171,9 @@ mkdir -p "$DEST_SKILLS" "$DEST_SCRIPTS" "$DEST_TEMPLATES"
 
 if [[ "$IN_GIT_REPO" == true ]]; then
     if [[ "$TARGET_ABS" != "$SCRIPT_DIR" ]]; then
-        git -C "$SCRIPT_DIR" archive HEAD .agent/skills/ | tar -x -C "$DEST_SKILLS" --strip-components=2
-        git -C "$SCRIPT_DIR" archive HEAD .agent/scripts/ | tar -x -C "$DEST_SCRIPTS" --strip-components=2
-        git -C "$SCRIPT_DIR" archive HEAD docs/templates/ | tar -x -C "$DEST_TEMPLATES" --strip-components=2
+        cp -R "${SCRIPT_DIR}/.agent/skills/." "$DEST_SKILLS/"
+        [[ -d "${SCRIPT_DIR}/.agent/scripts" ]] && cp -R "${SCRIPT_DIR}/.agent/scripts/." "$DEST_SCRIPTS/"
+        [[ -d "${SCRIPT_DIR}/docs/templates" ]] && cp -R "${SCRIPT_DIR}/docs/templates/." "$DEST_TEMPLATES/"
     fi
 else
     cp -R "${TMP_DIR}/.agent/skills/." "$DEST_SKILLS/"

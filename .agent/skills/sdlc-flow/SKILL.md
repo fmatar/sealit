@@ -16,22 +16,27 @@ Use this skill to execute end-to-end software development workflows for GitHub I
 
 ```mermaid
 flowchart TD
+    UserReq["User Request\n(Feature, Bug Fix, Refactor, Tweak)"] --> TicketGuard{Has Ticket #ID?}
+    TicketGuard -->|No Ticket Specified| AutoTicket["Gate 0: Mandatory Ticket Creation\n(node .agent/scripts/sdlc-engine.mjs ticket create)\n• Auto-provision #<id> on GitHub or docs/KANBAN.md\n• Tag status:ready"]
+    TicketGuard -->|Ticket Provided| PreFlight
+    AutoTicket --> PreFlight
+
     PreFlight["0. Pre-Flight Intent & Concurrency Guard\n(sdlc-engine session status)"] --> BranchIntent{Active Session?}
     
-    BranchIntent -->|Yes: Ad-Hoc Fast Path| AdHocFast["Ad-Hoc Fast Path\n• Direct TDD / Mutation\n• Parallel Subagent Fan-Out"]
+    BranchIntent -->|Yes: Sub-Task on Active Ticket| AdHocFast["Ad-Hoc Fast Path\n• Append Task Checklist to Ticket #<id>\n• Direct TDD / Mutation\n• Parallel Subagent Fan-Out"]
     BranchIntent -->|Yes: Different Flow| BlockPrompt["⚠️ Block & Warn User\n(Active Ticket & Branch in flight)"]
-    BranchIntent -->|No: New Flow| S1["1. Intake & Contract Specification\n(sdlc-feature-spec & session start & status:ready)"]
+    BranchIntent -->|No: New Flow| S1["1. Intake & Contract Specification\n(sdlc-feature-spec & session start --issue <id> & status:ready)"]
 
     S1 --> S2["2. Branch & Kanban In-Progress\n(feature/issue-#<id>-<title> & status:in-progress)"]
-    S2 --> S3["3. TDD Implementation\n(sdlc-tdd-implement)\n• Uncle Bob's 3 Laws of TDD & TPP\n• Svelte 5 Runes & Quarkus Reactive"]
-    S3 --> S4["4. Dual-Gate Test & Mutation Gate\n(sdlc-test-coverage)\n• >= 85% Line & Branch Diff Coverage\n• >= 80% Mutation Kill Score (PITest/Stryker)"]
+    S2 --> S3["3. TDD Implementation\n(sdlc-tdd-implement)\n• Uncle Bob's 3 Laws of TDD & TPP\n• Clean Domain & Decoupled Ports"]
+    S3 --> S4["4. Dual-Gate Test & Mutation Gate\n(sdlc-test-coverage)\n• >= 85% Line & Branch Diff Coverage\n• >= 80% Mutation Kill Score"]
     S4 --> S5["5. Documentation, Showcase & Changelog Sync\n(sdlc-docs-wiki)\n• Root README 4-Step Quickstart & BYOA\n• docs/specs/, CHANGELOG.md"]
     S5 --> S6["6. Pull Request Creation\n(create_pull_request & status:in-review)"]
     
     subgraph ParallelForkJoin ["⚡ Stage 7: Fork-Join Parallel Review & Gate (invoke_subagent)"]
         direction TB
-        F1["Subagent 1: Peer Reviewer (sdlc-peer-review)\n• Diff Audit & Test Smells Check\n• PR Review Comments"]
-        F2["Subagent 2: Quality Gatekeeper (sdlc-quality-gate)\n• Spotless, svelte-check, Build, a11y"]
+        F1["Subagent 1: Peer Reviewer (sdlc-peer-review)\n• Diff Audit, Test Smells & DIP Check\n• PR Review Comments"]
+        F2["Subagent 2: Quality Gatekeeper (sdlc-quality-gate)\n• Lint, Build, Dual-Gate, Archlens, a11y"]
     end
     
     S6 --> ParallelForkJoin
@@ -43,6 +48,22 @@ flowchart TD
 
 ---
 
+## 🛑 Gate 0: Mandatory Ticket Invariant (Zero-Code Without a Ticket)
+
+> [!IMPORTANT]
+> **HARD FRAMEWORK INVARIANT**: Under NO circumstances may any branch be created or any code/test files be modified without an associated tracking ticket (`#<id>`).
+> 
+> If the incoming user request does not explicitly reference an existing ticket number (e.g. `#1031`):
+> 1. **Do NOT ask the user if they want a ticket** — create it immediately and deterministically.
+> 2. Execute ticket provisioning:
+>    ```bash
+>    node .agent/scripts/sdlc-engine.mjs ticket create --title "<type>: <brief description>" --type <feat|bug> --body "<problem & scope summary>"
+>    ```
+>    *(Automatically creates a GitHub Issue via `gh` CLI or records a tracked ticket in `docs/KANBAN.md` as offline fallback).*
+> 3. Use the generated `issueId` as the anchor for the workflow session, branch name, and PR.
+
+---
+
 ## 🚦 Pre-Flight Concurrency & Intent Routing
 
 Before executing any stage, evaluate the active session status:
@@ -50,30 +71,35 @@ Before executing any stage, evaluate the active session status:
 node .agent/scripts/sdlc-engine.mjs session status
 ```
 
-1. **Active Session Exists & Request is an Ad-Hoc Task on Active Branch**:
-   - **Fast-Path**: Bypass intake (Stage 1), branching (Stage 2), docs sync (Stage 5), and PR (Stage 6).
+1. **Active Session Exists & Request is a Sub-Task on the Active Branch**:
+   - **Fast-Path**: The request belongs to the currently active ticket `#<id>`.
+   - Post a progress update or append an acceptance criteria checklist item to the existing ticket `#<id>`.
    - Resolve targets using `node .agent/scripts/sdlc-engine.mjs resolve-targets <files...>`.
    - If targets span independent modules, dispatch parallel subagents via `invoke_subagent`.
    - Execute TDD implementation or test coverage fixes directly within the active stage.
-2. **Active Session Exists & Request is a NEW Full Workflow**:
+2. **Active Session Exists & Request is a NEW Bug, Feature, or Unrelated Flow**:
    - **Block & Warn**: Alert user with the active issue number, branch, and stage.
    - Prompt the user to finalize the active issue or force-release via `node .agent/scripts/sdlc-engine.mjs session release`.
-3. **Active Session Exists & Request is an UNRELATED Ad-Hoc Task**:
-   - Dispatch subagent with **`Workspace: 'branch'`** to isolate from the parent workspace and prevent clobbering active uncommitted work.
-   - The branched subagent pushes its own branch to remote and does not mutate the parent `.agent/.sdlc-session.json`.
-4. **No Active Session**:
-   - Acquire session lock: `node .agent/scripts/sdlc-engine.mjs session start --issue <id> --branch feature/issue-#<id>-<title> --stage 1` and proceed to Stage 1.
+   - *Alternative (Isolated task)*: If user explicitly commands parallel execution, dispatch a subagent with **`Workspace: 'branch'`** to isolate from the parent workspace, auto-provision a new ticket, and avoid clobbering active uncommitted work.
+3. **No Active Session**:
+   - Verify ticket exists (or auto-provision via Gate 0).
+   - Acquire session lock:
+     ```bash
+     node .agent/scripts/sdlc-engine.mjs session start --issue <id> --branch feature/issue-#<id>-<title> --stage 1
+     ```
+   - Proceed to Stage 1.
 
 ---
 
 ## 🛠️ Step-by-Step Lifecycle Execution
 
 ### Stage 1: Intake & Contract Specification (`sdlc-feature-spec`)
+- **Ticket Verification (Gate 0)**: Confirm ticket `<id>` is resolved. If missing, provision it now via `node .agent/scripts/sdlc-engine.mjs ticket create`.
 - Ensure project stack is detected and `.agent/sdlc-config.json` is initialized: `node .agent/scripts/sdlc-engine.mjs detect`.
 - Fetch issue requirements using `issue_read` via `call_mcp_tool` (or native tool).
 - Ensure ticket is assigned to the authenticated user (`gh api user -q .login` or `@me`) and linked to the repository's GitHub Project.
 - Post initial progress comment: `"🚀 Starting automated execution for ticket #<id>..."`
-- Formulate RFC / PRD, architecture schema, and Gherkin acceptance criteria.
+- Formulate RFC / PRD, architecture schema, and Gherkin acceptance criteria (or concise reproduction steps & fix criteria for bug fixes).
 - **Kanban Transition (`sdlc-kanban`)**: Tag ticket with `status:ready`.
 
 ### Stage 2: Branch & Kanban Automation (`sdlc-kanban`)
@@ -87,7 +113,7 @@ node .agent/scripts/sdlc-engine.mjs session status
 - Strictly apply **Uncle Bob's Three Laws of TDD** and the **Transformation Priority Premise (TPP)**.
 - If modifying legacy code with $<40\%$ baseline coverage, write characterization tests first.
 - Write failing unit tests first for degenerate cases before writing production code.
-- Implement business logic adhering to Svelte 5 Runes (`$state`, `$derived`, `$props`) for UI, and Quarkus reactive standards (Mutiny `Uni`/`Multi`, Panache) for backend.
+- Implement business logic adhering to idiomatic standards for the detected stack (clean domain use cases, reactive streams or async where applicable, decoupled external ports).
 - Reject test smells (no testing trivial getters/setters, no testing framework plumbing, no mock-heavy interaction verification).
 
 ### Stage 4: Dual-Gate Test & Mutation Enforcement (`sdlc-test-coverage`)
@@ -138,7 +164,7 @@ node .agent/scripts/sdlc-engine.mjs session status
     {
       "TypeName": "self",
       "Role": "Quality Gatekeeper",
-      "Prompt": "Load sdlc-quality-gate/SKILL.md. Execute universal quality gate (node .agent/scripts/sdlc-engine.mjs gate), Spotless formatting, svelte-check, build validation, and WCAG a11y audit."
+      "Prompt": "Load sdlc-quality-gate/SKILL.md. Execute universal quality gate (node .agent/scripts/sdlc-engine.mjs gate), formatting, static typing, build validation, DevSecOps, and WCAG a11y audit."
     }
   ]
 }
