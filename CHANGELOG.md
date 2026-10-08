@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 - feat(intake): auto-classification of intake (`feat`, `bug`, `hotfix`, `spike`) with automatic label tagging, P0 priority routing, and mandatory failing reproduction harnesses in `sdlc-flow` (v5.2.0) and `sdlc-engine.mjs ticket create`
+- feat(review-comment): enforce mandatory review audit comment delivery across all PM tools (GitHub PR/Issue via MCP/CLI, Jira REST API, Linear GraphQL, and living `docs/KANBAN.md`) via `sdlc-peer-review` (v2.2.0) and `sdlc-engine.mjs pm comment`
 - feat(worktrees): multi-branch and multi-session Git Worktree registry supporting concurrent execution, non-blocking bugfixes, worktree switching (`session switch <id>`), active session listing (`session list`), and automatic worktree pruning upon release
 - feat(resumption): session stage manifest checkpointing (`specPath`, `prNumber`, `uiScreenshotPath`, timestamps) and `node .agent/scripts/sdlc-engine.mjs session resume` for seamless context-loss recovery
 - feat(circuit-breaker): automated remediation loop limit (max 3 retries) with interactive `ask_question` human handoff in `sdlc-flow` Stage 7, preventing token exhaustion and offering structured options (exemption, budget extension, or rollback)

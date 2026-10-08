@@ -179,7 +179,7 @@ flowchart TD
     {
       "TypeName": "self",
       "Role": "PR Peer Reviewer",
-      "Prompt": "Load sdlc-peer-review/SKILL.md. Audit git diff against main, detect Uncle Bob test smells (no trivial getter tests, no mock abuse), verify Dual-Gate metrics, verify developer showcase quickstart completeness in README.md and CHANGELOG.md, and post formal review comments via pull_request_review_write."
+      "Prompt": "Load sdlc-peer-review/SKILL.md. Audit git diff against main, detect Uncle Bob test smells (no trivial getter tests, no mock abuse), verify Dual-Gate metrics, verify developer showcase quickstart completeness in README.md and CHANGELOG.md, and MANDATORILY post a formal review comment to GitHub PR (via pull_request_review_write), Jira, Linear, or docs/KANBAN.md (via node .agent/scripts/sdlc-engine.mjs pm comment <issueId> --body ...)."
     },
     {
       "TypeName": "self",

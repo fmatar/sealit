@@ -251,6 +251,105 @@ export function createTicket({ title, type = 'feat', body = '', repoRoot = '.' }
   return { success: true, provider: 'local', issueId, url: `docs/KANBAN.md#${issueId}`, title: fullTitle, type: prefix };
 }
 
+export function postPMComment({ issueId, prNumber = null, comment = '', repoRoot = '.' } = {}) {
+  const pm = detectPMProvider(repoRoot);
+  const targetId = issueId || prNumber;
+  if (!targetId || !comment) {
+    throw new Error('Both issueId/prNumber and comment are required to post a review comment.');
+  }
+
+  // 1. GitHub Provider
+  if (pm.provider === 'github') {
+    let posted = false;
+    let errors = [];
+
+    // Attempt PR review comment if prNumber is provided or issueId acts as PR
+    if (prNumber) {
+      try {
+        execSync(`gh pr comment ${prNumber} --body "${comment.replace(/"/g, '\\"')}"`, { cwd: repoRoot, stdio: 'pipe' });
+        posted = true;
+      } catch (err) {
+        errors.push(`gh pr comment: ${err.message}`);
+      }
+    }
+
+    // Also post or fallback to issue comment
+    try {
+      execSync(`gh issue comment ${issueId || prNumber} --body "${comment.replace(/"/g, '\\"')}"`, { cwd: repoRoot, stdio: 'pipe' });
+      posted = true;
+    } catch (err) {
+      errors.push(`gh issue comment: ${err.message}`);
+    }
+
+    if (posted) {
+      console.log(`💬 [GITHUB] Review comment posted to #${targetId}`);
+      return { success: true, provider: 'github', targetId, comment };
+    }
+    console.warn(`⚠️ GitHub comment failed (${errors.join('; ')}). Falling back to local KANBAN.md.`);
+  }
+
+  // 2. Jira Provider
+  if (pm.provider === 'jira') {
+    try {
+      const auth = Buffer.from(`${process.env.JIRA_EMAIL || 'bot'}:${process.env.JIRA_API_TOKEN}`).toString('base64');
+      const url = `${process.env.JIRA_BASE_URL.replace(/\/$/, '')}/rest/api/3/issue/${issueId}/comment`;
+      const bodyPayload = JSON.stringify({
+        body: {
+          type: 'doc',
+          version: 1,
+          content: [{
+            type: 'paragraph',
+            content: [{ type: 'text', text: comment }]
+          }]
+        }
+      });
+      execSync(`curl -s -X POST "${url}" -H "Authorization: Basic ${auth}" -H "Content-Type: application/json" -d '${bodyPayload.replace(/'/g, "'\\''")}'`, { cwd: repoRoot, stdio: 'pipe' });
+      console.log(`💬 [JIRA] Review comment posted to Jira issue ${issueId}`);
+      return { success: true, provider: 'jira', targetId: issueId, comment };
+    } catch (err) {
+      console.warn(`⚠️ Jira comment failed: ${err.message}. Falling back to local KANBAN.md.`);
+    }
+  }
+
+  // 3. Linear Provider
+  if (pm.provider === 'linear') {
+    try {
+      const gql = JSON.stringify({
+        query: `mutation CreateComment($issueId: String!, $body: String!) { commentCreate(input: { issueId: $issueId, body: $body }) { success } }`,
+        variables: { issueId: String(issueId), body: comment }
+      });
+      execSync(`curl -s -X POST https://api.linear.app/graphql -H "Authorization: ${process.env.LINEAR_API_KEY}" -H "Content-Type: application/json" -d '${gql.replace(/'/g, "'\\''")}'`, { cwd: repoRoot, stdio: 'pipe' });
+      console.log(`💬 [LINEAR] Review comment posted to Linear issue ${issueId}`);
+      return { success: true, provider: 'linear', targetId: issueId, comment };
+    } catch (err) {
+      console.warn(`⚠️ Linear comment failed: ${err.message}. Falling back to local KANBAN.md.`);
+    }
+  }
+
+  // 4. Local docs/KANBAN.md Fallback
+  const kanbanPath = path.resolve(repoRoot, 'docs/KANBAN.md');
+  const now = new Date().toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
+  let content = readFileSafe(kanbanPath);
+
+  if (!content) {
+    fs.mkdirSync(path.dirname(kanbanPath), { recursive: true });
+    content = `# 📋 Project Kanban Board & Traceability Matrix\n\n> **Living Project State & Audit Trail**\n> **Last Synced**: \`${now}\`\n\n---\n\n## 📊 Board Overview\n\n| 📥 Backlog | 📋 Ready | ⚡ In Progress | 🔍 In Review | ✅ Done |\n| :--- | :--- | :--- | :--- | :--- |\n`;
+  }
+
+  const commentSectionHeader = '## 💬 Review Audit Comments & Feedback\n\n';
+  let commentBlock = `### [${now}] Audit for #${targetId}\n\n${comment}\n\n---\n\n`;
+
+  if (content.includes(commentSectionHeader)) {
+    content = content.replace(commentSectionHeader, commentSectionHeader + commentBlock);
+  } else {
+    content = content + `\n\n${commentSectionHeader}${commentBlock}`;
+  }
+
+  fs.writeFileSync(kanbanPath, content, 'utf8');
+  console.log(`💬 [LOCAL KANBAN] Review comment recorded in docs/KANBAN.md for #${targetId}`);
+  return { success: true, provider: 'local', targetId, comment, file: 'docs/KANBAN.md' };
+}
+
 export function installFramework({ targetDir = '.', global = false, repoRoot = '.' } = {}) {
   const isGlobal = !!global;
   const packageDir = path.resolve(import.meta.dirname, '../..'); // Root of agentic-sdlc package
@@ -1445,6 +1544,27 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         return result;
       }
 
+      if (sub === 'comment') {
+        const issueId = args[2];
+        let commentText = '';
+        let prNumber = null;
+        for (let i = 3; i < args.length; i++) {
+          if (args[i] === '--pr' && args[i + 1]) prNumber = args[++i];
+          else if (args[i] === '--body' && args[i + 1]) commentText = args[++i];
+        }
+        if (!commentText) {
+          commentText = args.slice(3).filter(a => !a.startsWith('--')).join(' ');
+        }
+        if (!issueId || !commentText) {
+          console.error('Usage: sdlc-engine.mjs pm comment <issueId> [--pr <prNum>] --body "<comment>"');
+          result.success = false;
+          return result;
+        }
+        const commentRes = postPMComment({ issueId, prNumber, comment: commentText, repoRoot });
+        result.commented = commentRes;
+        return result;
+      }
+
       console.error(`Unknown pm subcommand: ${sub}`);
       result.success = false;
       return result;
@@ -1529,7 +1649,7 @@ Usage:
   node .agent/scripts/sdlc-engine.mjs mutation   Run mutation defense check
   node .agent/scripts/sdlc-engine.mjs gate       Execute full quality gate (lint, build, test, archlens)
   node .agent/scripts/sdlc-engine.mjs archlens <check|update>
-  node .agent/scripts/sdlc-engine.mjs pm <status|transition> <issueId> <state>
+  node .agent/scripts/sdlc-engine.mjs pm <status|transition|comment> <issueId> [state|--body "<comment>"]
   node .agent/scripts/sdlc-engine.mjs ticket create --title "<title>" [--type feat|bug|hotfix|spike] [--body "<summary>"]
   node .agent/scripts/sdlc-engine.mjs update     Refresh configuration & sync Archlens policies
   node .agent/scripts/sdlc-engine.mjs session <status|start|update|resume|dashboard|list|switch|release>

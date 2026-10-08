@@ -42,18 +42,24 @@ Use this skill when invoked as a parallel reviewer subagent via `invoke_subagent
 
 ---
 
-## 🛠️ Execution & Posting
+## 🛠️ Execution & Posting (Mandatory Comment Invariant)
+
+> [!IMPORTANT]
+> **HARD FRAMEWORK INVARIANT**: Every review execution **MUST post a review comment** to the active issue/PR tracking tool (GitHub, Jira, Linear, or living `docs/KANBAN.md`). Silent or undocumented review outcomes are strictly forbidden.
 
 1. Inspect the diff against `main` or base branch (`git diff origin/main...HEAD`).
-2. Synthesize line-specific review comments highlighting architectural improvements or test smell remediation.
-3. Call `pull_request_review_write` via `github-mcp-server`:
-   - Set event to `APPROVE` if all checks pass.
-   - Set event to `REQUEST_CHANGES` if:
-     - Line/branch diff coverage is $<85\%$.
-     - Mutation score is $<80\%$.
-     - Test suite contains severe test smells, mock abuse, or zero-assertion coverage hacks.
-     - Critical bugs, regressions, or security issues exist.
-   - Include the structured markdown review body with metrics.
+2. Synthesize line-specific review comments highlighting architectural improvements, test smell remediation, diff coverage ($\ge 85\%$), and mutation score ($\ge 80\%$).
+3. **Post Formal Review to PM Provider**:
+   - **GitHub (Pull Request & Issue)**:
+     - Post via `pull_request_review_write` or `add_issue_comment` via `github-mcp-server`.
+     - Set event to `APPROVE` if all checks pass.
+     - Set event to `REQUEST_CHANGES` if coverage $<85\%$, mutation $<80\%$, test smells exist, or regressions are found.
+   - **Jira, Linear, or Local Fallback (`sdlc-engine pm comment`)**:
+     - Run universal comment dispatcher:
+       ```bash
+       node .agent/scripts/sdlc-engine.mjs pm comment <issueId> [--pr <prNumber>] --body "<structured review summary>"
+       ```
+       *(Automatically delivers the review audit comment directly to Jira REST API, Linear GraphQL, or logs into `docs/KANBAN.md` under `## 💬 Review Audit Comments & Feedback` as transparent offline proof).*
 
 ---
 

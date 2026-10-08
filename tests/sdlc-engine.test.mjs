@@ -27,6 +27,7 @@ import {
   renderDashboard,
   pollCIPRChecks,
   createTicket,
+  postPMComment,
   resolveAdHocTargets,
   loadEnv,
   detectPMProvider,
@@ -877,6 +878,35 @@ jobs:
       assert.equal(ledger.length, 1);
       assert.equal(ledger[0].mutantId, 'OrderService.java:55:NegateCondition');
       assert.equal(ledger[0].approvedBy, '@lead-arch');
+    });
+
+    it('posts review comments reliably to local KANBAN.md audit section', () => {
+      const res = postPMComment({
+        issueId: 3042,
+        prNumber: 42,
+        comment: 'Dual-Gate Verified: Diff Coverage 91%, Mutation Kill Score 84%. Approved.',
+        repoRoot: tmpDir
+      });
+
+      assert.equal(res.success, true);
+      assert.equal(res.targetId, 3042);
+      assert.equal(res.provider, 'local');
+
+      const content = fs.readFileSync(path.join(tmpDir, 'docs/KANBAN.md'), 'utf8');
+      assert.ok(content.includes('## 💬 Review Audit Comments & Feedback'));
+      assert.ok(content.includes('Audit for #3042'));
+      assert.ok(content.includes('Dual-Gate Verified: Diff Coverage 91%'));
+    });
+
+    it('executes pm comment CLI command and records audit comment', () => {
+      const res = runCLI(['pm', 'comment', '5050', '--body', 'Approved by Peer Reviewer with clean Uncle Bob principles.'], null, tmpDir);
+      assert.equal(res.command, 'pm');
+      assert.equal(res.subcommand, 'comment');
+      assert.equal(res.commented.success, true);
+
+      const content = fs.readFileSync(path.join(tmpDir, 'docs/KANBAN.md'), 'utf8');
+      assert.ok(content.includes('Audit for #5050'));
+      assert.ok(content.includes('Approved by Peer Reviewer'));
     });
   });
 });
