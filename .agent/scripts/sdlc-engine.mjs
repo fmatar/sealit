@@ -910,7 +910,7 @@ export function executeRelease({
 
 // --- Universal Framework Doctor & Diagnostic Healthcheck ---
 
-export function runDoctor(repoRoot = '.') {
+export function runDoctor(repoRoot = '.', { fix = false } = {}) {
   console.log('\n================================================================');
   console.log('🩺 AGENTIC SDLC FRAMEWORK DOCTOR & ENVIRONMENT HEALTHCHECK');
   console.log('================================================================');
@@ -965,6 +965,34 @@ export function runDoctor(repoRoot = '.') {
     console.log('  ✔ Active Sessions: Clean (no stale session locks detected)');
   }
 
+  // Auto-Fix capability for missing assets
+  const autoFixed = [];
+  if (fix) {
+    console.log('\n🛠️ Running Doctor Auto-Fix for Missing Framework Assets...');
+    for (const a of assetResults) {
+      if (!a.status) {
+        if (a.path === 'docs/KANBAN.md') {
+          createTicket({ title: 'Initialize Project Kanban', type: 'spike', repoRoot });
+          autoFixed.push('docs/KANBAN.md');
+        } else if (a.path === '.archlens/policy.json') {
+          scaffoldArchlensPolicy(repoRoot);
+          autoFixed.push('.archlens/policy.json');
+        }
+      }
+    }
+
+    // Ensure git hooks and CI workflow are installed
+    if (fs.existsSync(path.resolve(repoRoot, '.git')) && !fs.existsSync(path.resolve(repoRoot, '.git/hooks/pre-push'))) {
+      installHooks({ repoRoot });
+      autoFixed.push('git-hooks');
+    }
+    if (!fs.existsSync(path.resolve(repoRoot, '.github/workflows/sdlc-quality-gate.yml'))) {
+      installCIWorkflow({ repoRoot });
+      autoFixed.push('.github/workflows/sdlc-quality-gate.yml');
+    }
+    console.log(`✅ Doctor Auto-Fix completed (${autoFixed.length} asset(s) healed).`);
+  }
+
   const allPassed = toolResults.filter(t => t.name.includes('Git') || t.name.includes('Node')).every(t => t.status);
   console.log('================================================================\n');
 
@@ -972,7 +1000,8 @@ export function runDoctor(repoRoot = '.') {
     healthy: allPassed,
     toolchain: toolResults,
     assets: assetResults,
-    sessionStatus
+    sessionStatus,
+    autoFixed
   };
 }
 
@@ -1632,6 +1661,58 @@ export function resolveAdHocTargets(files = [], modules = [], repoRoot = '.') {
   };
 }
 
+// --- Parallel Subagent Peer Review Dispatch Helper ---
+
+export function generateReviewPlan({ repoRoot = '.' } = {}) {
+  const current = getSessionStatus(repoRoot);
+  const activeSess = current.session;
+  const issueId = activeSess?.issueId || 'N/A';
+  const branch = activeSess?.branch || 'current-branch';
+  const diffFiles = getModifiedFiles();
+  const risk = assessRisk(diffFiles, repoRoot);
+
+  const subagents = [
+    {
+      TypeName: 'self',
+      Role: 'PR Peer Reviewer',
+      Prompt: `Load sdlc-peer-review/SKILL.md. Audit git diff against main on branch ${branch} for issue #${issueId}.
+1. Audit for Uncle Bob test smells (no assertion-free tests, no trivial getters, no mock abuse).
+2. Verify Dual-Gate metrics (Line diff coverage >= 85%, Mutation kill score >= 80%).
+3. Verify developer showcase quickstart in README.md and CHANGELOG.md entry.
+4. MANDATORILY post formal review comment to GitHub PR, Jira, Linear, or docs/KANBAN.md (node .agent/scripts/sdlc-engine.mjs pm comment ${issueId} --body "<comment>").`
+    },
+    {
+      TypeName: 'self',
+      Role: 'Quality Gatekeeper',
+      Prompt: `Load sdlc-quality-gate/SKILL.md. Execute universal quality gate (node .agent/scripts/sdlc-engine.mjs gate --strict).
+1. Audit formatting, static typing, and production builds.
+2. Check pre-flight risk profile (detected: ${risk.riskLevel}).
+3. Run secret scanning and package CVE check (node .agent/scripts/sdlc-engine.mjs security-audit).
+4. Verify zero concentric layer inversions (node .agent/scripts/sdlc-engine.mjs archlens diff).`
+    }
+  ];
+
+  if (risk.riskLevel === 'CRITICAL' || risk.riskLevel === 'HIGH') {
+    subagents.push({
+      TypeName: 'self',
+      Role: 'Security & Architectural Auditor',
+      Prompt: `Conduct deep security and architectural invariant audit for HIGH/CRITICAL risk changes (${risk.riskLevel}).
+1. Inspect migration files, auth handlers, and domain models.
+2. Ensure zero flaky tests (node .agent/scripts/sdlc-engine.mjs flake-check --runs 10).
+3. Validate concentric layer decoupling with Archlens.`
+    });
+  }
+
+  const payload = { Subagents: subagents };
+  return {
+    issueId,
+    branch,
+    riskLevel: risk.riskLevel,
+    subagentsCount: subagents.length,
+    payload
+  };
+}
+
 // --- CI Workflow Reverse Engineering ---
 
 export function inspectCIWorkflows(repoRoot = '.') {
@@ -2132,6 +2213,34 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         }
       }
 
+      // Strict Quality Gate Audits (Risk, Security, Flake, and Layer Diff)
+      const isStrict = args.includes('--strict');
+      if (isStrict) {
+        console.log('\n🛡️ [Strict Mode] Executing Pre-Flight Risk Scorer & Security Audits...');
+        const riskRes = assessRisk([], repoRoot);
+        result.risk = riskRes;
+        console.log(`   • Assessed Risk: ${riskRes.riskLevel} (Score: ${riskRes.score})`);
+
+        const secRes = auditSecurity(repoRoot);
+        result.security = secRes;
+        if (!secRes.passed) {
+          throw new Error('Security Audit failed: Hardcoded secrets or critical CVEs detected.');
+        }
+
+        const archDiffRes = checkArchDiff(repoRoot);
+        result.archDiff = archDiffRes;
+        if (archDiffRes.enabled && !archDiffRes.passed) {
+          throw new Error(`Archlens Diff Check failed: ${archDiffRes.violationsCount} concentric ring layer inversion(s) detected.`);
+        }
+
+        console.log('   • Running Fast Flake Stability Check...');
+        const flakeRes = runFlakeCheck({ runs: 3, repoRoot });
+        result.flake = flakeRes;
+        if (flakeRes.flaky) {
+          throw new Error(`Flaky Test Check failed: ${flakeRes.flakyCount} flaky test(s) detected.`);
+        }
+      }
+
       console.log('\n🎉 Quality gate passed across all modules.');
       return result;
     }
@@ -2530,8 +2639,30 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
     }
 
     case 'doctor': {
-      const docRes = runDoctor(repoRoot);
+      const fix = args.includes('--fix');
+      const docRes = runDoctor(repoRoot, { fix });
       result.doctor = docRes;
+      return result;
+    }
+
+    case 'review': {
+      const sub = args[1] || 'plan';
+      result.subcommand = sub;
+      if (sub === 'plan') {
+        const planRes = generateReviewPlan({ repoRoot });
+        console.log('\n================================================================');
+        console.log('🤖 AGENTIC SDLC PARALLEL SUBAGENT REVIEW PLAN');
+        console.log('================================================================');
+        console.log(`Associated Issue: #${planRes.issueId} (${planRes.branch})`);
+        console.log(`Risk Profile:     ${planRes.riskLevel}`);
+        console.log(`Auditor Subagents: ${planRes.subagentsCount} planned\n`);
+        console.log(JSON.stringify(planRes.payload, null, 2));
+        console.log('================================================================\n');
+        result.reviewPlan = planRes;
+        return result;
+      }
+      console.error(`Unknown review subcommand: ${sub}`);
+      result.success = false;
       return result;
     }
 
@@ -2617,7 +2748,7 @@ Agentic SDLC Universal Engine (sdlc-engine.mjs)
 
 Usage:
   node .agent/scripts/sdlc-engine.mjs init [--global]     Install framework locally or globally
-  node .agent/scripts/sdlc-engine.mjs doctor              Run framework healthcheck and toolchain audit
+  node .agent/scripts/sdlc-engine.mjs doctor [--fix]      Run framework healthcheck & auto-heal missing assets
   node .agent/scripts/sdlc-engine.mjs hooks install       Scaffold zero-dependency Git pre-commit & pre-push hooks
   node .agent/scripts/sdlc-engine.mjs ci-workflow install Scaffold GitHub Actions Quality Gate CI workflow
   node .agent/scripts/sdlc-engine.mjs detect              Detect stack and print config preview
@@ -2625,13 +2756,14 @@ Usage:
   node .agent/scripts/sdlc-engine.mjs test [--affected-only] Run tests for changed modules
   node .agent/scripts/sdlc-engine.mjs coverage            Run diff coverage gate
   node .agent/scripts/sdlc-engine.mjs mutation            Run mutation defense check
-  node .agent/scripts/sdlc-engine.mjs gate                Execute full quality gate (lint, build, test, archlens)
+  node .agent/scripts/sdlc-engine.mjs gate [--strict]     Execute full quality gate (lint, build, test, archlens, security)
   node .agent/scripts/sdlc-engine.mjs release [patch|minor|major] [--dry-run] [--skip-gate]
   node .agent/scripts/sdlc-engine.mjs risk-audit [files...] Calculate pre-flight risk score
   node .agent/scripts/sdlc-engine.mjs pr-summary [--issue <id>] Generate formatted PR markdown
   node .agent/scripts/sdlc-engine.mjs flake-check [--runs <n>] Detect intermittent test flakiness
   node .agent/scripts/sdlc-engine.mjs security-audit      Audit diff for secret leaks & package CVEs
   node .agent/scripts/sdlc-engine.mjs strengthen [--type <type>] Suggest assertions to kill surviving mutants
+  node .agent/scripts/sdlc-engine.mjs review plan         Generate parallel subagent peer review JSON payload
   node .agent/scripts/sdlc-engine.mjs archlens <check|update|diff|scaffold>
   node .agent/scripts/sdlc-engine.mjs pm <status|transition|comment> <issueId> [state|--body "<comment>"]
   node .agent/scripts/sdlc-engine.mjs ticket create --title "<title>" [--type feat|bug|hotfix|spike] [--body "<summary>"]

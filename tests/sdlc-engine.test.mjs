@@ -45,7 +45,8 @@ import {
   runFlakeCheck,
   auditSecurity,
   scaffoldArchlensPolicy,
-  suggestMutationStrengthening
+  suggestMutationStrengthening,
+  generateReviewPlan
 } from '../.agent/scripts/sdlc-engine.mjs';
 
 describe('Universal SDLC Engine: Complete Uncle Bob Test Suite', () => {
@@ -1129,6 +1130,45 @@ jobs:
       const stRes = runCLI(['strengthen', '--type', 'Math'], null, tmpDir);
       assert.equal(stRes.command, 'strengthen');
       assert.equal(stRes.strengthen.mutantType, 'Math');
+    });
+
+    it('auto-heals missing assets when running doctor with fix flag', () => {
+      // tmpDir has no .archlens, no docs/KANBAN.md
+      const docRes = runDoctor(tmpDir, { fix: true });
+      assert.ok(Array.isArray(docRes.autoFixed));
+      assert.ok(docRes.autoFixed.includes('.archlens/policy.json'));
+      assert.ok(docRes.autoFixed.includes('docs/KANBAN.md'));
+      assert.equal(fs.existsSync(path.join(tmpDir, '.archlens/policy.json')), true);
+      assert.equal(fs.existsSync(path.join(tmpDir, 'docs/KANBAN.md')), true);
+    });
+
+    it('executes doctor --fix CLI command cleanly', () => {
+      const cliRes = runCLI(['doctor', '--fix'], null, tmpDir);
+      assert.equal(cliRes.command, 'doctor');
+      assert.ok(Array.isArray(cliRes.doctor.autoFixed));
+    });
+
+    it('generates parallel subagent peer review plan tailored to risk profile', () => {
+      const plan = generateReviewPlan({ repoRoot: tmpDir });
+      assert.ok(plan.subagentsCount >= 2);
+      assert.ok(Array.isArray(plan.payload.Subagents));
+      assert.ok(plan.payload.Subagents.some(s => s.Role === 'PR Peer Reviewer'));
+      assert.ok(plan.payload.Subagents.some(s => s.Role === 'Quality Gatekeeper'));
+    });
+
+    it('executes review plan CLI command cleanly', () => {
+      const cliRes = runCLI(['review', 'plan'], null, tmpDir);
+      assert.equal(cliRes.command, 'review');
+      assert.equal(cliRes.subcommand, 'plan');
+      assert.ok(cliRes.reviewPlan.subagentsCount >= 2);
+    });
+
+    it('executes universal gate in strict mode without errors on clean state', () => {
+      const gateRes = runCLI(['gate', '--strict'], null, tmpDir);
+      assert.equal(gateRes.command, 'gate');
+      assert.equal(gateRes.success, true);
+      assert.ok(gateRes.risk);
+      assert.ok(gateRes.security);
     });
   });
 });
