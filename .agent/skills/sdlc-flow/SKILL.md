@@ -48,28 +48,39 @@ flowchart TD
 
 ---
 
-## 🛑 Gate 0: Mandatory Ticket Invariant (Zero-Code Without a Ticket)
+## 🛑 Gate 0: Mandatory Ticket Invariant & Intake Auto-Classification
 
 > [!IMPORTANT]
 > **HARD FRAMEWORK INVARIANT**: Under NO circumstances may any branch be created or any code/test files be modified without an associated tracking ticket (`#<id>`).
 > 
 > If the incoming user request does not explicitly reference an existing ticket number (e.g. `#1031`):
 > 1. **Do NOT ask the user if they want a ticket** — create it immediately and deterministically.
-> 2. Execute ticket provisioning:
+> 2. Automatically classify the request type:
+>    - **Feature (`feat`)**: New functionality or architectural capability.
+>    - **Bug Fix (`fix`)**: Defect remediation requiring a failing reproduction test harness in Stage 3.
+>    - **Hotfix (`hotfix`)**: Blocker/critical production fix targeting `hotfix/*` with P0 priority.
+>    - **Spike (`spike`)**: Timeboxed architectural or research exploration ending in an ADR.
+> 3. Execute ticket provisioning:
 >    ```bash
->    node .agent/scripts/sdlc-engine.mjs ticket create --title "<type>: <brief description>" --type <feat|bug> --body "<problem & scope summary>"
+>    node .agent/scripts/sdlc-engine.mjs ticket create --title "<type>: <brief description>" --type <feat|bug|hotfix|spike> --body "<problem & scope summary>"
 >    ```
->    *(Automatically creates a GitHub Issue via `gh` CLI or records a tracked ticket in `docs/KANBAN.md` as offline fallback).*
-> 3. Use the generated `issueId` as the anchor for the workflow session, branch name, and PR.
+>    *(Automatically creates an issue via GitHub/Jira/Linear, or records in `docs/KANBAN.md` as offline fallback).*
+> 4. Use the generated `issueId` as the anchor for the workflow session, branch name, and PR.
 
 ---
 
 ## 🚦 Pre-Flight Concurrency & Intent Routing
-
-Before executing any stage, evaluate the active session status:
-```bash
-node .agent/scripts/sdlc-engine.mjs session status
-```
+ 
+ Before executing any stage, evaluate the active session status:
+ ```bash
+ node .agent/scripts/sdlc-engine.mjs session status
+ ```
+ 
+- **Session Resume**: If a session was paused or an agent is resuming an in-flight ticket:
+  ```bash
+  node .agent/scripts/sdlc-engine.mjs session resume
+  ```
+  *(Displays the visual stage dashboard, manifests, and resumes execution seamlessly).*
 
 1. **Active Session Exists & Request is a Sub-Task on the Active Branch**:
    - **Fast-Path**: The request belongs to the currently active ticket `#<id>`.
@@ -77,15 +88,18 @@ node .agent/scripts/sdlc-engine.mjs session status
    - Resolve targets using `node .agent/scripts/sdlc-engine.mjs resolve-targets <files...>`.
    - If targets span independent modules, dispatch parallel subagents via `invoke_subagent`.
    - Execute TDD implementation or test coverage fixes directly within the active stage.
-2. **Active Session Exists & Request is a NEW Bug, Feature, or Unrelated Flow**:
-   - **Block & Warn**: Alert user with the active issue number, branch, and stage.
-   - Prompt the user to finalize the active issue or force-release via `node .agent/scripts/sdlc-engine.mjs session release`.
-   - *Alternative (Isolated task)*: If user explicitly commands parallel execution, dispatch a subagent with **`Workspace: 'branch'`** to isolate from the parent workspace, auto-provision a new ticket, and avoid clobbering active uncommitted work.
+2. **Active Session Exists & Request is a NEW Bug, Hotfix, or Urgent Task**:
+   - **Git Worktree Isolation**: Instead of blocking, isolate concurrent work into an independent git worktree:
+     ```bash
+     git worktree add ../worktree-issue-<new-id> -b feature/issue-#<new-id>-<title>
+     node .agent/scripts/sdlc-engine.mjs session start --issue <new-id> --branch feature/issue-#<new-id>-<title> --worktree ../worktree-issue-<new-id> --stage 1
+     ```
+   - *Alternative (Isolated subagent)*: Dispatch a subagent with **`Workspace: 'branch'`** to isolate from the parent workspace, auto-provision a new ticket, and avoid clobbering active uncommitted work.
 3. **No Active Session**:
    - Verify ticket exists (or auto-provision via Gate 0).
    - Acquire session lock:
      ```bash
-     node .agent/scripts/sdlc-engine.mjs session start --issue <id> --branch feature/issue-#<id>-<title> --stage 1
+     node .agent/scripts/sdlc-engine.mjs session start --issue <id> --branch feature/issue-#<id>-<title> --type <feat|bug|hotfix|spike> --stage 1
      ```
    - Proceed to Stage 1.
 
@@ -110,6 +124,7 @@ node .agent/scripts/sdlc-engine.mjs session status
 
 ### Stage 3: Clean-Room TDD Implementation (`sdlc-tdd-implement`)
 - **Session Update**: `node .agent/scripts/sdlc-engine.mjs session update --stage 3 --name "Clean-Room TDD Implementation"`.
+- **Mandatory Bug Reproduction Harness**: If the ticket is classified as `fix` or `bug`, author a reproduction test first. Run the test suite and confirm it **fails** against existing code. If the reproduction test passes initially, re-verify failure conditions before modifying any application logic.
 - Strictly apply **Uncle Bob's Three Laws of TDD** and the **Transformation Priority Premise (TPP)**.
 - If modifying legacy code with $<40\%$ baseline coverage, write characterization tests first.
 - Write failing unit tests first for degenerate cases before writing production code.
@@ -128,6 +143,10 @@ node .agent/scripts/sdlc-engine.mjs session status
   1. $\ge 85\%$ line and branch coverage on diff.
   2. $\ge 80\%$ mutation kill score on modified classes/components.
 - Automatically author missing boundary tests or strengthen assertions if mutants survive.
+- **Benign Mutant Exemption Ledger**: If an unkillable mutant is a benign compiler bytecode quirk or shutdown hook, document and register it in `.agent/sdlc-exemptions.json`:
+  ```bash
+  node .agent/scripts/sdlc-engine.mjs exemption add --mutant "<class:line:type>" --reason "<architectural justification>" --by "@reviewer"
+  ```
 
 ### Stage 5: Documentation, Showcase & Changelog Sync (`sdlc-docs-wiki`)
 - **Session Update**: `node .agent/scripts/sdlc-engine.mjs session update --stage 5 --name "Documentation & Showcase Sync"`.
@@ -143,8 +162,9 @@ node .agent/scripts/sdlc-engine.mjs session status
 
 ### Stage 6: Pull Request Opening (`sdlc-kanban`)
 - **Session Update**: `node .agent/scripts/sdlc-engine.mjs session update --stage 6 --name "Pull Request Opening"`.
+- **UI Ephemeral Preview (Frontend / Svelte Modules)**: For UI components, capture screenshot visual artifacts or Lighthouse audit results and attach the image preview link to the PR body.
 - Push feature branch to remote origin: `git push -u origin HEAD`.
-- Call `create_pull_request` linking `Fixes #<id>` with summary of changes, diff coverage ($\ge 85\%$), and mutation kill score ($\ge 80\%$).
+- Call `create_pull_request` linking `Fixes #<id>` with summary of changes, diff coverage ($\ge 85\%$), mutation kill score ($\ge 80\%$), and UI screenshots (if applicable).
 - **Kanban Transition (`sdlc-kanban`)**: Tag ticket with `status:in-review`.
 
 ### Stage 7: Fork-Join Parallel Review & Quality Gate (`invoke_subagent`)
@@ -170,16 +190,27 @@ node .agent/scripts/sdlc-engine.mjs session status
 }
 ```
 - Wait for subagents to report results:
-  - **Review Rejection / Gate Failure Protocol**:
+  - **Review Rejection / Gate Failure Protocol & Circuit Breaker**:
     If any subagent requests changes or reports a gate failure:
     1. Revert Kanban label: `gh issue edit <id> --remove-label "status:in-review" --add-label "status:in-progress"`.
-    2. Roll back session: `node .agent/scripts/sdlc-engine.mjs session update --stage 3 --name "Remediating Peer Review Feedback"`.
-    3. Remediate issues using TDD, re-verify tests, commit, push, and re-trigger review.
+    2. Check Circuit Breaker budget. If remediation count reaches 3, **do NOT loop infinitely**. Call `ask_question`:
+       - *Option 1: "Request exemption: accept current coverage with rationale in sdlc-exemptions.json"*
+       - *Option 2: "Extend retry budget: grant 2 additional remediation attempts"*
+       - *Option 3: "Abort and rollback: revert ticket to backlog and switch to main"*
+    3. If budget remains, roll back session:
+       ```bash
+       node .agent/scripts/sdlc-engine.mjs session update --stage 3 --name "Remediating Peer Review Feedback" --remediate
+       ```
+    4. Remediate issues using TDD, re-verify tests, commit, push, and re-trigger review.
   - **Review Approved & Gate Passed**:
     Proceed to Stage 8.
 
 ### Stage 8: Quality Gate Passed, Release & Lock Release (`sdlc-release-changelog`)
 - **Session Update**: `node .agent/scripts/sdlc-engine.mjs session update --stage 8 --name "Release & Teardown"`.
+- **Remote CI/CD Status Polling**: Before merging, verify all remote CI checks have completed green:
+  ```bash
+  node .agent/scripts/sdlc-engine.mjs check-ci <pr-number>
+  ```
 - Merge pull request (squash & merge or rebase).
 - Hand off to `sdlc-release-changelog` for version tagging, containerization, and deployment.
 - **Kanban Transition (`sdlc-kanban`)**: Tag ticket with `status:done`, close issue, and execute `kanban-sync.sh` to refresh `docs/KANBAN.md`.

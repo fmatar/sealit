@@ -148,38 +148,70 @@ export function getSessionPath(repoRoot = '.') {
 export function getSessionStatus(repoRoot = '.') {
   const sessionPath = getSessionPath(repoRoot);
   if (!fileExists(sessionPath)) {
-    return { active: false, session: null };
+    return { active: false, session: null, registry: null };
   }
 
   const content = readFileSafe(sessionPath);
   if (!content) {
-    return { active: false, session: null, error: 'Empty session file' };
+    return { active: false, session: null, registry: null, error: 'Empty session file' };
   }
 
   try {
     const data = JSON.parse(content);
-    return { active: !!data.active, session: data };
+    // Support multi-session registry schema
+    if (data.sessions && typeof data.sessions === 'object') {
+      const activeId = data.activeSessionId;
+      const activeSession = activeId && data.sessions[activeId] ? data.sessions[activeId] : null;
+      return {
+        active: !!activeSession?.active,
+        session: activeSession,
+        activeSessionId: activeId,
+        sessions: data.sessions,
+        registry: data
+      };
+    }
+    // Backward compatibility for single session schema
+    return {
+      active: !!data.active,
+      session: data,
+      activeSessionId: data.issueId,
+      sessions: data.issueId ? { [data.issueId]: data } : {},
+      registry: null
+    };
   } catch {
-    return { active: false, session: null, error: 'Corrupted session file' };
+    return { active: false, session: null, registry: null, error: 'Corrupted session file' };
   }
 }
 
 export function createTicket({ title, type = 'feat', body = '', repoRoot = '.' } = {}) {
   const pm = detectPMProvider(repoRoot);
-  const prefix = type.toLowerCase() === 'bug' || type.toLowerCase() === 'fix' ? 'fix' : 'feat';
+  const normalizedType = type.toLowerCase();
+  let prefix = 'feat';
+  let defaultLabel = 'feature,status:ready';
+
+  if (normalizedType === 'bug' || normalizedType === 'fix') {
+    prefix = 'fix';
+    defaultLabel = 'bug,status:ready';
+  } else if (normalizedType === 'hotfix') {
+    prefix = 'hotfix';
+    defaultLabel = 'hotfix,status:ready,priority:critical';
+  } else if (normalizedType === 'spike' || normalizedType === 'research') {
+    prefix = 'spike';
+    defaultLabel = 'spike,status:ready';
+  }
+
   const fullTitle = title.startsWith(`${prefix}:`) || title.startsWith(`${prefix}(`) ? title : `${prefix}: ${title}`;
 
   if (pm.provider === 'github') {
     try {
-      const label = prefix === 'fix' ? 'bug,status:ready' : 'feature,status:ready';
       const output = execSync(
-        `gh issue create --title "${fullTitle.replace(/"/g, '\\"')}" --body "${(body || fullTitle).replace(/"/g, '\\"')}" --label "${label}"`,
+        `gh issue create --title "${fullTitle.replace(/"/g, '\\"')}" --body "${(body || fullTitle).replace(/"/g, '\\"')}" --label "${defaultLabel}"`,
         { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
       );
       const url = output.trim();
       const match = url.match(/\/issues\/(\d+)/);
       const issueId = match ? Number(match[1]) : null;
-      return { success: true, provider: 'github', issueId, url, title: fullTitle };
+      return { success: true, provider: 'github', issueId, url, title: fullTitle, type: prefix };
     } catch (err) {
       // Fallback to local living KANBAN.md if gh cli fails or unauthenticated
       console.warn('⚠️ GitHub issue creation failed or CLI not authenticated. Falling back to local docs/KANBAN.md.');
@@ -197,7 +229,7 @@ export function createTicket({ title, type = 'feat', body = '', repoRoot = '.' }
     content = `# 📋 Project Kanban Board & Traceability Matrix\n\n> **Living Project State & Audit Trail**\n> **Last Synced**: \`${now}\`\n\n---\n\n## 📊 Board Overview\n\n| 📥 Backlog | 📋 Ready | ⚡ In Progress | 🔍 In Review | ✅ Done |\n| :--- | :--- | :--- | :--- | :--- |\n\n---\n\n## 🎯 End-to-End Traceability Matrix\n\n| Issue / Spec | Status | Priority | Component | Milestone | Spec / Contract |\n| :--- | :--- | :--- | :--- | :--- |\n`;
   }
 
-  const ticketRef = `#${issueId}: ${fullTitle}`;
+  const ticketRef = `#${issueId}: [${prefix.toUpperCase()}] ${fullTitle}`;
   const tableMarker = '| :--- | :--- | :--- | :--- | :--- |\n';
   const tableIdx = content.indexOf(tableMarker);
 
@@ -211,11 +243,12 @@ export function createTicket({ title, type = 'feat', body = '', repoRoot = '.' }
   const matrixIdx = content.indexOf(matrixMarker);
   if (matrixIdx !== -1) {
     const insertPos = matrixIdx + matrixMarker.length;
-    content = content.slice(0, insertPos) + `| **#${issueId}** | \`status:ready\` | \`P1 - High\` | Core | Current | ${fullTitle} |\n` + content.slice(insertPos);
+    const priority = prefix === 'hotfix' ? '`P0 - Blocker`' : (prefix === 'bug' ? '`P1 - High`' : '`P2 - Medium`');
+    content = content.slice(0, insertPos) + `| **#${issueId}** | \`status:ready\` | ${priority} | Core | Current | ${fullTitle} |\n` + content.slice(insertPos);
   }
 
   fs.writeFileSync(kanbanPath, content, 'utf8');
-  return { success: true, provider: 'local', issueId, url: `docs/KANBAN.md#${issueId}`, title: fullTitle };
+  return { success: true, provider: 'local', issueId, url: `docs/KANBAN.md#${issueId}`, title: fullTitle, type: prefix };
 }
 
 export function installFramework({ targetDir = '.', global = false, repoRoot = '.' } = {}) {
@@ -285,7 +318,7 @@ export function installFramework({ targetDir = '.', global = false, repoRoot = '
   return { success: true, global: isGlobal, skillsCount: loadedSkills, destSkills, destScripts };
 }
 
-export function startSession({ issueId, branch, stage = 1, stageName = 'Intake & Specification', repoRoot = '.', force = false } = {}) {
+export function startSession({ issueId, branch, stage = 1, stageName = 'Intake & Specification', type = 'feat', worktree = null, repoRoot = '.', force = false } = {}) {
   const sessionPath = getSessionPath(repoRoot);
   const current = getSessionStatus(repoRoot);
 
@@ -293,56 +326,331 @@ export function startSession({ issueId, branch, stage = 1, stageName = 'Intake &
     throw new Error('Mandatory Ticket Invariant Violated: Cannot start an SDLC workflow session without a valid issueId (--issue <id>). Create a ticket first via GitHub, PM provider, or sdlc-engine ticket create.');
   }
 
-  if (current.active && !force) {
-    throw new Error(`Active SDLC workflow session already in progress for issue #${current.session.issueId} on branch ${current.session.branch} (Stage ${current.session.stage}: ${current.session.stageName}).`);
+  // If already active in the same worktree/branch without worktree isolation
+  if (current.active && current.session?.issueId !== Number(issueId) && !worktree && !force) {
+    throw new Error(`Active SDLC workflow session already in progress for issue #${current.session.issueId} on branch ${current.session.branch}. To run concurrent tasks, use Git Worktree isolation (--worktree <path>) or subagent Workspace: 'branch'.`);
   }
 
   fs.mkdirSync(path.dirname(sessionPath), { recursive: true });
 
+  const idKey = String(issueId);
   const session = {
     active: true,
     issueId: Number(issueId) || issueId,
-    branch: branch || `feature/issue-#${issueId}`,
+    type: type.toLowerCase(),
+    branch: branch || (type === 'hotfix' ? `hotfix/issue-#${issueId}` : `feature/issue-#${issueId}`),
+    worktree: worktree || null,
     stage: Number(stage) || 1,
     stageName: stageName || 'Intake & Specification',
+    remediationCount: 0,
+    maxRemediations: 3,
+    manifest: {
+      specPath: null,
+      prNumber: null,
+      coverageReport: null,
+      mutationScore: null,
+      uiScreenshotPath: null,
+      checkpoints: {
+        stage1: null,
+        stage2: null,
+        stage3: null,
+        stage4: null,
+        stage5: null,
+        stage6: null,
+        stage7: null,
+        stage8: null
+      }
+    },
     startedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     activeSubagents: []
   };
 
-  fs.writeFileSync(sessionPath, JSON.stringify(session, null, 2), 'utf8');
-  return { success: true, session };
+  session.manifest.checkpoints[`stage${stage}`] = new Date().toISOString();
+
+  // Registry state
+  const sessions = current.sessions || {};
+  sessions[idKey] = session;
+
+  const registry = {
+    activeSessionId: Number(issueId) || issueId,
+    sessions
+  };
+
+  fs.writeFileSync(sessionPath, JSON.stringify(registry, null, 2), 'utf8');
+  return { success: true, session, registry };
 }
 
-export function updateSession({ stage, stageName, activeSubagents, repoRoot = '.' } = {}) {
+export function updateSession({ stage, stageName, activeSubagents, manifestUpdate = {}, incrementRemediation = false, repoRoot = '.' } = {}) {
   const sessionPath = getSessionPath(repoRoot);
   const current = getSessionStatus(repoRoot);
 
-  if (!current.active) {
+  if (!current.active || !current.session) {
     throw new Error('No active SDLC workflow session found to update.');
   }
 
   const session = current.session;
-  if (stage !== undefined) session.stage = Number(stage);
-  if (stageName !== undefined) session.stageName = stageName;
-  if (activeSubagents !== undefined) session.activeSubagents = activeSubagents;
-  session.updatedAt = new Date().toISOString();
-
-  fs.writeFileSync(sessionPath, JSON.stringify(session, null, 2), 'utf8');
-  return { success: true, session };
-}
-
-export function releaseSession(repoRoot = '.') {
-  const sessionPath = getSessionPath(repoRoot);
-  if (fileExists(sessionPath)) {
-    try {
-      fs.unlinkSync(sessionPath);
-      return { success: true, released: true };
-    } catch {
-      return { success: false, released: false, error: 'Failed to delete session file' };
+  if (stage !== undefined) {
+    const nextStage = Number(stage);
+    // If rolling back to stage 3 from stage 7, check circuit breaker
+    if (nextStage === 3 && session.stage >= 6) {
+      session.remediationCount = (session.remediationCount || 0) + 1;
+      if (session.remediationCount > (session.maxRemediations || 3)) {
+        throw new Error(`⚠️ Circuit Breaker Tripped: Ticket #${session.issueId} has exceeded max automated remediations (${session.maxRemediations || 3}). Human architectural review required.`);
+      }
+    }
+    session.stage = nextStage;
+    if (session.manifest && session.manifest.checkpoints) {
+      session.manifest.checkpoints[`stage${nextStage}`] = new Date().toISOString();
     }
   }
-  return { success: true, released: false };
+
+  if (stageName !== undefined) session.stageName = stageName;
+  if (activeSubagents !== undefined) session.activeSubagents = activeSubagents;
+  if (incrementRemediation) {
+    session.remediationCount = (session.remediationCount || 0) + 1;
+  }
+
+  if (manifestUpdate && session.manifest) {
+    session.manifest = { ...session.manifest, ...manifestUpdate };
+  }
+
+  session.updatedAt = new Date().toISOString();
+
+  const sessions = current.sessions || {};
+  sessions[String(session.issueId)] = session;
+
+  const registry = {
+    activeSessionId: session.issueId,
+    sessions
+  };
+
+  fs.writeFileSync(sessionPath, JSON.stringify(registry, null, 2), 'utf8');
+  return { success: true, session, registry };
+}
+
+export function switchSession(targetIssueId, repoRoot = '.') {
+  const sessionPath = getSessionPath(repoRoot);
+  const current = getSessionStatus(repoRoot);
+  const idKey = String(targetIssueId);
+
+  if (!current.sessions || !current.sessions[idKey]) {
+    throw new Error(`Session for ticket #${targetIssueId} does not exist in registry. Active sessions: ${Object.keys(current.sessions || {}).join(', ')}`);
+  }
+
+  const targetSession = current.sessions[idKey];
+  const registry = {
+    activeSessionId: targetSession.issueId,
+    sessions: current.sessions
+  };
+
+  fs.writeFileSync(sessionPath, JSON.stringify(registry, null, 2), 'utf8');
+  console.log(`🔀 Switched active session to ticket #${targetSession.issueId} (Branch: ${targetSession.branch})`);
+  return { success: true, activeSessionId: targetSession.issueId, session: targetSession };
+}
+
+export function listSessions(repoRoot = '.') {
+  const current = getSessionStatus(repoRoot);
+  const list = [];
+
+  if (current.sessions) {
+    for (const [id, sess] of Object.entries(current.sessions)) {
+      list.push({
+        issueId: sess.issueId,
+        type: sess.type,
+        branch: sess.branch,
+        worktree: sess.worktree,
+        stage: sess.stage,
+        stageName: sess.stageName,
+        isActive: Number(id) === Number(current.activeSessionId),
+        remediations: `${sess.remediationCount || 0}/${sess.maxRemediations || 3}`
+      });
+    }
+  }
+
+  return { activeSessionId: current.activeSessionId, sessions: list };
+}
+
+export function resumeSession(repoRoot = '.') {
+  const current = getSessionStatus(repoRoot);
+  if (!current.active || !current.session) {
+    return { active: false, message: 'No active session to resume.' };
+  }
+
+  const session = current.session;
+  console.log(`🔄 Resuming SDLC Workflow Session for #${session.issueId} on branch '${session.branch}'...`);
+  console.log(`📍 Current Stage: Stage ${session.stage} (${session.stageName})`);
+  console.log(`🔁 Remediation Loops: ${session.remediationCount || 0}/${session.maxRemediations || 3}`);
+  if (session.worktree) {
+    console.log(`🌲 Git Worktree: ${session.worktree}`);
+  }
+
+  return {
+    active: true,
+    session,
+    nextRecommendedAction: `Continue from Stage ${session.stage}: ${session.stageName}`,
+    dashboard: renderDashboard(session)
+  };
+}
+
+export function renderDashboard(session) {
+  if (!session) return 'No active session.';
+  const stages = [
+    { num: 1, name: 'Intake & Spec' },
+    { num: 2, name: 'Branch & Kanban' },
+    { num: 3, name: 'TDD Implement' },
+    { num: 4, name: 'Dual-Gate Tests' },
+    { num: 5, name: 'Docs & Showcase' },
+    { num: 6, name: 'Pull Request' },
+    { num: 7, name: 'Subagent Review' },
+    { num: 8, name: 'Release & Done' }
+  ];
+
+  let output = `\n================================================================\n`;
+  output += `📊 SDLC LIFECYCLE PROGRESS: #${session.issueId} (${session.type?.toUpperCase() || 'FEAT'})\n`;
+  output += `🌿 Branch: ${session.branch} ${session.worktree ? '| Worktree: ' + session.worktree : ''}\n`;
+  output += `================================================================\n`;
+
+  for (const s of stages) {
+    let icon = '⬜';
+    if (s.num < session.stage) {
+      icon = '✅';
+    } else if (s.num === session.stage) {
+      icon = '▶️ ';
+    }
+    const checkpoint = session.manifest?.checkpoints?.[`stage${s.num}`];
+    const timeStr = checkpoint ? ` (${new Date(checkpoint).toLocaleTimeString()})` : '';
+    output += ` ${icon} Stage ${s.num}: ${s.name.padEnd(18)} ${s.num === session.stage ? '<-- CURRENT' : ''}${timeStr}\n`;
+  }
+
+  if (session.remediationCount > 0) {
+    output += `\n⚠️ Remediation Retries: ${session.remediationCount}/${session.maxRemediations} (Circuit breaker threshold: ${session.maxRemediations})\n`;
+  }
+  output += `================================================================\n`;
+  return output;
+}
+
+export function releaseSession(repoRoot = '.', issueId = null) {
+  const sessionPath = getSessionPath(repoRoot);
+  const current = getSessionStatus(repoRoot);
+
+  if (!fileExists(sessionPath)) {
+    return { success: true, released: false };
+  }
+
+  const targetId = issueId || current.activeSessionId;
+
+  if (current.sessions && targetId && current.sessions[String(targetId)]) {
+    const targetSession = current.sessions[String(targetId)];
+    // If worktree exists and can be safely cleaned
+    if (targetSession.worktree && fileExists(path.resolve(repoRoot, targetSession.worktree))) {
+      try {
+        console.log(`🌲 Pruning Git worktree: ${targetSession.worktree}...`);
+        execSync(`git worktree remove --force "${targetSession.worktree}" 2>/dev/null || true`, { cwd: repoRoot });
+      } catch {}
+    }
+
+    delete current.sessions[String(targetId)];
+    const remainingKeys = Object.keys(current.sessions);
+
+    if (remainingKeys.length === 0) {
+      try { fs.unlinkSync(sessionPath); } catch {}
+      return { success: true, released: true, remainingSessions: 0 };
+    }
+
+    const nextActiveId = Number(remainingKeys[0]);
+    const registry = {
+      activeSessionId: nextActiveId,
+      sessions: current.sessions
+    };
+    fs.writeFileSync(sessionPath, JSON.stringify(registry, null, 2), 'utf8');
+    return { success: true, released: true, activeSessionId: nextActiveId, remainingSessions: remainingKeys.length };
+  }
+
+  // Fallback single-session deletion
+  try {
+    fs.unlinkSync(sessionPath);
+    return { success: true, released: true };
+  } catch {
+    return { success: false, released: false, error: 'Failed to delete session file' };
+  }
+}
+
+// --- Exemption Ledger Bridge ---
+
+export function getExemptionsPath(repoRoot = '.') {
+  return path.resolve(repoRoot, '.agent', 'sdlc-exemptions.json');
+}
+
+export function recordExemption({ mutantId, file, reason, approvedBy = 'human-review', repoRoot = '.' } = {}) {
+  const exPath = getExemptionsPath(repoRoot);
+  fs.mkdirSync(path.dirname(exPath), { recursive: true });
+
+  let ledger = { exemptions: [] };
+  if (fileExists(exPath)) {
+    try {
+      ledger = JSON.parse(readFileSafe(exPath)) || { exemptions: [] };
+    } catch {
+      ledger = { exemptions: [] };
+    }
+  }
+
+  const entry = {
+    id: `EX-${Date.now() % 100000}`,
+    mutantId: mutantId || 'unknown',
+    file: file || null,
+    reason: reason || 'Verified benign mutant / compiler artifact',
+    approvedBy,
+    timestamp: new Date().toISOString()
+  };
+
+  ledger.exemptions.push(entry);
+  fs.writeFileSync(exPath, JSON.stringify(ledger, null, 2), 'utf8');
+  console.log(`🛡️ Exemption registered: [${entry.id}] ${entry.mutantId} -> ${entry.reason}`);
+  return { success: true, exemption: entry };
+}
+
+export function getExemptions(repoRoot = '.') {
+  const exPath = getExemptionsPath(repoRoot);
+  if (!fileExists(exPath)) return [];
+  try {
+    const data = JSON.parse(readFileSafe(exPath));
+    return Array.isArray(data.exemptions) ? data.exemptions : [];
+  } catch {
+    return [];
+  }
+}
+
+// --- CI/CD Checks Remote Poller ---
+
+export function pollCIPRChecks(prNumber, { timeoutSeconds = 300, pollIntervalSeconds = 15, repoRoot = '.' } = {}) {
+  console.log(`🛰️ Polling remote CI/CD status checks for PR #${prNumber} (timeout: ${timeoutSeconds}s)...`);
+  const startTime = Date.now();
+
+  while ((Date.now() - startTime) < (timeoutSeconds * 1000)) {
+    try {
+      const output = execSync(`gh pr checks ${prNumber} 2>&1`, { cwd: repoRoot, encoding: 'utf8' });
+      if (output.includes('fail') || output.includes('error')) {
+        return { success: false, passed: false, error: 'Remote CI check failure detected.', output };
+      }
+      if (output.includes('pending') || output.includes('running')) {
+        console.log(`   ⏳ CI checks still running for PR #${prNumber}... waiting ${pollIntervalSeconds}s`);
+        execSync(`sleep ${pollIntervalSeconds}`);
+        continue;
+      }
+      // If all passed
+      return { success: true, passed: true, output };
+    } catch (err) {
+      // If gh pr checks returns error or pending non-zero exit code
+      if (err.stdout && (err.stdout.includes('fail') || err.stdout.includes('error'))) {
+        return { success: false, passed: false, error: 'Remote CI check failure detected.', output: err.stdout };
+      }
+      console.log(`   ⏳ Waiting for CI checks to register/complete... (${pollIntervalSeconds}s)`);
+      try { execSync(`sleep ${pollIntervalSeconds}`); } catch {}
+    }
+  }
+
+  return { success: false, passed: false, error: `CI check polling timed out after ${timeoutSeconds}s.` };
 }
 
 // --- Ad-Hoc Target Routing & Parallel Clustering ---
@@ -888,40 +1196,90 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         const status = getSessionStatus(repoRoot);
         console.log('⚡ SDLC Workflow Session Status:');
         console.log(JSON.stringify(status, null, 2));
+        if (status.active && status.session) {
+          console.log(renderDashboard(status.session));
+        }
         result.status = status;
         return result;
       }
 
+      if (sub === 'dashboard') {
+        const status = getSessionStatus(repoRoot);
+        if (status.active && status.session) {
+          console.log(renderDashboard(status.session));
+          result.dashboard = renderDashboard(status.session);
+        } else {
+          console.log('No active SDLC session in progress.');
+        }
+        return result;
+      }
+
+      if (sub === 'resume') {
+        const resumeRes = resumeSession(repoRoot);
+        console.log(resumeRes.dashboard || 'No active session.');
+        return { ...result, ...resumeRes };
+      }
+
       if (sub === 'start') {
-        let issueId = null, branch = 'main', stage = 1, stageName = 'Intake & Specification', force = false;
+        let issueId = null, branch = null, stage = 1, stageName = 'Intake & Specification', type = 'feat', worktree = null, force = false;
         for (let i = 2; i < args.length; i++) {
           if (args[i] === '--issue' && args[i + 1]) issueId = args[++i];
           else if (args[i] === '--branch' && args[i + 1]) branch = args[++i];
           else if (args[i] === '--stage' && args[i + 1]) stage = args[++i];
           else if (args[i] === '--name' && args[i + 1]) stageName = args[++i];
+          else if (args[i] === '--type' && args[i + 1]) type = args[++i];
+          else if (args[i] === '--worktree' && args[i + 1]) worktree = args[++i];
           else if (args[i] === '--force') force = true;
         }
-        const sessionRes = startSession({ issueId, branch, stage, stageName, repoRoot, force });
+        const sessionRes = startSession({ issueId, branch, stage, stageName, type, worktree, repoRoot, force });
         console.log('🚀 SDLC Workflow Session Started:');
         console.log(JSON.stringify(sessionRes.session, null, 2));
+        console.log(renderDashboard(sessionRes.session));
         return { ...result, ...sessionRes };
       }
 
       if (sub === 'update') {
-        let stage = undefined, stageName = undefined, activeSubagents = undefined;
+        let stage = undefined, stageName = undefined, activeSubagents = undefined, specPath = undefined, prNumber = undefined, incrementRemediation = false;
         for (let i = 2; i < args.length; i++) {
           if (args[i] === '--stage' && args[i + 1]) stage = args[++i];
           else if (args[i] === '--name' && args[i + 1]) stageName = args[++i];
           else if (args[i] === '--subagents' && args[i + 1]) activeSubagents = args[++i].split(',').map(s => s.trim());
+          else if (args[i] === '--spec' && args[i + 1]) specPath = args[++i];
+          else if (args[i] === '--pr' && args[i + 1]) prNumber = args[++i];
+          else if (args[i] === '--remediate') incrementRemediation = true;
         }
-        const sessionRes = updateSession({ stage, stageName, activeSubagents, repoRoot });
+        const manifestUpdate = {};
+        if (specPath) manifestUpdate.specPath = specPath;
+        if (prNumber) manifestUpdate.prNumber = Number(prNumber) || prNumber;
+
+        const sessionRes = updateSession({ stage, stageName, activeSubagents, manifestUpdate, incrementRemediation, repoRoot });
         console.log('🔄 SDLC Workflow Session Updated:');
         console.log(JSON.stringify(sessionRes.session, null, 2));
+        console.log(renderDashboard(sessionRes.session));
         return { ...result, ...sessionRes };
       }
 
+      if (sub === 'list') {
+        const listRes = listSessions(repoRoot);
+        console.log('📋 Active SDLC Sessions Registry:');
+        console.log(JSON.stringify(listRes, null, 2));
+        return { ...result, ...listRes };
+      }
+
+      if (sub === 'switch') {
+        const targetId = args[2];
+        if (!targetId) {
+          console.error('Usage: sdlc-engine.mjs session switch <issueId>');
+          result.success = false;
+          return result;
+        }
+        const switchRes = switchSession(targetId, repoRoot);
+        return { ...result, ...switchRes };
+      }
+
       if (sub === 'release') {
-        const sessionRes = releaseSession(repoRoot);
+        const targetId = args[2] ? Number(args[2]) : null;
+        const sessionRes = releaseSession(repoRoot, targetId);
         console.log('🔓 SDLC Workflow Session Released:');
         console.log(JSON.stringify(sessionRes, null, 2));
         return { ...result, ...sessionRes };
@@ -930,6 +1288,60 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       console.error(`Unknown session subcommand: ${sub}`);
       result.success = false;
       return result;
+    }
+
+    case 'exemption': {
+      const sub = args[1] || 'list';
+      result.subcommand = sub;
+
+      if (sub === 'list') {
+        const exemptions = getExemptions(repoRoot);
+        console.log(`🛡️ SDLC Test & Mutation Exemption Ledger (${exemptions.length} registered):`);
+        console.log(JSON.stringify(exemptions, null, 2));
+        result.exemptions = exemptions;
+        return result;
+      }
+
+      if (sub === 'add') {
+        let mutantId = '', file = '', reason = '', approvedBy = 'human-review';
+        for (let i = 2; i < args.length; i++) {
+          if (args[i] === '--mutant' && args[i + 1]) mutantId = args[++i];
+          else if (args[i] === '--file' && args[i + 1]) file = args[++i];
+          else if (args[i] === '--reason' && args[i + 1]) reason = args[++i];
+          else if (args[i] === '--by' && args[i + 1]) approvedBy = args[++i];
+        }
+        if (!mutantId && !file) {
+          console.error('Usage: sdlc-engine.mjs exemption add --mutant "<id>" [--file <path>] --reason "<rationale>" [--by <user>]');
+          result.success = false;
+          return result;
+        }
+        const exRes = recordExemption({ mutantId, file, reason, approvedBy, repoRoot });
+        return { ...result, ...exRes };
+      }
+
+      console.error(`Unknown exemption subcommand: ${sub}`);
+      result.success = false;
+      return result;
+    }
+
+    case 'check-ci': {
+      const prNumber = args[1];
+      if (!prNumber) {
+        console.error('Usage: sdlc-engine.mjs check-ci <prNumber> [--timeout <seconds>]');
+        result.success = false;
+        return result;
+      }
+      let timeoutSeconds = 300;
+      for (let i = 2; i < args.length; i++) {
+        if (args[i] === '--timeout' && args[i + 1]) timeoutSeconds = Number(args[++i]) || 300;
+      }
+      const ciRes = pollCIPRChecks(prNumber, { timeoutSeconds, repoRoot });
+      if (ciRes.passed) {
+        console.log(`✅ All remote CI status checks passed for PR #${prNumber}`);
+      } else {
+        console.error(`❌ Remote CI status checks failed or timed out: ${ciRes.error}`);
+      }
+      return { ...result, ...ciRes };
     }
 
     case 'resolve-targets': {
@@ -1118,9 +1530,11 @@ Usage:
   node .agent/scripts/sdlc-engine.mjs gate       Execute full quality gate (lint, build, test, archlens)
   node .agent/scripts/sdlc-engine.mjs archlens <check|update>
   node .agent/scripts/sdlc-engine.mjs pm <status|transition> <issueId> <state>
-  node .agent/scripts/sdlc-engine.mjs ticket create --title "<title>" [--type feat|bug]
+  node .agent/scripts/sdlc-engine.mjs ticket create --title "<title>" [--type feat|bug|hotfix|spike] [--body "<summary>"]
   node .agent/scripts/sdlc-engine.mjs update     Refresh configuration & sync Archlens policies
-  node .agent/scripts/sdlc-engine.mjs session <status|start|update|release>
+  node .agent/scripts/sdlc-engine.mjs session <status|start|update|resume|dashboard|list|switch|release>
+  node .agent/scripts/sdlc-engine.mjs exemption <list|add>
+  node .agent/scripts/sdlc-engine.mjs check-ci <prNumber> [--timeout <seconds>]
   node .agent/scripts/sdlc-engine.mjs resolve-targets <files...>
       `);
       return result;

@@ -39,7 +39,10 @@
     "gate": "node .agent/scripts/sdlc-engine.mjs gate",
     "test": "node .agent/scripts/sdlc-engine.mjs test",
     "coverage": "node .agent/scripts/sdlc-engine.mjs coverage",
-    "mutation": "node .agent/scripts/sdlc-engine.mjs mutation"
+    "mutation": "node .agent/scripts/sdlc-engine.mjs mutation",
+    "dashboard": "node .agent/scripts/sdlc-engine.mjs session dashboard",
+    "resume": "node .agent/scripts/sdlc-engine.mjs session resume",
+    "exemptions": "node .agent/scripts/sdlc-engine.mjs exemption list"
   },
   "engines": {
     "node": ">=18.0.0"

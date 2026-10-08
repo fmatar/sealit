@@ -19,6 +19,14 @@ import {
   startSession,
   updateSession,
   releaseSession,
+  resumeSession,
+  switchSession,
+  listSessions,
+  recordExemption,
+  getExemptions,
+  renderDashboard,
+  pollCIPRChecks,
+  createTicket,
   resolveAdHocTargets,
   loadEnv,
   detectPMProvider,
@@ -721,6 +729,154 @@ jobs:
       assert.equal(res.command, 'env');
       assert.ok(res.diagnostic);
       assert.ok(Array.isArray(res.diagnostic.checks));
+    });
+  });
+
+  // ==========================================
+  // Section 11: Framework Enhancements (Classification, Worktrees, Circuit Breaker, Dashboards)
+  // ==========================================
+  describe('Framework Enhancements', () => {
+    it('creates tickets with auto-classification for feat, bug, hotfix, and spike', () => {
+      const feat = createTicket({ title: 'New Payment Flow', type: 'feat', repoRoot: tmpDir });
+      assert.equal(feat.type, 'feat');
+      assert.ok(feat.title.includes('feat:'));
+
+      const bug = createTicket({ title: 'NullPointerException on checkout', type: 'bug', repoRoot: tmpDir });
+      assert.equal(bug.type, 'fix');
+      assert.ok(bug.title.includes('fix:'));
+
+      const hotfix = createTicket({ title: 'Security CVE bypass', type: 'hotfix', repoRoot: tmpDir });
+      assert.equal(hotfix.type, 'hotfix');
+      assert.ok(hotfix.title.includes('hotfix:'));
+
+      const spike = createTicket({ title: 'Explore WebAssembly engine', type: 'spike', repoRoot: tmpDir });
+      assert.equal(spike.type, 'spike');
+      assert.ok(spike.title.includes('spike:'));
+    });
+
+    it('supports git worktree isolation in startSession', () => {
+      const sessionRes = startSession({
+        issueId: 9901,
+        branch: 'hotfix/issue-#9901-security',
+        type: 'hotfix',
+        worktree: '../worktree-hotfix-9901',
+        repoRoot: tmpDir
+      });
+
+      assert.equal(sessionRes.session.worktree, '../worktree-hotfix-9901');
+      assert.equal(sessionRes.session.type, 'hotfix');
+      assert.ok(sessionRes.session.manifest);
+    });
+
+    it('enforces circuit breaker and throws when max remediation loops exceeded', () => {
+      startSession({
+        issueId: 8801,
+        branch: 'feature/issue-#8801-flaky',
+        repoRoot: tmpDir
+      });
+
+      // Update to stage 6 (PR)
+      updateSession({ stage: 6, repoRoot: tmpDir });
+
+      // Remediation 1: roll back to stage 3
+      updateSession({ stage: 3, repoRoot: tmpDir });
+      updateSession({ stage: 6, repoRoot: tmpDir });
+
+      // Remediation 2
+      updateSession({ stage: 3, repoRoot: tmpDir });
+      updateSession({ stage: 6, repoRoot: tmpDir });
+
+      // Remediation 3
+      updateSession({ stage: 3, repoRoot: tmpDir });
+      updateSession({ stage: 6, repoRoot: tmpDir });
+
+      // Remediation 4: Should trip circuit breaker
+      assert.throws(() => {
+        updateSession({ stage: 3, repoRoot: tmpDir });
+      }, /Circuit Breaker Tripped/);
+    });
+
+    it('resumes session and outputs structured progress dashboard', () => {
+      startSession({
+        issueId: 7701,
+        branch: 'feature/issue-#7701-analytics',
+        stage: 4,
+        stageName: 'Dual-Gate Test & Mutation Enforcement',
+        repoRoot: tmpDir
+      });
+
+      const resumeRes = resumeSession(tmpDir);
+      assert.equal(resumeRes.active, true);
+      assert.equal(resumeRes.session.stage, 4);
+      assert.ok(resumeRes.dashboard.includes('Stage 4: Dual-Gate Tests'));
+      assert.ok(resumeRes.dashboard.includes('<-- CURRENT'));
+    });
+
+    it('renders visual ASCII lifecycle dashboard cleanly', () => {
+      const mockSession = {
+        issueId: 1055,
+        type: 'feat',
+        branch: 'feature/issue-#1055-dashboard',
+        stage: 3,
+        remediationCount: 1,
+        maxRemediations: 3,
+        manifest: {
+          checkpoints: {
+            stage1: '2026-10-08T10:00:00Z',
+            stage2: '2026-10-08T10:05:00Z',
+            stage3: '2026-10-08T10:10:00Z'
+          }
+        }
+      };
+
+      const board = renderDashboard(mockSession);
+      assert.ok(board.includes('SDLC LIFECYCLE PROGRESS: #1055 (FEAT)'));
+      assert.ok(board.includes('Stage 3: TDD Implement'));
+      assert.ok(board.includes('Remediation Retries: 1/3'));
+    });
+
+    it('manages multi-session registry with list, switch, and selective release', () => {
+      // Start session 1
+      startSession({ issueId: 1001, branch: 'feature/issue-#1001-main', type: 'feat', repoRoot: tmpDir });
+      // Start concurrent session 2 in worktree
+      startSession({ issueId: 1002, branch: 'hotfix/issue-#1002-cve', type: 'hotfix', worktree: '../worktree-1002', repoRoot: tmpDir });
+
+      const list = listSessions(tmpDir);
+      assert.equal(list.sessions.length, 2);
+      assert.equal(list.activeSessionId, 1002);
+
+      // Switch to session 1
+      const switchRes = switchSession(1001, tmpDir);
+      assert.equal(switchRes.activeSessionId, 1001);
+
+      // Release session 1
+      const rel1 = releaseSession(tmpDir, 1001);
+      assert.equal(rel1.released, true);
+      assert.equal(rel1.remainingSessions, 1);
+      assert.equal(rel1.activeSessionId, 1002);
+
+      // Release remaining session 2
+      const rel2 = releaseSession(tmpDir, 1002);
+      assert.equal(rel2.released, true);
+      assert.equal(rel2.remainingSessions, 0);
+    });
+
+    it('records and retrieves exemptions in the exemption ledger', () => {
+      const ex1 = recordExemption({
+        mutantId: 'OrderService.java:55:NegateCondition',
+        file: 'OrderService.java',
+        reason: 'Logging debug side effect; verified manually',
+        approvedBy: '@lead-arch',
+        repoRoot: tmpDir
+      });
+
+      assert.equal(ex1.success, true);
+      assert.ok(ex1.exemption.id.startsWith('EX-'));
+
+      const ledger = getExemptions(tmpDir);
+      assert.equal(ledger.length, 1);
+      assert.equal(ledger[0].mutantId, 'OrderService.java:55:NegateCondition');
+      assert.equal(ledger[0].approvedBy, '@lead-arch');
     });
   });
 });
