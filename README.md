@@ -212,195 +212,103 @@ The framework operates via interlocking skills located in `.agent/skills/`. Each
 11. **`sdlc-initialize`**: Interactive full-stack project bootstrapper and skill installer.
 12. **`sdlc-help`**: Interactive diagnostic guide and prompt recipes.
 
-## ⏱️ 5-Minute Developer Quickstart
+---
 
-Get up and running with the Agentic SDLC Framework in four simple stages:
+## 💬 Prompting the Agent: Practical Real-World Scenarios
 
-### Step 1: Toolchain & Framework Installation
-Install the framework locally to your project's `.agent/` (or `.agents/`) directory, or install globally to `~/.gemini/config/skills`:
+You can drive the entire framework through standard conversational prompts. Here are the exact prompts to use:
 
-```bash
-# Modern zero-install with npx (Recommended):
-npx @fmatar/agentic-sdlc init          # Local project installation
-npx @fmatar/agentic-sdlc init --global # Global installation (~/.gemini/config/skills)
+### 1. New Feature Implementation (Autonomous End-to-End)
+> **Prompt**: `"Implement feature #104: Add multi-tenant JWT token rotation with rate limiting. Follow the sdlc-flow lifecycle."`
+> *(If you don't have an issue number, say: `"Build a multi-tenant JWT token rotation with rate limiting."` Gate 0 will auto-classify it as `feat`, provision the issue, and begin).*
+* **What happens**: Auto-proves Archlens Clean Architecture governance, creates branch, executes Uncle Bob TDD, enforces $\ge 85\%$ diff coverage & $\ge 80\%$ mutation kill score, syncs README & CHANGELOG, opens PR, and launches parallel peer review & quality gate subagents.
 
-# Or via turnkey POSIX curl installer:
-curl -sL "https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/install.sh" | bash
-curl -sL "https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/install.sh" | bash -s -- --global
-```
+### 2. Bug Fix with Mandatory Reproduction Harness
+> **Prompt**: `"Fix bug #205: Session timeout triggers NullPointerException when user profile has null email."`
+* **What happens**: The agent adheres to the **Reproduction Invariant**: it authors a failing test reproducing the exact failure *before* modifying any application logic, proves it fails red, applies the fix, and runs through the Dual-Gate.
 
-*Alternatively, run `./install.java --local .` or `./install.java --global` directly with JBang.*
+### 3. Ad-Hoc Fast-Path (Tweaking an In-Flight Ticket)
+> **Prompt**: `"Also make sure the token TTL is configurable via environment variable JWT_ROTATION_TTL_SECONDS."`
+* **What happens**: Detects active session on `#104`, appends the checklist item to the active ticket, skips intake overhead, and executes TDD + affected-only tests (`sdlc-engine test --affected-only`) directly on the branch.
 
-To update the framework and sync Archlens policies at any time:
-```bash
-npx @fmatar/agentic-sdlc update
-# or via SDLC engine:
-node .agent/scripts/sdlc-engine.mjs update
-```
-
-### Step 2: Bootstrap, Configure & Diagnose Environment
-- Configure environment credentials (copy `.env.example` to `.env`):
-  ```bash
-  cp .env.example .env
-  node .agent/scripts/sdlc-engine.mjs env
-  ```
-- **Universal Interactive Wizard (`sdlc-initialize`)**: Auto-detects your polyglot stack, configures Archlens Clean Architecture concentric layer governance, and wires your Project Management provider (GitHub Projects, Jira, Linear, or Local):
-  > *"Run sdlc-initialize to onboard this project with Agentic SDLC."*
-- **Audit Baseline Health**: Trigger `sdlc-analyze` to compute a compliance baseline score:
-  > *"Run sdlc-analyze to audit project health, Clean Architecture, and mutation testing defense."*
-
-### Step 3: Explore Interactive Guidance & Living Board
-- Ask your agent for the skill decision matrix, diagnostics, and prompt recipes:
-  > *"Run sdlc-help to see the SDLC decision matrix and recipes."*
-- Inspect or refresh the in-repo living board and view active lifecycle progress:
-  ```bash
-  node .agent/scripts/sdlc-engine.mjs pm status
-  node .agent/scripts/sdlc-engine.mjs session dashboard
-  cat docs/KANBAN.md
-  ```
-
-### Step 4: Bring Your Own App (BYOA) Workflow & Examples
-Plug the Agentic SDLC skills into any repository and trigger end-to-end autonomous execution:
-> *"Trigger sdlc-flow to execute issue #1031. Check session concurrency, create the feature branch, implement with Uncle Bob's TDD, enforce Dual-Gate test coverage (>= 85%) and mutation defense (>= 80%), sync README showcase and CHANGELOG, open a PR, and dispatch parallel peer review and quality gate subagents."*
+### 4. Concurrent Urgent Hotfix (Git Worktree Isolation)
+> **Prompt**: `"Urgent hotfix: Stripe webhook payload version 2026-09-01 breaks checkout. Don't lose my current work on the JWT feature!"`
+* **What happens**: Detects session collision, creates an isolated git worktree (`../worktree-hotfix-stripe`), provisions `#206`, resolves the fix in isolation, and tears down the worktree without stashing or dirtying your active feature workspace.
 
 ---
 
-## 💡 Practical Examples of New Advanced Features (How It Works)
+## ⏱️ 5-Minute Developer Quickstart
 
-### 1. Zero-Code Intake Auto-Classification
-You don't need to manually create tickets or decide on issue labels. When you give the agent any prompt:
-- *"Add Google OAuth authentication"* $\rightarrow$ creates `feat: Add Google OAuth authentication` with `status:ready`.
-- *"Fix NullPointerException on checkout"* $\rightarrow$ creates `fix: NullPointerException on checkout` with mandatory reproduction harness.
-- *"Fix critical auth token leakage vulnerability"* $\rightarrow$ creates `hotfix: Fix critical auth token leakage vulnerability` with `P0 - Blocker` priority.
-- *"Research WebAssembly performance for crypto"* $\rightarrow$ creates `spike: Research WebAssembly performance for crypto` ending in an ADR.
-
-Or execute directly from the CLI:
+### Step 1: Install Framework
 ```bash
-node .agent/scripts/sdlc-engine.mjs ticket create --title "Payment gateway timeout" --type bug --body "Stripe webhooks timeout under load"
+# Zero-install with npx (Local to repo or Global to ~/.gemini/config/skills):
+npx @fmatar/agentic-sdlc init          # Local
+npx @fmatar/agentic-sdlc init --global # Global
+
+# Or via turnkey POSIX curl:
+curl -sL "https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/install.sh" | bash
 ```
 
-### 2. Live ASCII Lifecycle Dashboard & Context Resumption
-Never wonder where the agent is in the 8-stage lifecycle. View current progress at any time:
+### Step 2: Bootstrap & Auto-Heal Project
 ```bash
-node .agent/scripts/sdlc-engine.mjs session dashboard
-```
-Output:
-```text
-================================================================
-📊 SDLC LIFECYCLE PROGRESS: #1042 (FEAT)
-🌿 Branch: feature/issue-#1042-payment-gateway
-================================================================
- ✅ Stage 1: Intake & Spec       (10:00:15 AM)
- ✅ Stage 2: Branch & Kanban     (10:02:40 AM)
- ▶️  Stage 3: TDD Implement       <-- CURRENT (10:04:12 AM)
- ⬜ Stage 4: Dual-Gate Tests    
- ⬜ Stage 5: Docs & Showcase    
- ⬜ Stage 6: Pull Request       
- ⬜ Stage 7: Subagent Review    
- ⬜ Stage 8: Release & Done     
-================================================================
-```
-If your session drops or your agent restarts, resume immediately without repeating completed stages:
-```bash
-node .agent/scripts/sdlc-engine.mjs session resume
+# Verify toolchain, git hooks, Archlens governance, and local Kanban board:
+node .agent/scripts/sdlc-engine.mjs doctor --fix
+
+# Auto-detect stack, CI workflows, and scaffold .agent/sdlc-config.json:
+node .agent/scripts/sdlc-engine.mjs detect
 ```
 
-### 3. Multi-Session & Git Worktree Isolation
-Need to fix an urgent hotfix while an epic feature is in flight? Keep both active in parallel without clobbering uncommitted files:
-```bash
-# Start an isolated hotfix in its own git worktree:
-git worktree add ../worktree-hotfix-1099 -b hotfix/issue-#1099-cve
-node .agent/scripts/sdlc-engine.mjs session start --issue 1099 --branch hotfix/issue-#1099-cve --type hotfix --worktree ../worktree-hotfix-1099
+### Step 3: Run the Universal Engine CLI
+All stages can be monitored or executed directly via the unified `sdlc-engine`:
 
-# List all active sessions:
-node .agent/scripts/sdlc-engine.mjs session list
+| Command | Purpose |
+|---|---|
+| `sdlc-engine session status` | View active ticket, stage, branch, and subagents |
+| `sdlc-engine session dashboard` | View live interactive ASCII lifecycle progress |
+| `sdlc-engine test --affected-only` | Run tests strictly for files modified in the active diff |
+| `sdlc-engine coverage` | Run diff coverage gate ($\ge 85\%$ line & branch) |
+| `sdlc-engine mutation` | Run mutation testing defense ($\ge 80\%$ kill score) |
+| `sdlc-engine archlens diff` | Audit diff for Clean Architecture concentric layer inversions |
+| `sdlc-engine gate --strict` | Unified strict gate (Lint, Build, Test, Risk, Security, Flake) |
+| `sdlc-engine review plan` | Generate parallel subagent review plan JSON payload |
+| `sdlc-engine pr-summary --issue <id>` | Generate formatted markdown summary for GitHub PR |
+| `sdlc-engine flake-check --runs 5` | Detect non-deterministic test race conditions |
+| `sdlc-engine security-audit` | Scan diff for leaked secrets, API keys, and package CVEs |
+| `sdlc-engine release [patch\|minor\|major]` | Bump SemVer, update package/changelog, and tag release |
 
-# Switch between active tickets seamlessly:
-node .agent/scripts/sdlc-engine.mjs session switch 1042
-```
+---
 
-### 4. Remediation Circuit Breaker & Exemption Ledger
-If subagent peer review or mutation testing rejects a PR, the agent remediates up to 3 times automatically. On the 3rd failure, the circuit breaker halts token consumption and requests human review:
-- **Exemption Ledger**: If a mutant is a harmless bytecode artifact or shutdown hook that cannot be killed, register an exemption so tests stay strict without blocking release:
-```bash
-node .agent/scripts/sdlc-engine.mjs exemption add --mutant "OrderService.java:42:NegateCondition" --reason "JVM shutdown hook side-effect verified manually" --by "@lead-arch"
-node .agent/scripts/sdlc-engine.mjs exemption list
-```
+## 🛠️ Advanced Framework Architecture
 
-### 5. Automated Remote CI Check Polling
-Before merging and releasing in Stage 8, verify that remote GitHub Actions matrix builds are green:
-```bash
-node .agent/scripts/sdlc-engine.mjs check-ci 42 --timeout 300
-```
+<details>
+<summary><b>Click to expand Advanced SDLC Engine Features & Safeguards</b></summary>
 
-### 6. Turnkey SemVer Release Automation
-Roll versions, update package manifests, sync `CHANGELOG.md`, and cut Git tags with a single command:
-```bash
-# Dry-run preview without mutating files:
-node .agent/scripts/sdlc-engine.mjs release patch --dry-run
+### 1. Zero-Code Ticket Auto-Classification
+Incoming requests without an explicit `#id` are deterministically classified:
+- `feat`: Architectural capabilities or user features (`status:ready`).
+- `fix`: Defect remediation requiring an upfront failing reproduction test.
+- `hotfix`: Critical production blockers with P0 priority.
+- `spike`: Timeboxed research ending in an ADR.
 
-# Run full quality gate, bump SemVer, update package.json/pom.xml, roll changelog, and tag:
-node .agent/scripts/sdlc-engine.mjs release minor
-```
+### 2. Remediation Circuit Breaker & Exemption Ledger
+If parallel subagent peer review or mutation testing rejects a PR, the agent remediates up to 3 times automatically. On the 3rd failure, the circuit breaker halts token consumption and presents an interactive `ask_question` modal (request exemption, extend budget, or rollback).
+- **Exemption Ledger**: Document unkillable compiler bytecode quirks or shutdown hooks in `.agent/sdlc-exemptions.json`:
+  ```bash
+  node .agent/scripts/sdlc-engine.mjs exemption add --mutant "OrderService:42:NegateCondition" --reason "JVM shutdown hook side-effect" --by "@lead"
+  ```
 
-### 7. Framework Doctor & Healthcheck
-Verify your system toolchain (Git, Node, GitHub CLI, Docker), required framework assets, and active session locks:
-```bash
-node .agent/scripts/sdlc-engine.mjs doctor
-```
+### 3. Remote CI Polling & Git Hooks
+- Install zero-dependency local pre-commit/pre-push hooks: `node .agent/scripts/sdlc-engine.mjs hooks install`.
+- Scaffold GitHub Actions Quality Gate CI: `node .agent/scripts/sdlc-engine.mjs ci-workflow install`.
+- Verify GitHub Actions matrix status before merging: `node .agent/scripts/sdlc-engine.mjs check-ci <pr-id>`.
 
-### 8. Native Git Hooks & CI/CD Workflow Scaffolding
-Enforce quality gates automatically before commit, push, and remote merge:
-```bash
-# Install zero-dependency local pre-commit & pre-push hooks:
-node .agent/scripts/sdlc-engine.mjs hooks install
+</details>
 
-# Scaffold automated GitHub Actions Quality Gate workflow (.github/workflows/sdlc-quality-gate.yml):
-node .agent/scripts/sdlc-engine.mjs ci-workflow install
-```
-
-### 9. Pre-Flight Risk Scorer
-Audit the impact and risk level (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`) of files modified in the active diff:
-```bash
-node .agent/scripts/sdlc-engine.mjs risk-audit
-```
-
-### 10. Automated PR Quality Summary Generator
-Compile structured PR markdown with Dual-Gate test scores, risk analysis, and developer showcase verification:
-```bash
-node .agent/scripts/sdlc-engine.mjs pr-summary --issue 1042
-```
-
-### 11. Architecture Diff Checker & Smart Affected Tests
-Verify that no concentric layer inversions were introduced in the diff, and run only affected tests:
-```bash
-# Run fast affected tests during TDD development loops:
-node .agent/scripts/sdlc-engine.mjs test --affected-only
-
-# Check whether newly added imports violate Clean Architecture concentric rings:
-node .agent/scripts/sdlc-engine.mjs archlens diff
-```
-
-### 12. Automated Flaky Test Detector
-Detect non-deterministic race conditions or intermittent failures before opening a PR:
-```bash
-node .agent/scripts/sdlc-engine.mjs flake-check --runs 10
-```
-
-### 13. Pre-Flight Security & Secret Leak Auditor
-Audit the git diff for hardcoded private keys, tokens, or high-severity package vulnerabilities:
-```bash
-node .agent/scripts/sdlc-engine.mjs security-audit
-```
-
-### 14. Native Archlens Clean Architecture Scaffolder
-Auto-generate a concentric ring policy without external dependencies:
-```bash
-node .agent/scripts/sdlc-engine.mjs archlens scaffold
-```
-
-## 📖 Documentation
-Detailed documentation is available in [`docs/SDLC_AGENTIC_OPERATIONS_GUIDE.md`](./docs/SDLC_AGENTIC_OPERATIONS_GUIDE.md) and the [`wiki/`](./wiki/) directory.
+## 📖 Documentation & Specifications
+Detailed deep dives and architecture guides are available in:
+- [`docs/SDLC_AGENTIC_OPERATIONS_GUIDE.md`](./docs/SDLC_AGENTIC_OPERATIONS_GUIDE.md)
+- [`wiki/`](./wiki/)
 
 ## 📄 License
 This project is licensed under the Apache 2.0 License - see the [LICENSE](./LICENSE) file for details.
+
