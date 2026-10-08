@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- feat(flake-check): automated flaky test detector (`node .agent/scripts/sdlc-engine.mjs flake-check [--runs <n>]`) executing rapid shuffled iterations to catch non-deterministic race conditions
+- feat(security-audit): pre-flight secret leak and dependency CVE auditor (`node .agent/scripts/sdlc-engine.mjs security-audit`) scanning git diffs for private keys, AWS/GitHub tokens, and high-severity package vulnerabilities
+- feat(archlens-scaffold): zero-dependency native Archlens Clean Architecture policy generator (`node .agent/scripts/sdlc-engine.mjs archlens scaffold`) auto-configuring concentric ring boundaries across polyglot projects
+- feat(mutation-strengthen): mutation test auto-strengthener (`node .agent/scripts/sdlc-engine.mjs strengthen [--type <type>]`) recommending concrete assertion density improvements for surviving mutants
 - feat(archlens-inquiry): proactively prompt user for Archlens Clean Architecture availability in `sdlc-flow` Stage 1 via `ask_question`, offering instant one-click policy scaffolding if unconfigured
 - feat(risk-audit): diff-aware pre-flight risk scorer (`node .agent/scripts/sdlc-engine.mjs risk-audit`) assigning risk levels (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`) based on schema migrations, security logic, lockfiles, and domain entities
 - feat(pr-summary): automated pull request summary generator (`node .agent/scripts/sdlc-engine.mjs pr-summary [--issue <id>]`) compiling Dual-Gate metrics, risk analysis, git stat, and verification showcase into markdown

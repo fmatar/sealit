@@ -41,7 +41,11 @@ import {
   assessRisk,
   generatePRSummary,
   findAffectededTests,
-  checkArchDiff
+  checkArchDiff,
+  runFlakeCheck,
+  auditSecurity,
+  scaffoldArchlensPolicy,
+  suggestMutationStrengthening
 } from '../.agent/scripts/sdlc-engine.mjs';
 
 describe('Universal SDLC Engine: Complete Uncle Bob Test Suite', () => {
@@ -1071,6 +1075,60 @@ jobs:
       const prRes = runCLI(['pr-summary', '--issue', '9911'], null, tmpDir);
       assert.equal(prRes.command, 'pr-summary');
       assert.equal(prRes.prSummary.issueId, '9911');
+    });
+
+    it('detects flaky test behavior or passes clean deterministic suites', () => {
+      const testDir = path.join(tmpDir, 'test');
+      fs.mkdirSync(testDir, { recursive: true });
+      const passTest = path.join(testDir, 'pass.test.mjs');
+      fs.writeFileSync(passTest, 'import { it } from "node:test"; it("passes", () => {});');
+
+      const flakeRes = runFlakeCheck({ runs: 3, target: passTest, repoRoot: tmpDir });
+      assert.equal(flakeRes.success, true);
+      assert.equal(flakeRes.flaky, false);
+      assert.equal(flakeRes.results[0].passed, 3);
+    });
+
+    it('scaffolds native Archlens Clean Architecture policy cleanly', () => {
+      const scafRes = scaffoldArchlensPolicy(tmpDir);
+      assert.equal(scafRes.success, true);
+      assert.equal(scafRes.created, true);
+      assert.equal(scafRes.layersCount, 4);
+
+      const policyContent = JSON.parse(fs.readFileSync(scafRes.path, 'utf8'));
+      assert.equal(policyContent.architecture, 'Clean Architecture (Concentric Rings)');
+      assert.equal(policyContent.layers.length, 4);
+    });
+
+    it('provides tailored auto-strengthening recommendations for surviving mutants', () => {
+      const boundaryRec = suggestMutationStrengthening({ mutantType: 'ConditionalsBoundary', file: 'Order.js', line: 12 });
+      assert.ok(boundaryRec.recommendation.includes('boundary value test case'));
+      assert.ok(boundaryRec.sampleAssert.includes('expectedThresholdOutcome'));
+
+      const negateRec = suggestMutationStrengthening({ mutantType: 'NegateCondition' });
+      assert.ok(negateRec.recommendation.includes('boolean negated'));
+    });
+
+    it('audits security for secret leaks and package health', () => {
+      const secRes = auditSecurity(tmpDir);
+      assert.equal(typeof secRes.passed, 'boolean');
+      assert.equal(typeof secRes.secretLeaksCount, 'number');
+    });
+
+    it('executes flake-check, security-audit, and strengthen CLI commands', () => {
+      const flakeRes = runCLI(['flake-check', '--runs', '2'], null, tmpDir);
+      assert.equal(flakeRes.command, 'flake-check');
+
+      const secRes = runCLI(['security-audit'], null, tmpDir);
+      assert.equal(secRes.command, 'security-audit');
+
+      const scafRes = runCLI(['archlens', 'scaffold'], null, tmpDir);
+      assert.equal(scafRes.command, 'archlens');
+      assert.equal(scafRes.scaffold.success, true);
+
+      const stRes = runCLI(['strengthen', '--type', 'Math'], null, tmpDir);
+      assert.equal(stRes.command, 'strengthen');
+      assert.equal(stRes.strengthen.mutantType, 'Math');
     });
   });
 });

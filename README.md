@@ -209,6 +209,24 @@ node .agent/scripts/sdlc-engine.mjs test --affected-only
 node .agent/scripts/sdlc-engine.mjs archlens diff
 ```
 
+### 12. Automated Flaky Test Detector
+Detect non-deterministic race conditions or intermittent failures before opening a PR:
+```bash
+node .agent/scripts/sdlc-engine.mjs flake-check --runs 10
+```
+
+### 13. Pre-Flight Security & Secret Leak Auditor
+Audit the git diff for hardcoded private keys, tokens, or high-severity package vulnerabilities:
+```bash
+node .agent/scripts/sdlc-engine.mjs security-audit
+```
+
+### 14. Native Archlens Clean Architecture Scaffolder
+Auto-generate a concentric ring policy without external dependencies:
+```bash
+node .agent/scripts/sdlc-engine.mjs archlens scaffold
+```
+
 ## 📖 Documentation
 Detailed documentation is available in [`docs/SDLC_AGENTIC_OPERATIONS_GUIDE.md`](./docs/SDLC_AGENTIC_OPERATIONS_GUIDE.md) and the [`wiki/`](./wiki/) directory.
 

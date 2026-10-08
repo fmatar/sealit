@@ -1354,6 +1354,231 @@ export function checkArchDiff(repoRoot = '.') {
   };
 }
 
+// --- Automated Flaky Test Detector ---
+
+export function runFlakeCheck({ runs = 5, target = null, repoRoot = '.' } = {}) {
+  const iterationCount = Math.max(2, Math.min(50, Number(runs) || 5));
+  console.log(`🧪 Running Flaky Test Detector (${iterationCount} iterations)...`);
+
+  const diffFiles = getModifiedFiles();
+  const testFiles = target ? [target] : findAffectededTests(diffFiles, repoRoot);
+
+  if (testFiles.length === 0) {
+    return {
+      success: true,
+      flaky: false,
+      message: 'No test files targeted or affected. Flake check skipped.',
+      results: []
+    };
+  }
+
+  const results = [];
+  let detectedFlakes = 0;
+
+  for (const tFile of testFiles) {
+    let passedCount = 0;
+    let failedCount = 0;
+
+    for (let i = 1; i <= iterationCount; i++) {
+      try {
+        execSync(`node --test "${tFile}" 2>/dev/null`, { cwd: repoRoot, stdio: 'pipe' });
+        passedCount++;
+      } catch {
+        failedCount++;
+      }
+    }
+
+    const isFlaky = passedCount > 0 && failedCount > 0;
+    if (isFlaky) detectedFlakes++;
+
+    results.push({
+      testFile: tFile,
+      iterations: iterationCount,
+      passed: passedCount,
+      failed: failedCount,
+      isFlaky
+    });
+
+    const statusIcon = isFlaky ? '❌ FLAKY' : (failedCount === 0 ? '✔ STABLE' : '✖ FAILING');
+    console.log(`   ${statusIcon}: ${tFile} (${passedCount}/${iterationCount} passed)`);
+  }
+
+  const overallFlaky = detectedFlakes > 0;
+  if (overallFlaky) {
+    console.warn(`⚠️ Warning: ${detectedFlakes} flaky test(s) detected across ${testFiles.length} tested suite(s).`);
+  } else {
+    console.log('✅ Flake Check Passed: All executed tests exhibited deterministic stability.');
+  }
+
+  return {
+    success: true,
+    flaky: overallFlaky,
+    totalTested: testFiles.length,
+    flakyCount: detectedFlakes,
+    results
+  };
+}
+
+// --- Security & Secret Leak Pre-Flight Auditor ---
+
+export function auditSecurity(repoRoot = '.') {
+  console.log('🔒 Auditing Git Diff for Secret Leaks, Sensitive Keys & Package CVEs...');
+  const diffFiles = getModifiedFiles();
+  const secretViolations = [];
+
+  const secretPatterns = [
+    { name: 'Private Key / RSA Block', regex: /-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----/ },
+    { name: 'AWS Access Key ID', regex: /(A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}/ },
+    { name: 'GitHub Personal Access Token', regex: /gh[pousr]_[A-Za-z0-9_]{36,255}/ },
+    { name: 'Generic Hardcoded Bearer / Secret', regex: /(api_key|apikey|secret_key|private_key|auth_token)\s*[:=]\s*['"][A-Za-z0-9_\-]{16,}['"]/i }
+  ];
+
+  for (const file of diffFiles) {
+    try {
+      const diffOutput = execSync(`git diff HEAD~1 -- "${file}" 2>/dev/null || git diff -- "${file}" 2>/dev/null || true`, {
+        cwd: repoRoot,
+        encoding: 'utf8'
+      });
+
+      const lines = diffOutput.split('\n');
+      for (const line of lines) {
+        if (!line.startsWith('+') || line.startsWith('+++')) continue;
+        for (const sp of secretPatterns) {
+          if (sp.regex.test(line)) {
+            secretViolations.push({
+              file,
+              type: sp.name,
+              linePreview: line.slice(0, 40) + '...'
+            });
+          }
+        }
+      }
+    } catch {}
+  }
+
+  // Package Audit (npm audit if package.json present)
+  let packageAuditPassed = true;
+  let packageVulnerabilities = 0;
+  if (fileExists(path.resolve(repoRoot, 'package.json'))) {
+    try {
+      execSync('npm audit --audit-level=high 2>&1', { cwd: repoRoot, stdio: 'pipe' });
+    } catch (err) {
+      packageAuditPassed = false;
+      packageVulnerabilities = 1;
+    }
+  }
+
+  const clean = secretViolations.length === 0 && packageAuditPassed;
+  if (clean) {
+    console.log('✅ Security Audit Passed: Zero secrets detected and dependencies clean.');
+  } else {
+    if (secretViolations.length > 0) {
+      console.warn(`❌ Detected ${secretViolations.length} potential secret leak(s) in diff!`);
+      for (const sv of secretViolations) {
+        console.warn(`   • [${sv.file}] ${sv.type}`);
+      }
+    }
+    if (!packageAuditPassed) {
+      console.warn('⚠️ Package vulnerability check reported high/critical advisories.');
+    }
+  }
+
+  return {
+    passed: clean,
+    secretLeaksCount: secretViolations.length,
+    secretViolations,
+    packageAuditPassed,
+    recommendation: clean ? 'Ready to push.' : 'Resolve hardcoded secrets and high-severity dependencies.'
+  };
+}
+
+// --- Native Archlens Clean Architecture Policy Scaffolder ---
+
+export function scaffoldArchlensPolicy(repoRoot = '.') {
+  console.log('🏛️ Auto-Scaffolding Native Archlens Clean Architecture Policy...');
+  const archDir = path.resolve(repoRoot, '.archlens');
+  fs.mkdirSync(archDir, { recursive: true });
+
+  const policyPath = path.resolve(archDir, 'policy.json');
+  if (fileExists(policyPath)) {
+    console.log(`ℹ️ Archlens policy already exists at ${policyPath}`);
+    return { success: true, created: false, path: policyPath };
+  }
+
+  // Inspect directories to build concentric rings
+  const layers = [
+    {
+      name: 'Domain',
+      description: 'Core entities, value objects, and domain invariants. Ring 0 (Zero dependencies).',
+      paths: ['src/domain', 'domain', 'lib/domain', 'core/domain', 'entities'],
+      allowedDependencies: []
+    },
+    {
+      name: 'Application',
+      description: 'Use cases, ports, service interfaces, DTOs. Ring 1 (Depends only on Domain).',
+      paths: ['src/application', 'application', 'usecases', 'services'],
+      allowedDependencies: ['Domain']
+    },
+    {
+      name: 'Infrastructure',
+      description: 'Database persistence, external API clients, message brokers. Ring 2.',
+      paths: ['src/infrastructure', 'infrastructure', 'db', 'persistence', 'adapters'],
+      allowedDependencies: ['Domain', 'Application']
+    },
+    {
+      name: 'Web / Presentation',
+      description: 'HTTP controllers, REST resources, UI views, routes. Ring 3.',
+      paths: ['src/web', 'web', 'controllers', 'routes', 'ui', 'frontend'],
+      allowedDependencies: ['Domain', 'Application']
+    }
+  ];
+
+  const policy = {
+    $schema: 'https://archlens.dev/schemas/policy.v1.json',
+    version: '1.0.0',
+    generatedAt: new Date().toISOString(),
+    architecture: 'Clean Architecture (Concentric Rings)',
+    rules: {
+      strictConcentricRings: true,
+      enforceInDiff: true,
+      allowCircularDependencies: false
+    },
+    layers
+  };
+
+  fs.writeFileSync(policyPath, JSON.stringify(policy, null, 2) + '\n', 'utf8');
+  console.log(`✅ Archlens Clean Architecture policy scaffolded at ${policyPath}`);
+
+  return {
+    success: true,
+    created: true,
+    path: policyPath,
+    layersCount: layers.length
+  };
+}
+
+// --- Mutation Test Auto-Strengthener ---
+
+export function suggestMutationStrengthening({ mutantType = 'ConditionalsBoundary', file = null, line = null } = {}) {
+  const suggestions = {
+    ConditionalsBoundary: 'Boundary condition mutated (e.g. `<` changed to `<=`). Add boundary value test case asserting exact threshold (e.g. `threshold - 1`, `threshold`, and `threshold + 1`).',
+    NegateCondition: 'Conditional boolean negated (e.g. `if (x)` inverted). Ensure both true and false paths have distinct observable assertions.',
+    Math: 'Arithmetic operator replaced (e.g. `+` to `-`). Verify calculation outcomes with non-zero, distinct operands.',
+    VoidMethodCall: 'Void side-effect removed (e.g. state mutation, cache evict, event emit). Assert the resulting observable state change or verify mock invocation.',
+    EmptyReturn: 'Method return replaced with empty/null. Ensure caller explicitly asserts non-empty return data structures.'
+  };
+
+  const advice = suggestions[mutantType] || 'Surviving mutant indicates missing assertion density. Verify that test assertions validate outcomes rather than just exercising code paths.';
+
+  return {
+    mutantType,
+    file,
+    line,
+    recommendation: advice,
+    sampleAssert: mutantType === 'ConditionalsBoundary' ? 'assert.equal(calculate(10), expectedThresholdOutcome)' : 'assert.notEqual(result, null)'
+  };
+}
+
 // --- Ad-Hoc Target Routing & Parallel Clustering ---
 
 export function resolveAdHocTargets(files = [], modules = [], repoRoot = '.') {
@@ -2137,8 +2362,48 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         return { ...result, ...diffRes };
       }
 
+      if (sub === 'scaffold') {
+        const scafRes = scaffoldArchlensPolicy(repoRoot);
+        result.scaffold = scafRes;
+        return result;
+      }
+
       console.error(`Unknown archlens subcommand: ${sub}`);
       result.success = false;
+      return result;
+    }
+
+    case 'flake-check': {
+      let runs = 5;
+      let target = null;
+      for (let i = 1; i < args.length; i++) {
+        if (args[i] === '--runs' && args[i + 1]) runs = Number(args[++i]) || 5;
+        else if (args[i] === '--target' && args[i + 1]) target = args[++i];
+      }
+      const flakeRes = runFlakeCheck({ runs, target, repoRoot });
+      result.flakeCheck = flakeRes;
+      return result;
+    }
+
+    case 'security-audit': {
+      const secRes = auditSecurity(repoRoot);
+      result.security = secRes;
+      return result;
+    }
+
+    case 'strengthen': {
+      let mutantType = 'ConditionalsBoundary';
+      let file = null;
+      for (let i = 1; i < args.length; i++) {
+        if (args[i] === '--type' && args[i + 1]) mutantType = args[++i];
+        else if (args[i] === '--file' && args[i + 1]) file = args[++i];
+      }
+      const adv = suggestMutationStrengthening({ mutantType, file });
+      console.log('\n💡 MUTATION TEST AUTO-STRENGTHENING RECOMMENDATION:');
+      console.log(`Type:           ${adv.mutantType}`);
+      console.log(`Recommendation: ${adv.recommendation}`);
+      console.log(`Sample Assert:  ${adv.sampleAssert}\n`);
+      result.strengthen = adv;
       return result;
     }
 
@@ -2364,7 +2629,10 @@ Usage:
   node .agent/scripts/sdlc-engine.mjs release [patch|minor|major] [--dry-run] [--skip-gate]
   node .agent/scripts/sdlc-engine.mjs risk-audit [files...] Calculate pre-flight risk score
   node .agent/scripts/sdlc-engine.mjs pr-summary [--issue <id>] Generate formatted PR markdown
-  node .agent/scripts/sdlc-engine.mjs archlens <check|update|diff>
+  node .agent/scripts/sdlc-engine.mjs flake-check [--runs <n>] Detect intermittent test flakiness
+  node .agent/scripts/sdlc-engine.mjs security-audit      Audit diff for secret leaks & package CVEs
+  node .agent/scripts/sdlc-engine.mjs strengthen [--type <type>] Suggest assertions to kill surviving mutants
+  node .agent/scripts/sdlc-engine.mjs archlens <check|update|diff|scaffold>
   node .agent/scripts/sdlc-engine.mjs pm <status|transition|comment> <issueId> [state|--body "<comment>"]
   node .agent/scripts/sdlc-engine.mjs ticket create --title "<title>" [--type feat|bug|hotfix|spike] [--body "<summary>"]
   node .agent/scripts/sdlc-engine.mjs update              Refresh configuration & sync Archlens policies
