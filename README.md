@@ -187,6 +187,28 @@ node .agent/scripts/sdlc-engine.mjs hooks install
 node .agent/scripts/sdlc-engine.mjs ci-workflow install
 ```
 
+### 9. Pre-Flight Risk Scorer
+Audit the impact and risk level (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`) of files modified in the active diff:
+```bash
+node .agent/scripts/sdlc-engine.mjs risk-audit
+```
+
+### 10. Automated PR Quality Summary Generator
+Compile structured PR markdown with Dual-Gate test scores, risk analysis, and developer showcase verification:
+```bash
+node .agent/scripts/sdlc-engine.mjs pr-summary --issue 1042
+```
+
+### 11. Architecture Diff Checker & Smart Affected Tests
+Verify that no concentric layer inversions were introduced in the diff, and run only affected tests:
+```bash
+# Run fast affected tests during TDD development loops:
+node .agent/scripts/sdlc-engine.mjs test --affected-only
+
+# Check whether newly added imports violate Clean Architecture concentric rings:
+node .agent/scripts/sdlc-engine.mjs archlens diff
+```
+
 ## 📖 Documentation
 Detailed documentation is available in [`docs/SDLC_AGENTIC_OPERATIONS_GUIDE.md`](./docs/SDLC_AGENTIC_OPERATIONS_GUIDE.md) and the [`wiki/`](./wiki/) directory.
 

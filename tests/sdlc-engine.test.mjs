@@ -37,7 +37,11 @@ import {
   executeRelease,
   runDoctor,
   installHooks,
-  installCIWorkflow
+  installCIWorkflow,
+  assessRisk,
+  generatePRSummary,
+  findAffectededTests,
+  checkArchDiff
 } from '../.agent/scripts/sdlc-engine.mjs';
 
 describe('Universal SDLC Engine: Complete Uncle Bob Test Suite', () => {
@@ -1012,6 +1016,61 @@ jobs:
       const ciRes = runCLI(['ci-workflow', 'install'], null, tmpDir);
       assert.equal(ciRes.command, 'ci-workflow');
       assert.equal(ciRes.ciWorkflow.success, true);
+    });
+
+    it('assesses risk levels accurately based on diff files', () => {
+      const lowRisk = assessRisk(['README.md', 'docs/specs/spec.md'], tmpDir);
+      assert.equal(lowRisk.riskLevel, 'LOW');
+
+      const highRisk = assessRisk(['src/domain/entities/Order.java'], tmpDir);
+      assert.equal(highRisk.riskLevel, 'HIGH');
+
+      const critRisk = assessRisk(['db/migration/V1__init.sql', 'src/auth/jwt.js'], tmpDir);
+      assert.equal(critRisk.riskLevel, 'CRITICAL');
+      assert.ok(critRisk.factors.some(f => f.level === 'CRITICAL'));
+    });
+
+    it('generates formatted pull request summary markdown', () => {
+      const summary = generatePRSummary({ issueId: 4099, repoRoot: tmpDir });
+      assert.equal(summary.issueId, 4099);
+      assert.ok(summary.markdown.includes('## 📋 Pull Request Summary: #4099'));
+      assert.ok(summary.markdown.includes('Dual-Gate Quality Verification'));
+      assert.ok(summary.markdown.includes('Risk & Impact Analysis'));
+    });
+
+    it('finds affected test files corresponding to modified source files', () => {
+      const testDir = path.join(tmpDir, 'test');
+      fs.mkdirSync(testDir, { recursive: true });
+      fs.writeFileSync(path.join(testDir, 'UserService.test.mjs'), '// test code');
+
+      const affected = findAffectededTests(['src/UserService.mjs'], tmpDir);
+      assert.equal(affected.length, 1);
+      assert.ok(affected[0].includes('UserService.test.mjs'));
+    });
+
+    it('audits diff for Archlens concentric layer inversions', () => {
+      const archRes = checkArchDiff(tmpDir);
+      assert.equal(archRes.enabled, false); // No policy yet
+
+      // Mock policy
+      const archDir = path.join(tmpDir, '.archlens');
+      fs.mkdirSync(archDir, { recursive: true });
+      fs.writeFileSync(path.join(archDir, 'policy.json'), JSON.stringify({ layers: [] }));
+
+      const archActiveRes = checkArchDiff(tmpDir);
+      assert.equal(archActiveRes.enabled, true);
+      assert.equal(archActiveRes.passed, true);
+      assert.equal(archActiveRes.violationsCount, 0);
+    });
+
+    it('executes risk-audit and pr-summary CLI commands cleanly', () => {
+      const riskRes = runCLI(['risk-audit', 'src/domain/User.java'], null, tmpDir);
+      assert.equal(riskRes.command, 'risk-audit');
+      assert.equal(riskRes.risk.riskLevel, 'HIGH');
+
+      const prRes = runCLI(['pr-summary', '--issue', '9911'], null, tmpDir);
+      assert.equal(prRes.command, 'pr-summary');
+      assert.equal(prRes.prSummary.issueId, '9911');
     });
   });
 });

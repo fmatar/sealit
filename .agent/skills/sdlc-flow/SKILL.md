@@ -110,6 +110,12 @@ flowchart TD
 ### Stage 1: Intake & Contract Specification (`sdlc-feature-spec`)
 - **Ticket Verification (Gate 0)**: Confirm ticket `<id>` is resolved. If missing, provision it now via `node .agent/scripts/sdlc-engine.mjs ticket create`.
 - Ensure project stack is detected and `.agent/sdlc-config.json` is initialized: `node .agent/scripts/sdlc-engine.mjs detect`.
+- **Archlens Clean Architecture Availability Inquiry**:
+  Check if Archlens governance is configured via `node .agent/scripts/sdlc-engine.mjs env` or `inspectArchlens`. If `.archlens/policy.json` is not present, proactively prompt the user using `ask_question`:
+  - *Question*: "Archlens Clean Architecture governance policy is not configured for this project. Would you like to enable Archlens governance and concentric layer enforcement for this workflow?"
+  - *Option 1*: "(Recommended) Yes, scaffold Archlens Clean Architecture policy now (`npx -y @fmatar/archlens-skill --path . --yes`)"
+  - *Option 2*: "No, proceed with standard Dual-Gate verification without Archlens"
+  If the user chooses Option 1, execute the setup command before proceeding.
 - Fetch issue requirements using `issue_read` via `call_mcp_tool` (or native tool).
 - Ensure ticket is assigned to the authenticated user (`gh api user -q .login` or `@me`) and linked to the repository's GitHub Project.
 - Post initial progress comment: `"🚀 Starting automated execution for ticket #<id>..."`
@@ -130,6 +136,7 @@ flowchart TD
 - Write failing unit tests first for degenerate cases before writing production code.
 - Implement business logic adhering to idiomatic standards for the detected stack (clean domain use cases, reactive streams or async where applicable, decoupled external ports).
 - Reject test smells (no testing trivial getters/setters, no testing framework plumbing, no mock-heavy interaction verification).
+- **Fast-Loop Verification**: Run `node .agent/scripts/sdlc-engine.mjs test --affected-only` during development loops for rapid feedback.
 
 ### Stage 4: Dual-Gate Test & Mutation Enforcement (`sdlc-test-coverage`)
 - **Session Update**: `node .agent/scripts/sdlc-engine.mjs session update --stage 4 --name "Dual-Gate Test & Mutation Enforcement"`.
@@ -137,11 +144,13 @@ flowchart TD
   ```bash
   node .agent/scripts/sdlc-engine.mjs coverage
   node .agent/scripts/sdlc-engine.mjs mutation
+  node .agent/scripts/sdlc-engine.mjs archlens diff
   ```
 - Target modified lines: `git diff --name-only main`.
 - **Enforce Dual-Gate Threshold**:
   1. $\ge 85\%$ line and branch coverage on diff.
   2. $\ge 80\%$ mutation kill score on modified classes/components.
+  3. Archlens layer compliance: Zero concentric layer inversions introduced in git diff.
 - Automatically author missing boundary tests or strengthen assertions if mutants survive.
 - **Benign Mutant Exemption Ledger**: If an unkillable mutant is a benign compiler bytecode quirk or shutdown hook, document and register it in `.agent/sdlc-exemptions.json`:
   ```bash
@@ -162,9 +171,13 @@ flowchart TD
 
 ### Stage 6: Pull Request Opening (`sdlc-kanban`)
 - **Session Update**: `node .agent/scripts/sdlc-engine.mjs session update --stage 6 --name "Pull Request Opening"`.
+- **Automated PR Body Generation**: Generate structured PR markdown via the engine:
+  ```bash
+  node .agent/scripts/sdlc-engine.mjs pr-summary --issue <id>
+  ```
 - **UI Ephemeral Preview (Frontend / Svelte Modules)**: For UI components, capture screenshot visual artifacts or Lighthouse audit results and attach the image preview link to the PR body.
 - Push feature branch to remote origin: `git push -u origin HEAD`.
-- Call `create_pull_request` linking `Fixes #<id>` with summary of changes, diff coverage ($\ge 85\%$), mutation kill score ($\ge 80\%$), and UI screenshots (if applicable).
+- Call `create_pull_request` linking `Fixes #<id>` with the compiled PR summary.
 - **Kanban Transition (`sdlc-kanban`)**: Tag ticket with `status:in-review`.
 
 ### Stage 7: Fork-Join Parallel Review & Quality Gate (`invoke_subagent`)

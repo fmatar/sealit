@@ -46,7 +46,9 @@
     "doctor": "node .agent/scripts/sdlc-engine.mjs doctor",
     "release": "node .agent/scripts/sdlc-engine.mjs release",
     "hooks:install": "node .agent/scripts/sdlc-engine.mjs hooks install",
-    "ci:install": "node .agent/scripts/sdlc-engine.mjs ci-workflow install"
+    "ci:install": "node .agent/scripts/sdlc-engine.mjs ci-workflow install",
+    "risk": "node .agent/scripts/sdlc-engine.mjs risk-audit",
+    "pr-summary": "node .agent/scripts/sdlc-engine.mjs pr-summary"
   },
   "engines": {
     "node": ">=18.0.0"
