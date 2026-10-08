@@ -35,7 +35,9 @@ import {
   diagnoseEnvironment,
   bumpSemVer,
   executeRelease,
-  runDoctor
+  runDoctor,
+  installHooks,
+  installCIWorkflow
 } from '../.agent/scripts/sdlc-engine.mjs';
 
 describe('Universal SDLC Engine: Complete Uncle Bob Test Suite', () => {
@@ -968,6 +970,48 @@ jobs:
       const res = runCLI(['doctor'], null, tmpDir);
       assert.equal(res.command, 'doctor');
       assert.equal(typeof res.doctor.healthy, 'boolean');
+    });
+
+    it('installs zero-dependency git hooks in a git repository', () => {
+      // Mock .git folder
+      const gitDir = path.join(tmpDir, '.git');
+      fs.mkdirSync(gitDir, { recursive: true });
+
+      const res = installHooks({ repoRoot: tmpDir });
+      assert.equal(res.success, true);
+      assert.deepEqual(res.installed, ['pre-commit', 'pre-push']);
+
+      const preCommit = fs.readFileSync(path.join(gitDir, 'hooks/pre-commit'), 'utf8');
+      const prePush = fs.readFileSync(path.join(gitDir, 'hooks/pre-push'), 'utf8');
+      assert.ok(preCommit.includes('sdlc-engine.mjs test'));
+      assert.ok(prePush.includes('sdlc-engine.mjs gate'));
+    });
+
+    it('throws error when installing hooks in non-git directory', () => {
+      assert.throws(() => {
+        installHooks({ repoRoot: tmpDir });
+      }, /Not a git repository/);
+    });
+
+    it('scaffolds GitHub Actions quality gate workflow', () => {
+      const res = installCIWorkflow({ repoRoot: tmpDir });
+      assert.equal(res.success, true);
+      assert.equal(res.created, true);
+
+      const wf = fs.readFileSync(path.join(tmpDir, '.github/workflows/sdlc-quality-gate.yml'), 'utf8');
+      assert.ok(wf.includes('SDLC Quality Gate'));
+      assert.ok(wf.includes('sdlc-engine.mjs gate'));
+    });
+
+    it('executes hooks and ci-workflow via CLI', () => {
+      fs.mkdirSync(path.join(tmpDir, '.git'), { recursive: true });
+      const hookRes = runCLI(['hooks', 'install'], null, tmpDir);
+      assert.equal(hookRes.command, 'hooks');
+      assert.equal(hookRes.hooks.success, true);
+
+      const ciRes = runCLI(['ci-workflow', 'install'], null, tmpDir);
+      assert.equal(ciRes.command, 'ci-workflow');
+      assert.equal(ciRes.ciWorkflow.success, true);
     });
   });
 });

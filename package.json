@@ -44,7 +44,9 @@
     "resume": "node .agent/scripts/sdlc-engine.mjs session resume",
     "exemptions": "node .agent/scripts/sdlc-engine.mjs exemption list",
     "doctor": "node .agent/scripts/sdlc-engine.mjs doctor",
-    "release": "node .agent/scripts/sdlc-engine.mjs release"
+    "release": "node .agent/scripts/sdlc-engine.mjs release",
+    "hooks:install": "node .agent/scripts/sdlc-engine.mjs hooks install",
+    "ci:install": "node .agent/scripts/sdlc-engine.mjs ci-workflow install"
   },
   "engines": {
     "node": ">=18.0.0"

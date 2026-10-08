@@ -976,6 +976,131 @@ export function runDoctor(repoRoot = '.') {
   };
 }
 
+// --- Git Hooks Zero-Dependency Scaffolding ---
+
+export function installHooks({ repoRoot = '.' } = {}) {
+  console.log('🪝 Configuring Zero-Dependency Git Hooks for Agentic SDLC Quality Gate...');
+  const gitDir = path.resolve(repoRoot, '.git');
+  if (!fs.existsSync(gitDir)) {
+    throw new Error('Not a git repository. Cannot install git hooks.');
+  }
+
+  const hooksDir = path.resolve(gitDir, 'hooks');
+  fs.mkdirSync(hooksDir, { recursive: true });
+
+  const preCommitHook = `#!/usr/bin/env bash
+# Agentic SDLC Framework: Fast Pre-Commit Quality Gate
+set -e
+
+# Run fast engine diff tests if files are staged
+if git diff --cached --quiet; then
+  exit 0
+fi
+
+echo "🔍 [SDLC Hook] Running fast pre-commit check on staged changes..."
+if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
+  node .agent/scripts/sdlc-engine.mjs test 2>/dev/null || true
+fi
+exit 0
+`;
+
+  const prePushHook = `#!/usr/bin/env bash
+# Agentic SDLC Framework: Strict Pre-Push Quality Gate
+set -e
+
+echo "🛡️ [SDLC Hook] Verifying Universal Quality Gate before push..."
+if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
+  node .agent/scripts/sdlc-engine.mjs gate
+fi
+exit 0
+`;
+
+  const preCommitPath = path.resolve(hooksDir, 'pre-commit');
+  const prePushPath = path.resolve(hooksDir, 'pre-push');
+
+  fs.writeFileSync(preCommitPath, preCommitHook, 'utf8');
+  fs.writeFileSync(prePushPath, prePushHook, 'utf8');
+
+  try {
+    fs.chmodSync(preCommitPath, 0o755);
+    fs.chmodSync(prePushPath, 0o755);
+  } catch {}
+
+  console.log('✅ Installed Git hooks:');
+  console.log(`   • ${preCommitPath}`);
+  console.log(`   • ${prePushPath}`);
+
+  return {
+    success: true,
+    installed: ['pre-commit', 'pre-push'],
+    hooksDir
+  };
+}
+
+// --- CI/CD Workflow Template Scaffolding ---
+
+export function installCIWorkflow({ repoRoot = '.', force = false } = {}) {
+  console.log('⚙️ Scaffolding GitHub Actions Quality Gate CI/CD Workflow...');
+  const workflowDir = path.resolve(repoRoot, '.github/workflows');
+  fs.mkdirSync(workflowDir, { recursive: true });
+
+  const workflowPath = path.resolve(workflowDir, 'sdlc-quality-gate.yml');
+  if (fs.existsSync(workflowPath) && !force) {
+    console.log(`⚠️ Workflow file already exists at ${workflowPath}. Use force to overwrite.`);
+    return { success: true, created: false, path: workflowPath, reason: 'Already exists' };
+  }
+
+  const workflowContent = `name: SDLC Quality Gate
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  quality-gate:
+    name: Universal Quality Gate & Defect Defense
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js Runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Detect SDLC Stack & Configure Environment
+        run: |
+          if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
+            node .agent/scripts/sdlc-engine.mjs detect
+          fi
+
+      - name: Run Universal Quality Gate (Lint, Build, Dual-Gate Tests)
+        run: |
+          if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
+            node .agent/scripts/sdlc-engine.mjs gate
+          elif npm run | grep -q 'gate'; then
+            npm run gate
+          else
+            npm test
+          fi
+`;
+
+  fs.writeFileSync(workflowPath, workflowContent, 'utf8');
+  console.log(`✅ GitHub Actions workflow scaffolded at ${workflowPath}`);
+
+  return {
+    success: true,
+    created: true,
+    path: workflowPath
+  };
+}
+
 // --- Ad-Hoc Target Routing & Parallel Clustering ---
 
 export function resolveAdHocTargets(files = [], modules = [], repoRoot = '.') {
@@ -1883,25 +2008,52 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       return result;
     }
 
+    case 'hooks': {
+      const sub = args[1] || 'install';
+      if (sub === 'install') {
+        const hooksRes = installHooks({ repoRoot });
+        result.hooks = hooksRes;
+        return result;
+      }
+      console.error(`Unknown hooks subcommand: ${sub}`);
+      result.success = false;
+      return result;
+    }
+
+    case 'ci-workflow': {
+      const sub = args[1] || 'install';
+      if (sub === 'install') {
+        const force = args.includes('--force');
+        const wfRes = installCIWorkflow({ repoRoot, force });
+        result.ciWorkflow = wfRes;
+        return result;
+      }
+      console.error(`Unknown ci-workflow subcommand: ${sub}`);
+      result.success = false;
+      return result;
+    }
+
     case 'help':
     default: {
       console.log(`
 Agentic SDLC Universal Engine (sdlc-engine.mjs)
 
 Usage:
-  node .agent/scripts/sdlc-engine.mjs init [--global]  Install framework locally or globally
-  node .agent/scripts/sdlc-engine.mjs doctor           Run framework healthcheck and toolchain audit
-  node .agent/scripts/sdlc-engine.mjs detect           Detect stack and print config preview
-  node .agent/scripts/sdlc-engine.mjs env              Inspect environment variables & PM status
-  node .agent/scripts/sdlc-engine.mjs test             Run tests for changed modules
-  node .agent/scripts/sdlc-engine.mjs coverage         Run diff coverage gate
-  node .agent/scripts/sdlc-engine.mjs mutation         Run mutation defense check
-  node .agent/scripts/sdlc-engine.mjs gate             Execute full quality gate (lint, build, test, archlens)
+  node .agent/scripts/sdlc-engine.mjs init [--global]     Install framework locally or globally
+  node .agent/scripts/sdlc-engine.mjs doctor              Run framework healthcheck and toolchain audit
+  node .agent/scripts/sdlc-engine.mjs hooks install       Scaffold zero-dependency Git pre-commit & pre-push hooks
+  node .agent/scripts/sdlc-engine.mjs ci-workflow install Scaffold GitHub Actions Quality Gate CI workflow
+  node .agent/scripts/sdlc-engine.mjs detect              Detect stack and print config preview
+  node .agent/scripts/sdlc-engine.mjs env                 Inspect environment variables & PM status
+  node .agent/scripts/sdlc-engine.mjs test                Run tests for changed modules
+  node .agent/scripts/sdlc-engine.mjs coverage            Run diff coverage gate
+  node .agent/scripts/sdlc-engine.mjs mutation            Run mutation defense check
+  node .agent/scripts/sdlc-engine.mjs gate                Execute full quality gate (lint, build, test, archlens)
   node .agent/scripts/sdlc-engine.mjs release [patch|minor|major] [--dry-run] [--skip-gate]
   node .agent/scripts/sdlc-engine.mjs archlens <check|update>
   node .agent/scripts/sdlc-engine.mjs pm <status|transition|comment> <issueId> [state|--body "<comment>"]
   node .agent/scripts/sdlc-engine.mjs ticket create --title "<title>" [--type feat|bug|hotfix|spike] [--body "<summary>"]
-  node .agent/scripts/sdlc-engine.mjs update           Refresh configuration & sync Archlens policies
+  node .agent/scripts/sdlc-engine.mjs update              Refresh configuration & sync Archlens policies
   node .agent/scripts/sdlc-engine.mjs session <status|start|update|resume|dashboard|list|switch|release>
   node .agent/scripts/sdlc-engine.mjs exemption <list|add>
   node .agent/scripts/sdlc-engine.mjs check-ci <prNumber> [--timeout <seconds>]

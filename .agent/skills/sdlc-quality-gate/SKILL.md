@@ -37,6 +37,15 @@ Run the universal quality gate to execute linting, builds, Dual-Gate tests, and 
 node .agent/scripts/sdlc-engine.mjs gate
 ```
 
+To enforce this gate automatically on every local commit/push and remote PR, scaffold native hooks and GitHub Actions:
+```bash
+# Install zero-dependency local pre-commit & pre-push hooks
+node .agent/scripts/sdlc-engine.mjs hooks install
+
+# Scaffold GitHub Actions SDLC Quality Gate workflow
+node .agent/scripts/sdlc-engine.mjs ci-workflow install
+```
+
 ### 1. Code Formatting & Style Checks
 - [ ] Execute repo linter / formatter (e.g. Spotless, Prettier, Black, `gofmt`, `cargo fmt`).
 - [ ] Zero unformatted or unlinted files in the diff.

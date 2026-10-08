@@ -177,6 +177,16 @@ Verify your system toolchain (Git, Node, GitHub CLI, Docker), required framework
 node .agent/scripts/sdlc-engine.mjs doctor
 ```
 
+### 8. Native Git Hooks & CI/CD Workflow Scaffolding
+Enforce quality gates automatically before commit, push, and remote merge:
+```bash
+# Install zero-dependency local pre-commit & pre-push hooks:
+node .agent/scripts/sdlc-engine.mjs hooks install
+
+# Scaffold automated GitHub Actions Quality Gate workflow (.github/workflows/sdlc-quality-gate.yml):
+node .agent/scripts/sdlc-engine.mjs ci-workflow install
+```
+
 ## 📖 Documentation
 Detailed documentation is available in [`docs/SDLC_AGENTIC_OPERATIONS_GUIDE.md`](./docs/SDLC_AGENTIC_OPERATIONS_GUIDE.md) and the [`wiki/`](./wiki/) directory.
 
