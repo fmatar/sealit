@@ -32,7 +32,10 @@ import {
   loadEnv,
   detectPMProvider,
   inspectArchlens,
-  diagnoseEnvironment
+  diagnoseEnvironment,
+  bumpSemVer,
+  executeRelease,
+  runDoctor
 } from '../.agent/scripts/sdlc-engine.mjs';
 
 describe('Universal SDLC Engine: Complete Uncle Bob Test Suite', () => {
@@ -907,6 +910,64 @@ jobs:
       const content = fs.readFileSync(path.join(tmpDir, 'docs/KANBAN.md'), 'utf8');
       assert.ok(content.includes('Audit for #5050'));
       assert.ok(content.includes('Approved by Peer Reviewer'));
+    });
+
+    it('correctly calculates SemVer bumps for patch, minor, and major', () => {
+      assert.equal(bumpSemVer('1.2.3', 'patch'), '1.2.4');
+      assert.equal(bumpSemVer('1.2.3', 'minor'), '1.3.0');
+      assert.equal(bumpSemVer('1.2.3', 'major'), '2.0.0');
+      assert.equal(bumpSemVer('v5.0.0', 'patch'), '5.0.1');
+    });
+
+    it('executes release dry-run without mutating files', () => {
+      const pkgPath = path.join(tmpDir, 'package.json');
+      fs.writeFileSync(pkgPath, JSON.stringify({ name: 'my-app', version: '2.4.0' }), 'utf8');
+
+      const res = executeRelease({ bump: 'minor', dryRun: true, skipGate: true, repoRoot: tmpDir });
+      assert.equal(res.success, true);
+      assert.equal(res.dryRun, true);
+      assert.equal(res.currentVersion, '2.4.0');
+      assert.equal(res.newVersion, '2.5.0');
+      assert.equal(res.releaseTag, 'v2.5.0');
+
+      // Verify file wasn't modified
+      const current = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+      assert.equal(current.version, '2.4.0');
+    });
+
+    it('executes release with package.json and CHANGELOG.md update', () => {
+      const pkgPath = path.join(tmpDir, 'package.json');
+      fs.writeFileSync(pkgPath, JSON.stringify({ name: 'my-app', version: '1.0.0' }, null, 2), 'utf8');
+
+      const changelogPath = path.join(tmpDir, 'CHANGELOG.md');
+      fs.writeFileSync(changelogPath, '# Changelog\n\n## [Unreleased]\n\n### Added\n- New feature\n', 'utf8');
+
+      const res = executeRelease({ bump: 'patch', dryRun: false, skipGate: true, repoRoot: tmpDir });
+      assert.equal(res.success, true);
+      assert.equal(res.newVersion, '1.0.1');
+      assert.equal(res.releaseTag, 'v1.0.1');
+
+      const updatedPkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+      assert.equal(updatedPkg.version, '1.0.1');
+
+      const updatedChangelog = fs.readFileSync(changelogPath, 'utf8');
+      assert.ok(updatedChangelog.includes('## [1.0.1] -'));
+      assert.ok(updatedChangelog.includes('## [Unreleased]'));
+    });
+
+    it('runs doctor healthcheck and returns diagnostic overview', () => {
+      const res = runDoctor(tmpDir);
+      assert.equal(typeof res.healthy, 'boolean');
+      assert.ok(Array.isArray(res.toolchain));
+      assert.ok(Array.isArray(res.assets));
+      assert.ok(res.toolchain.some(t => t.name === 'Git CLI'));
+      assert.ok(res.toolchain.some(t => t.name === 'Node.js Runtime'));
+    });
+
+    it('runs doctor CLI command cleanly', () => {
+      const res = runCLI(['doctor'], null, tmpDir);
+      assert.equal(res.command, 'doctor');
+      assert.equal(typeof res.doctor.healthy, 'boolean');
     });
   });
 });

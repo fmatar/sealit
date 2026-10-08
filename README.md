@@ -161,6 +161,22 @@ Before merging and releasing in Stage 8, verify that remote GitHub Actions matri
 node .agent/scripts/sdlc-engine.mjs check-ci 42 --timeout 300
 ```
 
+### 6. Turnkey SemVer Release Automation
+Roll versions, update package manifests, sync `CHANGELOG.md`, and cut Git tags with a single command:
+```bash
+# Dry-run preview without mutating files:
+node .agent/scripts/sdlc-engine.mjs release patch --dry-run
+
+# Run full quality gate, bump SemVer, update package.json/pom.xml, roll changelog, and tag:
+node .agent/scripts/sdlc-engine.mjs release minor
+```
+
+### 7. Framework Doctor & Healthcheck
+Verify your system toolchain (Git, Node, GitHub CLI, Docker), required framework assets, and active session locks:
+```bash
+node .agent/scripts/sdlc-engine.mjs doctor
+```
+
 ## 📖 Documentation
 Detailed documentation is available in [`docs/SDLC_AGENTIC_OPERATIONS_GUIDE.md`](./docs/SDLC_AGENTIC_OPERATIONS_GUIDE.md) and the [`wiki/`](./wiki/) directory.
 

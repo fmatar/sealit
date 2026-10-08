@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- feat(release): turnkey SemVer release automation (`node .agent/scripts/sdlc-engine.mjs release [patch|minor|major] [--dry-run] [--skip-gate]`) executing quality gate verification, manifest updates (`package.json`, `pom.xml`, `pyproject.toml`, `Cargo.toml`), Keep a Changelog roll, and Git commit/tagging in `sdlc-release-changelog` (v2.1.0) and `sdlc-engine.mjs`
+- feat(doctor): framework doctor and toolchain healthcheck (`node .agent/scripts/sdlc-engine.mjs doctor`) auditing Git, Node.js, GitHub CLI, Docker, critical engine assets, living Kanban, spec templates, and active session locks
 - feat(intake): auto-classification of intake (`feat`, `bug`, `hotfix`, `spike`) with automatic label tagging, P0 priority routing, and mandatory failing reproduction harnesses in `sdlc-flow` (v5.2.0) and `sdlc-engine.mjs ticket create`
 - feat(review-comment): enforce mandatory review audit comment delivery across all PM tools (GitHub PR/Issue via MCP/CLI, Jira REST API, Linear GraphQL, and living `docs/KANBAN.md`) via `sdlc-peer-review` (v2.2.0) and `sdlc-engine.mjs pm comment`
 - feat(worktrees): multi-branch and multi-session Git Worktree registry supporting concurrent execution, non-blocking bugfixes, worktree switching (`session switch <id>`), active session listing (`session list`), and automatic worktree pruning upon release

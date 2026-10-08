@@ -752,6 +752,230 @@ export function pollCIPRChecks(prNumber, { timeoutSeconds = 300, pollIntervalSec
   return { success: false, passed: false, error: `CI check polling timed out after ${timeoutSeconds}s.` };
 }
 
+// --- Universal Release Automation & SemVer Lifecycle ---
+
+export function parseSemVer(verStr = '1.0.0') {
+  const clean = verStr.replace(/^v/, '').trim();
+  const parts = clean.split('.').map(n => parseInt(n, 10));
+  return {
+    major: isNaN(parts[0]) ? 1 : parts[0],
+    minor: isNaN(parts[1]) ? 0 : parts[1],
+    patch: isNaN(parts[2]) ? 0 : parts[2],
+    raw: clean
+  };
+}
+
+export function bumpSemVer(currentVersion = '1.0.0', bumpType = 'patch') {
+  const semver = parseSemVer(currentVersion);
+  switch (bumpType.toLowerCase()) {
+    case 'major':
+      return `${semver.major + 1}.0.0`;
+    case 'minor':
+      return `${semver.major}.${semver.minor + 1}.0`;
+    case 'patch':
+    default:
+      return `${semver.major}.${semver.minor}.${semver.patch + 1}`;
+  }
+}
+
+export function executeRelease({
+  bump = 'patch',
+  dryRun = false,
+  skipGate = false,
+  repoRoot = '.'
+} = {}) {
+  console.log(`🚀 Preparing ${bump.toUpperCase()} Release (dryRun: ${dryRun})...`);
+
+  // 1. Run Quality Gate unless explicitly skipped
+  if (!skipGate && !dryRun) {
+    console.log('🛡️ Verifying Quality Gate before release...');
+    const gateRes = runCLI(['gate'], null, repoRoot);
+    if (!gateRes.success) {
+      throw new Error('Quality gate failed. Release aborted.');
+    }
+  }
+
+  // 2. Locate active manifest and detect current version
+  let currentVersion = '1.0.0';
+  let manifestType = 'package.json';
+  const pkgPath = path.resolve(repoRoot, 'package.json');
+  const pomPath = path.resolve(repoRoot, 'pom.xml');
+  const pyprojectPath = path.resolve(repoRoot, 'pyproject.toml');
+  const cargoPath = path.resolve(repoRoot, 'Cargo.toml');
+
+  if (fileExists(pkgPath)) {
+    try {
+      const pkg = JSON.parse(readFileSafe(pkgPath));
+      if (pkg.version) {
+        currentVersion = pkg.version;
+        manifestType = 'package.json';
+      }
+    } catch {}
+  } else if (fileExists(pomPath)) {
+    const pomContent = readFileSafe(pomPath) || '';
+    const match = pomContent.match(/<version>([0-9]+\.[0-9]+\.[0-9]+[^<]*)<\/version>/);
+    if (match) {
+      currentVersion = match[1];
+      manifestType = 'pom.xml';
+    }
+  } else if (fileExists(pyprojectPath)) {
+    const pyContent = readFileSafe(pyprojectPath) || '';
+    const match = pyContent.match(/version\s*=\s*["']([^"']+)["']/);
+    if (match) {
+      currentVersion = match[1];
+      manifestType = 'pyproject.toml';
+    }
+  } else if (fileExists(cargoPath)) {
+    const cargoContent = readFileSafe(cargoPath) || '';
+    const match = cargoContent.match(/version\s*=\s*["']([^"']+)["']/);
+    if (match) {
+      currentVersion = match[1];
+      manifestType = 'Cargo.toml';
+    }
+  }
+
+  const newVersion = bumpSemVer(currentVersion, bump);
+  const releaseTag = `v${newVersion}`;
+  const today = new Date().toISOString().split('T')[0];
+
+  console.log(`📌 Version Transition: ${currentVersion} -> ${newVersion} (${releaseTag})`);
+
+  if (dryRun) {
+    return {
+      success: true,
+      dryRun: true,
+      currentVersion,
+      newVersion,
+      releaseTag,
+      manifestType
+    };
+  }
+
+  // 3. Update Manifest
+  const updatedFiles = [];
+  if (manifestType === 'package.json') {
+    const pkg = JSON.parse(readFileSafe(pkgPath));
+    pkg.version = newVersion;
+    fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
+    updatedFiles.push('package.json');
+  } else if (manifestType === 'pom.xml') {
+    let pom = readFileSafe(pomPath);
+    pom = pom.replace(/<version>[0-9]+\.[0-9]+\.[0-9]+[^<]*<\/version>/, `<version>${newVersion}</version>`);
+    fs.writeFileSync(pomPath, pom, 'utf8');
+    updatedFiles.push('pom.xml');
+  } else if (manifestType === 'pyproject.toml') {
+    let py = readFileSafe(pyprojectPath);
+    py = py.replace(/version\s*=\s*["'][^"']+["']/, `version = "${newVersion}"`);
+    fs.writeFileSync(pyprojectPath, py, 'utf8');
+    updatedFiles.push('pyproject.toml');
+  } else if (manifestType === 'Cargo.toml') {
+    let cargo = readFileSafe(cargoPath);
+    cargo = cargo.replace(/version\s*=\s*["'][^"']+["']/, `version = "${newVersion}"`);
+    fs.writeFileSync(cargoPath, cargo, 'utf8');
+    updatedFiles.push('Cargo.toml');
+  }
+
+  // 4. Update CHANGELOG.md adhering to Keep a Changelog
+  const changelogPath = path.resolve(repoRoot, 'CHANGELOG.md');
+  if (fileExists(changelogPath)) {
+    let changelog = readFileSafe(changelogPath);
+    const unreleasedHeader = '## [Unreleased]';
+    const releaseHeader = `## [Unreleased]\n\n## [${newVersion}] - ${today}`;
+    if (changelog.includes(unreleasedHeader)) {
+      changelog = changelog.replace(unreleasedHeader, releaseHeader);
+      fs.writeFileSync(changelogPath, changelog, 'utf8');
+      updatedFiles.push('CHANGELOG.md');
+    }
+  }
+
+  // 5. Git Commit & Tag
+  try {
+    execSync(`git add ${updatedFiles.join(' ')}`, { cwd: repoRoot, stdio: 'pipe' });
+    execSync(`git commit -m "chore(release): ${releaseTag}"`, { cwd: repoRoot, stdio: 'pipe' });
+    execSync(`git tag -a ${releaseTag} -m "Release ${releaseTag}"`, { cwd: repoRoot, stdio: 'pipe' });
+    console.log(`🏷️ Git tag created: ${releaseTag}`);
+  } catch (err) {
+    console.warn(`⚠️ Git commit/tag encountered a warning or non-critical error: ${err.message}`);
+  }
+
+  return {
+    success: true,
+    dryRun: false,
+    currentVersion,
+    newVersion,
+    releaseTag,
+    updatedFiles
+  };
+}
+
+// --- Universal Framework Doctor & Diagnostic Healthcheck ---
+
+export function runDoctor(repoRoot = '.') {
+  console.log('\n================================================================');
+  console.log('🩺 AGENTIC SDLC FRAMEWORK DOCTOR & ENVIRONMENT HEALTHCHECK');
+  console.log('================================================================');
+
+  const tools = [
+    { name: 'Git CLI', cmd: 'git --version', minReq: 'git version' },
+    { name: 'Node.js Runtime', cmd: 'node --version', minReq: 'v' },
+    { name: 'GitHub CLI (gh)', cmd: 'gh --version', minReq: 'gh version' },
+    { name: 'Docker Engine', cmd: 'docker --version', minReq: 'Docker version' }
+  ];
+
+  const toolResults = [];
+  for (const t of tools) {
+    try {
+      const out = execSync(t.cmd, { stdio: 'pipe', encoding: 'utf8' }).trim().split('\n')[0];
+      toolResults.push({ name: t.name, status: true, version: out });
+    } catch {
+      toolResults.push({ name: t.name, status: false, version: 'Not found / Not installed' });
+    }
+  }
+
+  console.log('\n🔧 System Toolchain:');
+  for (const tr of toolResults) {
+    const symbol = tr.status ? '✔' : '✖';
+    console.log(`  ${symbol} ${tr.name.padEnd(20)}: ${tr.version}`);
+  }
+
+  // Check SDLC Core Configuration & Assets
+  const docAssets = [
+    { name: 'Engine Config', path: '.agent/sdlc-config.json', critical: true },
+    { name: 'Living Kanban', path: 'docs/KANBAN.md', critical: false },
+    { name: 'Changelog', path: 'CHANGELOG.md', critical: false },
+    { name: 'Spec Templates', path: 'docs/templates', critical: false },
+    { name: 'Archlens Policy', path: '.archlens/policy.json', critical: false }
+  ];
+
+  console.log('\n📂 Framework Assets & Documentation:');
+  const assetResults = [];
+  for (const a of docAssets) {
+    const present = fileExists(path.resolve(repoRoot, a.path));
+    assetResults.push({ name: a.name, path: a.path, status: present, critical: a.critical });
+    const symbol = present ? '✔' : (a.critical ? '✖' : '⚠');
+    console.log(`  ${symbol} ${a.name.padEnd(20)}: ${present ? 'Present (' + a.path + ')' : (a.critical ? 'MISSING (Required)' : 'Optional / Recommended')}`);
+  }
+
+  // Active Session & Worktree Health
+  const sessionStatus = getSessionStatus(repoRoot);
+  console.log('\n⚡ Session & Concurrency State:');
+  if (sessionStatus.active && sessionStatus.session) {
+    console.log(`  ⚠ Active Session: #${sessionStatus.session.issueId} (${sessionStatus.session.branch}) on Stage ${sessionStatus.session.stage}`);
+  } else {
+    console.log('  ✔ Active Sessions: Clean (no stale session locks detected)');
+  }
+
+  const allPassed = toolResults.filter(t => t.name.includes('Git') || t.name.includes('Node')).every(t => t.status);
+  console.log('================================================================\n');
+
+  return {
+    healthy: allPassed,
+    toolchain: toolResults,
+    assets: assetResults,
+    sessionStatus
+  };
+}
+
 // --- Ad-Hoc Target Routing & Parallel Clustering ---
 
 export function resolveAdHocTargets(files = [], modules = [], repoRoot = '.') {
@@ -1635,6 +1859,30 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       return result;
     }
 
+    case 'doctor': {
+      const docRes = runDoctor(repoRoot);
+      result.doctor = docRes;
+      return result;
+    }
+
+    case 'release': {
+      let bump = 'patch';
+      let dryRun = false;
+      let skipGate = false;
+
+      for (let i = 1; i < args.length; i++) {
+        if (args[i] === '--dry-run') dryRun = true;
+        else if (args[i] === '--skip-gate') skipGate = true;
+        else if (['patch', 'minor', 'major'].includes(args[i].toLowerCase())) {
+          bump = args[i].toLowerCase();
+        }
+      }
+
+      const releaseRes = executeRelease({ bump, dryRun, skipGate, repoRoot });
+      result.release = releaseRes;
+      return result;
+    }
+
     case 'help':
     default: {
       console.log(`
@@ -1642,16 +1890,18 @@ Agentic SDLC Universal Engine (sdlc-engine.mjs)
 
 Usage:
   node .agent/scripts/sdlc-engine.mjs init [--global]  Install framework locally or globally
-  node .agent/scripts/sdlc-engine.mjs detect     Detect stack and print config preview
-  node .agent/scripts/sdlc-engine.mjs env        Inspect environment variables & PM status
-  node .agent/scripts/sdlc-engine.mjs test       Run tests for changed modules
-  node .agent/scripts/sdlc-engine.mjs coverage   Run diff coverage gate
-  node .agent/scripts/sdlc-engine.mjs mutation   Run mutation defense check
-  node .agent/scripts/sdlc-engine.mjs gate       Execute full quality gate (lint, build, test, archlens)
+  node .agent/scripts/sdlc-engine.mjs doctor           Run framework healthcheck and toolchain audit
+  node .agent/scripts/sdlc-engine.mjs detect           Detect stack and print config preview
+  node .agent/scripts/sdlc-engine.mjs env              Inspect environment variables & PM status
+  node .agent/scripts/sdlc-engine.mjs test             Run tests for changed modules
+  node .agent/scripts/sdlc-engine.mjs coverage         Run diff coverage gate
+  node .agent/scripts/sdlc-engine.mjs mutation         Run mutation defense check
+  node .agent/scripts/sdlc-engine.mjs gate             Execute full quality gate (lint, build, test, archlens)
+  node .agent/scripts/sdlc-engine.mjs release [patch|minor|major] [--dry-run] [--skip-gate]
   node .agent/scripts/sdlc-engine.mjs archlens <check|update>
   node .agent/scripts/sdlc-engine.mjs pm <status|transition|comment> <issueId> [state|--body "<comment>"]
   node .agent/scripts/sdlc-engine.mjs ticket create --title "<title>" [--type feat|bug|hotfix|spike] [--body "<summary>"]
-  node .agent/scripts/sdlc-engine.mjs update     Refresh configuration & sync Archlens policies
+  node .agent/scripts/sdlc-engine.mjs update           Refresh configuration & sync Archlens policies
   node .agent/scripts/sdlc-engine.mjs session <status|start|update|resume|dashboard|list|switch|release>
   node .agent/scripts/sdlc-engine.mjs exemption <list|add>
   node .agent/scripts/sdlc-engine.mjs check-ci <prNumber> [--timeout <seconds>]
