@@ -53,6 +53,17 @@ We strictly adhere to the [Keep a Changelog](https://keepachangelog.com/en/1.0.0
 
 ## 🚀 Release Workflow Steps
 
+### Turnkey Release Automation (Recommended)
+Run the automated release command to execute the quality gate, calculate SemVer bump, update project manifests (`package.json`, `pom.xml`, etc.), roll `CHANGELOG.md`, and commit/tag git:
+```bash
+# Preview changes without modifying files or git
+node .agent/scripts/sdlc-engine.mjs release patch --dry-run
+
+# Execute full release (patch, minor, or major)
+node .agent/scripts/sdlc-engine.mjs release patch
+```
+
+### Manual Release Steps (Reference)
 1. **Calculate Next Version**: Inspect git log since last tag to determine whether change is `patch`, `minor`, or `major`.
 2. **Update Project Descriptors**: Update `"version"` in `package.json` (frontend) and `<version>` in `pom.xml` (backend).
 3. **Update `CHANGELOG.md`**: Convert `[Unreleased]` changes into a versioned release header with the release date.

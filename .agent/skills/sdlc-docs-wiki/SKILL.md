@@ -26,7 +26,7 @@ Use this skill whenever features, data models, or architectural patterns are add
 3. **Conventional Changelog (`CHANGELOG.md`)**: Adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). Records changes under `[Unreleased]` with ticket links.
 4. **Living Kanban Board (`docs/KANBAN.md`)**: Version-controlled visual board synchronized via `sdlc-kanban` (`.agent/skills/sdlc-kanban/scripts/kanban-sync.sh`).
 5. **Repository Wiki & Architecture (`wiki/`)**: Deep-dive system architecture, ADRs, C4 diagrams, and deployment guides.
-6. **Inline Code Documentation**: Javadoc on Java/Quarkus services and TSDoc on TypeScript/Svelte 5 runes and components.
+6. **Inline Code Documentation**: Idiomatic docstrings/annotations across detected languages (e.g. Javadoc for Java, TSDoc for TypeScript, Go doc comments, Rust doc comments `///`, Python docstrings).
 7. **OpenSpec Change Synchronization**: If OpenSpec delta specs are present, sync changes across `openspec/specs/`.
 
 ---

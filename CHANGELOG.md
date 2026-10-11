@@ -7,7 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+- feat(flake-check): automated flaky test detector (`node .agent/scripts/sdlc-engine.mjs flake-check [--runs <n>]`) executing rapid shuffled iterations to catch non-deterministic race conditions
+- feat(security-audit): pre-flight secret leak and dependency CVE auditor (`node .agent/scripts/sdlc-engine.mjs security-audit`) scanning git diffs for private keys, AWS/GitHub tokens, and high-severity package vulnerabilities
+- feat(archlens-scaffold): zero-dependency native Archlens Clean Architecture policy generator (`node .agent/scripts/sdlc-engine.mjs archlens scaffold`) auto-configuring concentric ring boundaries across polyglot projects
+- feat(mutation-strengthen): mutation test auto-strengthener (`node .agent/scripts/sdlc-engine.mjs strengthen [--type <type>]`) recommending concrete assertion density improvements for surviving mutants
+- feat(archlens-inquiry): proactively prompt user for Archlens Clean Architecture availability in `sdlc-flow` Stage 1 via `ask_question`, offering instant one-click policy scaffolding if unconfigured
+- feat(risk-audit): diff-aware pre-flight risk scorer (`node .agent/scripts/sdlc-engine.mjs risk-audit`) assigning risk levels (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`) based on schema migrations, security logic, lockfiles, and domain entities
+- feat(pr-summary): automated pull request summary generator (`node .agent/scripts/sdlc-engine.mjs pr-summary [--issue <id>]`) compiling Dual-Gate metrics, risk analysis, git stat, and verification showcase into markdown
+- feat(affected-tests): smart affected unit test runner (`node .agent/scripts/sdlc-engine.mjs test --affected-only`) mapping touched source files directly to test files for fast TDD loop iteration
+- feat(archlens-diff): interactive architectural git diff auditor (`node .agent/scripts/sdlc-engine.mjs archlens diff`) detecting newly introduced concentric layer inversions (e.g. core domain importing outer web/infra)
+
+## [5.1.0] - 2026-10-08
+
+- feat(hooks): zero-dependency Git hooks scaffolding (`node .agent/scripts/sdlc-engine.mjs hooks install`) configuring pre-commit (fast staged diff tests) and pre-push (strict quality gate) without external dependencies
+- feat(ci-workflow): GitHub Actions Quality Gate CI workflow generator (`node .agent/scripts/sdlc-engine.mjs ci-workflow install`) creating `.github/workflows/sdlc-quality-gate.yml`
+- feat(release): turnkey SemVer release automation (`node .agent/scripts/sdlc-engine.mjs release [patch|minor|major] [--dry-run] [--skip-gate]`) executing quality gate verification, manifest updates (`package.json`, `pom.xml`, `pyproject.toml`, `Cargo.toml`), Keep a Changelog roll, and Git commit/tagging in `sdlc-release-changelog` (v2.1.0) and `sdlc-engine.mjs`
+- feat(doctor): framework doctor and toolchain healthcheck (`node .agent/scripts/sdlc-engine.mjs doctor`) auditing Git, Node.js, GitHub CLI, Docker, critical engine assets, living Kanban, spec templates, and active session locks
+- feat(intake): auto-classification of intake (`feat`, `bug`, `hotfix`, `spike`) with automatic label tagging, P0 priority routing, and mandatory failing reproduction harnesses in `sdlc-flow` (v5.2.0) and `sdlc-engine.mjs ticket create`
+- feat(review-comment): enforce mandatory review audit comment delivery across all PM tools (GitHub PR/Issue via MCP/CLI, Jira REST API, Linear GraphQL, and living `docs/KANBAN.md`) via `sdlc-peer-review` (v2.2.0) and `sdlc-engine.mjs pm comment`
+- feat(worktrees): multi-branch and multi-session Git Worktree registry supporting concurrent execution, non-blocking bugfixes, worktree switching (`session switch <id>`), active session listing (`session list`), and automatic worktree pruning upon release
+- feat(resumption): session stage manifest checkpointing (`specPath`, `prNumber`, `uiScreenshotPath`, timestamps) and `node .agent/scripts/sdlc-engine.mjs session resume` for seamless context-loss recovery
+- feat(circuit-breaker): automated remediation loop limit (max 3 retries) with interactive `ask_question` human handoff in `sdlc-flow` Stage 7, preventing token exhaustion and offering structured options (exemption, budget extension, or rollback)
+- feat(exemptions): benign mutant & test exemption ledger in `.agent/sdlc-exemptions.json` via `node .agent/scripts/sdlc-engine.mjs exemption <list|add>`, allowing architecturally justified survivors to pass the gate
+- feat(ci-checks): remote CI/CD status check polling (`node .agent/scripts/sdlc-engine.mjs check-ci <prNumber>`) before Stage 8 merge/release
+- feat(dashboard): real-time ASCII and visual SDLC lifecycle progress dashboard in `sdlc-engine.mjs session dashboard`
+- feat(wizard): universal detect-first interactive wizard in `sdlc-initialize` (v4.0.0) with structured `ask_question` modals, polyglot starter templates, Archlens Clean Architecture opt-in, and multi-provider PM setup
+- feat(archlens): native Archlens Clean Architecture concentric layer governance in `sdlc-quality-gate` (v4.0.0), `sdlc-peer-review` (v2.1.0), and `sdlc-engine.mjs archlens <check|update>`
+- feat(pm): pluggable Project Management provider abstraction supporting GitHub Projects v2, Jira (Atlassian), Linear, and offline `docs/KANBAN.md` in `sdlc-kanban` (v3.1.0) and `sdlc-engine.mjs pm`
+- feat(env): environment diagnostics via `node .agent/scripts/sdlc-engine.mjs env` and documented `.env.example` template covering GitHub, Jira, Linear, and Archlens
+- feat(updater): framework update capabilities via `install.sh --update`, `install.sh --with-archlens`, and `node .agent/scripts/sdlc-engine.mjs update`
 - feat(installer): upgrade `install.sh` to zero-dependency universal POSIX installer (<2s runtime) with tarball streaming, automatic stack discovery (`sdlc-engine detect`), and complete `.agent/scripts/` payload; upgrade `install.java` (v3.0) with engine payload, POSIX script permission preservation, and `--skip-detect`
 - feat(orchestration): align 8-stage lifecycle with pre-PR docs sync (Stage 5), PR creation (Stage 6), parallel fork-join peer review & gatekeeper (Stage 7), rejection rollback loop, session concurrency locking (`.agent/.sdlc-session.json`), and ad-hoc fast-path routing in `sdlc-flow` (v5.0.0)
 - feat(engine): add session lifecycle commands (`status`, `start`, `update` with `--subagents`, `release`) and `resolve-targets` parallel clustering in `sdlc-engine.mjs`

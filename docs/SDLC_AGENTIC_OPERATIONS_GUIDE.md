@@ -76,14 +76,14 @@ When you have a GitHub Issue and want the agent to handle branch creation, TDD i
 > *"Trigger sdlc-flow to execute issue #1031. Check session concurrency, create the feature branch, implement the feature with Uncle Bob's TDD, enforce Dual-Gate test coverage (>= 85%) and mutation defense (>= 80%), sync specs and changelog, open a PR, and dispatch parallel peer review and quality gate subagents."*
 
 **What Happens Under the Hood:**
-1. **Spec & Intake Phase**: `sdlc-engine` locks the session, and `sdlc-feature-spec` reads the issue, comments progress, and scaffolds acceptance criteria.
-2. **Branching**: `sdlc-flow` checks out `feature/issue-#1031-<title>` and tags `status:in-progress`.
+1. **Spec & Intake Phase**: `sdlc-engine` locks the session with auto-classification (`feat`, `bug`, `hotfix`, `spike`) and git worktree isolation if running concurrently. `sdlc-feature-spec` reads the issue, comments progress, and scaffolds acceptance criteria.
+2. **Branching**: `sdlc-flow` checks out `feature/issue-#1031-<title>` (or `hotfix/*`) and tags `status:in-progress`.
 3. **Implementation**: `sdlc-tdd-implement` strictly applies Uncle Bob's Three Laws of TDD and the Transformation Priority Premise (TPP) across Svelte 5 and Quarkus reactive logic.
 4. **Dual-Gate Enforcer**: `sdlc-test-coverage` validates line/branch diff coverage ($\ge 85\%$) via JaCoCo/Vitest and mutation kill score ($\ge 80\%$) via PITest/Stryker.
 5. **Docs & Showcase Sync**: `sdlc-docs-wiki` updates the root `README.md` 5-minute quickstart, `docs/specs/`, `CHANGELOG.md`, and commits them before PR creation so the PR diff contains the full contract.
 6. **Pull Request**: `sdlc-flow` pushes the branch and opens a PR linking `Fixes #1031` (`status:in-review`).
-7. **Fork-Join Parallel Review & Gate**: `sdlc-flow` concurrently invokes read-only subagents (`sdlc-peer-review` and `sdlc-quality-gate`) to audit the PR diff and run full quality gate checks. If changes are requested, the ticket reverts to `status:in-progress` and rolls back to Stage 3.
-8. **Release & Lock Release**: `sdlc-release-changelog` tags the release, merges the PR, updates Kanban, and releases the session lock (`session release`).
+7. **Fork-Join Parallel Review & Gate**: `sdlc-flow` concurrently invokes read-only subagents (`sdlc-peer-review` and `sdlc-quality-gate`) to audit the PR diff and run full quality gate checks. If changes are requested, the ticket reverts to `status:in-progress` and rolls back to Stage 3 (guarded by a max-3 remediation circuit breaker).
+8. **Release & Lock Release**: `sdlc-engine` polls remote CI checks green (`check-ci`), `sdlc-release-changelog` tags the release, merges the PR, updates Kanban, and releases the session lock (`session release`).
 
 ### Scenario B: Generating Strict Architecture Documentation
 When you need to define a system before writing code, using enterprise templates.
@@ -102,6 +102,37 @@ When provisioning the GitHub Project, configuring the 6 traceable views, or sync
 
 **Command/Prompt:**
 > *"Use sdlc-kanban to provision the GitHub Projects v2 board, configure custom traceability fields (Spec Link, Quality Gate), set up the 6 default views, and refresh docs/KANBAN.md with the Traceability Matrix."*
+
+### Scenario E: Multi-Session Worktree Concurrency & Hotfixes
+When an urgent production bug or hotfix arises while another feature branch is actively in flight.
+
+**Command/Prompt:**
+> *"Start an isolated hotfix session in a git worktree for issue #2049 to patch the payment gateway, without touching the current feature/issue-#1031 working tree."*
+
+**CLI Operations:**
+```bash
+# Start concurrent hotfix in isolated worktree
+git worktree add ../worktree-hotfix-2049 -b hotfix/issue-#2049-payment
+node .agent/scripts/sdlc-engine.mjs session start --issue 2049 --branch hotfix/issue-#2049-payment --type hotfix --worktree ../worktree-hotfix-2049
+
+# List all active sessions
+node .agent/scripts/sdlc-engine.mjs session list
+
+# Switch active agent focus between sessions
+node .agent/scripts/sdlc-engine.mjs session switch 1031
+```
+
+### Scenario F: Benign Mutant & Test Exemption Ledger
+When an unkillable mutant cannot be killed due to bytecode compiler optimization or platform shutdown hooks.
+
+**Command/Prompt:**
+> *"Register an exemption for the unkillable mutant in OrderService line 42 with architectural justification."*
+
+**CLI Operations:**
+```bash
+node .agent/scripts/sdlc-engine.mjs exemption add --mutant "OrderService.java:42:NegateCondition" --reason "JVM shutdown hook side-effect verified manually" --by "@lead-architect"
+node .agent/scripts/sdlc-engine.mjs exemption list
+```
 
 ---
 

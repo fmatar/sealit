@@ -19,7 +19,34 @@ import {
   startSession,
   updateSession,
   releaseSession,
-  resolveAdHocTargets
+  resumeSession,
+  switchSession,
+  listSessions,
+  recordExemption,
+  getExemptions,
+  renderDashboard,
+  pollCIPRChecks,
+  createTicket,
+  postPMComment,
+  resolveAdHocTargets,
+  loadEnv,
+  detectPMProvider,
+  inspectArchlens,
+  diagnoseEnvironment,
+  bumpSemVer,
+  executeRelease,
+  runDoctor,
+  installHooks,
+  installCIWorkflow,
+  assessRisk,
+  generatePRSummary,
+  findAffectededTests,
+  checkArchDiff,
+  runFlakeCheck,
+  auditSecurity,
+  scaffoldArchlensPolicy,
+  suggestMutationStrengthening,
+  generateReviewPlan
 } from '../.agent/scripts/sdlc-engine.mjs';
 
 describe('Universal SDLC Engine: Complete Uncle Bob Test Suite', () => {
@@ -666,6 +693,539 @@ jobs:
       assert.equal(plan.executionStrategy, 'parallel');
       assert.equal(plan.clusters.length, 2);
       assert.ok(plan.recommendation.includes('parallel subagents'));
+    });
+  });
+
+  // ==========================================
+  // Section 10: Environment Diagnostics, PM Providers & Archlens
+  // ==========================================
+  describe('Environment Diagnostics, PM Providers & Archlens Bridge', () => {
+    it('correctly loads environment variables from .env file', () => {
+      fs.writeFileSync(path.join(tmpDir, '.env'), 'TEST_SDLC_VAR="hello_sdlc"\n# comment\nANOTHER=123');
+      const env = loadEnv(tmpDir);
+      assert.equal(env.TEST_SDLC_VAR, 'hello_sdlc');
+      assert.equal(env.ANOTHER, '123');
+    });
+
+    it('detects Jira PM provider when JIRA env vars are populated', () => {
+      const originalToken = process.env.JIRA_API_TOKEN;
+      const originalUrl = process.env.JIRA_BASE_URL;
+      try {
+        process.env.JIRA_API_TOKEN = 'mock-jira-token';
+        process.env.JIRA_BASE_URL = 'https://mock.atlassian.net';
+        const pm = detectPMProvider(tmpDir);
+        assert.equal(pm.provider, 'jira');
+        assert.equal(pm.configured, true);
+      } finally {
+        if (originalToken) process.env.JIRA_API_TOKEN = originalToken; else delete process.env.JIRA_API_TOKEN;
+        if (originalUrl) process.env.JIRA_BASE_URL = originalUrl; else delete process.env.JIRA_BASE_URL;
+      }
+    });
+
+    it('detects Archlens policy when .archlens/policy.json is present', () => {
+      fs.mkdirSync(path.join(tmpDir, '.archlens'), { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, '.archlens/policy.json'), '{}');
+
+      const arch = inspectArchlens(tmpDir);
+      assert.equal(arch.installed, true);
+      assert.equal(arch.policyFile, '.archlens/policy.json');
+    });
+
+    it('returns structured environment diagnostics without throwing', () => {
+      const diag = diagnoseEnvironment(tmpDir);
+      assert.ok(diag.pm);
+      assert.ok(diag.archlens);
+      assert.ok(Array.isArray(diag.checks));
+      assert.ok(diag.checks.some(c => c.name === 'ARCHLENS'));
+    });
+
+    it('runs env CLI command cleanly and returns diagnostic data', () => {
+      const res = runCLI(['env'], null, tmpDir);
+      assert.equal(res.command, 'env');
+      assert.ok(res.diagnostic);
+      assert.ok(Array.isArray(res.diagnostic.checks));
+    });
+  });
+
+  // ==========================================
+  // Section 11: Framework Enhancements (Classification, Worktrees, Circuit Breaker, Dashboards)
+  // ==========================================
+  describe('Framework Enhancements', () => {
+    it('creates tickets with auto-classification for feat, bug, hotfix, and spike', () => {
+      const feat = createTicket({ title: 'New Payment Flow', type: 'feat', repoRoot: tmpDir });
+      assert.equal(feat.type, 'feat');
+      assert.ok(feat.title.includes('feat:'));
+
+      const bug = createTicket({ title: 'NullPointerException on checkout', type: 'bug', repoRoot: tmpDir });
+      assert.equal(bug.type, 'fix');
+      assert.ok(bug.title.includes('fix:'));
+
+      const hotfix = createTicket({ title: 'Security CVE bypass', type: 'hotfix', repoRoot: tmpDir });
+      assert.equal(hotfix.type, 'hotfix');
+      assert.ok(hotfix.title.includes('hotfix:'));
+
+      const spike = createTicket({ title: 'Explore WebAssembly engine', type: 'spike', repoRoot: tmpDir });
+      assert.equal(spike.type, 'spike');
+      assert.ok(spike.title.includes('spike:'));
+    });
+
+    it('supports git worktree isolation in startSession', () => {
+      const sessionRes = startSession({
+        issueId: 9901,
+        branch: 'hotfix/issue-#9901-security',
+        type: 'hotfix',
+        worktree: '../worktree-hotfix-9901',
+        repoRoot: tmpDir
+      });
+
+      assert.equal(sessionRes.session.worktree, '../worktree-hotfix-9901');
+      assert.equal(sessionRes.session.type, 'hotfix');
+      assert.ok(sessionRes.session.manifest);
+    });
+
+    it('enforces circuit breaker and throws when max remediation loops exceeded', () => {
+      startSession({
+        issueId: 8801,
+        branch: 'feature/issue-#8801-flaky',
+        repoRoot: tmpDir
+      });
+
+      // Update to stage 6 (PR)
+      updateSession({ stage: 6, repoRoot: tmpDir });
+
+      // Remediation 1: roll back to stage 3
+      updateSession({ stage: 3, repoRoot: tmpDir });
+      updateSession({ stage: 6, repoRoot: tmpDir });
+
+      // Remediation 2
+      updateSession({ stage: 3, repoRoot: tmpDir });
+      updateSession({ stage: 6, repoRoot: tmpDir });
+
+      // Remediation 3
+      updateSession({ stage: 3, repoRoot: tmpDir });
+      updateSession({ stage: 6, repoRoot: tmpDir });
+
+      // Remediation 4: Should trip circuit breaker
+      assert.throws(() => {
+        updateSession({ stage: 3, repoRoot: tmpDir });
+      }, /Circuit Breaker Tripped/);
+    });
+
+    it('resumes session and outputs structured progress dashboard', () => {
+      startSession({
+        issueId: 7701,
+        branch: 'feature/issue-#7701-analytics',
+        stage: 4,
+        stageName: 'Dual-Gate Test & Mutation Enforcement',
+        repoRoot: tmpDir
+      });
+
+      const resumeRes = resumeSession(tmpDir);
+      assert.equal(resumeRes.active, true);
+      assert.equal(resumeRes.session.stage, 4);
+      assert.ok(resumeRes.dashboard.includes('Stage 4: Dual-Gate Tests'));
+      assert.ok(resumeRes.dashboard.includes('<-- CURRENT'));
+    });
+
+    it('renders visual ASCII lifecycle dashboard cleanly', () => {
+      const mockSession = {
+        issueId: 1055,
+        type: 'feat',
+        branch: 'feature/issue-#1055-dashboard',
+        stage: 3,
+        remediationCount: 1,
+        maxRemediations: 3,
+        manifest: {
+          checkpoints: {
+            stage1: '2026-10-08T10:00:00Z',
+            stage2: '2026-10-08T10:05:00Z',
+            stage3: '2026-10-08T10:10:00Z'
+          }
+        }
+      };
+
+      const board = renderDashboard(mockSession);
+      assert.ok(board.includes('SDLC LIFECYCLE PROGRESS: #1055 (FEAT)'));
+      assert.ok(board.includes('Stage 3: TDD Implement'));
+      assert.ok(board.includes('Remediation Retries: 1/3'));
+    });
+
+    it('manages multi-session registry with list, switch, and selective release', () => {
+      // Start session 1
+      startSession({ issueId: 1001, branch: 'feature/issue-#1001-main', type: 'feat', repoRoot: tmpDir });
+      // Start concurrent session 2 in worktree
+      startSession({ issueId: 1002, branch: 'hotfix/issue-#1002-cve', type: 'hotfix', worktree: '../worktree-1002', repoRoot: tmpDir });
+
+      const list = listSessions(tmpDir);
+      assert.equal(list.sessions.length, 2);
+      assert.equal(list.activeSessionId, 1002);
+
+      // Switch to session 1
+      const switchRes = switchSession(1001, tmpDir);
+      assert.equal(switchRes.activeSessionId, 1001);
+
+      // Release session 1
+      const rel1 = releaseSession(tmpDir, 1001);
+      assert.equal(rel1.released, true);
+      assert.equal(rel1.remainingSessions, 1);
+      assert.equal(rel1.activeSessionId, 1002);
+
+      // Release remaining session 2
+      const rel2 = releaseSession(tmpDir, 1002);
+      assert.equal(rel2.released, true);
+      assert.equal(rel2.remainingSessions, 0);
+    });
+
+    it('records and retrieves exemptions in the exemption ledger', () => {
+      const ex1 = recordExemption({
+        mutantId: 'OrderService.java:55:NegateCondition',
+        file: 'OrderService.java',
+        reason: 'Logging debug side effect; verified manually',
+        approvedBy: '@lead-arch',
+        repoRoot: tmpDir
+      });
+
+      assert.equal(ex1.success, true);
+      assert.ok(ex1.exemption.id.startsWith('EX-'));
+
+      const ledger = getExemptions(tmpDir);
+      assert.equal(ledger.length, 1);
+      assert.equal(ledger[0].mutantId, 'OrderService.java:55:NegateCondition');
+      assert.equal(ledger[0].approvedBy, '@lead-arch');
+    });
+
+    it('posts review comments reliably to local KANBAN.md audit section', () => {
+      const res = postPMComment({
+        issueId: 3042,
+        prNumber: 42,
+        comment: 'Dual-Gate Verified: Diff Coverage 91%, Mutation Kill Score 84%. Approved.',
+        repoRoot: tmpDir
+      });
+
+      assert.equal(res.success, true);
+      assert.equal(res.targetId, 3042);
+      assert.equal(res.provider, 'local');
+
+      const content = fs.readFileSync(path.join(tmpDir, 'docs/KANBAN.md'), 'utf8');
+      assert.ok(content.includes('## 💬 Review Audit Comments & Feedback'));
+      assert.ok(content.includes('Audit for #3042'));
+      assert.ok(content.includes('Dual-Gate Verified: Diff Coverage 91%'));
+    });
+
+    it('executes pm comment CLI command and records audit comment', () => {
+      const res = runCLI(['pm', 'comment', '5050', '--body', 'Approved by Peer Reviewer with clean Uncle Bob principles.'], null, tmpDir);
+      assert.equal(res.command, 'pm');
+      assert.equal(res.subcommand, 'comment');
+      assert.equal(res.commented.success, true);
+
+      const content = fs.readFileSync(path.join(tmpDir, 'docs/KANBAN.md'), 'utf8');
+      assert.ok(content.includes('Audit for #5050'));
+      assert.ok(content.includes('Approved by Peer Reviewer'));
+    });
+
+    it('correctly calculates SemVer bumps for patch, minor, and major', () => {
+      assert.equal(bumpSemVer('1.2.3', 'patch'), '1.2.4');
+      assert.equal(bumpSemVer('1.2.3', 'minor'), '1.3.0');
+      assert.equal(bumpSemVer('1.2.3', 'major'), '2.0.0');
+      assert.equal(bumpSemVer('v5.0.0', 'patch'), '5.0.1');
+    });
+
+    it('executes release dry-run without mutating files', () => {
+      const pkgPath = path.join(tmpDir, 'package.json');
+      fs.writeFileSync(pkgPath, JSON.stringify({ name: 'my-app', version: '2.4.0' }), 'utf8');
+
+      const res = executeRelease({ bump: 'minor', dryRun: true, skipGate: true, repoRoot: tmpDir });
+      assert.equal(res.success, true);
+      assert.equal(res.dryRun, true);
+      assert.equal(res.currentVersion, '2.4.0');
+      assert.equal(res.newVersion, '2.5.0');
+      assert.equal(res.releaseTag, 'v2.5.0');
+
+      // Verify file wasn't modified
+      const current = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+      assert.equal(current.version, '2.4.0');
+    });
+
+    it('executes release with package.json and CHANGELOG.md update', () => {
+      const pkgPath = path.join(tmpDir, 'package.json');
+      fs.writeFileSync(pkgPath, JSON.stringify({ name: 'my-app', version: '1.0.0' }, null, 2), 'utf8');
+
+      const changelogPath = path.join(tmpDir, 'CHANGELOG.md');
+      fs.writeFileSync(changelogPath, '# Changelog\n\n## [Unreleased]\n\n### Added\n- New feature\n', 'utf8');
+
+      const res = executeRelease({ bump: 'patch', dryRun: false, skipGate: true, repoRoot: tmpDir });
+      assert.equal(res.success, true);
+      assert.equal(res.newVersion, '1.0.1');
+      assert.equal(res.releaseTag, 'v1.0.1');
+
+      const updatedPkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+      assert.equal(updatedPkg.version, '1.0.1');
+
+      const updatedChangelog = fs.readFileSync(changelogPath, 'utf8');
+      assert.ok(updatedChangelog.includes('## [1.0.1] -'));
+      assert.ok(updatedChangelog.includes('## [Unreleased]'));
+    });
+
+    it('runs doctor healthcheck and returns diagnostic overview', () => {
+      const res = runDoctor(tmpDir);
+      assert.equal(typeof res.healthy, 'boolean');
+      assert.ok(Array.isArray(res.toolchain));
+      assert.ok(Array.isArray(res.assets));
+      assert.ok(res.toolchain.some(t => t.name === 'Git CLI'));
+      assert.ok(res.toolchain.some(t => t.name === 'Node.js Runtime'));
+    });
+
+    it('runs doctor CLI command cleanly', () => {
+      const res = runCLI(['doctor'], null, tmpDir);
+      assert.equal(res.command, 'doctor');
+      assert.equal(typeof res.doctor.healthy, 'boolean');
+    });
+
+    it('installs zero-dependency git hooks in a git repository', () => {
+      // Mock .git folder
+      const gitDir = path.join(tmpDir, '.git');
+      fs.mkdirSync(gitDir, { recursive: true });
+
+      const res = installHooks({ repoRoot: tmpDir });
+      assert.equal(res.success, true);
+      assert.deepEqual(res.installed, ['pre-commit', 'pre-push']);
+
+      const preCommit = fs.readFileSync(path.join(gitDir, 'hooks/pre-commit'), 'utf8');
+      const prePush = fs.readFileSync(path.join(gitDir, 'hooks/pre-push'), 'utf8');
+      assert.ok(preCommit.includes('sdlc-engine.mjs test'));
+      assert.ok(prePush.includes('sdlc-engine.mjs gate'));
+    });
+
+    it('throws error when installing hooks in non-git directory', () => {
+      assert.throws(() => {
+        installHooks({ repoRoot: tmpDir });
+      }, /Not a git repository/);
+    });
+
+    it('scaffolds GitHub Actions quality gate workflow', () => {
+      const res = installCIWorkflow({ repoRoot: tmpDir });
+      assert.equal(res.success, true);
+      assert.equal(res.created, true);
+
+      const wf = fs.readFileSync(path.join(tmpDir, '.github/workflows/sdlc-quality-gate.yml'), 'utf8');
+      assert.ok(wf.includes('SDLC Quality Gate'));
+      assert.ok(wf.includes('sdlc-engine.mjs gate'));
+    });
+
+    it('executes hooks and ci-workflow via CLI', () => {
+      fs.mkdirSync(path.join(tmpDir, '.git'), { recursive: true });
+      const hookRes = runCLI(['hooks', 'install'], null, tmpDir);
+      assert.equal(hookRes.command, 'hooks');
+      assert.equal(hookRes.hooks.success, true);
+
+      const ciRes = runCLI(['ci-workflow', 'install'], null, tmpDir);
+      assert.equal(ciRes.command, 'ci-workflow');
+      assert.equal(ciRes.ciWorkflow.success, true);
+    });
+
+    it('assesses risk levels accurately based on diff files', () => {
+      const lowRisk = assessRisk(['README.md', 'docs/specs/spec.md'], tmpDir);
+      assert.equal(lowRisk.riskLevel, 'LOW');
+
+      const highRisk = assessRisk(['src/domain/entities/Order.java'], tmpDir);
+      assert.equal(highRisk.riskLevel, 'HIGH');
+
+      const critRisk = assessRisk(['db/migration/V1__init.sql', 'src/auth/jwt.js'], tmpDir);
+      assert.equal(critRisk.riskLevel, 'CRITICAL');
+      assert.ok(critRisk.factors.some(f => f.level === 'CRITICAL'));
+    });
+
+    it('generates formatted pull request summary markdown', () => {
+      const summary = generatePRSummary({ issueId: 4099, repoRoot: tmpDir });
+      assert.equal(summary.issueId, 4099);
+      assert.ok(summary.markdown.includes('## 📋 Pull Request Summary: #4099'));
+      assert.ok(summary.markdown.includes('Dual-Gate Quality Verification'));
+      assert.ok(summary.markdown.includes('Risk & Impact Analysis'));
+    });
+
+    it('finds affected test files corresponding to modified source files', () => {
+      const testDir = path.join(tmpDir, 'test');
+      fs.mkdirSync(testDir, { recursive: true });
+      fs.writeFileSync(path.join(testDir, 'UserService.test.mjs'), '// test code');
+
+      const affected = findAffectededTests(['src/UserService.mjs'], tmpDir);
+      assert.equal(affected.length, 1);
+      assert.ok(affected[0].includes('UserService.test.mjs'));
+    });
+
+    it('audits diff for Archlens concentric layer inversions', () => {
+      const archRes = checkArchDiff(tmpDir);
+      assert.equal(archRes.enabled, false); // No policy yet
+
+      // Mock policy
+      const archDir = path.join(tmpDir, '.archlens');
+      fs.mkdirSync(archDir, { recursive: true });
+      fs.writeFileSync(path.join(archDir, 'policy.json'), JSON.stringify({ layers: [] }));
+
+      const archActiveRes = checkArchDiff(tmpDir);
+      assert.equal(archActiveRes.enabled, true);
+      assert.equal(archActiveRes.passed, true);
+      assert.equal(archActiveRes.violationsCount, 0);
+    });
+
+    it('executes risk-audit and pr-summary CLI commands cleanly', () => {
+      const riskRes = runCLI(['risk-audit', 'src/domain/User.java'], null, tmpDir);
+      assert.equal(riskRes.command, 'risk-audit');
+      assert.equal(riskRes.risk.riskLevel, 'HIGH');
+
+      const prRes = runCLI(['pr-summary', '--issue', '9911'], null, tmpDir);
+      assert.equal(prRes.command, 'pr-summary');
+      assert.equal(prRes.prSummary.issueId, '9911');
+    });
+
+    it('detects flaky test behavior or passes clean deterministic suites', () => {
+      const testDir = path.join(tmpDir, 'test');
+      fs.mkdirSync(testDir, { recursive: true });
+      const passTest = path.join(testDir, 'pass.test.mjs');
+      fs.writeFileSync(passTest, 'import { it } from "node:test"; it("passes", () => {});');
+
+      const flakeRes = runFlakeCheck({ runs: 3, target: passTest, repoRoot: tmpDir });
+      assert.equal(flakeRes.success, true);
+      assert.equal(flakeRes.flaky, false);
+      assert.equal(flakeRes.results[0].passed, 3);
+    });
+
+    it('scaffolds native Archlens Clean Architecture policy cleanly', () => {
+      const scafRes = scaffoldArchlensPolicy(tmpDir);
+      assert.equal(scafRes.success, true);
+      assert.equal(scafRes.created, true);
+      assert.equal(scafRes.layersCount, 4);
+
+      const policyContent = JSON.parse(fs.readFileSync(scafRes.path, 'utf8'));
+      assert.equal(policyContent.architecture, 'Clean Architecture (Concentric Rings)');
+      assert.equal(policyContent.layers.length, 4);
+    });
+
+    it('provides tailored auto-strengthening recommendations for surviving mutants', () => {
+      const boundaryRec = suggestMutationStrengthening({ mutantType: 'ConditionalsBoundary', file: 'Order.js', line: 12 });
+      assert.ok(boundaryRec.recommendation.includes('boundary value test case'));
+      assert.ok(boundaryRec.sampleAssert.includes('expectedThresholdOutcome'));
+
+      const negateRec = suggestMutationStrengthening({ mutantType: 'NegateCondition' });
+      assert.ok(negateRec.recommendation.includes('boolean negated'));
+    });
+
+    it('audits security for secret leaks and package health', () => {
+      const secRes = auditSecurity(tmpDir);
+      assert.equal(typeof secRes.passed, 'boolean');
+      assert.equal(typeof secRes.secretLeaksCount, 'number');
+    });
+
+    it('executes flake-check, security-audit, and strengthen CLI commands', () => {
+      const flakeRes = runCLI(['flake-check', '--runs', '2'], null, tmpDir);
+      assert.equal(flakeRes.command, 'flake-check');
+
+      const secRes = runCLI(['security-audit'], null, tmpDir);
+      assert.equal(secRes.command, 'security-audit');
+
+      const scafRes = runCLI(['archlens', 'scaffold'], null, tmpDir);
+      assert.equal(scafRes.command, 'archlens');
+      assert.equal(scafRes.scaffold.success, true);
+
+      const stRes = runCLI(['strengthen', '--type', 'Math'], null, tmpDir);
+      assert.equal(stRes.command, 'strengthen');
+      assert.equal(stRes.strengthen.mutantType, 'Math');
+    });
+
+    it('auto-heals missing assets when running doctor with fix flag', () => {
+      // tmpDir has no .archlens, no docs/KANBAN.md
+      const docRes = runDoctor(tmpDir, { fix: true });
+      assert.ok(Array.isArray(docRes.autoFixed));
+      assert.ok(docRes.autoFixed.includes('.archlens/policy.json'));
+      assert.ok(docRes.autoFixed.includes('docs/KANBAN.md'));
+      assert.equal(fs.existsSync(path.join(tmpDir, '.archlens/policy.json')), true);
+      assert.equal(fs.existsSync(path.join(tmpDir, 'docs/KANBAN.md')), true);
+    });
+
+    it('executes doctor --fix CLI command cleanly', () => {
+      const cliRes = runCLI(['doctor', '--fix'], null, tmpDir);
+      assert.equal(cliRes.command, 'doctor');
+      assert.ok(Array.isArray(cliRes.doctor.autoFixed));
+    });
+
+    it('generates parallel subagent peer review plan tailored to risk profile', () => {
+      const plan = generateReviewPlan({ repoRoot: tmpDir });
+      assert.ok(plan.subagentsCount >= 2);
+      assert.ok(Array.isArray(plan.payload.Subagents));
+      assert.ok(plan.payload.Subagents.some(s => s.Role === 'PR Peer Reviewer'));
+      assert.ok(plan.payload.Subagents.some(s => s.Role === 'Quality Gatekeeper'));
+    });
+
+    it('executes review plan CLI command cleanly', () => {
+      const cliRes = runCLI(['review', 'plan'], null, tmpDir);
+      assert.equal(cliRes.command, 'review');
+      assert.equal(cliRes.subcommand, 'plan');
+      assert.ok(cliRes.reviewPlan.subagentsCount >= 2);
+    });
+
+    it('executes universal gate in strict mode without errors on clean state', () => {
+      const gateRes = runCLI(['gate', '--strict'], null, tmpDir);
+      assert.equal(gateRes.command, 'gate');
+      assert.equal(gateRes.success, true);
+      assert.ok(gateRes.risk);
+      assert.ok(gateRes.security);
+    });
+
+    it('parses Mermaid flowcharts, subgraphs, nodes and directional edges correctly', async () => {
+      const { parseMermaidDiagram } = await import('../.agent/scripts/sdlc-engine.mjs');
+      const sampleMmd = `
+flowchart TD
+    subgraph Core [Domain Core]
+      A["Entity"] -->|validates| B["ValueObject"]
+    end
+    C["Service"] --> A
+`;
+      const parsed = parseMermaidDiagram(sampleMmd);
+      assert.equal(parsed.nodes.length, 3);
+      assert.equal(parsed.edges.length, 2);
+      assert.equal(parsed.subgraphs.length, 1);
+      assert.equal(parsed.subgraphs[0].id, 'Core');
+    });
+
+    it('computes accurate Mermaid graph diffs between revisions', async () => {
+      const { diffMermaidGraphs } = await import('../.agent/scripts/sdlc-engine.mjs');
+      const oldGraph = {
+        nodes: [{ id: 'A', label: 'Service A' }],
+        edges: []
+      };
+      const newGraph = {
+        nodes: [{ id: 'A', label: 'Service A' }, { id: 'B', label: 'Service B' }],
+        edges: [{ from: 'A', to: 'B', label: 'calls' }]
+      };
+      const diff = diffMermaidGraphs(oldGraph, newGraph);
+      assert.equal(diff.hasChanges, true);
+      assert.equal(diff.addedNodes.length, 1);
+      assert.equal(diff.addedNodes[0].id, 'B');
+      assert.equal(diff.addedEdges.length, 1);
+    });
+
+    it('records architectural trace entries into markdown ledger and JSONL stream', async () => {
+      const { recordArchTrace } = await import('../.agent/scripts/sdlc-engine.mjs');
+      const traceRes = recordArchTrace({
+        reason: 'Added new payment domain port',
+        ticket: '1099',
+        repoRoot: tmpDir
+      });
+
+      assert.equal(traceRes.success, true);
+      assert.equal(fs.existsSync(path.join(tmpDir, 'docs/ARCH_TRACE.md')), true);
+      assert.equal(fs.existsSync(path.join(tmpDir, '.agent/arch-trace.jsonl')), true);
+
+      const content = fs.readFileSync(path.join(tmpDir, 'docs/ARCH_TRACE.md'), 'utf8');
+      assert.ok(content.includes('Added new payment domain port'));
+      assert.ok(content.includes('#1099'));
+    });
+
+    it('executes arch trace via CLI runner cleanly', () => {
+      const cliRes = runCLI(['arch', 'trace', '--reason', 'Test CLI trace', '--ticket', '2000'], null, tmpDir);
+      assert.equal(cliRes.command, 'arch');
+      assert.equal(cliRes.archTrace.success, true);
+      assert.equal(cliRes.archTrace.entry.ticket, '#2000');
     });
   });
 });

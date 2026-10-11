@@ -1,14 +1,14 @@
 ---
 name: sdlc-tdd-implement
-description: Guides test-driven and clean-code feature development using Robert C. Martin's Three Laws of TDD, Transformation Priority Premise (TPP), Svelte 5 Runes ($state, $derived, $effect), and Quarkus Java 25 reactive programming.
-version: 3.0.0
+description: Guides test-driven and clean-code feature development using Robert C. Martin's Three Laws of TDD, Transformation Priority Premise (TPP), F.I.R.S.T. test harness isolation, and elimination of test waste across polyglot stacks.
+version: 4.0.0
 license: Apache 2.0
 allowed-tools: run_command, view_file, write_to_file, replace_file_content
 ---
 
 # SDLC TDD & Clean Code Implementation Skill (`sdlc-tdd-implement`)
 
-Use this skill when implementing new features, backend services, UI components, or refactoring existing code across full-stack applications. This skill strictly enforces **Robert C. Martin's (Uncle Bob)** software craftsmanship, the **Three Laws of TDD**, the **Transformation Priority Premise (TPP)**, and the elimination of test waste.
+Use this skill when implementing new features, services, UI components, or refactoring existing code across polyglot codebases. This skill strictly enforces **Robert C. Martin's (Uncle Bob)** software craftsmanship, the **Three Laws of TDD**, the **Transformation Priority Premise (TPP)**, and the elimination of test waste.
 
 ---
 
@@ -57,7 +57,7 @@ flowchart TD
     end
 
     subgraph Useless["❌ TEST SMELLS (Reject & Delete These)"]
-        W1["Trivial Getters, Setters & Java Records"]
+        W1["Trivial Getters, Setters & Simple Data Classes"]
         W2["Framework / Library Plumbing ('Don't test code you didn't write')"]
         W3["Mock-Obsessed Interaction Verification (Checking internal step order)"]
         W4["Tautological Tests (Tests repeating production formulas)"]
@@ -66,8 +66,8 @@ flowchart TD
 ```
 
 ### Forbidden Anti-Patterns:
-- **Don't Test Code You Didn't Write**: Do not write tests verifying that Quarkus Panache persists to SQL or that Svelte 5 `$state` triggers reactivity. The framework developers already tested that.
-- **No Getter/Setter Tests**: Never write unit tests for plain DTOs or Java records without custom logic.
+- **Don't Test Code You Didn't Write**: Do not write tests verifying that an ORM/database library persists to SQL, that a framework runtime triggers reactivity, or that a serialization library serializes JSON. The framework developers already tested that.
+- **No Getter/Setter Tests**: Never write unit tests for plain DTOs, records, or structs without custom logic.
 - **Avoid Mock Abuse**: Mocking is only for external architectural boundaries (databases, third-party REST APIs, message brokers, system clock). Never mock internal domain entities or collaborators—test state and behavior, not mechanical method calls.
 - **Single Concept per Test**: Never write "Grand Tour" monster tests that test 10 unrelated scenarios in one method. If step 2 fails, the remaining 8 never run.
 
@@ -77,68 +77,31 @@ flowchart TD
 
 Every test written must adhere to Uncle Bob's **F.I.R.S.T.** rules:
 - **Fast**: Millisecond execution. Use in-memory mocks only at I/O boundaries.
-- **Independent**: Tests must never depend on the execution order of previous tests. Use dynamic port isolation (`quarkus.http.test-port=0`) and clean database transactions (`@TestTransaction`).
+- **Independent**: Tests must never depend on the execution order of previous tests. Use dynamic port isolation (e.g. test port `0`) and isolated database transactions/fixtures.
 - **Repeatable**: Deterministic in any environment (local, CI, container) without network dependencies.
 - **Self-Validating**: Exactly one boolean result (Pass or Fail) with expressive assertions.
 - **Timely**: Authored immediately before the code that makes it pass.
 
 ---
 
-## 💎 Full-Stack Engineering Standards
+## 💎 Polyglot Clean Architecture & Language Patterns
 
-### 1. Svelte 5 Runes & Reactivity (Frontend)
-- **State**: Use `$state()` for reactive data structures.
-- **Derived**: Use `$derived()` or `$derived.by()` for pure computed values. Never manually sync state.
-- **Side Effects**: Use `$effect()` exclusively for external integration (DOM, canvas, timers). Teardown returned functions are mandatory.
-- **Props**: Use `$props()` with strict TypeScript interfaces.
+Apply idiomatic, modern patterns according to the repository's detected stack in `.agent/sdlc-config.json`:
 
-```svelte
-<script lang="ts">
-  interface Props {
-    itemId: string;
-    isActive?: boolean;
-    onSelect?: (id: string) => void;
-  }
+### Reference Pattern A: Reactive Backend Services (e.g. Java / Quarkus / Spring Boot)
+- **Modern Syntax**: Records, sealed interfaces, pattern matching, non-blocking asynchronous execution.
+- **Clean Architecture Boundaries**: Implement business logic in domain use cases; decouple database access into repository ports (Dependency Inversion Principle).
+- **Test Isolation**: Clean database transactions per test, ephemeral random ports.
 
-  let { itemId, isActive = false, onSelect }: Props = $props();
-  let interactionCount = $state<number>(0);
-  let isHighlighted = $derived<boolean>(isActive && interactionCount > 0);
+### Reference Pattern B: Modern Reactive Frontend (e.g. Svelte 5 / React / Vue)
+- **Reactive State**: Encapsulated fine-grained reactivity (e.g. Svelte 5 Runes `$state`, `$derived`, `$props`). Never manually sync state.
+- **Side Effects**: Isolate side effects to lifecycle hooks with mandatory teardown.
+- **Strict Typing**: Type contracts on all component props and state models.
 
-  function handleClick() {
-    interactionCount++;
-    onSelect?.(itemId);
-  }
-</script>
-
-<button class="btn" class:active={isHighlighted} onclick={handleClick}>
-  <slot />
-</button>
-```
-
-### 2. Quarkus & Java 25 Reactive Standards (Backend)
-- **Modern Syntax**: Records, sealed interfaces, pattern matching, virtual threads.
-- **Reactive Streams**: Mutiny (`Uni<T>`, `Multi<T>`). No blocking calls on reactive event loops.
-- **Clean Architecture Boundaries**: Implement business logic in domain services/use cases; decouple database Panache queries into repository ports.
-
-```java
-@ApplicationScoped
-public class OrderService {
-
-    @WithTransaction
-    public Uni<OrderResponse> processOrder(CreateOrderCommand cmd) {
-        // Business invariant check (Essential test candidate)
-        if (cmd.amount() <= 0) {
-            return Uni.createFrom().failure(new IllegalArgumentException("Order amount must be positive"));
-        }
-
-        return OrderEntity.<OrderEntity>findByOrderNumber(cmd.orderNumber())
-            .onItem().ifNotNull().failWith(() -> new DuplicateOrderException(cmd.orderNumber()))
-            .replaceWith(() -> OrderEntity.createNew(cmd))
-            .flatMap(OrderEntity::persistAndFlush)
-            .map(OrderResponse::from);
-    }
-}
-```
+### Reference Pattern C: Systems & Microservices (e.g. Go / Rust / Python)
+- **Go**: Table-driven tests (`t.Run`), minimal interfaces, explicit error handling.
+- **Rust**: Functional pipeline validation, error propagating `Result<T, E>`, in-module unit test suites (`#[cfg(test)]`).
+- **Python**: Type annotations (`dataclasses` / Pydantic models), `pytest` fixtures with clean teardown.
 
 ---
 
@@ -154,9 +117,9 @@ public class OrderService {
    - Clean up naming, extract methods, eliminate duplication.
 5. **Next TPP Iteration**:
    - Add next test driving from scalar to boundary condition to generalization.
-6. **Static Verification**:
-   - Frontend: `npx svelte-check --tsconfig ./tsconfig.json`
-   - Backend: `./mvnw compile`
+6. **Static Verification & Build Check**:
+   - Run stack compilation: `node .agent/scripts/sdlc-engine.mjs test` or language compiler.
+   - Verify formatting and clean typing.
 
 ---
 

@@ -1,0 +1,59 @@
+{
+  "name": "@fmatar/agentic-sdlc",
+  "version": "5.1.0",
+  "description": "Autonomous Agentic Software Development Lifecycle (SDLC) Framework for AI Coding Agents",
+  "keywords": [
+    "agentic-sdlc",
+    "skills",
+    "antigravity",
+    "ai-agents",
+    "tdd",
+    "clean-architecture",
+    "mutation-testing",
+    "kanban"
+  ],
+  "author": "Fadi Matar",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fmatar/agentic-sdlc-framework.git"
+  },
+  "homepage": "https://github.com/fmatar/agentic-sdlc-framework#readme",
+  "type": "module",
+  "main": "./.agent/scripts/sdlc-engine.mjs",
+  "bin": {
+    "sdlc": "./.agent/scripts/sdlc-engine.mjs",
+    "agentic-sdlc": "./.agent/scripts/sdlc-engine.mjs"
+  },
+  "files": [
+    ".agent/skills",
+    ".agent/scripts",
+    "docs/templates",
+    "install.sh",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "detect": "node .agent/scripts/sdlc-engine.mjs detect",
+    "env": "node .agent/scripts/sdlc-engine.mjs env",
+    "gate": "node .agent/scripts/sdlc-engine.mjs gate",
+    "test": "node .agent/scripts/sdlc-engine.mjs test",
+    "coverage": "node .agent/scripts/sdlc-engine.mjs coverage",
+    "mutation": "node .agent/scripts/sdlc-engine.mjs mutation",
+    "dashboard": "node .agent/scripts/sdlc-engine.mjs session dashboard",
+    "resume": "node .agent/scripts/sdlc-engine.mjs session resume",
+    "exemptions": "node .agent/scripts/sdlc-engine.mjs exemption list",
+    "doctor": "node .agent/scripts/sdlc-engine.mjs doctor",
+    "release": "node .agent/scripts/sdlc-engine.mjs release",
+    "hooks:install": "node .agent/scripts/sdlc-engine.mjs hooks install",
+    "ci:install": "node .agent/scripts/sdlc-engine.mjs ci-workflow install",
+    "risk": "node .agent/scripts/sdlc-engine.mjs risk-audit",
+    "pr-summary": "node .agent/scripts/sdlc-engine.mjs pr-summary",
+    "flake": "node .agent/scripts/sdlc-engine.mjs flake-check",
+    "security": "node .agent/scripts/sdlc-engine.mjs security-audit",
+    "arch:scaffold": "node .agent/scripts/sdlc-engine.mjs archlens scaffold"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
