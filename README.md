@@ -23,6 +23,11 @@ The Agentic SDLC Framework is a **Hybrid Orchestration** system that transforms 
 * **Built-in DevSecOps & Quality Gate**: `sdlc-quality-gate` verifies Spotless formatting, static typing (`svelte-check`), test port isolation (`quarkus.http.test-port=0`), WCAG a11y, SAST audits, and production builds.
 * **Architectural Traceability & Mutation Ledger**: The `sdlc-arch-trace` skill continuously audits system architecture evolution, extracts Mermaid AST graphs, detects node/edge mutations, and appends an immutable audit log to `docs/ARCH_TRACE.md` and `.agent/arch-trace.jsonl`.
 * **Zero-Direct-Push Branch Protection**: Enforces physical Git `pre-push` hooks and SDLC flow guards forbidding direct pushes to `develop` and `main`, mandating feature branches (`feature/*`), Dual-Gate verification, and PR reviews.
+* **Multi-Agent Runtime Interoperability**: `sdlc-engine interop export` exports framework lifecycle rules, slash commands, and Robert Martin TDD invariants to Claude Code (`CLAUDE.md`, `.claude/settings.json`), Cursor (`.cursorrules`, `.cursor/rules/agentic-sdlc.mdc`), and Windsurf (`.windsurfrules`).
+* **Visual SDLC Mission Control & Webview**: Embedded zero-dependency HTTP server (`sdlc-engine serve [--port <n>]`) rendering real-time 8-stage lifecycle progress, living Kanban state, and architectural trace ledgers.
+* **API Contract Drift Sentinel & Schema Guardian**: `sdlc-engine contract check` audits OpenAPI, Swagger, and GraphQL schema git diffs for breaking mutations (dropped endpoints, deleted HTTP verbs, removed types); enforced strictly in `sdlc-engine gate --strict`.
+* **Automated Bug Reproduction Test Scaffold Generator**: `sdlc-engine reproduce --error "<trace>"` generates failing Red-Green-Refactor test harnesses directly from stack traces adhering to Robert Martin TDD.
+* **Session Telemetry, Velocity & ROI Tracker**: `sdlc-engine stats` tracks session volume, architecture mutation throughput, pipeline velocity score, and estimated engineering hours and dollar savings.
 * **Automated Releases & Deployments**: `sdlc-release-changelog` automatically manages Semantic Versioning (SemVer), keeps an automated changelog, generates Docker containers, and deploys via Helm.
 
 ## 🏛️ Comprehensive Architecture & Lifecycle Workflow
