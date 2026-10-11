@@ -1,5 +1,5 @@
 {
-  "activeSessionId": 26,
+  "activeSessionId": 43,
   "sessions": {
     "17": {
       "active": true,
@@ -185,6 +185,37 @@
       },
       "startedAt": "2026-10-11T22:30:19.088Z",
       "updatedAt": "2026-10-11T22:31:12.473Z",
+      "activeSubagents": []
+    },
+    "43": {
+      "active": true,
+      "issueId": 43,
+      "type": "feat",
+      "branch": "feature/issue-#43-multi-branch-protection",
+      "worktree": null,
+      "stage": 5,
+      "stageName": "Intake & Specification",
+      "remediationCount": 0,
+      "maxRemediations": 3,
+      "manifest": {
+        "specPath": null,
+        "prNumber": null,
+        "coverageReport": null,
+        "mutationScore": null,
+        "uiScreenshotPath": null,
+        "checkpoints": {
+          "stage1": "2026-10-11T22:56:45.414Z",
+          "stage2": "2026-10-11T22:56:59.010Z",
+          "stage3": null,
+          "stage4": null,
+          "stage5": "2026-10-11T22:57:56.609Z",
+          "stage6": null,
+          "stage7": null,
+          "stage8": null
+        }
+      },
+      "startedAt": "2026-10-11T22:56:45.414Z",
+      "updatedAt": "2026-10-11T22:57:56.610Z",
       "activeSubagents": []
     }
   }
