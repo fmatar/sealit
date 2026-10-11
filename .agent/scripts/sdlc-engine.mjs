@@ -62,7 +62,14 @@ export function detectPMProvider(repoRoot = '.') {
 
   const hasJira = !!(process.env.JIRA_API_TOKEN && process.env.JIRA_BASE_URL);
   const hasLinear = !!process.env.LINEAR_API_KEY;
-  const hasGitHub = !!(process.env.GITHUB_TOKEN || process.env.GH_TOKEN);
+
+  let hasGhCliAuth = false;
+  try {
+    execSync('gh auth status 2>/dev/null', { cwd: repoRoot, stdio: 'pipe' });
+    hasGhCliAuth = true;
+  } catch {}
+
+  const hasGitHub = !!(process.env.GITHUB_TOKEN || process.env.GH_TOKEN || hasGhCliAuth);
 
   if (hasJira) return { provider: 'jira', configured: true, key: process.env.JIRA_PROJECT_KEY || 'SDLC' };
   if (hasLinear) return { provider: 'linear', configured: true, key: process.env.LINEAR_TEAM_KEY || 'DEV' };
@@ -75,11 +82,19 @@ export function detectPMProvider(repoRoot = '.') {
 export function diagnoseEnvironment(repoRoot = '.') {
   loadEnv(repoRoot);
 
+  let hasGhCliAuth = false;
+  try {
+    execSync('gh auth status 2>/dev/null', { cwd: repoRoot, stdio: 'pipe' });
+    hasGhCliAuth = true;
+  } catch {}
+
+  const hasGithubToken = !!(process.env.GITHUB_TOKEN || process.env.GH_TOKEN);
+
   const checks = [
     {
-      name: 'GITHUB_TOKEN',
-      status: !!(process.env.GITHUB_TOKEN || process.env.GH_TOKEN),
-      details: (process.env.GITHUB_TOKEN || process.env.GH_TOKEN) ? 'Configured (GitHub Projects v2 / PRs)' : 'Missing (gh auth status fallback)'
+      name: 'GITHUB_AUTH',
+      status: hasGithubToken || hasGhCliAuth,
+      details: hasGithubToken ? 'Configured via GITHUB_TOKEN' : (hasGhCliAuth ? 'Active via gh CLI (Keyring authenticated)' : 'Missing (Configure GITHUB_TOKEN or run gh auth login)')
     },
     {
       name: 'JIRA_API_TOKEN',
