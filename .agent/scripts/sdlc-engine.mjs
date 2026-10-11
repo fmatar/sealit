@@ -942,6 +942,7 @@ export function runDoctor(repoRoot = '.', { fix = false } = {}) {
   const tools = [
     { name: 'Git CLI', cmd: 'git --version', minReq: 'git version' },
     { name: 'Node.js Runtime', cmd: 'node --version', minReq: 'v' },
+    { name: 'Skills CLI (npx skills)', cmd: 'npx skills --version', minReq: '1.' },
     { name: 'GitHub CLI (gh)', cmd: 'gh --version', minReq: 'gh version' },
     { name: 'Docker Engine', cmd: 'docker --version', minReq: 'Docker version' }
   ];

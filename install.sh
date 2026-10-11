@@ -10,6 +10,7 @@ TARGET_DIR="$ORIGINAL_DIR"
 MODE="local"
 SKIP_DETECT=false
 USE_JBANG=false
+USE_SKILLS_CLI=auto
 IS_UPDATE=false
 WITH_ARCHLENS=false
 REPO_URL="https://github.com/fmatar/agentic-sdlc-framework"
@@ -43,6 +44,14 @@ while [[ $# -gt 0 ]]; do
             SKIP_DETECT=true
             shift
             ;;
+        --skills-cli|--vercel-skills)
+            USE_SKILLS_CLI=true
+            shift
+            ;;
+        --no-skills-cli|--legacy)
+            USE_SKILLS_CLI=false
+            shift
+            ;;
         --jbang)
             USE_JBANG=true
             shift
@@ -52,13 +61,15 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: install.sh [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  -l, --local [DIR]   Install locally into target project directory (default: current directory)"
-            echo "  -g, --global        Install globally into ~/.gemini/config/skills"
-            echo "  -u, --update        Update framework skills, scripts, and sync Archlens policies"
-            echo "      --with-archlens Configure Archlens Clean Architecture governance & MCP"
-            echo "      --skip-detect   Skip automatic stack detection (sdlc-engine detect)"
-            echo "      --jbang         Use JBang install.java instead of native POSIX installer"
-            echo "  -h, --help          Show this help message"
+            echo "  -l, --local [DIR]       Install locally into target project directory (default: current directory)"
+            echo "  -g, --global            Install globally into ~/.gemini/config/skills"
+            echo "  -u, --update            Update framework skills, scripts, and sync Archlens policies"
+            echo "      --skills-cli        Use Vercel Labs skills CLI (npx skills add fmatar/agentic-sdlc-framework)"
+            echo "      --no-skills-cli     Bypass skills CLI and use zero-dependency POSIX archive copy"
+            echo "      --with-archlens     Configure Archlens Clean Architecture governance & MCP"
+            echo "      --skip-detect       Skip automatic stack detection (sdlc-engine detect)"
+            echo "      --jbang             Use JBang install.java instead of native POSIX installer"
+            echo "  -h, --help              Show this help message"
             exit 0
             ;;
         *)
@@ -104,6 +115,31 @@ if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
 fi
 
 echo "⚡ Installing Agentic SDLC Framework ($MODE mode)..."
+
+# --- Vercel Labs Skills CLI Integration (https://skills.sh) ---
+SKILLS_CLI_SUCCESS=false
+if [[ "$USE_SKILLS_CLI" != false ]] && command -v npx &>/dev/null; then
+    echo "📦 Checking Vercel Labs Skills ecosystem (npx skills)..."
+    SKILLS_CLI_ARGS="add fmatar/agentic-sdlc-framework --skill '*' -y --copy"
+    if [[ "$MODE" == "global" ]]; then
+        SKILLS_CLI_ARGS="$SKILLS_CLI_ARGS --global"
+    fi
+
+    # Run skills CLI from target directory (or current directory for global)
+    RUN_DIR="$TARGET_DIR"
+    [[ "$MODE" == "global" ]] && RUN_DIR="$ORIGINAL_DIR"
+
+    if (cd "$RUN_DIR" && npx --yes skills $SKILLS_CLI_ARGS 2>/dev/null); then
+        echo "✅ Skills successfully installed via Vercel Labs skills CLI!"
+        SKILLS_CLI_SUCCESS=true
+    else
+        if [[ "$USE_SKILLS_CLI" == true ]]; then
+            echo "❌ Failed to install via skills CLI." >&2
+            exit 1
+        fi
+        echo "ℹ️  Skills CLI unavailable or skipped; proceeding with universal direct installer..."
+    fi
+fi
 
 # Download archive if not running from inside the framework repository
 if [[ "$IN_GIT_REPO" == false ]]; then
