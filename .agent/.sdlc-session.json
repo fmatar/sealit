@@ -1,0 +1,36 @@
+{
+  "activeSessionId": 17,
+  "sessions": {
+    "17": {
+      "active": true,
+      "issueId": 17,
+      "type": "feat",
+      "branch": "feature/issue-#17-vercel-labs-skills-installer",
+      "worktree": null,
+      "stage": 5,
+      "stageName": "Docs & Showcase",
+      "remediationCount": 0,
+      "maxRemediations": 3,
+      "manifest": {
+        "specPath": null,
+        "prNumber": null,
+        "coverageReport": null,
+        "mutationScore": null,
+        "uiScreenshotPath": null,
+        "checkpoints": {
+          "stage1": "2026-10-11T21:56:50.316Z",
+          "stage2": "2026-10-11T21:56:56.202Z",
+          "stage3": null,
+          "stage4": null,
+          "stage5": "2026-10-11T22:05:57.525Z",
+          "stage6": null,
+          "stage7": null,
+          "stage8": null
+        }
+      },
+      "startedAt": "2026-10-11T21:56:50.316Z",
+      "updatedAt": "2026-10-11T22:05:57.526Z",
+      "activeSubagents": []
+    }
+  }
+}

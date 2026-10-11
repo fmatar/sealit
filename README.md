@@ -138,13 +138,27 @@ You can drive the entire framework through standard conversational prompts. Here
 ## ⏱️ 5-Minute Developer Quickstart
 
 ### Step 1: Install Framework
+
+#### Method A: Modern Skills Ecosystem (Recommended via [skills.sh](https://skills.sh) / [vercel-labs/skills](https://github.com/vercel-labs/skills))
 ```bash
-# Zero-install with npx (Local to repo or Global to ~/.gemini/config/skills):
+# Add all 13 framework skills to your project:
+npx skills add fmatar/agentic-sdlc-framework -y
+
+# Or install globally for all Antigravity agent sessions:
+npx skills add fmatar/agentic-sdlc-framework -g -y
+
+# Select specific skills interactively or by name:
+npx skills add fmatar/agentic-sdlc-framework --skill sdlc-flow sdlc-quality-gate -y
+```
+
+#### Method B: Turnkey POSIX Script or npm Package
+```bash
+# Automated installer (auto-detects skills CLI, with zero-dependency POSIX fallback):
+curl -sL "https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/install.sh" | bash
+
+# Or via npm package CLI:
 npx @fmatar/agentic-sdlc init          # Local
 npx @fmatar/agentic-sdlc init --global # Global
-
-# Or via turnkey POSIX curl:
-curl -sL "https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/install.sh" | bash
 ```
 
 ### Step 2: Bootstrap & Auto-Heal Project

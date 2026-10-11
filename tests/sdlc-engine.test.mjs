@@ -973,6 +973,7 @@ jobs:
       assert.ok(Array.isArray(res.assets));
       assert.ok(res.toolchain.some(t => t.name === 'Git CLI'));
       assert.ok(res.toolchain.some(t => t.name === 'Node.js Runtime'));
+      assert.ok(res.toolchain.some(t => t.name === 'Skills CLI (npx skills)'));
     });
 
     it('runs doctor CLI command cleanly', () => {

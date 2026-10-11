@@ -27,6 +27,9 @@ public class install implements Callable<Integer> {
     @Option(names = {"--skip-detect"}, description = "Skip automatic stack detection after installation")
     private boolean skipDetect;
 
+    @Option(names = {"--skills-cli"}, description = "Delegate skill installation to Vercel Labs skills CLI (npx skills add)")
+    private boolean useSkillsCli;
+
     public static void main(String... args) {
         int exitCode = new CommandLine(new install()).execute(args);
         System.exit(exitCode);
@@ -40,6 +43,39 @@ public class install implements Callable<Integer> {
         }
 
         System.out.println("🚀 Initializing Agentic SDLC Framework Installer...");
+
+        if (useSkillsCli) {
+            System.out.println("📦 Invoking Vercel Labs Skills CLI (npx skills add)...");
+            List<String> cmd = new ArrayList<>();
+            cmd.add("npx");
+            cmd.add("--yes");
+            cmd.add("skills");
+            cmd.add("add");
+            cmd.add("fmatar/agentic-sdlc-framework");
+            cmd.add("--skill");
+            cmd.add("*");
+            cmd.add("-y");
+            cmd.add("--copy");
+            if (global) {
+                cmd.add("--global");
+            }
+            try {
+                ProcessBuilder pb = new ProcessBuilder(cmd);
+                if (!global && localTarget != null) {
+                    pb.directory(Paths.get(localTarget).toAbsolutePath().toFile());
+                }
+                pb.inheritIO();
+                Process p = pb.start();
+                int exitCode = p.waitFor();
+                if (exitCode == 0) {
+                    System.out.println("✅ Skills successfully installed via Vercel Labs skills CLI!");
+                } else {
+                    System.err.println("⚠️ Skills CLI returned code: " + exitCode + ", falling back to direct copy...");
+                }
+            } catch (Exception e) {
+                System.err.println("⚠️ Could not execute skills CLI (" + e.getMessage() + "), falling back to direct copy...");
+            }
+        }
 
         WorkflowEngine engine = new WorkflowEngine();
         
