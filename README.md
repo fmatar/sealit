@@ -21,6 +21,8 @@ The Agentic SDLC Framework is a **Hybrid Orchestration** system that transforms 
 * **Dual-Gate Testing & Mutation Defense**: Enforces Robert C. Martin (Uncle Bob) craftsmanship with $\ge 85\%$ diff coverage and $\ge 80\%$ mutation kill score (PITest for Quarkus, Stryker for Svelte 5) to eliminate vanity coverage metrics and kill surviving mutants.
 * **Fork-Join Parallel Peer Review & Quality Gate**: Spawns independent read-only subagents via `invoke_subagent` to audit PR diffs, detect test smells (no trivial getter tests, no mock abuse), run static gates, and post review comments via GitHub MCP.
 * **Built-in DevSecOps & Quality Gate**: `sdlc-quality-gate` verifies Spotless formatting, static typing (`svelte-check`), test port isolation (`quarkus.http.test-port=0`), WCAG a11y, SAST audits, and production builds.
+* **Architectural Traceability & Mutation Ledger**: The `sdlc-arch-trace` skill continuously audits system architecture evolution, extracts Mermaid AST graphs, detects node/edge mutations, and appends an immutable audit log to `docs/ARCH_TRACE.md` and `.agent/arch-trace.jsonl`.
+* **Zero-Direct-Push Branch Protection**: Enforces physical Git `pre-push` hooks and SDLC flow guards forbidding direct pushes to `develop` and `main`, mandating feature branches (`feature/*`), Dual-Gate verification, and PR reviews.
 * **Automated Releases & Deployments**: `sdlc-release-changelog` automatically manages Semantic Versioning (SemVer), keeps an automated changelog, generates Docker containers, and deploys via Helm.
 
 ## 🏛️ Comprehensive Architecture & Lifecycle Workflow
@@ -28,171 +30,66 @@ The Agentic SDLC Framework is a **Hybrid Orchestration** system that transforms 
 The following diagram illustrates the complete supervisor fork-join lifecycle of the `sdlc-flow` orchestrator, from Gate 0 ticket ingestion to Stage 8 release and session teardown:
 
 ```mermaid
-flowchart TD
-    %% Styling and Theme Definitions
-    classDef trigger fill:#1e1e2f,stroke:#6366f1,stroke-width:2px,color:#f8fafc,rx:8,ry:8;
-    classDef decision fill:#312e81,stroke:#a855f7,stroke-width:2px,color:#f3e8ff,rx:6,ry:6;
-    classDef gate0 fill:#3b0764,stroke:#d946ef,stroke-width:2px,color:#fae8ff,rx:8,ry:8;
-    classDef stage fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#e0f2fe,rx:8,ry:8;
-    classDef stageHighlight fill:#1e293b,stroke:#06b6d4,stroke-width:2.5px,color:#ecfeff,rx:8,ry:8;
-    classDef subagent fill:#111827,stroke:#10b981,stroke-width:2px,color:#ecfdf5,rx:8,ry:8;
-    classDef failure fill:#450a0a,stroke:#ef4444,stroke-width:2px,color:#fee2e2,rx:8,ry:8;
-    classDef circuit fill:#701a75,stroke:#f43f5e,stroke-width:2.5px,color:#ffe4e6,rx:8,ry:8;
-    classDef success fill:#064e3b,stroke:#22c55e,stroke-width:2.5px,color:#dcfce7,rx:8,ry:8;
-    classDef fallback fill:#1c1917,stroke:#f59e0b,stroke-width:2px,color:#fef3c7,rx:8,ry:8;
+%%{init: {'theme': 'base', 'themeVariables': { 'fontFamily': 'system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif', 'fontSize': '13px', 'darkMode': false, 'lineColor': '#64748b' }}}%%
+flowchart LR
+    %% Styling Palette (High Contrast, GitHub-Native Aesthetics)
+    classDef trigger fill:#4f46e5,stroke:#4338ca,stroke-width:2px,color:#ffffff,font-weight:bold;
+    classDef gate0 fill:#7c3aed,stroke:#6d28d9,stroke-width:1.5px,color:#ffffff;
+    classDef stage fill:#0284c7,stroke:#0369a1,stroke-width:1.5px,color:#ffffff;
+    classDef gate fill:#0d9488,stroke:#0f766e,stroke-width:1.5px,color:#ffffff;
+    classDef subagent fill:#059669,stroke:#047857,stroke-width:1.5px,color:#ffffff;
+    classDef circuit fill:#e11d48,stroke:#be123c,stroke-width:1.5px,color:#ffffff;
+    classDef done fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#ffffff,font-weight:bold;
 
-    %% Entry Points
-    UserReq(["🎯 Incoming User Request\n(Feature • Bug Fix • Hotfix • Spike)"]):::trigger
-
-    %% Gate 0: Mandatory Ticket Invariant
-    subgraph Gate0 ["🛑 Gate 0: Mandatory Ticket Invariant & Classification"]
+    %% 1. Ingestion & Pre-Flight
+    subgraph Phase1 [" 🛑 INTAKE & CONCURRENCY "]
         direction TB
-        HasTicket{"Ticket ID #ID\nProvided?"}:::decision
-        AutoClassify["🤖 Auto-Classifier\n• feat / fix / hotfix / spike\n• Problem scope analysis"]:::gate0
-        ProvTicket["🎫 Auto-Provision Tracking Ticket\n(node .agent/scripts/sdlc-engine.mjs ticket create)\n• GitHub Issues / Jira / Linear / KANBAN.md\n• Set status:ready"]:::gate0
+        UserReq["🎯 User Request<br/><i>(Feature, Fix, Hotfix, Spike)</i>"]:::trigger
+        Gate0["Gate 0: Auto-Classifier<br/>• Provision Ticket #id<br/>• Tag status:ready"]:::gate0
+        PreFlight{"Active Session<br/>Check"}:::gate0
+        UserReq --> Gate0 --> PreFlight
     end
 
-    UserReq --> HasTicket
-    HasTicket -->|No Ticket #| AutoClassify
-    AutoClassify --> ProvTicket
-    HasTicket -->|Ticket # Exists| PreFlightGuard
-    ProvTicket --> PreFlightGuard
-
-    %% Stage 0: Pre-Flight Concurrency & Intent Guard
-    subgraph Stage0 ["🚦 Stage 0: Concurrency & Intent Routing (sdlc-engine session status)"]
+    %% 2. TDD & Architecture
+    subgraph Phase2 [" ⚙️ TDD & CLEAN ARCHITECTURE "]
         direction TB
-        PreFlightGuard{"Active Session\nStatus?"}:::decision
-        FastPath["⚡ Ad-Hoc Fast Path\n• Append Task to Ticket #<id>\n• Affected-only Test Runner\n• Direct TDD remediation"]:::stageHighlight
-        WorktreeFork["🌿 Worktree Isolation / Branch Subagent\n(git worktree add ../worktree-issue-<id>)\n• Concurrent flow without clobbering"]:::fallback
-        InitLock["🔒 Acquire Session Concurrency Lock\n(sdlc-engine session start --issue <id>)\n• Write .agent/.sdlc-session.json"]:::stageHighlight
+        BranchSync["Stage 2: Branch & Kanban<br/>• feature/issue-#id<br/>• status:in-progress"]:::stage
+        TDDLoop["Stage 3: Uncle Bob TDD<br/>• Failing test first (Red-Green)<br/>• Port decoupling (DIP)"]:::stage
+        BranchSync --> TDDLoop
     end
 
-    PreFlightGuard -->|Sub-task on Active Ticket| FastPath
-    PreFlightGuard -->|New Urgent Request while Active| WorktreeFork
-    PreFlightGuard -->|Clean / No Active Session| InitLock
-
-    %% Stage 1 to 6: Core Sequential Pipeline
-    subgraph Pipeline ["⚙️ Stages 1 - 6: Specification, TDD & Showcase Engine"]
+    %% 3. Dual-Gate Verification
+    subgraph Phase3 [" 🛡️ DUAL-GATE DEFENSE "]
         direction TB
-
-        %% Stage 1
-        subgraph S1_Intake ["1️⃣ Stage 1: Intake & Architecture Contract"]
-            direction TB
-            DetectStack["Stack Auto-Detection\n(sdlc-engine detect)"]:::stage
-            ArchPrompt{"Archlens Policy\nPresent?"}:::decision
-            ScaffoldArch["Scaffold Concentric Policy\n(sdlc-engine archlens scaffold)"]:::fallback
-            FetchReqs["Formulate Contract & Spec\n• Gherkin Acceptance Criteria\n• RFC / ADR / C4 Architecture\n• Tag: status:ready"]:::stage
-        end
-
-        %% Stage 2
-        subgraph S2_Branch ["2️⃣ Stage 2: Branch & Kanban Sync"]
-            direction TB
-            CreateBranch["Git Checkout Branch\n(feature/issue-#<id>-<slug>)\n• Transition: status:in-progress\n• Update Session Stage 2"]:::stage
-        end
-
-        %% Stage 3
-        subgraph S3_TDD ["3️⃣ Stage 3: Clean-Room TDD Implementation"]
-            direction TB
-            BugReproCheck{"Is Bug / Fix?"}:::decision
-            ReproHarness[" author Failing Reproduction Test\n• Verify harness fails first"]:::failure
-            UncleBobTDD["Uncle Bob's 3 Laws of TDD & TPP\n• Degenerate failing tests first\n• Clean domain logic & port isolation\n• Fast loop: sdlc-engine test --affected-only"]:::stageHighlight
-        end
-
-        %% Stage 4
-        subgraph S4_Gate ["4️⃣ Stage 4: Dual-Gate & Mutation Testing"]
-            direction TB
-            RunDualGate["Universal Dual-Gate Audits\n• sdlc-engine coverage (>= 85% Line/Branch)\n• sdlc-engine mutation (>= 80% Kill Score)\n• sdlc-engine archlens diff (0 Inversions)"]:::stageHighlight
-            MutantCheck{"Surviving\nMutants?"}:::decision
-            StrengthenMutant["Auto-Strengthen Boundary Tests\n(sdlc-engine strengthen)"]:::stage
-            ExemptionLedger["Register Benign Exemption\n(.agent/sdlc-exemptions.json)"]:::fallback
-        end
-
-        %% Stage 5
-        subgraph S5_Showcase ["5️⃣ Stage 5: Documentation & Showcase Hygiene"]
-            direction TB
-            SyncDocs["Developer Showcase Sync\n• Root README.md 5-Min Quickstart\n• Architecture specs in docs/specs/\n• CHANGELOG.md under [Unreleased]"]:::stage
-        end
-
-        %% Stage 6
-        subgraph S6_PR ["6️⃣ Stage 6: Pull Request Opening"]
-            direction TB
-            OpenPR["Generate PR Summary & Push\n(sdlc-engine pr-summary --issue <id>)\n• Tag: status:in-review\n• UI Ephemeral screenshot previews"]:::stage
-        end
+        DualGate["Stage 4: Dual-Gate<br/>• ≥85% Diff Coverage<br/>• ≥80% Mutation Score<br/>• Archlens concentric rings"]:::gate
+        ArchTrace["Stage 5: Docs & Trace<br/>• docs/ARCH_TRACE.md<br/>• 5-min Quickstart README<br/>• CHANGELOG.md"]:::gate
+        DualGate --> ArchTrace
     end
 
-    InitLock --> DetectStack
-    DetectStack --> ArchPrompt
-    ArchPrompt -->|No Policy Found| ScaffoldArch
-    ArchPrompt -->|Policy Configured| FetchReqs
-    ScaffoldArch --> FetchReqs
-    FetchReqs --> CreateBranch
-    CreateBranch --> BugReproCheck
-    BugReproCheck -->|Yes| ReproHarness
-    BugReproCheck -->|No| UncleBobTDD
-    ReproHarness --> UncleBobTDD
-    UncleBobTDD --> RunDualGate
-    RunDualGate --> MutantCheck
-    MutantCheck -->|Surviving Mutants| StrengthenMutant
-    StrengthenMutant --> RunDualGate
-    MutantCheck -->|Benign Compiler Quirk| ExemptionLedger
-    MutantCheck -->|Dual-Gate Met| SyncDocs
-    ExemptionLedger --> SyncDocs
-    SyncDocs --> OpenPR
-
-    %% Stage 7: Parallel Fork-Join Review
-    subgraph ForkJoinReview ["⚡ Stage 7: Supervisor Fork-Join Parallel Review (invoke_subagent)"]
+    %% 4. Fork-Join Review
+    subgraph Phase4 [" ⚡ FORK-JOIN AUDIT "]
         direction TB
-        PlanReview["Review Dispatch Plan\n(sdlc-engine review plan)"]:::stageHighlight
-        
-        subgraph SubagentsPool ["Concurrently Dispatched Subagents"]
-            direction LR
-            SubReviewer["🕵️ PR Peer Reviewer\n• Uncle Bob Test Smell Detection\n• Diff Audit & DIP Check\n• Formal PR Review Comments"]:::subagent
-            SubGatekeeper["🛡️ Quality Gatekeeper\n• Full sdlc-engine gate --strict\n• Flake stability check (3 runs)\n• Secret & package CVE audits"]:::subagent
-            SubArchAuditor["🏛️ Architectural Auditor\n(Triggered on HIGH/CRITICAL Risk)\n• Concentric boundary proof\n• ADR alignment"]:::subagent
-        end
-        
-        EvalResults{"Audit & Gate\nPassed?"}:::decision
+        OpenPR["Stage 6: Pull Request<br/>• status:in-review<br/>• Generated PR summary"]:::subagent
+        ForkJoin["Stage 7: Concurrent Subagents<br/>• PR Peer Reviewer<br/>• Strict Quality Gatekeeper<br/>• Archlens Auditor"]:::subagent
+        CircuitBreaker{"Gate & Review<br/>Passed?"}:::circuit
+        OpenPR --> ForkJoin --> CircuitBreaker
     end
 
-    OpenPR --> PlanReview
-    PlanReview --> SubReviewer
-    PlanReview --> SubGatekeeper
-    PlanReview --> SubArchAuditor
-    SubReviewer --> EvalResults
-    SubGatekeeper --> EvalResults
-    SubArchAuditor --> EvalResults
-
-    %% Circuit Breaker & Remediation
-    subgraph CircuitBreaker ["🔄 Circuit Breaker & Auto-Remediation Loop"]
+    %% 5. Release & Teardown
+    subgraph Phase5 [" 🏁 RELEASE & TEARDOWN "]
         direction TB
-        RemediationCount{"Remediation\nCount < 3?"}:::circuit
-        LoopBack["Rollback Session to Stage 3\n• Tag: status:in-progress\n• session update --stage 3 --remediate"]:::failure
-        InteractiveIntervention["⚠️ Circuit Breaker Tripped!\n(Interactive ask_question Modal)\n1. Grant Exemption & Record Ledger\n2. Extend Budget (+2 retries)\n3. Abort & Rollback to Main"]:::fallback
+        RemoteCI["Stage 8: CI Polling<br/>• GitHub Actions green"]:::done
+        MergeDone["Release Lock & Done<br/>• Squash merge & SemVer<br/>• status:done"]:::done
+        RemoteCI --> MergeDone
     end
 
-    EvalResults -->|Changes Requested or Gate Failed| RemediationCount
-    RemediationCount -->|Budget Available| LoopBack
-    LoopBack --> UncleBobTDD
-    RemediationCount -->|3 Consecutive Failures| InteractiveIntervention
-    InteractiveIntervention -->|Extend Budget| UncleBobTDD
-
-    %% Stage 8: Done & Release
-    subgraph Stage8 ["🏁 Stage 8: Final Gate & Teardown (sdlc-release-changelog)"]
-        direction TB
-        PollRemoteCI["Remote CI/CD Polling\n(sdlc-engine check-ci <pr-id>)"]:::stage
-        MergePR["Squash & Merge PR\n• Tag SemVer Release\n• Deploy Containers / Artifacts"]:::stage
-        CloseTicket["Final Kanban State Sync\n• Tag status:done & close issue\n• kanban-sync.sh"]:::stage
-        ReleaseLock["🔓 Release Session Concurrency Lock\n(sdlc-engine session release)"]:::success
-    end
-
-    EvalResults -->|All Approved & Strict Green| PollRemoteCI
-    PollRemoteCI --> MergePR
-    MergePR --> CloseTicket
-    CloseTicket --> ReleaseLock
-
-    %% Worktree / FastPath convergence
-    FastPath -.-> RunDualGate
-    WorktreeFork -.-> DetectStack
+    %% Pipeline Interconnections
+    PreFlight -->|No Active Session| BranchSync
+    PreFlight -.->|Active Ticket| TDDLoop
+    TDDLoop --> DualGate
+    ArchTrace --> OpenPR
+    CircuitBreaker -->|Approved| RemoteCI
+    CircuitBreaker -->|Changes Requested (Max 3)| TDDLoop
 ```
 
 ## 🧠 Core Agentic Skills
@@ -200,17 +97,18 @@ flowchart TD
 The framework operates via interlocking skills located in `.agent/skills/`. Each skill defines a "Next Recommended Step," allowing agents to chain workflows autonomously:
 
 1. **`sdlc-flow`**: Master orchestrator running the 8-stage issue-to-PR automated pipeline with session concurrency locking, ad-hoc fast-path routing, and parallel fork-join subagent reviews.
-2. **`sdlc-feature-spec`**: Generates structured PRD/SRS documentation, C4 diagrams, and GitHub issues.
-3. **`sdlc-tdd-implement`**: Svelte 5 UI and Quarkus Java 25 coding adhering to Uncle Bob's Three Laws of TDD and the Transformation Priority Premise (TPP).
-4. **`sdlc-test-coverage`**: Dual-Gate test enforcer requiring $\ge 85\%$ diff coverage and $\ge 80\%$ mutation score via PITest & Stryker.
-5. **`sdlc-peer-review`**: Subagent that audits PR diffs, detects Uncle Bob test smells and mock abuse, and posts review comments.
-6. **`sdlc-kanban`**: Manages GitHub Projects v2, ticket state transitions (`status:*`), WIP limits, and `docs/KANBAN.md`.
-7. **`sdlc-docs-wiki`**: Synchronizes documentation across `docs/specs/`, `CHANGELOG.md`, and `/wiki`.
-8. **`sdlc-quality-gate`**: Pre-merge quality, formatting (Spotless), security, and build validation.
-9. **`sdlc-release-changelog`**: Version bumping, Docker containerization, and K8s/Helm deployment.
-10. **`sdlc-analyze`**: SDLC compliance auditor evaluating project health against framework standards.
-11. **`sdlc-initialize`**: Interactive full-stack project bootstrapper and skill installer.
-12. **`sdlc-help`**: Interactive diagnostic guide and prompt recipes.
+2. **`sdlc-arch-trace`**: Architectural mutation tracer & Mermaid diagram diff auditor maintaining an immutable audit log in `docs/ARCH_TRACE.md` and strictly blocking direct pushes to `develop` or `main`.
+3. **`sdlc-feature-spec`**: Generates structured PRD/SRS documentation, C4 diagrams, and GitHub issues.
+4. **`sdlc-tdd-implement`**: Clean-code and TDD feature development adhering to Uncle Bob's Three Laws of TDD and the Transformation Priority Premise (TPP).
+5. **`sdlc-test-coverage`**: Dual-Gate test enforcer requiring $\ge 85\%$ diff coverage and $\ge 80\%$ mutation score via PITest & Stryker.
+6. **`sdlc-peer-review`**: Subagent that audits PR diffs, detects Uncle Bob test smells and mock abuse, and posts review comments.
+7. **`sdlc-kanban`**: Manages GitHub Projects v2, ticket state transitions (`status:*`), WIP limits, and `docs/KANBAN.md`.
+8. **`sdlc-docs-wiki`**: Synchronizes documentation across `docs/specs/`, `CHANGELOG.md`, and `/wiki`.
+9. **`sdlc-quality-gate`**: Pre-merge quality, formatting, security, Archlens concentric layers, and build validation.
+10. **`sdlc-release-changelog`**: Version bumping, Docker containerization, and K8s/Helm deployment.
+11. **`sdlc-analyze`**: SDLC compliance auditor evaluating project health against framework standards.
+12. **`sdlc-initialize`**: Interactive full-stack project bootstrapper and skill installer.
+13. **`sdlc-help`**: Interactive diagnostic guide and prompt recipes.
 
 ---
 
@@ -270,6 +168,9 @@ All stages can be monitored or executed directly via the unified `sdlc-engine`:
 | `sdlc-engine mutation` | Run mutation testing defense ($\ge 80\%$ kill score) |
 | `sdlc-engine archlens diff` | Audit diff for Clean Architecture concentric layer inversions |
 | `sdlc-engine gate --strict` | Unified strict gate (Lint, Build, Test, Risk, Security, Flake) |
+| `sdlc-engine arch trace --reason "<msg>"` | Audit Mermaid AST & record changes to `docs/ARCH_TRACE.md` |
+| `sdlc-engine arch diff` | Verify Clean Architecture concentric rings against git diff |
+| `sdlc-engine hooks install` | Scaffold pre-push & pre-commit hooks enforcing branch protection |
 | `sdlc-engine review plan` | Generate parallel subagent review plan JSON payload |
 | `sdlc-engine pr-summary --issue <id>` | Generate formatted markdown summary for GitHub PR |
 | `sdlc-engine flake-check --runs 5` | Detect non-deterministic test race conditions |
