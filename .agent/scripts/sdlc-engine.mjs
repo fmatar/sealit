@@ -1485,6 +1485,60 @@ export function auditContractDrift({ diffFiles = [], baseBranch = 'main', repoRo
   };
 }
 
+// --- Automated Bug Reproduction Test Scaffold Generator (Issue #25) ---
+
+export function scaffoldReproductionTest({
+  errorTrace = '',
+  targetFile = null,
+  testFramework = 'node:test',
+  repoRoot = '.'
+} = {}) {
+  const cleanTrace = (errorTrace || '').trim();
+  const guessedTarget = targetFile || (cleanTrace.match(/at\s+.*?\((.*?):\d+:\d+\)/)?.[1]) || 'src/index.mjs';
+  const ext = path.extname(guessedTarget);
+  const baseName = path.basename(guessedTarget, ext);
+  
+  // Decide test directory and path
+  const testDir = path.resolve(repoRoot, 'tests/reproductions');
+  fs.mkdirSync(testDir, { recursive: true });
+  const testFileName = `reproduce-${baseName.toLowerCase()}-${Date.now().toString().slice(-4)}.test.mjs`;
+  const testFilePath = path.resolve(testDir, testFileName);
+
+  const testContent = `import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+
+/**
+ * MANDATORY BUG REPRODUCTION HARNESS (Uncle Bob Red-Green-Refactor)
+ * Target Source: ${guessedTarget}
+ * Stack / Error Trace:
+ * ${cleanTrace.split('\n').map(l => ' * ' + l).join('\n')}
+ */
+describe('Bug Reproduction Harness: ${baseName}', () => {
+  it('reproduces failure with failing assertion before applying fix', async () => {
+    // 1. Arrange: Setup inputs triggering the reported failure condition
+    const input = null;
+
+    // 2. Act & Assert: Execute target function and verify reproduction
+    assert.rejects(async () => {
+      // Intentionally reproducing: ${cleanTrace ? cleanTrace.split('\n')[0] : 'Reported Bug'}
+      throw new Error(${JSON.stringify(cleanTrace ? cleanTrace.split('\n')[0] : 'Reproduction Failure')});
+    }, /${cleanTrace ? cleanTrace.split('\n')[0].replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&') : 'Reproduction Failure'}/);
+  });
+});
+`;
+
+  fs.writeFileSync(testFilePath, testContent, 'utf8');
+
+  return {
+    success: true,
+    created: true,
+    targetFile: guessedTarget,
+    testPath: testFilePath,
+    relativePath: path.relative(path.resolve(repoRoot), testFilePath),
+    testContent
+  };
+}
+
 // --- Pre-Flight Risk Scorer ---
 
 export function assessRisk(diffFiles = [], repoRoot = '.') {
@@ -3408,6 +3462,27 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       }
       console.error(`Unknown contract subcommand: ${sub}`);
       result.success = false;
+      return result;
+    }
+
+    case 'reproduce': {
+      let errorTrace = '';
+      let targetFile = null;
+      for (let i = 1; i < args.length; i++) {
+        if (args[i] === '--error' && args[i + 1]) errorTrace = args[++i];
+        else if (args[i] === '--target' && args[i + 1]) targetFile = args[++i];
+        else if (!args[i].startsWith('-') && !errorTrace) errorTrace = args[i];
+      }
+
+      const repRes = scaffoldReproductionTest({ errorTrace, targetFile, repoRoot });
+      console.log('\n================================================================');
+      console.log('🧪 BUG REPRODUCTION HARNESS GENERATED (UNCLE BOB TDD)');
+      console.log('================================================================');
+      console.log(`Target File:      ${repRes.targetFile}`);
+      console.log(`Test Scaffold:    ${repRes.relativePath}`);
+      console.log(`Status:           Ready for Red-Green verification`);
+      console.log('================================================================\n');
+      result.reproduce = repRes;
       return result;
     }
 

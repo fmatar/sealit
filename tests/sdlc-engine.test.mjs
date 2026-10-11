@@ -50,7 +50,8 @@ import {
   exportAgentRules,
   createWorkbenchServer,
   renderWorkbenchHTML,
-  auditContractDrift
+  auditContractDrift,
+  scaffoldReproductionTest
 } from '../.agent/scripts/sdlc-engine.mjs';
 
 describe('Universal SDLC Engine: Complete Uncle Bob Test Suite', () => {
@@ -1305,6 +1306,27 @@ flowchart TD
       const cliRes = runCLI(['contract', 'check'], null, tmpDir);
       assert.equal(cliRes.command, 'contract');
       assert.equal(cliRes.contract.passed, true);
+    });
+
+    it('scaffolds automated bug reproduction test harness matching error stack', () => {
+      const trace = 'TypeError: Cannot read properties of null (reading "email")\n    at UserService.getUser (/src/services/UserService.mjs:42:15)';
+      const scafRes = scaffoldReproductionTest({
+        errorTrace: trace,
+        repoRoot: tmpDir
+      });
+
+      assert.equal(scafRes.success, true);
+      assert.equal(scafRes.created, true);
+      assert.ok(scafRes.testContent.includes('Bug Reproduction Harness'));
+      assert.ok(scafRes.testContent.includes('TypeError: Cannot read properties of null'));
+      assert.equal(fs.existsSync(scafRes.testPath), true);
+    });
+
+    it('executes reproduce CLI command cleanly', () => {
+      const cliRes = runCLI(['reproduce', '--error', 'NullPointerException: user is null', '--target', 'src/Order.java'], null, tmpDir);
+      assert.equal(cliRes.command, 'reproduce');
+      assert.equal(cliRes.reproduce.success, true);
+      assert.equal(cliRes.reproduce.targetFile, 'src/Order.java');
     });
   });
 });

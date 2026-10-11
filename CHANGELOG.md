@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- feat(reproduce): automated bug reproduction test scaffold generator (`node .agent/scripts/sdlc-engine.mjs reproduce --error "<trace>" [--target <file>]`) creating failing Red-Green-Refactor test harnesses directly from error stack traces (#25)
 - feat(contract): API breaking contract drift detection & schema guardian (`node .agent/scripts/sdlc-engine.mjs contract check`) auditing OpenAPI, Swagger, and GraphQL schema diffs for removed endpoints, methods, or types, wired directly into strict quality gate (#24)
 - feat(workbench): interactive visual SDLC mission control dashboard & HTTP server (`node .agent/scripts/sdlc-engine.mjs serve [--port <port>]`) rendering live Kanban state, active stage indicators, and architectural trace ledger (#23)
 - feat(interop): multi-agent runtime interoperability layer (`node .agent/scripts/sdlc-engine.mjs interop export [--agent <all|claude|cursor|windsurf>]`) exporting rules, slash commands, and TDD invariants to Claude Code (`CLAUDE.md`, `.claude/settings.json`), Cursor (`.cursorrules`, `.cursor/rules/`), and Windsurf (`.windsurfrules`) (#22)

@@ -184,6 +184,7 @@ All stages can be monitored or executed directly via the unified `sdlc-engine`:
 | `sdlc-engine archlens diff` | Audit diff for Clean Architecture concentric layer inversions |
 | `sdlc-engine gate --strict` | Unified strict gate (Lint, Build, Test, Risk, Security, Flake, Contract Drift) |
 | `sdlc-engine contract check` | Audit OpenAPI, Swagger, and GraphQL schema diffs for breaking drift |
+| `sdlc-engine reproduce --error "<trace>" [--target <file>]` | Scaffold Uncle Bob bug reproduction test harness matching error stack |
 | `sdlc-engine arch trace --reason "<msg>"` | Audit Mermaid AST & record changes to `docs/ARCH_TRACE.md` |
 | `sdlc-engine arch diff` | Verify Clean Architecture concentric rings against git diff |
 | `sdlc-engine hooks install` | Scaffold pre-push & pre-commit hooks enforcing branch protection |
