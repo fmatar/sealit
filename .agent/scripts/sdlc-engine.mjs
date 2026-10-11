@@ -1329,6 +1329,8 @@ export function checkArchDiff(repoRoot = '.') {
   if (!archInfo.installed) {
     return {
       enabled: false,
+      passed: true,
+      violationsCount: 0,
       message: 'Archlens policy not installed (.archlens/policy.json missing).',
       violations: []
     };
@@ -1502,7 +1504,14 @@ export function recordArchTrace({
   const current = getSessionStatus(repoRoot);
   const activeSess = current.session;
   const issueId = ticket || activeSess?.issueId || 'N/A';
-  const branch = activeSess?.branch || 'current-branch';
+  let branch = activeSess?.branch;
+  if (!branch) {
+    try {
+      branch = execSync('git branch --show-current 2>/dev/null', { cwd: repoRoot, encoding: 'utf8' }).trim() || 'develop';
+    } catch {
+      branch = 'develop';
+    }
+  }
 
   // Branch invariant check
   if (branch === 'develop' || branch === 'main') {
