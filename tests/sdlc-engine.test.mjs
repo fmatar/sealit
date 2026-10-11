@@ -1170,5 +1170,62 @@ jobs:
       assert.ok(gateRes.risk);
       assert.ok(gateRes.security);
     });
+
+    it('parses Mermaid flowcharts, subgraphs, nodes and directional edges correctly', async () => {
+      const { parseMermaidDiagram } = await import('../.agent/scripts/sdlc-engine.mjs');
+      const sampleMmd = `
+flowchart TD
+    subgraph Core [Domain Core]
+      A["Entity"] -->|validates| B["ValueObject"]
+    end
+    C["Service"] --> A
+`;
+      const parsed = parseMermaidDiagram(sampleMmd);
+      assert.equal(parsed.nodes.length, 3);
+      assert.equal(parsed.edges.length, 2);
+      assert.equal(parsed.subgraphs.length, 1);
+      assert.equal(parsed.subgraphs[0].id, 'Core');
+    });
+
+    it('computes accurate Mermaid graph diffs between revisions', async () => {
+      const { diffMermaidGraphs } = await import('../.agent/scripts/sdlc-engine.mjs');
+      const oldGraph = {
+        nodes: [{ id: 'A', label: 'Service A' }],
+        edges: []
+      };
+      const newGraph = {
+        nodes: [{ id: 'A', label: 'Service A' }, { id: 'B', label: 'Service B' }],
+        edges: [{ from: 'A', to: 'B', label: 'calls' }]
+      };
+      const diff = diffMermaidGraphs(oldGraph, newGraph);
+      assert.equal(diff.hasChanges, true);
+      assert.equal(diff.addedNodes.length, 1);
+      assert.equal(diff.addedNodes[0].id, 'B');
+      assert.equal(diff.addedEdges.length, 1);
+    });
+
+    it('records architectural trace entries into markdown ledger and JSONL stream', async () => {
+      const { recordArchTrace } = await import('../.agent/scripts/sdlc-engine.mjs');
+      const traceRes = recordArchTrace({
+        reason: 'Added new payment domain port',
+        ticket: '1099',
+        repoRoot: tmpDir
+      });
+
+      assert.equal(traceRes.success, true);
+      assert.equal(fs.existsSync(path.join(tmpDir, 'docs/ARCH_TRACE.md')), true);
+      assert.equal(fs.existsSync(path.join(tmpDir, '.agent/arch-trace.jsonl')), true);
+
+      const content = fs.readFileSync(path.join(tmpDir, 'docs/ARCH_TRACE.md'), 'utf8');
+      assert.ok(content.includes('Added new payment domain port'));
+      assert.ok(content.includes('#1099'));
+    });
+
+    it('executes arch trace via CLI runner cleanly', () => {
+      const cliRes = runCLI(['arch', 'trace', '--reason', 'Test CLI trace', '--ticket', '2000'], null, tmpDir);
+      assert.equal(cliRes.command, 'arch');
+      assert.equal(cliRes.archTrace.success, true);
+      assert.equal(cliRes.archTrace.entry.ticket, '#2000');
+    });
   });
 });
