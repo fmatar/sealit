@@ -1,5 +1,5 @@
 {
-  "activeSessionId": 43,
+  "activeSessionId": 39,
   "sessions": {
     "17": {
       "active": true,
@@ -185,6 +185,37 @@
       },
       "startedAt": "2026-10-11T22:30:19.088Z",
       "updatedAt": "2026-10-11T22:31:12.473Z",
+      "activeSubagents": []
+    },
+    "39": {
+      "active": true,
+      "issueId": 39,
+      "type": "feat",
+      "branch": "feature/issue-#39-crypto-merkle-audit-chain",
+      "worktree": null,
+      "stage": 6,
+      "stageName": "Pull Request",
+      "remediationCount": 0,
+      "maxRemediations": 3,
+      "manifest": {
+        "specPath": null,
+        "prNumber": null,
+        "coverageReport": null,
+        "mutationScore": null,
+        "uiScreenshotPath": null,
+        "checkpoints": {
+          "stage1": "2026-10-11T23:00:27.700Z",
+          "stage2": "2026-10-11T23:00:39.719Z",
+          "stage3": null,
+          "stage4": null,
+          "stage5": "2026-10-11T23:03:32.141Z",
+          "stage6": "2026-10-11T23:03:49.835Z",
+          "stage7": null,
+          "stage8": null
+        }
+      },
+      "startedAt": "2026-10-11T23:00:27.699Z",
+      "updatedAt": "2026-10-11T23:03:49.835Z",
       "activeSubagents": []
     },
     "43": {

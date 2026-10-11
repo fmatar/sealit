@@ -229,6 +229,8 @@ All stages can be monitored or executed directly via the unified `sdlc-engine`:
 | `sdlc-engine arch diff` | Verify Clean Architecture concentric rings against git diff |
 | `sdlc-engine hooks install` | Scaffold pre-push & pre-commit hooks enforcing branch protection |
 | `sdlc-engine protect [branches...]` | Configure physical Git pre-push hook and remote protection for `main` and `develop` |
+| `sdlc-engine audit verify` | Cryptographically verify SHA-256 Merkle chain in `docs/AUDIT_CHAIN.jsonl` |
+| `sdlc-engine audit record --event "<name>"` | Append immutable cryptographically-linked record to audit chain |
 | `sdlc-engine review plan` | Generate parallel subagent review plan JSON payload |
 | `sdlc-engine pr-summary --issue <id>` | Generate formatted markdown summary for GitHub PR |
 | `sdlc-engine flake-check --runs 5` | Detect non-deterministic test race conditions |

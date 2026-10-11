@@ -8,6 +8,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
+import crypto from 'node:crypto';
 import { execSync } from 'node:child_process';
 
 const CONFIG_PATH = path.resolve('.agent/sdlc-config.json');
@@ -1145,6 +1146,145 @@ export function applyBranchProtection({
   }
 
   return results;
+}
+
+// --- Cryptographic SHA-256 Merkle Audit Ledger (Issue #39) ---
+
+export const AUDIT_LEDGER_FILE = 'docs/AUDIT_CHAIN.jsonl';
+export const GENESIS_HASH = '0000000000000000000000000000000000000000000000000000000000000000';
+
+export function calculateRecordHash({ index, timestamp, event, metadata, previousHash }) {
+  const payload = JSON.stringify({ index, timestamp, event, metadata, previousHash });
+  return crypto.createHash('sha256').update(payload).digest('hex');
+}
+
+export function appendAuditRecord({ event, metadata = {}, repoRoot = '.' } = {}) {
+  const auditPath = path.resolve(repoRoot, AUDIT_LEDGER_FILE);
+  fs.mkdirSync(path.dirname(auditPath), { recursive: true });
+
+  let previousHash = GENESIS_HASH;
+  let index = 0;
+
+  if (fs.existsSync(auditPath)) {
+    const content = fs.readFileSync(auditPath, 'utf8').trim();
+    if (content) {
+      const lines = content.split('\n').filter(Boolean);
+      if (lines.length > 0) {
+        try {
+          const lastEntry = JSON.parse(lines[lines.length - 1]);
+          index = (typeof lastEntry.index === 'number' ? lastEntry.index + 1 : lines.length);
+          previousHash = lastEntry.currentHash || lastEntry.hash || GENESIS_HASH;
+        } catch {
+          index = lines.length;
+        }
+      }
+    }
+  }
+
+  const timestamp = new Date().toISOString();
+  const currentHash = calculateRecordHash({ index, timestamp, event, metadata, previousHash });
+
+  const record = {
+    index,
+    timestamp,
+    event,
+    metadata,
+    previousHash,
+    currentHash
+  };
+
+  fs.appendFileSync(auditPath, JSON.stringify(record) + '\n', 'utf8');
+
+  return {
+    success: true,
+    record,
+    auditPath
+  };
+}
+
+export function verifyAuditChain(repoRoot = '.') {
+  const auditPath = path.resolve(repoRoot, AUDIT_LEDGER_FILE);
+  if (!fs.existsSync(auditPath)) {
+    return {
+      valid: true,
+      recordsCount: 0,
+      merkleRoot: GENESIS_HASH,
+      message: 'No audit records present (chain empty).'
+    };
+  }
+
+  const content = fs.readFileSync(auditPath, 'utf8').trim();
+  if (!content) {
+    return {
+      valid: true,
+      recordsCount: 0,
+      merkleRoot: GENESIS_HASH,
+      message: 'Audit chain is empty.'
+    };
+  }
+
+  const lines = content.split('\n').filter(Boolean);
+  let expectedPrevHash = GENESIS_HASH;
+  const records = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    let parsed;
+    try {
+      parsed = JSON.parse(lines[i]);
+    } catch (err) {
+      return {
+        valid: false,
+        errorIndex: i,
+        error: `Malformed JSON at line ${i + 1}: ${err.message}`,
+        recordsCount: lines.length
+      };
+    }
+
+    if (parsed.index !== i) {
+      return {
+        valid: false,
+        errorIndex: i,
+        error: `Index mismatch at record ${i}: expected ${i}, found ${parsed.index}`,
+        recordsCount: lines.length
+      };
+    }
+
+    if (parsed.previousHash !== expectedPrevHash) {
+      return {
+        valid: false,
+        errorIndex: i,
+        error: `Cryptographic chain broken at record ${i}: previousHash mismatch. Expected ${expectedPrevHash}, found ${parsed.previousHash}`,
+        recordsCount: lines.length
+      };
+    }
+
+    const recalculatedHash = calculateRecordHash({
+      index: parsed.index,
+      timestamp: parsed.timestamp,
+      event: parsed.event,
+      metadata: parsed.metadata,
+      previousHash: parsed.previousHash
+    });
+
+    if (recalculatedHash !== parsed.currentHash) {
+      return {
+        valid: false,
+        errorIndex: i,
+        error: `SHA-256 tampering detected at record ${i}: calculated ${recalculatedHash}, recorded ${parsed.currentHash}`,
+        recordsCount: lines.length
+      };
+    }
+
+    expectedPrevHash = parsed.currentHash;
+    records.push(parsed);
+  }
+
+  return {
+    valid: true,
+    recordsCount: records.length,
+    merkleRoot: expectedPrevHash,
+    message: `Audit chain verified successfully (${records.length} immutable records).`
+  };
 }
 
 // --- CI/CD Workflow Template Scaffolding ---
@@ -2964,6 +3104,13 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         if (contractRes.hasDrift) {
           throw new Error(`API Contract Drift detected: ${contractRes.breakingChangesCount} breaking change(s) found!`);
         }
+
+        console.log('   • Verifying Cryptographic SHA-256 Merkle Audit Chain...');
+        const auditRes = verifyAuditChain(repoRoot);
+        result.audit = auditRes;
+        if (!auditRes.valid) {
+          throw new Error(`Merkle Audit Chain Verification failed: ${auditRes.error}`);
+        }
       }
 
       console.log('\n🎉 Quality gate passed across all modules.');
@@ -3616,6 +3763,48 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       return result;
     }
 
+    case 'audit': {
+      const sub = args[1] || 'verify';
+      if (sub === 'verify') {
+        const auditRes = verifyAuditChain(repoRoot);
+        console.log('\n================================================================');
+        console.log('⛓️ AGENTIC SDLC CRYPTOGRAPHIC SHA-256 AUDIT CHAIN');
+        console.log('================================================================');
+        console.log(`Status:        ${auditRes.valid ? '✅ VERIFIED & IMMUTABLE' : '❌ CORRUPTED / TAMPERED'}`);
+        console.log(`Records Count: ${auditRes.recordsCount}`);
+        console.log(`Merkle Root:   ${auditRes.merkleRoot}`);
+        console.log(`Details:       ${auditRes.message || auditRes.error}`);
+        console.log('================================================================\n');
+        result.audit = auditRes;
+        result.success = auditRes.valid;
+        return result;
+      }
+      if (sub === 'record') {
+        let event = 'MANUAL_AUDIT_LOG';
+        let metadataStr = '{}';
+        for (let i = 2; i < args.length; i++) {
+          if (args[i] === '--event' && args[i + 1]) event = args[++i];
+          else if (args[i] === '--metadata' && args[i + 1]) metadataStr = args[++i];
+        }
+        let metadata = {};
+        try { metadata = JSON.parse(metadataStr); } catch {}
+        const recordRes = appendAuditRecord({ event, metadata, repoRoot });
+        console.log('\n================================================================');
+        console.log('⛓️ CRYPTOGRAPHIC AUDIT RECORD COMMITTED');
+        console.log('================================================================');
+        console.log(`Index:        #${recordRes.record.index}`);
+        console.log(`Event:        ${recordRes.record.event}`);
+        console.log(`Current Hash: ${recordRes.record.currentHash}`);
+        console.log(`Prev Hash:    ${recordRes.record.previousHash}`);
+        console.log('================================================================\n');
+        result.audit = recordRes;
+        return result;
+      }
+      console.error(`Unknown audit subcommand: ${sub}`);
+      result.success = false;
+      return result;
+    }
+
     case 'help':
     default: {
       console.log(`
@@ -3626,6 +3815,8 @@ Usage:
   node .agent/scripts/sdlc-engine.mjs doctor [--fix]      Run framework healthcheck & auto-heal missing assets
   node .agent/scripts/sdlc-engine.mjs serve [--port <n>]  Start local interactive SDLC visual workbench dashboard
   node .agent/scripts/sdlc-engine.mjs interop export [--agent <all|claude|cursor|windsurf>] Export multi-agent rules
+  node .agent/scripts/sdlc-engine.mjs audit verify        Verify SHA-256 Merkle cryptographic audit ledger
+  node .agent/scripts/sdlc-engine.mjs audit record --event "<name>" [--metadata '<json>'] Record immutable audit log
   node .agent/scripts/sdlc-engine.mjs hooks install       Scaffold zero-dependency Git pre-commit & pre-push hooks
   node .agent/scripts/sdlc-engine.mjs ci-workflow install Scaffold GitHub Actions Quality Gate CI workflow
   node .agent/scripts/sdlc-engine.mjs detect              Detect stack and print config preview
@@ -3633,7 +3824,7 @@ Usage:
   node .agent/scripts/sdlc-engine.mjs test [--affected-only] Run tests for changed modules
   node .agent/scripts/sdlc-engine.mjs coverage            Run diff coverage gate
   node .agent/scripts/sdlc-engine.mjs mutation            Run mutation defense check
-  node .agent/scripts/sdlc-engine.mjs gate [--strict]     Execute full quality gate (lint, build, test, archlens, security)
+  node .agent/scripts/sdlc-engine.mjs gate [--strict]     Execute full quality gate (lint, build, test, archlens, security, audit)
   node .agent/scripts/sdlc-engine.mjs release [patch|minor|major] [--dry-run] [--skip-gate]
   node .agent/scripts/sdlc-engine.mjs risk-audit [files...] Calculate pre-flight risk score
   node .agent/scripts/sdlc-engine.mjs pr-summary [--issue <id>] Generate formatted PR markdown

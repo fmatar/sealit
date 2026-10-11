@@ -53,7 +53,9 @@ import {
   auditContractDrift,
   scaffoldReproductionTest,
   calculateSessionStats,
-  applyBranchProtection
+  applyBranchProtection,
+  appendAuditRecord,
+  verifyAuditChain
 } from '../.agent/scripts/sdlc-engine.mjs';
 
 describe('Universal SDLC Engine: Complete Robert Martin Test Suite', () => {
@@ -1360,6 +1362,52 @@ flowchart TD
       const cliRes = runCLI(['protect', 'main', 'develop'], null, tmpDir);
       assert.equal(cliRes.command, 'protect');
       assert.equal(cliRes.protect.localHookInstalled, true);
+    });
+
+    it('creates cryptographic SHA-256 Merkle audit chain records sequentially', () => {
+      const rec1 = appendAuditRecord({ event: 'SESSION_START', metadata: { issueId: 39 }, repoRoot: tmpDir });
+      assert.equal(rec1.success, true);
+      assert.equal(rec1.record.index, 0);
+      assert.equal(rec1.record.previousHash, '0000000000000000000000000000000000000000000000000000000000000000');
+      assert.equal(typeof rec1.record.currentHash, 'string');
+      assert.equal(rec1.record.currentHash.length, 64);
+
+      const rec2 = appendAuditRecord({ event: 'TDD_CYCLE_PASSED', metadata: { tests: 106 }, repoRoot: tmpDir });
+      assert.equal(rec2.record.index, 1);
+      assert.equal(rec2.record.previousHash, rec1.record.currentHash);
+
+      const verifyRes = verifyAuditChain(tmpDir);
+      assert.equal(verifyRes.valid, true);
+      assert.equal(verifyRes.recordsCount, 2);
+      assert.equal(verifyRes.merkleRoot, rec2.record.currentHash);
+    });
+
+    it('detects tampering or corruption in cryptographic audit ledger', () => {
+      appendAuditRecord({ event: 'ORIGINAL_EVENT', metadata: { legit: true }, repoRoot: tmpDir });
+      appendAuditRecord({ event: 'SECOND_EVENT', metadata: { step: 2 }, repoRoot: tmpDir });
+
+      const auditFile = path.join(tmpDir, 'docs/AUDIT_CHAIN.jsonl');
+      const lines = fs.readFileSync(auditFile, 'utf8').trim().split('\n');
+      const tamperedRecord = JSON.parse(lines[1]);
+      tamperedRecord.metadata.step = 999; // Tamper payload without changing SHA-256
+      lines[1] = JSON.stringify(tamperedRecord);
+      fs.writeFileSync(auditFile, lines.join('\n') + '\n', 'utf8');
+
+      const tamperedVerify = verifyAuditChain(tmpDir);
+      assert.equal(tamperedVerify.valid, false);
+      assert.ok(tamperedVerify.error.includes('tampering detected'));
+    });
+
+    it('executes audit verify and record CLI commands cleanly', () => {
+      const recCLI = runCLI(['audit', 'record', '--event', 'CLI_EVENT', '--metadata', '{"cli":true}'], null, tmpDir);
+      assert.equal(recCLI.command, 'audit');
+      assert.equal(recCLI.audit.success, true);
+      assert.equal(recCLI.audit.record.event, 'CLI_EVENT');
+
+      const verifyCLI = runCLI(['audit', 'verify'], null, tmpDir);
+      assert.equal(verifyCLI.command, 'audit');
+      assert.equal(verifyCLI.audit.valid, true);
+      assert.equal(verifyCLI.audit.recordsCount, 1);
     });
   });
 });
