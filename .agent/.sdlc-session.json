@@ -1,5 +1,5 @@
 {
-  "activeSessionId": 39,
+  "activeSessionId": 40,
   "sessions": {
     "17": {
       "active": true,
@@ -216,6 +216,37 @@
       },
       "startedAt": "2026-10-11T23:00:27.699Z",
       "updatedAt": "2026-10-11T23:03:49.835Z",
+      "activeSubagents": []
+    },
+    "40": {
+      "active": true,
+      "issueId": 40,
+      "type": "feat",
+      "branch": "feature/issue-#40-visual-api-regression-proof",
+      "worktree": null,
+      "stage": 6,
+      "stageName": "Pull Request",
+      "remediationCount": 0,
+      "maxRemediations": 3,
+      "manifest": {
+        "specPath": null,
+        "prNumber": null,
+        "coverageReport": null,
+        "mutationScore": null,
+        "uiScreenshotPath": null,
+        "checkpoints": {
+          "stage1": "2026-10-11T23:17:50.234Z",
+          "stage2": "2026-10-11T23:17:55.511Z",
+          "stage3": null,
+          "stage4": null,
+          "stage5": null,
+          "stage6": "2026-10-11T23:20:09.784Z",
+          "stage7": null,
+          "stage8": null
+        }
+      },
+      "startedAt": "2026-10-11T23:17:50.233Z",
+      "updatedAt": "2026-10-11T23:20:09.785Z",
       "activeSubagents": []
     },
     "43": {
