@@ -219,10 +219,19 @@ export function createTicket({ title, type = 'feat', body = '', repoRoot = '.' }
 
   if (pm.provider === 'github') {
     try {
-      const output = execSync(
-        `gh issue create --title "${fullTitle.replace(/"/g, '\\"')}" --body "${(body || fullTitle).replace(/"/g, '\\"')}" --label "${defaultLabel}"`,
-        { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
-      );
+      let output = '';
+      try {
+        output = execSync(
+          `gh issue create --title "${fullTitle.replace(/"/g, '\\"')}" --body "${(body || fullTitle).replace(/"/g, '\\"')}" --label "${defaultLabel}"`,
+          { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
+        );
+      } catch (labelErr) {
+        // If repository doesn't have custom 'feature' / 'status:ready' labels, fallback to standard issue creation
+        output = execSync(
+          `gh issue create --title "${fullTitle.replace(/"/g, '\\"')}" --body "${(body || fullTitle).replace(/"/g, '\\"')}"`,
+          { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
+        );
+      }
       const url = output.trim();
       const match = url.match(/\/issues\/(\d+)/);
       const issueId = match ? Number(match[1]) : null;
