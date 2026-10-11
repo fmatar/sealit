@@ -177,11 +177,15 @@ All stages can be monitored or executed directly via the unified `sdlc-engine`:
 |---|---|
 | `sdlc-engine session status` | View active ticket, stage, branch, and subagents |
 | `sdlc-engine session dashboard` | View live interactive ASCII lifecycle progress |
+| `sdlc-engine stats` | Track token velocity, session telemetry, and engineering ROI metrics |
+| `sdlc-engine serve [--port <port>]` | Launch interactive web-based Mission Control visual workbench |
 | `sdlc-engine test --affected-only` | Run tests strictly for files modified in the active diff |
 | `sdlc-engine coverage` | Run diff coverage gate ($\ge 85\%$ line & branch) |
 | `sdlc-engine mutation` | Run mutation testing defense ($\ge 80\%$ kill score) |
 | `sdlc-engine archlens diff` | Audit diff for Clean Architecture concentric layer inversions |
-| `sdlc-engine gate --strict` | Unified strict gate (Lint, Build, Test, Risk, Security, Flake) |
+| `sdlc-engine gate --strict` | Unified strict gate (Lint, Build, Test, Risk, Security, Flake, Contract Drift) |
+| `sdlc-engine contract check` | Audit OpenAPI, Swagger, and GraphQL schema diffs for breaking drift |
+| `sdlc-engine reproduce --error "<trace>" [--target <file>]` | Scaffold Uncle Bob bug reproduction test harness matching error stack |
 | `sdlc-engine arch trace --reason "<msg>"` | Audit Mermaid AST & record changes to `docs/ARCH_TRACE.md` |
 | `sdlc-engine arch diff` | Verify Clean Architecture concentric rings against git diff |
 | `sdlc-engine hooks install` | Scaffold pre-push & pre-commit hooks enforcing branch protection |
@@ -189,6 +193,7 @@ All stages can be monitored or executed directly via the unified `sdlc-engine`:
 | `sdlc-engine pr-summary --issue <id>` | Generate formatted markdown summary for GitHub PR |
 | `sdlc-engine flake-check --runs 5` | Detect non-deterministic test race conditions |
 | `sdlc-engine security-audit` | Scan diff for leaked secrets, API keys, and package CVEs |
+| `sdlc-engine interop export [--agent <all\|claude\|cursor\|windsurf>]` | Export framework rules & TDD invariants to Claude Code (`CLAUDE.md`), Cursor (`.cursorrules`), and Windsurf |
 | `sdlc-engine release [patch\|minor\|major]` | Bump SemVer, update package/changelog, and tag release |
 
 ---

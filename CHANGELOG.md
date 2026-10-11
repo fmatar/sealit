@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- feat(telemetry): token consumption, ROI velocity & session stats tracker (`node .agent/scripts/sdlc-engine.mjs stats`) calculating developer hours saved, estimated dollar savings, velocity score, and session telemetry (#26)
+- feat(reproduce): automated bug reproduction test scaffold generator (`node .agent/scripts/sdlc-engine.mjs reproduce --error "<trace>" [--target <file>]`) creating failing Red-Green-Refactor test harnesses directly from error stack traces (#25)
+- feat(contract): API breaking contract drift detection & schema guardian (`node .agent/scripts/sdlc-engine.mjs contract check`) auditing OpenAPI, Swagger, and GraphQL schema diffs for removed endpoints, methods, or types, wired directly into strict quality gate (#24)
+- feat(workbench): interactive visual SDLC mission control dashboard & HTTP server (`node .agent/scripts/sdlc-engine.mjs serve [--port <port>]`) rendering live Kanban state, active stage indicators, and architectural trace ledger (#23)
+- feat(interop): multi-agent runtime interoperability layer (`node .agent/scripts/sdlc-engine.mjs interop export [--agent <all|claude|cursor|windsurf>]`) exporting rules, slash commands, and TDD invariants to Claude Code (`CLAUDE.md`, `.claude/settings.json`), Cursor (`.cursorrules`, `.cursor/rules/`), and Windsurf (`.windsurfrules`) (#22)
 - feat(installer): add Vercel Labs Skills CLI (`npx skills add fmatar/agentic-sdlc-framework`) support across `install.sh`, `install.java`, and root `README.md` with zero-dependency fallback, and add Skills CLI toolchain diagnostic to `sdlc-engine doctor` (#17)
 - feat(flake-check): automated flaky test detector (`node .agent/scripts/sdlc-engine.mjs flake-check [--runs <n>]`) executing rapid shuffled iterations to catch non-deterministic race conditions
 - feat(security-audit): pre-flight secret leak and dependency CVE auditor (`node .agent/scripts/sdlc-engine.mjs security-audit`) scanning git diffs for private keys, AWS/GitHub tokens, and high-severity package vulnerabilities
