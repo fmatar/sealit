@@ -1,5 +1,5 @@
 {
-  "activeSessionId": 24,
+  "activeSessionId": 25,
   "sessions": {
     "17": {
       "active": true,
@@ -123,6 +123,37 @@
       },
       "startedAt": "2026-10-11T22:22:28.580Z",
       "updatedAt": "2026-10-11T22:25:35.169Z",
+      "activeSubagents": []
+    },
+    "25": {
+      "active": true,
+      "issueId": 25,
+      "type": "feat",
+      "branch": "feature/issue-#25-bug-reproduce-generator",
+      "worktree": null,
+      "stage": 5,
+      "stageName": "Intake & Specification",
+      "remediationCount": 0,
+      "maxRemediations": 3,
+      "manifest": {
+        "specPath": null,
+        "prNumber": null,
+        "coverageReport": null,
+        "mutationScore": null,
+        "uiScreenshotPath": null,
+        "checkpoints": {
+          "stage1": "2026-10-11T22:26:36.101Z",
+          "stage2": "2026-10-11T22:26:40.502Z",
+          "stage3": null,
+          "stage4": null,
+          "stage5": "2026-10-11T22:29:19.680Z",
+          "stage6": null,
+          "stage7": null,
+          "stage8": null
+        }
+      },
+      "startedAt": "2026-10-11T22:26:36.100Z",
+      "updatedAt": "2026-10-11T22:29:19.680Z",
       "activeSubagents": []
     }
   }
