@@ -1034,8 +1034,19 @@ exit 0
 `;
 
   const prePushHook = `#!/usr/bin/env bash
-# Agentic SDLC Framework: Strict Pre-Push Quality Gate
+# Agentic SDLC Framework: Strict Pre-Push Quality Gate & Branch Protection
 set -e
+
+# Read stdin to detect target branch being pushed
+while read local_ref local_sha remote_ref remote_sha
+do
+  remote_branch=$(echo "$remote_ref" | sed 's@refs/heads/@@')
+  if [ "$remote_branch" = "develop" ] || [ "$remote_branch" = "main" ]; then
+    echo "🛑 [SDLC Branch Protection] DIRECT PUSHES TO '$remote_branch' ARE FORBIDDEN!"
+    echo "👉 Hard Framework Invariant: All changes must be pushed to a feature or arch branch (e.g. 'feature/issue-#<id>-<name>') and merged via Pull Request."
+    exit 1
+  fi
+done
 
 echo "🛡️ [SDLC Hook] Verifying Universal Quality Gate before push..."
 if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
@@ -1380,6 +1391,221 @@ export function checkArchDiff(repoRoot = '.') {
     passed,
     violationsCount: violations.length,
     violations
+  };
+}
+
+// --- Mermaid & System Architecture Traceability Engine ---
+
+export function parseMermaidDiagram(content) {
+  if (!content || typeof content !== 'string') return { nodes: [], edges: [], subgraphs: [] };
+
+  const nodes = new Map();
+  const edges = [];
+  const subgraphs = [];
+
+  const lines = content.split('\n');
+  let currentSubgraph = null;
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('%%') || line.startsWith('flowchart') || line.startsWith('graph')) {
+      continue;
+    }
+
+    // Subgraph detection
+    const subMatch = line.match(/^subgraph\s+([A-Za-z0-9_]+)(\s*\["?([^"\]]+)"?\])?/i);
+    if (subMatch) {
+      currentSubgraph = { id: subMatch[1], label: subMatch[3] || subMatch[1] };
+      subgraphs.push(currentSubgraph);
+      continue;
+    }
+    if (line === 'end') {
+      currentSubgraph = null;
+      continue;
+    }
+
+    // Edge pattern: A[Label A] -->|relation| B[Label B] or A --> B
+    const edgeRegex = /([A-Za-z0-9_\-\.]+)(?:\["?([^"\]]+)"?\])?\s*(-->|-.->|==>)(?:\|([^|]+)\|)?\s*([A-Za-z0-9_\-\.]+)(?:\["?([^"\]]+)"?\])?/;
+    const edgeMatch = line.match(edgeRegex);
+    if (edgeMatch) {
+      const fromId = edgeMatch[1];
+      const fromLabel = edgeMatch[2] || fromId;
+      const arrow = edgeMatch[3];
+      const edgeLabel = edgeMatch[4] ? edgeMatch[4].trim() : '';
+      const toId = edgeMatch[5];
+      const toLabel = edgeMatch[6] || toId;
+
+      if (!nodes.has(fromId)) {
+        nodes.set(fromId, { id: fromId, label: fromLabel, subgraph: currentSubgraph?.id || null });
+      }
+      if (!nodes.has(toId)) {
+        nodes.set(toId, { id: toId, label: toLabel, subgraph: currentSubgraph?.id || null });
+      }
+
+      edges.push({
+        from: fromId,
+        to: toId,
+        type: arrow,
+        label: edgeLabel
+      });
+      continue;
+    }
+
+    // Standalone node pattern: A["Label"] or A[Label]
+    const nodeRegex = /^([A-Za-z0-9_\-\.]+)\["?([^"\]]+)"?\]/;
+    const nodeMatch = line.match(nodeRegex);
+    if (nodeMatch) {
+      const id = nodeMatch[1];
+      const label = nodeMatch[2] || id;
+      if (!nodes.has(id)) {
+        nodes.set(id, { id, label, subgraph: currentSubgraph?.id || null });
+      }
+    }
+  }
+
+  return {
+    nodes: Array.from(nodes.values()),
+    edges,
+    subgraphs
+  };
+}
+
+export function diffMermaidGraphs(oldGraph, newGraph) {
+  const oldNodeIds = new Set(oldGraph.nodes.map(n => n.id));
+  const newNodeIds = new Set(newGraph.nodes.map(n => n.id));
+
+  const addedNodes = newGraph.nodes.filter(n => !oldNodeIds.has(n.id));
+  const removedNodes = oldGraph.nodes.filter(n => !newNodeIds.has(n.id));
+
+  const edgeKey = (e) => `${e.from}->${e.to}${e.label ? `[${e.label}]` : ''}`;
+  const oldEdgeKeys = new Set(oldGraph.edges.map(edgeKey));
+  const newEdgeKeys = new Set(newGraph.edges.map(edgeKey));
+
+  const addedEdges = newGraph.edges.filter(e => !oldEdgeKeys.has(edgeKey(e)));
+  const removedEdges = oldGraph.edges.filter(e => !newEdgeKeys.has(edgeKey(e)));
+
+  return {
+    hasChanges: addedNodes.length > 0 || removedNodes.length > 0 || addedEdges.length > 0 || removedEdges.length > 0,
+    addedNodes,
+    removedNodes,
+    addedEdges,
+    removedEdges
+  };
+}
+
+export function recordArchTrace({
+  reason = 'Architectural refinement',
+  ticket = null,
+  diagramPath = null,
+  repoRoot = '.'
+} = {}) {
+  const current = getSessionStatus(repoRoot);
+  const activeSess = current.session;
+  const issueId = ticket || activeSess?.issueId || 'N/A';
+  const branch = activeSess?.branch || 'current-branch';
+
+  // Branch invariant check
+  if (branch === 'develop' || branch === 'main') {
+    console.warn(`⚠️ Warning: Recording architectural changes on protected branch '${branch}'!`);
+  }
+
+  let commitSha = 'UNCOMMITTED';
+  try {
+    commitSha = execSync('git rev-parse --short HEAD 2>/dev/null', { cwd: repoRoot, encoding: 'utf8' }).trim() || 'UNCOMMITTED';
+  } catch {}
+
+  const candidateDiagrams = diagramPath
+    ? [path.resolve(repoRoot, diagramPath)]
+    : [
+        path.resolve(repoRoot, 'docs/architecture/system.mmd'),
+        path.resolve(repoRoot, 'docs/specs/architecture.mmd'),
+        path.resolve(repoRoot, '.agent/skills/sdlc-flow/SKILL.md'),
+        path.resolve(repoRoot, 'README.md')
+      ].filter(f => fs.existsSync(f));
+
+  const timestamp = new Date().toISOString();
+  const traceEntries = [];
+
+  for (const diag of candidateDiagrams) {
+    const relDiagPath = path.relative(path.resolve(repoRoot), diag);
+    const content = fs.readFileSync(diag, 'utf8');
+
+    // Attempt to load previous git revision of the file
+    let prevContent = '';
+    try {
+      prevContent = execSync(`git show HEAD~1:"${relDiagPath}" 2>/dev/null`, { cwd: repoRoot, encoding: 'utf8' });
+    } catch {
+      prevContent = '';
+    }
+
+    const currentGraph = parseMermaidDiagram(content);
+    const prevGraph = parseMermaidDiagram(prevContent);
+    const diff = diffMermaidGraphs(prevGraph, currentGraph);
+
+    if (diff.hasChanges || !prevContent) {
+      traceEntries.push({
+        diagram: relDiagPath,
+        diff,
+        summary: `Nodes: +${diff.addedNodes.length}/-${diff.removedNodes.length}, Edges: +${diff.addedEdges.length}/-${diff.removedEdges.length}`
+      });
+    }
+  }
+
+  // Fallback: If no diagram changes detected, capture file structure delta from git diff
+  const modifiedFiles = getModifiedFiles();
+  const archDiff = checkArchDiff(repoRoot);
+
+  const entry = {
+    id: `trace-${Date.now()}`,
+    timestamp,
+    ticket: `#${issueId}`,
+    branch,
+    commitSha,
+    reason,
+    diagramChanges: traceEntries,
+    modifiedFiles,
+    archlensViolations: archDiff.violationsCount,
+    status: archDiff.passed ? 'PASSED' : 'VIOLATION'
+  };
+
+  // 1. Append to machine-readable event log (.agent/arch-trace.jsonl)
+  const jsonlDir = path.resolve(repoRoot, '.agent');
+  fs.mkdirSync(jsonlDir, { recursive: true });
+  const jsonlPath = path.resolve(jsonlDir, 'arch-trace.jsonl');
+  fs.appendFileSync(jsonlPath, JSON.stringify(entry) + '\n', 'utf8');
+
+  // 2. Append to human-readable Markdown ledger (docs/ARCH_TRACE.md)
+  const docsDir = path.resolve(repoRoot, 'docs');
+  fs.mkdirSync(docsDir, { recursive: true });
+  const traceMdPath = path.resolve(docsDir, 'ARCH_TRACE.md');
+
+  if (!fs.existsSync(traceMdPath)) {
+    const header = `# 🏛️ Architectural Traceability & Mutation Ledger
+
+This document maintains an immutable audit log of all architectural transformations, Mermaid component evolutions, and Clean Architecture layer boundary shifts.
+
+> **Hard Framework Invariant**: Direct pushes to \`develop\` or \`main\` are forbidden. All architectural modifications must occur on isolated branches (\`feature/*\` or \`arch/*\`) and be recorded here before Pull Request merge.
+
+| Timestamp | Ticket | Branch | Commit | Reason | Diagrams / Components Changed | Archlens Status |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
+    fs.writeFileSync(traceMdPath, header, 'utf8');
+  }
+
+  const diagSummary = traceEntries.length > 0
+    ? traceEntries.map(t => `\`${t.diagram}\` (${t.summary})`).join('<br/>')
+    : `Files modified (${modifiedFiles.length})`;
+
+  const statusBadge = entry.status === 'PASSED' ? '✅ PASSED' : `⚠️ ${entry.archlensViolations} VIOLATIONS`;
+  const mdRow = `| ${entry.timestamp.split('T')[0]} ${entry.timestamp.split('T')[1].slice(0, 5)} | [${entry.ticket}](https://github.com/org/repo/issues/${issueId}) | \`${entry.branch}\` | \`${entry.commitSha}\` | ${reason.replace(/\|/g, '/')} | ${diagSummary} | ${statusBadge} |\n`;
+
+  fs.appendFileSync(traceMdPath, mdRow, 'utf8');
+  console.log(`📝 Appended architectural trace entry to ${traceMdPath} and ${jsonlPath}`);
+
+  return {
+    success: true,
+    entry,
+    markdownPath: traceMdPath,
+    jsonlPath
   };
 }
 
@@ -2471,6 +2697,20 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         return { ...result, ...diffRes };
       }
 
+      if (sub === 'trace') {
+        let reason = 'Architectural refinement';
+        let ticket = null;
+        let diagramPath = null;
+        for (let i = 2; i < args.length; i++) {
+          if (args[i] === '--reason' && args[i + 1]) reason = args[++i];
+          else if (args[i] === '--ticket' && args[i + 1]) ticket = args[++i];
+          else if (args[i] === '--diagram' && args[i + 1]) diagramPath = args[++i];
+        }
+        const traceRes = recordArchTrace({ reason, ticket, diagramPath, repoRoot });
+        result.archTrace = traceRes;
+        return result;
+      }
+
       if (sub === 'scaffold') {
         const scafRes = scaffoldArchlensPolicy(repoRoot);
         result.scaffold = scafRes;
@@ -2478,6 +2718,32 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       }
 
       console.error(`Unknown archlens subcommand: ${sub}`);
+      result.success = false;
+      return result;
+    }
+
+    case 'arch': {
+      const sub = args[1] || 'trace';
+      if (sub === 'trace') {
+        let reason = 'Architectural refinement';
+        let ticket = null;
+        let diagramPath = null;
+        for (let i = 2; i < args.length; i++) {
+          if (args[i] === '--reason' && args[i + 1]) reason = args[++i];
+          else if (args[i] === '--ticket' && args[i + 1]) ticket = args[++i];
+          else if (args[i] === '--diagram' && args[i + 1]) diagramPath = args[++i];
+        }
+        const traceRes = recordArchTrace({ reason, ticket, diagramPath, repoRoot });
+        result.archTrace = traceRes;
+        return result;
+      }
+
+      if (sub === 'diff') {
+        const diffRes = checkArchDiff(repoRoot);
+        return { ...result, ...diffRes };
+      }
+
+      console.error(`Unknown arch subcommand: ${sub}`);
       result.success = false;
       return result;
     }
@@ -2764,6 +3030,7 @@ Usage:
   node .agent/scripts/sdlc-engine.mjs security-audit      Audit diff for secret leaks & package CVEs
   node .agent/scripts/sdlc-engine.mjs strengthen [--type <type>] Suggest assertions to kill surviving mutants
   node .agent/scripts/sdlc-engine.mjs review plan         Generate parallel subagent peer review JSON payload
+  node .agent/scripts/sdlc-engine.mjs arch trace [--reason "<msg>"] Record Mermaid & architecture diff to ARCH_TRACE.md
   node .agent/scripts/sdlc-engine.mjs archlens <check|update|diff|scaffold>
   node .agent/scripts/sdlc-engine.mjs pm <status|transition|comment> <issueId> [state|--body "<comment>"]
   node .agent/scripts/sdlc-engine.mjs ticket create --title "<title>" [--type feat|bug|hotfix|spike] [--body "<summary>"]

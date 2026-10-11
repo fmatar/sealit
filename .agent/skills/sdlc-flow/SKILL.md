@@ -159,14 +159,18 @@ flowchart TD
 
 ### Stage 5: Documentation, Showcase & Changelog Sync (`sdlc-docs-wiki`)
 - **Session Update**: `node .agent/scripts/sdlc-engine.mjs session update --stage 5 --name "Documentation & Showcase Sync"`.
-- Synchronize all documentation before opening the PR to guarantee 100% diff traceability:
+- Synchronize all documentation and architectural traces before opening the PR to guarantee 100% diff traceability:
+  - **Architectural Mutation Trace**: Record diagram and layer delta:
+    ```bash
+    node .agent/scripts/sdlc-engine.mjs arch trace --reason "Architectural refinement for #${id}"
+    ```
   - **Developer Showcase Invariant**: Update root `README.md` with runnable **5-Minute Developer Quickstart** (install, bootstrap, explore examples, BYOA workflow).
   - **Specs**: Update functional architecture specs in `docs/specs/` and `wiki/`.
   - **Changelog**: Append entry to `CHANGELOG.md` under `[Unreleased]` with ticket URL link.
-- Commit documentation updates to the feature branch:
+- Commit documentation and trace updates to the feature branch (never directly to `develop`):
   ```bash
-  git add README.md CHANGELOG.md docs/ specs/ wiki/
-  git commit -m "docs: sync showcase, specs, and changelog for #${id}"
+  git add README.md CHANGELOG.md docs/ specs/ wiki/ .agent/arch-trace.jsonl
+  git commit -m "docs: sync showcase, specs, arch-trace, and changelog for #${id}"
   ```
 
 ### Stage 6: Pull Request Opening (`sdlc-kanban`)
