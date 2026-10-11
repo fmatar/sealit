@@ -55,7 +55,8 @@ import {
   calculateSessionStats,
   applyBranchProtection,
   appendAuditRecord,
-  verifyAuditChain
+  verifyAuditChain,
+  generateRegressionProof
 } from '../.agent/scripts/sdlc-engine.mjs';
 
 describe('Universal SDLC Engine: Complete Robert Martin Test Suite', () => {
@@ -1408,6 +1409,39 @@ flowchart TD
       assert.equal(verifyCLI.command, 'audit');
       assert.equal(verifyCLI.audit.valid, true);
       assert.equal(verifyCLI.audit.recordsCount, 1);
+    });
+
+    it('generates visual DOM and API regression proof artifacts and links to audit ledger', () => {
+      const proofRes = generateRegressionProof({
+        targetName: 'OrderCheckout',
+        apiEndpoints: [
+          { method: 'POST', path: '/api/v1/checkout', expectedStatus: 201, sampleResponse: { orderId: 101 } }
+        ],
+        uiRoutes: [
+          { path: '/checkout', component: 'CheckoutWizard' }
+        ],
+        repoRoot: tmpDir
+      });
+
+      assert.equal(proofRes.success, true);
+      assert.ok(proofRes.proofId.includes('ordercheckout'));
+      assert.equal(fs.existsSync(proofRes.proofFilePath), true);
+      assert.equal(proofRes.apiProofs.length, 1);
+      assert.equal(proofRes.uiProofs.length, 1);
+      assert.ok(proofRes.markdown.includes('OrderCheckout'));
+      assert.ok(proofRes.markdown.includes('/api/v1/checkout'));
+
+      // Check audit chain verification reflects the new event
+      const auditVer = verifyAuditChain(tmpDir);
+      assert.equal(auditVer.valid, true);
+      assert.ok(auditVer.recordsCount >= 1);
+    });
+
+    it('executes proof CLI command cleanly', () => {
+      const cliRes = runCLI(['proof', 'generate', '--name', 'PaymentGateway'], null, tmpDir);
+      assert.equal(cliRes.command, 'proof');
+      assert.equal(cliRes.proof.success, true);
+      assert.ok(cliRes.proof.proofId.includes('paymentgateway'));
     });
   });
 });
