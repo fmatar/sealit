@@ -119,24 +119,58 @@ The framework operates via interlocking skills located in `.agent/skills/`. Each
 
 ## 💬 Prompting the Agent: Practical Real-World Scenarios
 
-You can drive the entire framework through standard conversational prompts. Here are the exact prompts to use:
+You can drive the entire framework through standard conversational prompts. Here are the exact battle-tested prompts to use across every phase of software development:
 
 ### 1. New Feature Implementation (Autonomous End-to-End)
 > **Prompt**: `"Implement feature #104: Add multi-tenant JWT token rotation with rate limiting. Follow the sdlc-flow lifecycle."`
 > *(If you don't have an issue number, say: `"Build a multi-tenant JWT token rotation with rate limiting."` Gate 0 will auto-classify it as `feat`, provision the issue, and begin).*
-* **What happens**: Auto-proves Archlens Clean Architecture governance, creates branch, executes Robert Martin TDD, enforces $\ge 85\%$ diff coverage & $\ge 80\%$ mutation kill score, syncs README & CHANGELOG, opens PR, and launches parallel peer review & quality gate subagents.
+* **Under the Hood**: Auto-proves Clean Architecture governance, creates branch, executes Robert Martin TDD, enforces $\ge 85\%$ diff coverage & $\ge 80\%$ mutation kill score, syncs README & CHANGELOG, opens PR, and launches parallel peer review & quality gate subagents.
+* **Expected Output**: Linked PR with Dual-Gate test/mutation badge, clean concentric imports, and green remote CI verification.
 
 ### 2. Bug Fix with Mandatory Reproduction Harness
 > **Prompt**: `"Fix bug #205: Session timeout triggers NullPointerException when user profile has null email."`
-* **What happens**: The agent adheres to the **Reproduction Invariant**: it authors a failing test reproducing the exact failure *before* modifying any application logic, proves it fails red, applies the fix, and runs through the Dual-Gate.
+* **Under the Hood**: The agent adheres to the **Reproduction Invariant**: it invokes `sdlc-engine reproduce` to author a failing test reproducing the exact failure *before* modifying any application logic, proves it fails red, applies the fix, and runs through the Dual-Gate.
+* **Expected Output**: A new unit test in `tests/reproductions/` passing green and confirming the fix without regression.
 
 ### 3. Ad-Hoc Fast-Path (Tweaking an In-Flight Ticket)
 > **Prompt**: `"Also make sure the token TTL is configurable via environment variable JWT_ROTATION_TTL_SECONDS."`
-* **What happens**: Detects active session on `#104`, appends the checklist item to the active ticket, skips intake overhead, and executes TDD + affected-only tests (`sdlc-engine test --affected-only`) directly on the branch.
+* **Under the Hood**: Detects active session on `#104`, appends the checklist item to the active ticket, skips intake overhead, and executes TDD + affected-only tests (`sdlc-engine test --affected-only`) directly on the branch.
+* **Expected Output**: Fast iteration in seconds without re-running unaffected parts of the monorepo test suite.
 
 ### 4. Concurrent Urgent Hotfix (Git Worktree Isolation)
 > **Prompt**: `"Urgent hotfix: Stripe webhook payload version 2026-09-01 breaks checkout. Don't lose my current work on the JWT feature!"`
-* **What happens**: Detects session collision, creates an isolated git worktree (`../worktree-hotfix-stripe`), provisions `#206`, resolves the fix in isolation, and tears down the worktree without stashing or dirtying your active feature workspace.
+* **Under the Hood**: Detects session collision, creates an isolated git worktree (`../worktree-hotfix-stripe`), provisions `#206`, resolves the fix in isolation, and tears down the worktree without stashing or dirtying your active feature workspace.
+* **Expected Output**: Hotfix PR merged to `main` while your active feature branch remains completely untouched.
+
+### 5. API Breaking Contract Drift & Schema Guard
+> **Prompt**: `"Refactor the user profile API to deprecate 'billingAddress' in favor of 'addresses[]'. Check for breaking contract drift before opening the PR."`
+* **Under the Hood**: Executes `sdlc-engine contract check`, audits the diff against OpenAPI/Swagger/GraphQL specs, flags deleted routes or removed required fields, and mandates backward-compatible deprecation notices.
+* **Expected Output**: Zero unversioned breaking mutations permitted through the strict quality gate.
+
+### 6. Flaky Test & Race Condition Elimination
+> **Prompt**: `"The test in 'OrderProcessor.test.mjs' intermittently fails in CI. Run a flake audit and fix the race condition."`
+* **Under the Hood**: Executes `sdlc-engine flake-check --runs 20 --target OrderProcessor.test.mjs`, isolates unawaited asynchronous promises or port collisions, applies the deterministic fix, and verifies 20 consecutive passes.
+* **Expected Output**: Deterministic green test suite with 0 non-deterministic flakes.
+
+### 7. Mutation Testing & Assertion Density Hardening
+> **Prompt**: `"Run mutation testing on the pricing calculation engine and strengthen assertions against any surviving mutants."`
+* **Under the Hood**: Runs `sdlc-engine mutation`, identifies surviving mutant operators (`ConditionalsBoundary`, `NegateCondition`, `Math`), and runs `sdlc-engine strengthen` to recommend boundary value test cases.
+* **Expected Output**: Mutation kill score reaches $\ge 80\%$, eliminating false-confidence vanity line coverage.
+
+### 8. Multi-Agent Engine Sync (Claude Code, Cursor, Windsurf)
+> **Prompt**: `"Export all our SDLC rules and TDD invariants so my teammates using Claude Code and Cursor have the exact same constraints."`
+* **Under the Hood**: Runs `sdlc-engine interop export --agent all`, generating synchronized `CLAUDE.md`, `.claude/settings.json`, `.cursorrules`, `.cursor/rules/agentic-sdlc.mdc`, and `.windsurfrules`.
+* **Expected Output**: Unified cross-IDE agent behavior across your entire engineering organization.
+
+### 9. Architectural Traceability & Clean Boundary Refactoring
+> **Prompt**: `"Extract the payment calculation logic into a standalone domain module. Verify that inner domain code does not import outer web controllers."`
+* **Under the Hood**: Applies Robert Martin concentric ring rules, audits imports with `sdlc-engine arch diff`, extracts Mermaid AST diagrams, and appends the immutable trace entry to `docs/ARCH_TRACE.md`.
+* **Expected Output**: 0 architectural layer inversions and a verified audit entry in the architecture ledger.
+
+### 10. Live Mission Control & Engineering ROI Telemetry
+> **Prompt**: `"Spin up the SDLC visual dashboard and show me our delivery velocity and developer hours saved."`
+* **Under the Hood**: Launches the embedded zero-dependency web server (`sdlc-engine serve --port 4120`) and executes `sdlc-engine stats` to calculate developer hours saved and pipeline velocity.
+* **Expected Output**: Interactive visual webview live at `http://localhost:4120` with real-time session progress and estimated dollar savings.
 
 ---
 
