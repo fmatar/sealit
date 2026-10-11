@@ -1,5 +1,5 @@
 {
-  "activeSessionId": 25,
+  "activeSessionId": 26,
   "sessions": {
     "17": {
       "active": true,
@@ -154,6 +154,37 @@
       },
       "startedAt": "2026-10-11T22:26:36.100Z",
       "updatedAt": "2026-10-11T22:29:19.680Z",
+      "activeSubagents": []
+    },
+    "26": {
+      "active": true,
+      "issueId": 26,
+      "type": "feat",
+      "branch": "feature/issue-#26-session-telemetry-roi",
+      "worktree": null,
+      "stage": 5,
+      "stageName": "Intake & Specification",
+      "remediationCount": 0,
+      "maxRemediations": 3,
+      "manifest": {
+        "specPath": null,
+        "prNumber": null,
+        "coverageReport": null,
+        "mutationScore": null,
+        "uiScreenshotPath": null,
+        "checkpoints": {
+          "stage1": "2026-10-11T22:30:19.089Z",
+          "stage2": "2026-10-11T22:30:22.701Z",
+          "stage3": null,
+          "stage4": null,
+          "stage5": "2026-10-11T22:31:12.472Z",
+          "stage6": null,
+          "stage7": null,
+          "stage8": null
+        }
+      },
+      "startedAt": "2026-10-11T22:30:19.088Z",
+      "updatedAt": "2026-10-11T22:31:12.473Z",
       "activeSubagents": []
     }
   }

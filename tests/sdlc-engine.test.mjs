@@ -51,7 +51,8 @@ import {
   createWorkbenchServer,
   renderWorkbenchHTML,
   auditContractDrift,
-  scaffoldReproductionTest
+  scaffoldReproductionTest,
+  calculateSessionStats
 } from '../.agent/scripts/sdlc-engine.mjs';
 
 describe('Universal SDLC Engine: Complete Uncle Bob Test Suite', () => {
@@ -1327,6 +1328,21 @@ flowchart TD
       assert.equal(cliRes.command, 'reproduce');
       assert.equal(cliRes.reproduce.success, true);
       assert.equal(cliRes.reproduce.targetFile, 'src/Order.java');
+    });
+
+    it('calculates session telemetry, pipeline velocity, and engineering ROI metrics', () => {
+      const stats = calculateSessionStats(tmpDir);
+      assert.equal(typeof stats.totalSessions, 'number');
+      assert.equal(typeof stats.estimatedHoursSaved, 'number');
+      assert.equal(typeof stats.totalDollarSavingsUSD, 'number');
+      assert.equal(typeof stats.velocityScore, 'number');
+    });
+
+    it('executes stats CLI command cleanly', () => {
+      const cliRes = runCLI(['stats'], null, tmpDir);
+      assert.equal(cliRes.command, 'stats');
+      assert.ok(cliRes.stats);
+      assert.equal(typeof cliRes.stats.totalSessions, 'number');
     });
   });
 });
