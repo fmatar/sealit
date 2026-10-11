@@ -246,10 +246,16 @@ if [[ "$SKIP_DETECT" == false ]]; then
     fi
 fi
 
+# --- Multi-Agent Interoperability Rules Sync (Claude Code, Cursor, Windsurf) ---
+if command -v node &> /dev/null && [[ -f "${DEST_SCRIPTS}/sdlc-engine.mjs" ]]; then
+    echo ""
+    (cd "$TARGET_ABS" && node "${DEST_SCRIPTS}/sdlc-engine.mjs" interop export --agent all 2>/dev/null) || true
+fi
+
 echo ""
 if [[ "$IS_UPDATE" == true ]]; then
     echo "🎉 Agentic SDLC Framework has been updated successfully!"
 else
-    echo "🎉 Agentic SDLC Framework is ready!"
+    echo "🎉 Agentic SDLC Framework is ready across all agent runtimes!"
 fi
-echo "👉 Prompt your Antigravity agent: \"Run sdlc-flow for issue #<id>\" or \"Run sdlc-help\""
+echo "👉 Prompt your Agent (Antigravity, Claude Code, Cursor, Windsurf): \"Run sdlc-flow for issue #<id>\" or \"Run sdlc-help\""
