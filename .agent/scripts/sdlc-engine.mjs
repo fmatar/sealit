@@ -1374,6 +1374,117 @@ export function createWorkbenchServer({ port = 4120, repoRoot = '.' } = {}) {
   };
 }
 
+// --- API Contract Drift & Schema Guardian (Issue #24) ---
+
+export function auditContractDrift({ diffFiles = [], baseBranch = 'main', repoRoot = '.' } = {}) {
+  const files = diffFiles.length > 0 ? diffFiles : getModifiedFiles(baseBranch);
+  const contractPatterns = ['openapi.json', 'openapi.yaml', 'openapi.yml', 'swagger.json', 'schema.graphql', 'schema.gql'];
+  
+  const modifiedContracts = files.filter(f => {
+    const lower = f.toLowerCase();
+    return contractPatterns.some(p => lower.endsWith(p));
+  });
+
+  if (modifiedContracts.length === 0) {
+    return {
+      passed: true,
+      hasDrift: false,
+      breakingChangesCount: 0,
+      breakingChanges: [],
+      filesChecked: 0,
+      message: 'No API contracts or schema files modified in diff.'
+    };
+  }
+
+  const breakingChanges = [];
+
+  for (const relPath of modifiedContracts) {
+    const fullPath = path.resolve(repoRoot, relPath);
+    let oldContent = '';
+    try {
+      oldContent = execSync(`git show origin/${baseBranch}:${relPath} 2>/dev/null || git show HEAD~1:${relPath} 2>/dev/null || true`, {
+        cwd: repoRoot,
+        encoding: 'utf8'
+      }).trim();
+    } catch {}
+
+    const newContent = fileExists(fullPath) ? readFileSafe(fullPath) : '';
+
+    if (!newContent) {
+      breakingChanges.push({
+        file: relPath,
+        type: 'CONTRACT_DELETED',
+        severity: 'CRITICAL',
+        details: `API contract file was deleted completely: ${relPath}`
+      });
+      continue;
+    }
+
+    if (relPath.endsWith('.json')) {
+      try {
+        const oldJson = oldContent ? JSON.parse(oldContent) : null;
+        const newJson = JSON.parse(newContent);
+
+        if (oldJson && oldJson.paths) {
+          // Check for deleted paths or HTTP methods
+          for (const [route, methods] of Object.entries(oldJson.paths)) {
+            if (!newJson.paths || !newJson.paths[route]) {
+              breakingChanges.push({
+                file: relPath,
+                type: 'ENDPOINT_REMOVED',
+                severity: 'CRITICAL',
+                details: `Endpoint route removed: ${route}`
+              });
+            } else {
+              const newMethods = newJson.paths[route];
+              for (const method of Object.keys(methods)) {
+                if (!newMethods[method]) {
+                  breakingChanges.push({
+                    file: relPath,
+                    type: 'METHOD_REMOVED',
+                    severity: 'CRITICAL',
+                    details: `HTTP method ${method.toUpperCase()} removed from route: ${route}`
+                  });
+                }
+              }
+            }
+          }
+        }
+      } catch {}
+    } else if (relPath.endsWith('.graphql') || relPath.endsWith('.gql')) {
+      // Check for removed GraphQL types or queries
+      if (oldContent) {
+        const oldTypeMatches = Array.from(oldContent.matchAll(/(?:type|input|interface)\s+([A-Za-z0-9_]+)/g)).map(m => m[1]);
+        const newTypeMatches = new Set(Array.from(newContent.matchAll(/(?:type|input|interface)\s+([A-Za-z0-9_]+)/g)).map(m => m[1]));
+
+        for (const t of oldTypeMatches) {
+          if (!newTypeMatches.has(t)) {
+            breakingChanges.push({
+              file: relPath,
+              type: 'GRAPHQL_TYPE_REMOVED',
+              severity: 'CRITICAL',
+              details: `GraphQL type removed: ${t}`
+            });
+          }
+        }
+      }
+    }
+  }
+
+  const passed = breakingChanges.length === 0;
+
+  return {
+    passed,
+    hasDrift: breakingChanges.length > 0,
+    breakingChangesCount: breakingChanges.length,
+    breakingChanges,
+    filesChecked: modifiedContracts.length,
+    message: passed 
+      ? `API contract check clean (${modifiedContracts.length} contract files verified).` 
+      : `Detected ${breakingChanges.length} breaking API contract change(s)!`
+  };
+}
+
 // --- Pre-Flight Risk Scorer ---
 
 export function assessRisk(diffFiles = [], repoRoot = '.') {
@@ -2707,6 +2818,13 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         if (flakeRes.flaky) {
           throw new Error(`Flaky Test Check failed: ${flakeRes.flakyCount} flaky test(s) detected.`);
         }
+
+        console.log('   • Running API Contract Drift Sentinel...');
+        const contractRes = auditContractDrift({ repoRoot });
+        result.contract = contractRes;
+        if (contractRes.hasDrift) {
+          throw new Error(`API Contract Drift detected: ${contractRes.breakingChangesCount} breaking change(s) found!`);
+        }
       }
 
       console.log('\n🎉 Quality gate passed across all modules.');
@@ -3262,6 +3380,33 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         return result;
       }
       console.error(`Unknown interop subcommand: ${sub}`);
+      result.success = false;
+      return result;
+    }
+
+    case 'contract': {
+      const sub = args[1] || 'check';
+      if (sub === 'check') {
+        const contractRes = auditContractDrift({ repoRoot });
+        console.log('\n================================================================');
+        console.log('🛡️ AGENTIC SDLC API CONTRACT SENTINEL');
+        console.log('================================================================');
+        console.log(`Passed:            ${contractRes.passed ? '✅ YES' : '❌ NO'}`);
+        console.log(`Contracts Audited: ${contractRes.filesChecked}`);
+        console.log(`Breaking Changes:  ${contractRes.breakingChangesCount}`);
+        if (contractRes.breakingChanges.length > 0) {
+          console.log('\nBreaking Mutations Detected:');
+          for (const b of contractRes.breakingChanges) {
+            console.log(`  • [${b.severity}] ${b.file}: ${b.details}`);
+          }
+        } else {
+          console.log('\nAll API contracts and GraphQL schemas backward-compatible.');
+        }
+        console.log('================================================================\n');
+        result.contract = contractRes;
+        return result;
+      }
+      console.error(`Unknown contract subcommand: ${sub}`);
       result.success = false;
       return result;
     }

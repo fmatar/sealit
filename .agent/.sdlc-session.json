@@ -1,5 +1,5 @@
 {
-  "activeSessionId": 23,
+  "activeSessionId": 24,
   "sessions": {
     "17": {
       "active": true,
@@ -92,6 +92,37 @@
       },
       "startedAt": "2026-10-11T22:19:41.075Z",
       "updatedAt": "2026-10-11T22:21:25.286Z",
+      "activeSubagents": []
+    },
+    "24": {
+      "active": true,
+      "issueId": 24,
+      "type": "feat",
+      "branch": "feature/issue-#24-api-contract-drift-sentinel",
+      "worktree": null,
+      "stage": 5,
+      "stageName": "Branch & Kanban In-Progress",
+      "remediationCount": 0,
+      "maxRemediations": 3,
+      "manifest": {
+        "specPath": null,
+        "prNumber": null,
+        "coverageReport": null,
+        "mutationScore": null,
+        "uiScreenshotPath": null,
+        "checkpoints": {
+          "stage1": null,
+          "stage2": "2026-10-11T22:22:28.581Z",
+          "stage3": null,
+          "stage4": null,
+          "stage5": "2026-10-11T22:25:35.168Z",
+          "stage6": null,
+          "stage7": null,
+          "stage8": null
+        }
+      },
+      "startedAt": "2026-10-11T22:22:28.580Z",
+      "updatedAt": "2026-10-11T22:25:35.169Z",
       "activeSubagents": []
     }
   }
