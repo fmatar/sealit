@@ -47,7 +47,9 @@ import {
   scaffoldArchlensPolicy,
   suggestMutationStrengthening,
   generateReviewPlan,
-  exportAgentRules
+  exportAgentRules,
+  createWorkbenchServer,
+  renderWorkbenchHTML
 } from '../.agent/scripts/sdlc-engine.mjs';
 
 describe('Universal SDLC Engine: Complete Uncle Bob Test Suite', () => {
@@ -1254,6 +1256,21 @@ flowchart TD
       assert.equal(cliRes.interop.agent, 'cursor');
       assert.ok(cliRes.interop.filesCreated.includes('.cursorrules'));
       assert.equal(fs.existsSync(path.join(tmpDir, '.cursorrules')), true);
+    });
+
+    it('renders visual SDLC workbench HTML with mission control indicators', () => {
+      const html = renderWorkbenchHTML(tmpDir);
+      assert.ok(html.includes('Agentic SDLC Framework: Mission Control'));
+      assert.ok(html.includes('8-Stage Lifecycle Progress'));
+      assert.ok(html.includes('Living Kanban Dashboard'));
+      assert.ok(html.includes('Architectural Trace Ledger'));
+    });
+
+    it('creates and spins up interactive workbench server on configured port', async () => {
+      const workbench = createWorkbenchServer({ port: 4199, repoRoot: tmpDir });
+      await workbench.listen();
+      assert.equal(workbench.port, 4199);
+      await workbench.close();
     });
   });
 });

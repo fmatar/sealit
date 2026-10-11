@@ -7,6 +7,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import http from 'node:http';
 import { execSync } from 'node:child_process';
 
 const CONFIG_PATH = path.resolve('.agent/sdlc-config.json');
@@ -1261,6 +1262,116 @@ ${frameworksRuleSummary}
   }
 
   return results;
+}
+
+// --- Interactive Visual SDLC Workbench Sidecar & Dashboard (sdlc-engine serve) ---
+
+export function renderWorkbenchHTML(repoRoot = '.') {
+  const sessionStatus = getSessionStatus(repoRoot);
+  const activeSess = sessionStatus.session;
+  const kanbanPath = path.resolve(repoRoot, 'docs/KANBAN.md');
+  const kanbanRaw = fileExists(kanbanPath) ? readFileSafe(kanbanPath) : 'No KANBAN.md file found.';
+  const archTracePath = path.resolve(repoRoot, 'docs/ARCH_TRACE.md');
+  const archTraceRaw = fileExists(archTracePath) ? readFileSafe(archTracePath) : 'No ARCH_TRACE.md recorded yet.';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Agentic SDLC Framework: Workbench & Live Mission Control</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    :root {
+      --bg: #0f172a; --panel: #1e293b; --border: #334155; --text: #f8fafc;
+      --accent: #38bdf8; --success: #22c55e; --warning: #f59e0b; --danger: #ef4444;
+    }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace; background: var(--bg); color: var(--text); padding: 20px; }
+    header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 12px; margin-bottom: 20px; }
+    h1 { margin: 0; font-size: 20px; color: var(--accent); }
+    .status-badge { background: #0284c7; color: white; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: bold; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; }
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+    .card h2 { margin-top: 0; font-size: 16px; border-bottom: 1px solid var(--border); padding-bottom: 8px; display: flex; justify-content: space-between; }
+    pre { background: #090d16; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 12px; border: 1px solid var(--border); }
+    .stage-bar { display: flex; gap: 4px; margin: 15px 0; }
+    .stage-step { flex: 1; padding: 8px 4px; text-align: center; font-size: 11px; background: #334155; border-radius: 4px; }
+    .stage-step.active { background: #0284c7; font-weight: bold; }
+    .stage-step.done { background: #15803d; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>⚡ Agentic SDLC Framework: Mission Control</h1>
+      <small>Universal AI Agent Governance & Observability</small>
+    </div>
+    <div>
+      <span class="status-badge">${activeSess ? 'Active Session #' + activeSess.issueId : 'No Active Session'}</span>
+    </div>
+  </header>
+
+  <div class="card" style="margin-bottom: 20px;">
+    <h2>📊 8-Stage Lifecycle Progress ${activeSess ? '(' + activeSess.branch + ')' : ''}</h2>
+    <div class="stage-bar">
+      <div class="stage-step ${activeSess?.stage >= 1 ? (activeSess?.stage === 1 ? 'active' : 'done') : ''}">1. Intake</div>
+      <div class="stage-step ${activeSess?.stage >= 2 ? (activeSess?.stage === 2 ? 'active' : 'done') : ''}">2. Branch</div>
+      <div class="stage-step ${activeSess?.stage >= 3 ? (activeSess?.stage === 3 ? 'active' : 'done') : ''}">3. TDD</div>
+      <div class="stage-step ${activeSess?.stage >= 4 ? (activeSess?.stage === 4 ? 'active' : 'done') : ''}">4. Dual-Gate</div>
+      <div class="stage-step ${activeSess?.stage >= 5 ? (activeSess?.stage === 5 ? 'active' : 'done') : ''}">5. Docs</div>
+      <div class="stage-step ${activeSess?.stage >= 6 ? (activeSess?.stage === 6 ? 'active' : 'done') : ''}">6. PR</div>
+      <div class="stage-step ${activeSess?.stage >= 7 ? (activeSess?.stage === 7 ? 'active' : 'done') : ''}">7. Review</div>
+      <div class="stage-step ${activeSess?.stage >= 8 ? (activeSess?.stage === 8 ? 'active' : 'done') : ''}">8. Done</div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>📋 Living Kanban Dashboard</h2>
+      <pre>${kanbanRaw.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
+    </div>
+    <div class="card">
+      <h2>🏛️ Architectural Trace Ledger</h2>
+      <pre>${archTraceRaw.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+export function createWorkbenchServer({ port = 4120, repoRoot = '.' } = {}) {
+  const server = http.createServer((req, res) => {
+    if (req.url === '/' || req.url === '/index.html') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(renderWorkbenchHTML(repoRoot));
+      return;
+    }
+
+    if (req.url === '/api/status') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(getSessionStatus(repoRoot)));
+      return;
+    }
+
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('Not Found');
+  });
+
+  return {
+    server,
+    port,
+    listen: () => {
+      return new Promise((resolve, reject) => {
+        server.listen(port, () => {
+          console.log(`🌐 Agentic SDLC Workbench live at: http://localhost:${port}`);
+          resolve(server);
+        });
+        server.on('error', reject);
+      });
+    },
+    close: () => {
+      return new Promise((resolve) => server.close(resolve));
+    }
+  };
 }
 
 // --- Pre-Flight Risk Scorer ---
@@ -3155,6 +3266,17 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       return result;
     }
 
+    case 'serve': {
+      let port = 4120;
+      for (let i = 1; i < args.length; i++) {
+        if (args[i] === '--port' && args[i + 1]) port = Number(args[++i]) || 4120;
+      }
+      const workbench = createWorkbenchServer({ port, repoRoot });
+      workbench.listen();
+      result.workbench = { port, url: `http://localhost:${port}` };
+      return result;
+    }
+
     case 'help':
     default: {
       console.log(`
@@ -3163,6 +3285,7 @@ Agentic SDLC Universal Engine (sdlc-engine.mjs)
 Usage:
   node .agent/scripts/sdlc-engine.mjs init [--global]     Install framework locally or globally
   node .agent/scripts/sdlc-engine.mjs doctor [--fix]      Run framework healthcheck & auto-heal missing assets
+  node .agent/scripts/sdlc-engine.mjs serve [--port <n>]  Start local interactive SDLC visual workbench dashboard
   node .agent/scripts/sdlc-engine.mjs interop export [--agent <all|claude|cursor|windsurf>] Export multi-agent rules
   node .agent/scripts/sdlc-engine.mjs hooks install       Scaffold zero-dependency Git pre-commit & pre-push hooks
   node .agent/scripts/sdlc-engine.mjs ci-workflow install Scaffold GitHub Actions Quality Gate CI workflow
