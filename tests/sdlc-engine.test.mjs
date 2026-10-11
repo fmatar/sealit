@@ -52,7 +52,8 @@ import {
   renderWorkbenchHTML,
   auditContractDrift,
   scaffoldReproductionTest,
-  calculateSessionStats
+  calculateSessionStats,
+  applyBranchProtection
 } from '../.agent/scripts/sdlc-engine.mjs';
 
 describe('Universal SDLC Engine: Complete Robert Martin Test Suite', () => {
@@ -1343,6 +1344,22 @@ flowchart TD
       assert.equal(cliRes.command, 'stats');
       assert.ok(cliRes.stats);
       assert.equal(typeof cliRes.stats.totalSessions, 'number');
+    });
+
+    it('enforces multi-branch protection with local hooks and branch targets', () => {
+      // Create git repo in tmpDir
+      fs.mkdirSync(path.join(tmpDir, '.git'), { recursive: true });
+      const protRes = applyBranchProtection({ branches: ['main', 'develop'], repoRoot: tmpDir });
+      assert.equal(protRes.localHookInstalled, true);
+      assert.equal(protRes.protectedBranches.length, 2);
+      assert.equal(fs.existsSync(path.join(tmpDir, '.git/hooks/pre-push')), true);
+    });
+
+    it('executes protect CLI command cleanly', () => {
+      fs.mkdirSync(path.join(tmpDir, '.git'), { recursive: true });
+      const cliRes = runCLI(['protect', 'main', 'develop'], null, tmpDir);
+      assert.equal(cliRes.command, 'protect');
+      assert.equal(cliRes.protect.localHookInstalled, true);
     });
   });
 });
