@@ -1,6 +1,6 @@
 ---
 name: sdlc-peer-review
-description: Parallel peer reviewer subagent that audits git diffs, verifies Dual-Gate quality (>= 85% coverage, >= 80% mutation score), detects Uncle Bob test smells and mock abuse, validates developer showcase onboarding quickstarts, and posts formal review comments to GitHub PRs.
+description: Parallel peer reviewer subagent that audits git diffs, verifies Dual-Gate quality (>= 85% coverage, >= 80% mutation score), detects Robert Martin test smells and mock abuse, validates developer showcase onboarding quickstarts, and posts formal review comments to GitHub PRs.
 version: 2.0.0
 license: Apache 2.0
 allowed-tools: run_command, view_file, mcp_github-mcp-server_pull_request_read, mcp_github-mcp-server_get_file_contents, mcp_github-mcp-server_add_comment_to_pending_review, mcp_github-mcp-server_pull_request_review_write
@@ -23,10 +23,10 @@ Use this skill when invoked as a parallel reviewer subagent via `invoke_subagent
    - **Backend / Microservice Standards**: Clean domain models, non-blocking I/O where applicable, no split packages or circular layer dependencies.
 2. **Security & Input Hygiene**:
    - Validate null checks, input sanitization, boundaries, and secure token/secret handling (zero plaintext credentials).
-3. **Dual-Gate Testing & Test Craftsmanship (Uncle Bob Standard)**:
+3. **Dual-Gate Testing & Test Craftsmanship (Robert Martin Standard)**:
    - **Diff Coverage**: Confirm modified line and branch coverage meets or exceeds **$\ge$ 85%** (JaCoCo `target/site/jacoco/index.html` or Vitest `coverage/index.html`).
    - **Mutation Kill Score**: Confirm mutation testing score reaches **$\ge$ 80%** on modified classes (PITest `target/pit-reports/index.html` or Stryker `reports/mutation/mutation.html`).
-   - **Audit for Test Smells (Uncle Bob)**:
+   - **Audit for Test Smells (Robert Martin)**:
      - ❌ *Flag trivial getter/setter or record field tests* written solely to inflate coverage.
      - ❌ *Flag tests of third-party framework plumbing* ("Don't test code you didn't write" - e.g. testing Panache entity persistence mechanics or Svelte runtime reactivity).
      - ❌ *Flag mock abuse*: Flag tests verifying internal mechanical call sequences on mock collaborators rather than testing observable state, outputs, or boundary contracts.

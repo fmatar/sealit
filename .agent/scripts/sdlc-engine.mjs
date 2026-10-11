@@ -1179,7 +1179,7 @@ export function exportAgentRules({ agent = 'all', repoRoot = '.', force = true }
 
   const frameworksRuleSummary = `# Agentic SDLC Framework Invariants & Autonomous Rules
 # Generated automatically by sdlc-engine (Universal Engine)
-# Adheres strictly to Robert C. Martin (Uncle Bob) Clean Code & Architecture
+# Adheres strictly to Robert C. Martin Clean Code & Architecture
 
 ## 1. Zero Direct Pushes
 - Direct git pushes to \`develop\` or \`main\` are STRICTLY FORBIDDEN.
@@ -1189,8 +1189,8 @@ export function exportAgentRules({ agent = 'all', repoRoot = '.', force = true }
 - Never write code or modify tests without an associated Issue Ticket #ID.
 - Run: \`node .agent/scripts/sdlc-engine.mjs ticket create --title "<type>: <desc>"\` if no ID is supplied.
 
-## 3. Uncle Bob TDD & Clean-Room Craftsmanship
-- Follow Uncle Bob's Three Laws of TDD: Write failing tests FIRST before production logic.
+## 3. Robert Martin TDD & Clean-Room Craftsmanship
+- Follow Robert Martin's Three Laws of TDD: Write failing tests FIRST before production logic.
 - Follow the Transformation Priority Premise (TPP).
 - Bug fixes mandate an upfront failing reproduction test harness.
 - Reject test smells: no trivial getter/setter tests, no framework plumbing tests, no mock abuse.
@@ -1508,7 +1508,7 @@ export function scaffoldReproductionTest({
 import assert from 'node:assert/strict';
 
 /**
- * MANDATORY BUG REPRODUCTION HARNESS (Uncle Bob Red-Green-Refactor)
+ * MANDATORY BUG REPRODUCTION HARNESS (Robert Martin Red-Green-Refactor)
  * Target Source: ${guessedTarget}
  * Stack / Error Trace:
  * ${cleanTrace.split('\n').map(l => ' * ' + l).join('\n')}
@@ -2350,7 +2350,7 @@ export function generateReviewPlan({ repoRoot = '.' } = {}) {
       TypeName: 'self',
       Role: 'PR Peer Reviewer',
       Prompt: `Load sdlc-peer-review/SKILL.md. Audit git diff against main on branch ${branch} for issue #${issueId}.
-1. Audit for Uncle Bob test smells (no assertion-free tests, no trivial getters, no mock abuse).
+1. Audit for Robert Martin test smells (no assertion-free tests, no trivial getters, no mock abuse).
 2. Verify Dual-Gate metrics (Line diff coverage >= 85%, Mutation kill score >= 80%).
 3. Verify developer showcase quickstart in README.md and CHANGELOG.md entry.
 4. MANDATORILY post formal review comment to GitHub PR, Jira, Linear, or docs/KANBAN.md (node .agent/scripts/sdlc-engine.mjs pm comment ${issueId} --body "<comment>").`
@@ -3517,7 +3517,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
 
       const repRes = scaffoldReproductionTest({ errorTrace, targetFile, repoRoot });
       console.log('\n================================================================');
-      console.log('🧪 BUG REPRODUCTION HARNESS GENERATED (UNCLE BOB TDD)');
+      console.log('🧪 BUG REPRODUCTION HARNESS GENERATED (ROBERT MARTIN TDD)');
       console.log('================================================================');
       console.log(`Target File:      ${repRes.targetFile}`);
       console.log(`Test Scaffold:    ${repRes.relativePath}`);

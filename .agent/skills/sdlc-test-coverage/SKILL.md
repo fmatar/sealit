@@ -8,7 +8,7 @@ allowed-tools: run_command, view_file, write_to_file, replace_file_content
 
 # SDLC Testing, Coverage & Mutation Defense Skill (`sdlc-test-coverage`)
 
-Use this skill when writing unit and integration tests, auditing test coverage, running mutation testing, and validating zero-regression stability across the application. This skill enforces **Robert C. Martin's (Uncle Bob)** testing craftsmanship: tests are first-class citizens designed to assert behavior, not merely execute lines.
+Use this skill when writing unit and integration tests, auditing test coverage, running mutation testing, and validating zero-regression stability across the application. This skill enforces **Robert C. Martin's (Robert Martin)** testing craftsmanship: tests are first-class citizens designed to assert behavior, not merely execute lines.
 
 ---
 
@@ -97,7 +97,7 @@ When PITest or Stryker reports a **surviving mutant**, it means a deliberate def
 import { describe, it, expect, beforeEach } from 'vitest';
 import { UserSessionState } from '$lib/state/session.svelte';
 
-describe('UserSessionState Runes (Uncle Bob Clean Test)', () => {
+describe('UserSessionState Runes (Robert Martin Clean Test)', () => {
   let session: UserSessionState;
 
   beforeEach(() => {

@@ -28,7 +28,7 @@ flowchart TD
     BranchIntent -->|No: New Flow| S1["1. Intake & Contract Specification\n(sdlc-feature-spec & session start --issue <id> & status:ready)"]
 
     S1 --> S2["2. Branch & Kanban In-Progress\n(feature/issue-#<id>-<title> & status:in-progress)"]
-    S2 --> S3["3. TDD Implementation\n(sdlc-tdd-implement)\n• Uncle Bob's 3 Laws of TDD & TPP\n• Clean Domain & Decoupled Ports"]
+    S2 --> S3["3. TDD Implementation\n(sdlc-tdd-implement)\n• Robert Martin's 3 Laws of TDD & TPP\n• Clean Domain & Decoupled Ports"]
     S3 --> S4["4. Dual-Gate Test & Mutation Gate\n(sdlc-test-coverage)\n• >= 85% Line & Branch Diff Coverage\n• >= 80% Mutation Kill Score"]
     S4 --> S5["5. Documentation, Showcase & Changelog Sync\n(sdlc-docs-wiki)\n• Root README 4-Step Quickstart & BYOA\n• docs/specs/, CHANGELOG.md"]
     S5 --> S6["6. Pull Request Creation\n(create_pull_request & status:in-review)"]
@@ -131,7 +131,7 @@ flowchart TD
 ### Stage 3: Clean-Room TDD Implementation (`sdlc-tdd-implement`)
 - **Session Update**: `node .agent/scripts/sdlc-engine.mjs session update --stage 3 --name "Clean-Room TDD Implementation"`.
 - **Mandatory Bug Reproduction Harness**: If the ticket is classified as `fix` or `bug`, author a reproduction test first. Run the test suite and confirm it **fails** against existing code. If the reproduction test passes initially, re-verify failure conditions before modifying any application logic.
-- Strictly apply **Uncle Bob's Three Laws of TDD** and the **Transformation Priority Premise (TPP)**.
+- Strictly apply **Robert Martin's Three Laws of TDD** and the **Transformation Priority Premise (TPP)**.
 - If modifying legacy code with $<40\%$ baseline coverage, write characterization tests first.
 - Write failing unit tests first for degenerate cases before writing production code.
 - Implement business logic adhering to idiomatic standards for the detected stack (clean domain use cases, reactive streams or async where applicable, decoupled external ports).
@@ -196,7 +196,7 @@ flowchart TD
     {
       "TypeName": "self",
       "Role": "PR Peer Reviewer",
-      "Prompt": "Load sdlc-peer-review/SKILL.md. Audit git diff against main, detect Uncle Bob test smells (no trivial getter tests, no mock abuse), verify Dual-Gate metrics, verify developer showcase quickstart completeness in README.md and CHANGELOG.md, and MANDATORILY post a formal review comment to GitHub PR (via pull_request_review_write), Jira, Linear, or docs/KANBAN.md (via node .agent/scripts/sdlc-engine.mjs pm comment <issueId> --body ...)."
+      "Prompt": "Load sdlc-peer-review/SKILL.md. Audit git diff against main, detect Robert Martin test smells (no trivial getter tests, no mock abuse), verify Dual-Gate metrics, verify developer showcase quickstart completeness in README.md and CHANGELOG.md, and MANDATORILY post a formal review comment to GitHub PR (via pull_request_review_write), Jira, Linear, or docs/KANBAN.md (via node .agent/scripts/sdlc-engine.mjs pm comment <issueId> --body ...)."
     },
     {
       "TypeName": "self",

@@ -54,7 +54,7 @@ node .agent/scripts/sdlc-engine.mjs hooks install
      - Concentric layer crossings
 
 3. **Archlens Clean Architecture Verification**:
-   - Verifies Uncle Bob's Dependency Rule (dependencies must point inward).
+   - Verifies Robert Martin's Dependency Rule (dependencies must point inward).
    - Flags any inner-ring entity importing outer-ring web/db/controller packages.
 
 4. **Audit Append**:

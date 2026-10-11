@@ -18,7 +18,7 @@ Use this skill when you need guidance on navigating the Agentic SDLC ecosystem, 
 | :--- | :--- | :--- |
 | **Execute full issue-to-PR automated lifecycle** | **`sdlc-flow`** | *"Run sdlc-flow for issue #<id>"* |
 | **Draft RFC, acceptance criteria, or GitHub issue** | **`sdlc-feature-spec`** | *"Draft a spec / issue for [feature]"* |
-| **Implement code via Uncle Bob TDD & TPP** | **`sdlc-tdd-implement`** | *"Implement [component/service] with TDD"* |
+| **Implement code via Robert Martin TDD & TPP** | **`sdlc-tdd-implement`** | *"Implement [component/service] with TDD"* |
 | **Enforce Dual-Gate (85% coverage + 80% mutation score)** | **`sdlc-test-coverage`** | *"Run tests and enforce mutation defense"* |
 | **Audit PR diff, detect test smells and mock abuse** | **`sdlc-peer-review`** | *"Run subagent peer review on PR"* |
 | **Manage GitHub Projects v2 & living KANBAN board** | **`sdlc-kanban`** | *"Sync Kanban board and update issue status"* |
@@ -40,7 +40,7 @@ Use this skill when you need guidance on navigating the Agentic SDLC ecosystem, 
 2. Branch & Kanban Automation (feature/issue-#<id>-<title> & status:in-progress)
    │
    ▼
-3. Clean-Room TDD Implementation (sdlc-tdd-implement: Uncle Bob's 3 Laws & TPP)
+3. Clean-Room TDD Implementation (sdlc-tdd-implement: Robert Martin's 3 Laws & TPP)
    │
    ▼
 4. Dual-Gate Test & Mutation Enforcer (sdlc-test-coverage: >= 85% Diff Coverage, >= 80% Mutation Score)
@@ -63,7 +63,7 @@ Use this skill when you need guidance on navigating the Agentic SDLC ecosystem, 
 ## 📋 Copy-Paste Prompt Recipes
 
 ### 1. The Autonomous Issue-to-PR Executor Recipe
-> *"Execute `sdlc-flow` on issue #<id>. Fetch the issue, create the feature branch, implement the feature using Uncle Bob's TDD, enforce Dual-Gate test coverage ($\ge 85\%$) and mutation score ($\ge 80\%$), sync README showcase, CHANGELOG.md and specs, push and open a PR, and trigger parallel peer review and quality gate subagents."*
+> *"Execute `sdlc-flow` on issue #<id>. Fetch the issue, create the feature branch, implement the feature using Robert Martin's TDD, enforce Dual-Gate test coverage ($\ge 85\%$) and mutation score ($\ge 80\%$), sync README showcase, CHANGELOG.md and specs, push and open a PR, and trigger parallel peer review and quality gate subagents."*
 
 ### 2. The Project Kanban & Board Manager Recipe
 > *"Run `sdlc-kanban` to configure GitHub Projects v2 views, transition issue #<id> to `status:in-progress`, and refresh `docs/KANBAN.md`."*
@@ -72,7 +72,7 @@ Use this skill when you need guidance on navigating the Agentic SDLC ecosystem, 
 > *"Run `sdlc-test-coverage` against the current diff. Ensure modified line and branch coverage reaches $\ge 85\%$, run PITest/Stryker mutation testing to verify an $\ge 80\%$ mutation kill score, and kill any surviving mutants."*
 
 ### 4. The Subagent PR Peer Reviewer Recipe
-> *"Spawn a peer review subagent using `sdlc-peer-review` to inspect the PR diff, check reactive patterns and mutation defense, detect Uncle Bob test smells (no trivial getter tests, no mock abuse), and post review comments."*
+> *"Spawn a peer review subagent using `sdlc-peer-review` to inspect the PR diff, check reactive patterns and mutation defense, detect Robert Martin test smells (no trivial getter tests, no mock abuse), and post review comments."*
 
 ### 5. The Quality Gatekeeper Recipe
 > *"Run `sdlc-quality-gate` to verify formatting, static typing, build validation, Dual-Gate test & mutation defense, Archlens Clean Architecture governance, and WCAG accessibility before creating the release."*

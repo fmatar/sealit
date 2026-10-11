@@ -15,7 +15,7 @@
 | **Dual-Gate Line Coverage** | $\ge 85\%$ | **93.20%** | **PASS** (+8.20%) |
 | **Dual-Gate Branch Coverage** | $\ge 80\%$ | **81.54%** | **PASS** (+1.54%) |
 | **Function Coverage** | $\ge 90\%$ | **100.00%** | **PASS** (+10.00%) |
-| **Uncle Bob Test Craftsmanship** | Zero Mock Abuse / Clean TDD | **0 Smells Detected** | **PASS** |
+| **Robert Martin Test Craftsmanship** | Zero Mock Abuse / Clean TDD | **0 Smells Detected** | **PASS** |
 | **Automated Test Suite** | 100% Passing | **47 / 47 Passed** (0 Failures) | **PASS** |
 | **Developer Showcase Quickstart** | < 5 min Time-to-First-Run / BYOA | **4-Step Quickstart Verified** | **PASS** |
 | **End-to-End Traceability** | 100% Issue $\rightarrow$ Spec $\rightarrow$ Code | **6 Traceable Views + Matrix** | **PASS** |
@@ -41,10 +41,10 @@
 
 ---
 
-### 2. Uncle Bob Clean Code & Test Craftsmanship
+### 2. Robert Martin Clean Code & Test Craftsmanship
 - **Three Laws of TDD**: Behavior driven strictly from unit tests before engine integration.
 - **Transformation Priority Premise (TPP)**: Incremental complexity progression (`nil -> constant -> scalar -> unconditional -> collection -> expression`).
-- **Uncle Bob Anti-Smell Certification**:
+- **Robert Martin Anti-Smell Certification**:
   - *No Tautological Getter/Setter Tests*: Only observable public engine behaviors tested.
   - *No Framework Plumbing Tests*: Standard libraries tested exclusively through engine integration contracts.
   - *Zero Mock Abuse*: No mock collaborator spies or call sequence verifications. Real temporary isolated directories (`fs.mkdtempSync`) and real executable invocations used.
@@ -66,7 +66,7 @@
 - **GitHub Projects v2 Provisioner**: Validated script [`.agent/skills/sdlc-kanban/scripts/project-setup.sh`](file:///Users/fady/workspace/labs/agentic-sdlc-framework/.agent/skills/sdlc-kanban/scripts/project-setup.sh) supporting all 6 standardized views:
   1. *Master Delivery Kanban*
   2. *Dual-Gate Quality & Mutation Matrix*
-  3. *Uncle Bob Sprint Backlog*
+  3. *Robert Martin Sprint Backlog*
   4. *Developer Showcase Onboarding*
   5. *Milestone Roadmap*
   6. *Epic / Initiative Hierarchy*

@@ -58,7 +58,7 @@ node .agent/scripts/sdlc-engine.mjs ci-workflow install
 - [ ] Run static analyzers (e.g. PMD/CPD, Sonar, Clippy, Ruff, ESLint).
 - [ ] No dead code, empty catch blocks, concurrency antipatterns, or excessive duplication.
 
-### 4. Dual-Gate Testing & Mutation Defense (Uncle Bob Standard)
+### 4. Dual-Gate Testing & Mutation Defense (Robert Martin Standard)
 Run Dual-Gate verification via the universal engine:
 ```bash
 node .agent/scripts/sdlc-engine.mjs coverage
