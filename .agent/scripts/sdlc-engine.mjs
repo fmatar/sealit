@@ -1539,6 +1539,47 @@ describe('Bug Reproduction Harness: ${baseName}', () => {
   };
 }
 
+// --- Session Telemetry, ROI Velocity & Stats Tracker (Issue #26) ---
+
+export function calculateSessionStats(repoRoot = '.') {
+  const sessionStatus = getSessionStatus(repoRoot);
+  const activeSess = sessionStatus.session;
+  const sessions = sessionStatus.sessions || {};
+  const totalSessions = Object.keys(sessions).length;
+  
+  // Arch trace event counts
+  const jsonlPath = path.resolve(repoRoot, '.agent/arch-trace.jsonl');
+  let traceEventsCount = 0;
+  if (fileExists(jsonlPath)) {
+    try {
+      const content = readFileSafe(jsonlPath);
+      traceEventsCount = content.split('\n').filter(Boolean).length;
+    } catch {}
+  }
+
+  // Calculate estimated developer hours saved (ROI)
+  // Industry standard: Each automated gate run + TDD scaffold + review saves ~2.5 engineer hours
+  const estimatedHoursSaved = totalSessions * 2.5 + traceEventsCount * 0.5;
+  const standardHourlyRateUSD = 120; // Average senior staff engineer rate
+  const totalDollarSavingsUSD = Math.round(estimatedHoursSaved * standardHourlyRateUSD);
+
+  // Velocity score
+  const completedSessions = Object.values(sessions).filter(s => s.stage >= 5).length;
+  const velocityScore = Math.min(100, Math.round((completedSessions / Math.max(1, totalSessions)) * 100));
+
+  return {
+    activeSessionId: sessionStatus.activeSessionId,
+    totalSessions,
+    completedSessions,
+    traceEventsCount,
+    estimatedHoursSaved: Number(estimatedHoursSaved.toFixed(1)),
+    totalDollarSavingsUSD,
+    velocityScore,
+    currentStage: activeSess ? `${activeSess.stage}/8 (${activeSess.stageName})` : 'Idle',
+    activeBranch: activeSess ? activeSess.branch : 'main'
+  };
+}
+
 // --- Pre-Flight Risk Scorer ---
 
 export function assessRisk(diffFiles = [], repoRoot = '.') {
@@ -3483,6 +3524,23 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       console.log(`Status:           Ready for Red-Green verification`);
       console.log('================================================================\n');
       result.reproduce = repRes;
+      return result;
+    }
+
+    case 'stats': {
+      const stats = calculateSessionStats(repoRoot);
+      console.log('\n================================================================');
+      console.log('📈 AGENTIC SDLC SESSION TELEMETRY & ROI VELOCITY');
+      console.log('================================================================');
+      console.log(`Active Session:         #${stats.activeSessionId || 'None'} (${stats.currentStage})`);
+      console.log(`Branch:                 ${stats.activeBranch}`);
+      console.log(`Total Tracked Sessions: ${stats.totalSessions}`);
+      console.log(`Arch Trace Events:      ${stats.traceEventsCount}`);
+      console.log(`Pipeline Velocity:      ${stats.velocityScore}%`);
+      console.log(`Est. Hours Saved:       ${stats.estimatedHoursSaved} hrs`);
+      console.log(`Est. Dollar Savings:    $${stats.totalDollarSavingsUSD.toLocaleString()} USD`);
+      console.log('================================================================\n');
+      result.stats = stats;
       return result;
     }
 

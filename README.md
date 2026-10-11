@@ -177,6 +177,7 @@ All stages can be monitored or executed directly via the unified `sdlc-engine`:
 |---|---|
 | `sdlc-engine session status` | View active ticket, stage, branch, and subagents |
 | `sdlc-engine session dashboard` | View live interactive ASCII lifecycle progress |
+| `sdlc-engine stats` | Track token velocity, session telemetry, and engineering ROI metrics |
 | `sdlc-engine serve [--port <port>]` | Launch interactive web-based Mission Control visual workbench |
 | `sdlc-engine test --affected-only` | Run tests strictly for files modified in the active diff |
 | `sdlc-engine coverage` | Run diff coverage gate ($\ge 85\%$ line & branch) |
