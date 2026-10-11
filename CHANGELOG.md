@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat(affected-tests): smart affected unit test runner (`node .agent/scripts/sdlc-engine.mjs test --affected-only`) mapping touched source files directly to test files for fast TDD loop iteration
 - feat(archlens-diff): interactive architectural git diff auditor (`node .agent/scripts/sdlc-engine.mjs archlens diff`) detecting newly introduced concentric layer inversions (e.g. core domain importing outer web/infra)
 
-## [5.1.0] - 2026-10-08
+## [0.0.1] - 2026-10-08
 
 - feat(hooks): zero-dependency Git hooks scaffolding (`node .agent/scripts/sdlc-engine.mjs hooks install`) configuring pre-commit (fast staged diff tests) and pre-push (strict quality gate) without external dependencies
 - feat(ci-workflow): GitHub Actions Quality Gate CI workflow generator (`node .agent/scripts/sdlc-engine.mjs ci-workflow install`) creating `.github/workflows/sdlc-quality-gate.yml`
