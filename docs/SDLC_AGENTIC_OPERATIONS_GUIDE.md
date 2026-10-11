@@ -2,7 +2,7 @@
 
 Welcome to the **Agentic Software Development Lifecycle (SDLC) Operations Guide**. This document provides comprehensive instructions on how to install, configure, and utilize the autonomous multi-agent ecosystem designed for full-stack engineering teams.
 
-This ecosystem transforms standard coding agents into an orchestrated "services agentic operation." It enforces industry best practices (SVPG PRDs, IEEE 29148 SRS, Simon Brown C4 Architecture), **Robert C. Martin's (Uncle Bob)** software craftsmanship, and automates the entire lifecycle from ideation to release.
+This ecosystem transforms standard coding agents into an orchestrated "services agentic operation." It enforces industry best practices (SVPG PRDs, IEEE 29148 SRS, Simon Brown C4 Architecture), **Robert C. Martin's (Robert Martin)** software craftsmanship, and automates the entire lifecycle from ideation to release.
 
 ---
 
@@ -15,9 +15,9 @@ The ecosystem is composed of 12 interlocking Antigravity skills. These skills ut
 ### The 12 Core Skills
 1. **`sdlc-flow`**: The master orchestrator. Runs the end-to-end 8-stage pipeline with Dual-Gate test and mutation enforcement.
 2. **`sdlc-feature-spec`**: Generates structured documentation (PRD, SRS, C4, ADRs) and standard GitHub issues from user intents.
-3. **`sdlc-tdd-implement`**: Handles Svelte 5 / TypeScript UI and Quarkus Java 25 backend implementation using Uncle Bob's Three Laws of TDD and the Transformation Priority Premise (TPP).
+3. **`sdlc-tdd-implement`**: Handles Svelte 5 / TypeScript UI and Quarkus Java 25 backend implementation using Robert Martin's Three Laws of TDD and the Transformation Priority Premise (TPP).
 4. **`sdlc-test-coverage`**: Enforces the Dual-Gate quality standard ($\ge 85\%$ line/branch diff coverage AND $\ge 80\%$ mutation kill score via PITest & Stryker).
-5. **`sdlc-peer-review`**: Parallel subagent that audits git diffs, verifies conventions, detects Uncle Bob test smells and mock abuse, and posts formal review comments to GitHub PRs.
+5. **`sdlc-peer-review`**: Parallel subagent that audits git diffs, verifies conventions, detects Robert Martin test smells and mock abuse, and posts formal review comments to GitHub PRs.
 6. **`sdlc-kanban`**: Manages GitHub Projects v2, ticket lifecycle transitions (`status:*`), WIP limits, and syncs living `docs/KANBAN.md`.
 7. **`sdlc-docs-wiki`**: Maintains synchronization across the project's documentation (root README Developer Showcase quickstart, `docs/specs/`, `CHANGELOG.md`, `docs/KANBAN.md`, `/wiki`, OpenSpec).
 8. **`sdlc-quality-gate`**: Enforces pre-merge quality (Spotless formatting, static analysis, a11y, production builds, test port isolation, and PITest/Stryker mutation defense).
@@ -73,12 +73,12 @@ node .agent/scripts/sdlc-engine.mjs detect
 When you have a GitHub Issue and want the agent to handle branch creation, TDD implementation, coverage and mutation enforcement, docs sync, PR creation, and subagent peer review automatically.
 
 **Command/Prompt:**
-> *"Trigger sdlc-flow to execute issue #1031. Check session concurrency, create the feature branch, implement the feature with Uncle Bob's TDD, enforce Dual-Gate test coverage (>= 85%) and mutation defense (>= 80%), sync specs and changelog, open a PR, and dispatch parallel peer review and quality gate subagents."*
+> *"Trigger sdlc-flow to execute issue #1031. Check session concurrency, create the feature branch, implement the feature with Robert Martin's TDD, enforce Dual-Gate test coverage (>= 85%) and mutation defense (>= 80%), sync specs and changelog, open a PR, and dispatch parallel peer review and quality gate subagents."*
 
 **What Happens Under the Hood:**
 1. **Spec & Intake Phase**: `sdlc-engine` locks the session with auto-classification (`feat`, `bug`, `hotfix`, `spike`) and git worktree isolation if running concurrently. `sdlc-feature-spec` reads the issue, comments progress, and scaffolds acceptance criteria.
 2. **Branching**: `sdlc-flow` checks out `feature/issue-#1031-<title>` (or `hotfix/*`) and tags `status:in-progress`.
-3. **Implementation**: `sdlc-tdd-implement` strictly applies Uncle Bob's Three Laws of TDD and the Transformation Priority Premise (TPP) across Svelte 5 and Quarkus reactive logic.
+3. **Implementation**: `sdlc-tdd-implement` strictly applies Robert Martin's Three Laws of TDD and the Transformation Priority Premise (TPP) across Svelte 5 and Quarkus reactive logic.
 4. **Dual-Gate Enforcer**: `sdlc-test-coverage` validates line/branch diff coverage ($\ge 85\%$) via JaCoCo/Vitest and mutation kill score ($\ge 80\%$) via PITest/Stryker.
 5. **Docs & Showcase Sync**: `sdlc-docs-wiki` updates the root `README.md` 5-minute quickstart, `docs/specs/`, `CHANGELOG.md`, and commits them before PR creation so the PR diff contains the full contract.
 6. **Pull Request**: `sdlc-flow` pushes the branch and opens a PR linking `Fixes #1031` (`status:in-review`).
@@ -136,7 +136,7 @@ node .agent/scripts/sdlc-engine.mjs exemption list
 
 ---
 
-## 4. Robert C. Martin's (Uncle Bob) Testing Philosophy & Mutation Defense
+## 4. Robert C. Martin's (Robert Martin) Testing Philosophy & Mutation Defense
 
 ### The Fallacy of Naive Code Coverage
 Raw line coverage measures only what code was executed; it does not measure whether assertions verified correct behavior. An automated agent can easily hit 100% line coverage with zero assertions (`assertDoesNotThrow`) or by testing trivial DTO getters/setters.
@@ -145,7 +145,7 @@ To counter this, the framework enforces the **Dual-Gate**:
 1. **Diff Coverage ($\ge 85\%$)**: Broad execution of modified lines and branches. Lowering the raw target from 90% removes the perverse incentive to test trivial data classes.
 2. **Mutation Kill Score ($\ge 80\%$)**: Injects deliberate defects (inverting conditionals, mutating returns, deleting void calls) into bytecode/AST. If tests pass, the mutant survived and the gate fails!
 
-### Useful Tests vs. Useless Tests (Uncle Bob's Criteria)
+### Useful Tests vs. Useless Tests (Robert Martin's Criteria)
 
 | Category | Description | Framework Rule |
 | :--- | :--- | :--- |

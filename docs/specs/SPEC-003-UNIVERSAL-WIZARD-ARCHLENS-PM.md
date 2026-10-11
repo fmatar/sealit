@@ -3,14 +3,14 @@
 - **Status**: Approved / In Implementation
 - **Author**: Agentic SDLC Core Team
 - **Date**: 2026-10-02
-- **Standard**: RFC 2119, IEEE 29148, Uncle Bob Clean Architecture
+- **Standard**: RFC 2119, IEEE 29148, Robert Martin Clean Architecture
 
 ---
 
 ## 1. Problem Statement & Motivation
 
 1. **Stack Opinionation Friction**: `sdlc-initialize` previously assumed every greenfield or brownfield project should scaffold Svelte 5 + Quarkus Java 25. This caused friction when initializing existing codebases (Python, Go, Node, Spring Boot).
-2. **Missing Architectural Layer Verification**: While Dual-Gate testing enforces $\ge 85\%$ coverage and $\ge 80\%$ mutation scores, it lacked enforcement of Uncle Bob's **Dependency Rule** (inner layers must never depend on outer layers). Archlens (`/archlens`) provides this governance, but was not integrated into `sdlc-quality-gate` or `sdlc-peer-review`.
+2. **Missing Architectural Layer Verification**: While Dual-Gate testing enforces $\ge 85\%$ coverage and $\ge 80\%$ mutation scores, it lacked enforcement of Robert Martin's **Dependency Rule** (inner layers must never depend on outer layers). Archlens (`/archlens`) provides this governance, but was not integrated into `sdlc-quality-gate` or `sdlc-peer-review`.
 3. **Project Management Provider Coupling**: `sdlc-kanban` and `sdlc-flow` were hardcoded to GitHub issues and `gh` CLI. Modern agent environments often have tokens for **Jira** (Atlassian) or **Linear** via MCP servers.
 4. **Environment Transparency & Updates**: Missing documented environment variables led to silent runtime failures. There was no unified command (`install.sh --update` / `sdlc-engine.mjs update`) to sync framework assets and Archlens policies.
 

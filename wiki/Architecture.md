@@ -1,6 +1,6 @@
 # 🏛️ Agentic SDLC Architecture
 
-The **Agentic SDLC Framework** orchestrates an autonomous, multi-agent engineering lifecycle. Coding agents are structured into specialized roles governed by strict engineering contracts, Robert C. Martin (Uncle Bob) TDD craftsmanship, continuous Dual-Gate test and mutation defense ($\ge 85\%$ diff coverage, $\ge 80\%$ mutation score), parallel subagent peer reviews, and automated release deployment.
+The **Agentic SDLC Framework** orchestrates an autonomous, multi-agent engineering lifecycle. Coding agents are structured into specialized roles governed by strict engineering contracts, Robert C. Martin TDD craftsmanship, continuous Dual-Gate test and mutation defense ($\ge 85\%$ diff coverage, $\ge 80\%$ mutation score), parallel subagent peer reviews, and automated release deployment.
 
 ---
 
@@ -74,7 +74,7 @@ flowchart TD
             direction TB
             BugReproCheck{"Is Bug / Fix?"}:::decision
             ReproHarness[" author Failing Reproduction Test\n• Verify harness fails first"]:::failure
-            UncleBobTDD["Uncle Bob's 3 Laws of TDD & TPP\n• Degenerate failing tests first\n• Clean domain logic & port isolation\n• Fast loop: sdlc-engine test --affected-only"]:::stageHighlight
+            RobertMartinTDD["Robert Martin's 3 Laws of TDD & TPP\n• Degenerate failing tests first\n• Clean domain logic & port isolation\n• Fast loop: sdlc-engine test --affected-only"]:::stageHighlight
         end
 
         %% Stage 4
@@ -107,9 +107,9 @@ flowchart TD
     FetchReqs --> CreateBranch
     CreateBranch --> BugReproCheck
     BugReproCheck -->|Yes| ReproHarness
-    BugReproCheck -->|No| UncleBobTDD
-    ReproHarness --> UncleBobTDD
-    UncleBobTDD --> RunDualGate
+    BugReproCheck -->|No| RobertMartinTDD
+    ReproHarness --> RobertMartinTDD
+    RobertMartinTDD --> RunDualGate
     RunDualGate --> MutantCheck
     MutantCheck -->|Surviving Mutants| StrengthenMutant
     StrengthenMutant --> RunDualGate
@@ -125,7 +125,7 @@ flowchart TD
         
         subgraph SubagentsPool ["Concurrently Dispatched Subagents"]
             direction LR
-            SubReviewer["🕵️ PR Peer Reviewer\n• Uncle Bob Test Smell Detection\n• Diff Audit & DIP Check\n• Formal PR Review Comments"]:::subagent
+            SubReviewer["🕵️ PR Peer Reviewer\n• Robert Martin Test Smell Detection\n• Diff Audit & DIP Check\n• Formal PR Review Comments"]:::subagent
             SubGatekeeper["🛡️ Quality Gatekeeper\n• Full sdlc-engine gate --strict\n• Flake stability check (3 runs)\n• Secret & package CVE audits"]:::subagent
             SubArchAuditor["🏛️ Architectural Auditor\n(Triggered on HIGH/CRITICAL Risk)\n• Concentric boundary proof\n• ADR alignment"]:::subagent
         end
@@ -151,9 +151,9 @@ flowchart TD
 
     EvalResults -->|Changes Requested or Gate Failed| RemediationCount
     RemediationCount -->|Budget Available| LoopBack
-    LoopBack --> UncleBobTDD
+    LoopBack --> RobertMartinTDD
     RemediationCount -->|3 Consecutive Failures| InteractiveIntervention
-    InteractiveIntervention -->|Extend Budget| UncleBobTDD
+    InteractiveIntervention -->|Extend Budget| RobertMartinTDD
 
     %% Stage 8: Done & Release
     subgraph Stage8 ["🏁 Stage 8: Final Gate & Teardown (sdlc-release-changelog)"]
@@ -255,7 +255,7 @@ sequenceDiagram
 * Enforces WIP limit (max 3–5 tickets in progress).
 
 ### Stage 3: Clean-Room TDD Implementation (`sdlc-tdd-implement`)
-* Strictly enforces **Uncle Bob's Three Laws of TDD** and the **Transformation Priority Premise (TPP)**.
+* Strictly enforces **Robert Martin's Three Laws of TDD** and the **Transformation Priority Premise (TPP)**.
 * **Mandatory Bug Reproduction Test**: For bug/fix tickets, authors failing reproduction tests *first* before modifying application code.
 * Writes failing unit tests for degenerate cases before writing production code.
 * Frontend: Modern Svelte 5 Runes (`$state`, `$derived`, `$props`).
@@ -284,7 +284,7 @@ sequenceDiagram
 ### Stage 7: Fork-Join Parallel Review & Quality Gate (`invoke_subagent`)
 * Generates review plan via `node .agent/scripts/sdlc-engine.mjs review plan`.
 * Concurrently dispatches read-only auditor subagents via `invoke_subagent`:
-  * **Peer Reviewer (`sdlc-peer-review`)**: Audits PR diff for reactive patterns, security hygiene, Dual-Gate metrics, and Uncle Bob test smells. Posts structured review comments (`APPROVE` / `REQUEST_CHANGES`).
+  * **Peer Reviewer (`sdlc-peer-review`)**: Audits PR diff for reactive patterns, security hygiene, Dual-Gate metrics, and Robert Martin test smells. Posts structured review comments (`APPROVE` / `REQUEST_CHANGES`).
   * **Quality Gatekeeper (`sdlc-quality-gate`)**: Executes universal strict quality gate (`sdlc-engine.mjs gate --strict`), Spotless formatting, svelte-check, test port isolation, WCAG a11y, flake stability check (3 runs), and secret/CVE security audits.
   * **Architectural Auditor**: Dispatched conditionally for `HIGH`/`CRITICAL` risk changes.
 * **Circuit Breaker Protocol**: Auto-remediates up to 3 times. On 3rd failure, pauses and prompts human review via `ask_question` (exemption, budget extension, or rollback).

@@ -8,7 +8,7 @@ allowed-tools: run_command, view_file, write_to_file, replace_file_content
 
 # SDLC TDD & Clean Code Implementation Skill (`sdlc-tdd-implement`)
 
-Use this skill when implementing new features, services, UI components, or refactoring existing code across polyglot codebases. This skill strictly enforces **Robert C. Martin's (Uncle Bob)** software craftsmanship, the **Three Laws of TDD**, the **Transformation Priority Premise (TPP)**, and the elimination of test waste.
+Use this skill when implementing new features, services, UI components, or refactoring existing code across polyglot codebases. This skill strictly enforces **Robert C. Martin's (Robert Martin)** software craftsmanship, the **Three Laws of TDD**, the **Transformation Priority Premise (TPP)**, and the elimination of test waste.
 
 ---
 
@@ -26,7 +26,7 @@ The cycle: **Red $\rightarrow$ Green $\rightarrow$ Refactor**. Refactoring is no
 
 ## 🧭 The Transformation Priority Premise (TPP)
 
-Uncle Bob's TPP establishes that *as the tests get more specific, the code gets more generic*. Guide algorithm implementation using the lowest-priority transformations first:
+Robert Martin's TPP establishes that *as the tests get more specific, the code gets more generic*. Guide algorithm implementation using the lowest-priority transformations first:
 
 $$\begin{aligned}
 \text{1. } & (\{ \} \rightarrow \text{nil}) & \text{None to null} \\
@@ -75,7 +75,7 @@ flowchart TD
 
 ## ⚡ F.I.R.S.T. Test Harness Architecture
 
-Every test written must adhere to Uncle Bob's **F.I.R.S.T.** rules:
+Every test written must adhere to Robert Martin's **F.I.R.S.T.** rules:
 - **Fast**: Millisecond execution. Use in-memory mocks only at I/O boundaries.
 - **Independent**: Tests must never depend on the execution order of previous tests. Use dynamic port isolation (e.g. test port `0`) and isolated database transactions/fixtures.
 - **Repeatable**: Deterministic in any environment (local, CI, container) without network dependencies.
