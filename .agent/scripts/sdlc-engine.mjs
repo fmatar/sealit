@@ -1408,6 +1408,99 @@ ${uiRows}
   };
 }
 
+// --- Autonomous DAG Ticket & Epic Deconstruction Engine (Issue #41) ---
+
+export function deconstructEpic({
+  epicText = '',
+  epicTitle = 'Epic Initiative',
+  autoProvision = false,
+  repoRoot = '.'
+} = {}) {
+  const lines = (epicText || '').split('\n').map(l => l.trim()).filter(Boolean);
+  const tasks = [];
+  let currentTask = null;
+
+  for (const line of lines) {
+    // Detect bullet or numbered items: 1. feat(...) or - Task: ...
+    const match = line.match(/^[-*•\d.]+\s*(?:\[[ xX]\]\s*)?(?:(feat|fix|hotfix|spike|chore|task):\s*)?(.+)$/i);
+    if (match) {
+      const type = (match[1] || 'feat').toLowerCase();
+      const rawTitle = match[2].trim();
+      const dependsOn = [];
+
+      // Check for inline dependencies: [depends: 1, 2] or (after Task A)
+      const depMatch = rawTitle.match(/\[(?:depends|after|deps):\s*([a-zA-Z0-9_,\s-]+)\]/i);
+      let cleanTitle = rawTitle;
+      if (depMatch) {
+        cleanTitle = rawTitle.replace(depMatch[0], '').trim();
+        const depTokens = depMatch[1].split(',').map(s => s.trim()).filter(Boolean);
+        dependsOn.push(...depTokens);
+      }
+
+      currentTask = {
+        id: tasks.length + 1,
+        title: cleanTitle,
+        type: ['feat', 'fix', 'hotfix', 'spike'].includes(type) ? type : 'feat',
+        dependsOn,
+        ready: dependsOn.length === 0,
+        ticketUrl: null
+      };
+      tasks.push(currentTask);
+    } else if (currentTask && line.startsWith('>')) {
+      currentTask.description = (currentTask.description ? currentTask.description + '\n' : '') + line.slice(1).trim();
+    }
+  }
+
+  // If no bullets parsed, fallback to chunking or single ticket
+  if (tasks.length === 0 && epicText.trim()) {
+    tasks.push({
+      id: 1,
+      title: epicTitle,
+      type: 'feat',
+      dependsOn: [],
+      ready: true,
+      ticketUrl: null
+    });
+  }
+
+  // Auto-provision tickets in PM provider if requested
+  const provisioned = [];
+  if (autoProvision) {
+    for (const t of tasks) {
+      try {
+        const ticketRes = createTicket({
+          title: t.title,
+          type: t.type,
+          body: `Part of Epic: ${epicTitle}\nDependencies: ${t.dependsOn.join(', ') || 'None'}\n\n${t.description || ''}`,
+          repoRoot
+        });
+        t.ticketUrl = ticketRes.url;
+        t.ticketId = ticketRes.issueId;
+        provisioned.push(ticketRes);
+      } catch {}
+    }
+  }
+
+  // Construct Mermaid DAG representation
+  const mermaidLines = ['graph TD'];
+  for (const t of tasks) {
+    mermaidLines.push(`  T${t.id}["[#${t.id}] ${t.title.replace(/"/g, "'")}"]`);
+    for (const dep of t.dependsOn) {
+      mermaidLines.push(`  T${dep} --> T${t.id}`);
+    }
+  }
+
+  return {
+    success: true,
+    epicTitle,
+    totalTasks: tasks.length,
+    tasks,
+    mermaidDAG: mermaidLines.join('\n'),
+    provisionedCount: provisioned.length,
+    provisioned
+  };
+}
+
 // --- CI/CD Workflow Template Scaffolding ---
 
 export function installCIWorkflow({ repoRoot = '.', force = false } = {}) {
@@ -3961,6 +4054,29 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       return result;
     }
 
+    case 'deconstruct': {
+      let epicText = '';
+      let epicTitle = 'Autonomous Initiative';
+      let autoProvision = false;
+      for (let i = 1; i < args.length; i++) {
+        if (args[i] === '--title' && args[i + 1]) epicTitle = args[++i];
+        else if (args[i] === '--provision') autoProvision = true;
+        else if (!args[i].startsWith('-') && !epicText) epicText = args[i];
+      }
+      const deconstructRes = deconstructEpic({ epicText, epicTitle, autoProvision, repoRoot });
+      console.log('\n================================================================');
+      console.log('🗺️ AUTONOMOUS DAG EPIC DECONSTRUCTION');
+      console.log('================================================================');
+      console.log(`Epic:              ${deconstructRes.epicTitle}`);
+      console.log(`Deconstructed:     ${deconstructRes.totalTasks} sub-task tickets`);
+      console.log(`Tickets Created:   ${deconstructRes.provisionedCount}`);
+      console.log('\nMermaid DAG:');
+      console.log(deconstructRes.mermaidDAG);
+      console.log('================================================================\n');
+      result.deconstruct = deconstructRes;
+      return result;
+    }
+
     case 'help':
     default: {
       console.log(`
@@ -3974,6 +4090,7 @@ Usage:
   node .agent/scripts/sdlc-engine.mjs audit verify        Verify SHA-256 Merkle cryptographic audit ledger
   node .agent/scripts/sdlc-engine.mjs audit record --event "<name>" [--metadata '<json>'] Record immutable audit log
   node .agent/scripts/sdlc-engine.mjs proof generate [--name "<target>"] Generate visual DOM and API regression proof
+  node .agent/scripts/sdlc-engine.mjs deconstruct "<epic-markdown>" [--title "<name>"] [--provision] Deconstruct epic into topological DAG tickets
   node .agent/scripts/sdlc-engine.mjs hooks install       Scaffold zero-dependency Git pre-commit & pre-push hooks
   node .agent/scripts/sdlc-engine.mjs ci-workflow install Scaffold GitHub Actions Quality Gate CI workflow
   node .agent/scripts/sdlc-engine.mjs detect              Detect stack and print config preview
