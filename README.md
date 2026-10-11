@@ -84,12 +84,12 @@ flowchart LR
     end
 
     %% Pipeline Interconnections
-    PreFlight -->|No Active Session| BranchSync
-    PreFlight -.->|Active Ticket| TDDLoop
+    PreFlight -->|"No Active Session"| BranchSync
+    PreFlight -.->|"Active Ticket"| TDDLoop
     TDDLoop --> DualGate
     ArchTrace --> OpenPR
-    CircuitBreaker -->|Approved| RemoteCI
-    CircuitBreaker -->|Changes Requested (Max 3)| TDDLoop
+    CircuitBreaker -->|"Approved"| RemoteCI
+    CircuitBreaker -->|"Changes Requested (Max 3)"| TDDLoop
 ```
 
 ## 🧠 Core Agentic Skills
