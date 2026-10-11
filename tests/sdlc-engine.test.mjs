@@ -55,7 +55,7 @@ import {
   calculateSessionStats
 } from '../.agent/scripts/sdlc-engine.mjs';
 
-describe('Universal SDLC Engine: Complete Uncle Bob Test Suite', () => {
+describe('Universal SDLC Engine: Complete Robert Martin Test Suite', () => {
   let tmpDir;
 
   beforeEach(() => {
@@ -919,7 +919,7 @@ jobs:
     });
 
     it('executes pm comment CLI command and records audit comment', () => {
-      const res = runCLI(['pm', 'comment', '5050', '--body', 'Approved by Peer Reviewer with clean Uncle Bob principles.'], null, tmpDir);
+      const res = runCLI(['pm', 'comment', '5050', '--body', 'Approved by Peer Reviewer with clean Robert Martin principles.'], null, tmpDir);
       assert.equal(res.command, 'pm');
       assert.equal(res.subcommand, 'comment');
       assert.equal(res.commented.success, true);

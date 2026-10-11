@@ -18,7 +18,7 @@ The Agentic SDLC Framework is a **Hybrid Orchestration** system that transforms 
 
 * **Autonomous 8-Stage Lifecycle & Circuit Breaker**: The `sdlc-flow` orchestrator drives intake auto-classification (`feat`, `bug`, `hotfix`, `spike`), branching, TDD implementation, coverage enforcement, docs sync, PR creation, parallel subagent peer review, CI status polling, and release with session concurrency locking (`.agent/.sdlc-session.json`), Git worktree isolation, automated remediation circuit breakers (max 3 loops), and real-time visual progress dashboards.
 * **Living Kanban & Pluggable PM Providers**: The `sdlc-kanban` skill automates ticket state transitions (`status:*`), manages GitHub Projects v2 multi-views, Jira, Linear, and syncs an in-repo `docs/KANBAN.md` dashboard with full bidirectional traceability.
-* **Dual-Gate Testing & Mutation Defense**: Enforces Robert C. Martin (Uncle Bob) craftsmanship with $\ge 85\%$ diff coverage and $\ge 80\%$ mutation kill score (PITest for Quarkus, Stryker for Svelte 5) to eliminate vanity coverage metrics and kill surviving mutants.
+* **Dual-Gate Testing & Mutation Defense**: Enforces Robert C. Martin craftsmanship with $\ge 85\%$ diff coverage and $\ge 80\%$ mutation kill score (PITest for Quarkus, Stryker for Svelte 5) to eliminate vanity coverage metrics and kill surviving mutants.
 * **Fork-Join Parallel Peer Review & Quality Gate**: Spawns independent read-only subagents via `invoke_subagent` to audit PR diffs, detect test smells (no trivial getter tests, no mock abuse), run static gates, and post review comments via GitHub MCP.
 * **Built-in DevSecOps & Quality Gate**: `sdlc-quality-gate` verifies Spotless formatting, static typing (`svelte-check`), test port isolation (`quarkus.http.test-port=0`), WCAG a11y, SAST audits, and production builds.
 * **Architectural Traceability & Mutation Ledger**: The `sdlc-arch-trace` skill continuously audits system architecture evolution, extracts Mermaid AST graphs, detects node/edge mutations, and appends an immutable audit log to `docs/ARCH_TRACE.md` and `.agent/arch-trace.jsonl`.
@@ -54,7 +54,7 @@ flowchart LR
     subgraph Phase2 [" ⚙️ TDD & CLEAN ARCHITECTURE "]
         direction TB
         BranchSync["Stage 2: Branch & Kanban<br/>• feature/issue-#id<br/>• status:in-progress"]:::stage
-        TDDLoop["Stage 3: Uncle Bob TDD<br/>• Failing test first (Red-Green)<br/>• Port decoupling (DIP)"]:::stage
+        TDDLoop["Stage 3: Robert Martin TDD<br/>• Failing test first (Red-Green)<br/>• Port decoupling (DIP)"]:::stage
         BranchSync --> TDDLoop
     end
 
@@ -99,9 +99,9 @@ The framework operates via interlocking skills located in `.agent/skills/`. Each
 1. **`sdlc-flow`**: Master orchestrator running the 8-stage issue-to-PR automated pipeline with session concurrency locking, ad-hoc fast-path routing, and parallel fork-join subagent reviews.
 2. **`sdlc-arch-trace`**: Architectural mutation tracer & Mermaid diagram diff auditor maintaining an immutable audit log in `docs/ARCH_TRACE.md` and strictly blocking direct pushes to `develop` or `main`.
 3. **`sdlc-feature-spec`**: Generates structured PRD/SRS documentation, C4 diagrams, and GitHub issues.
-4. **`sdlc-tdd-implement`**: Clean-code and TDD feature development adhering to Uncle Bob's Three Laws of TDD and the Transformation Priority Premise (TPP).
+4. **`sdlc-tdd-implement`**: Clean-code and TDD feature development adhering to Robert Martin's Three Laws of TDD and the Transformation Priority Premise (TPP).
 5. **`sdlc-test-coverage`**: Dual-Gate test enforcer requiring $\ge 85\%$ diff coverage and $\ge 80\%$ mutation score via PITest & Stryker.
-6. **`sdlc-peer-review`**: Subagent that audits PR diffs, detects Uncle Bob test smells and mock abuse, and posts review comments.
+6. **`sdlc-peer-review`**: Subagent that audits PR diffs, detects Robert Martin test smells and mock abuse, and posts review comments.
 7. **`sdlc-kanban`**: Manages GitHub Projects v2, ticket state transitions (`status:*`), WIP limits, and `docs/KANBAN.md`.
 8. **`sdlc-docs-wiki`**: Synchronizes documentation across `docs/specs/`, `CHANGELOG.md`, and `/wiki`.
 9. **`sdlc-quality-gate`**: Pre-merge quality, formatting, security, Archlens concentric layers, and build validation.
@@ -119,7 +119,7 @@ You can drive the entire framework through standard conversational prompts. Here
 ### 1. New Feature Implementation (Autonomous End-to-End)
 > **Prompt**: `"Implement feature #104: Add multi-tenant JWT token rotation with rate limiting. Follow the sdlc-flow lifecycle."`
 > *(If you don't have an issue number, say: `"Build a multi-tenant JWT token rotation with rate limiting."` Gate 0 will auto-classify it as `feat`, provision the issue, and begin).*
-* **What happens**: Auto-proves Archlens Clean Architecture governance, creates branch, executes Uncle Bob TDD, enforces $\ge 85\%$ diff coverage & $\ge 80\%$ mutation kill score, syncs README & CHANGELOG, opens PR, and launches parallel peer review & quality gate subagents.
+* **What happens**: Auto-proves Archlens Clean Architecture governance, creates branch, executes Robert Martin TDD, enforces $\ge 85\%$ diff coverage & $\ge 80\%$ mutation kill score, syncs README & CHANGELOG, opens PR, and launches parallel peer review & quality gate subagents.
 
 ### 2. Bug Fix with Mandatory Reproduction Harness
 > **Prompt**: `"Fix bug #205: Session timeout triggers NullPointerException when user profile has null email."`
@@ -185,7 +185,7 @@ All stages can be monitored or executed directly via the unified `sdlc-engine`:
 | `sdlc-engine archlens diff` | Audit diff for Clean Architecture concentric layer inversions |
 | `sdlc-engine gate --strict` | Unified strict gate (Lint, Build, Test, Risk, Security, Flake, Contract Drift) |
 | `sdlc-engine contract check` | Audit OpenAPI, Swagger, and GraphQL schema diffs for breaking drift |
-| `sdlc-engine reproduce --error "<trace>" [--target <file>]` | Scaffold Uncle Bob bug reproduction test harness matching error stack |
+| `sdlc-engine reproduce --error "<trace>" [--target <file>]` | Scaffold Robert Martin bug reproduction test harness matching error stack |
 | `sdlc-engine arch trace --reason "<msg>"` | Audit Mermaid AST & record changes to `docs/ARCH_TRACE.md` |
 | `sdlc-engine arch diff` | Verify Clean Architecture concentric rings against git diff |
 | `sdlc-engine hooks install` | Scaffold pre-push & pre-commit hooks enforcing branch protection |
