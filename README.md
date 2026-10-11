@@ -189,6 +189,7 @@ All stages can be monitored or executed directly via the unified `sdlc-engine`:
 | `sdlc-engine pr-summary --issue <id>` | Generate formatted markdown summary for GitHub PR |
 | `sdlc-engine flake-check --runs 5` | Detect non-deterministic test race conditions |
 | `sdlc-engine security-audit` | Scan diff for leaked secrets, API keys, and package CVEs |
+| `sdlc-engine interop export [--agent <all\|claude\|cursor\|windsurf>]` | Export framework rules & TDD invariants to Claude Code (`CLAUDE.md`), Cursor (`.cursorrules`), and Windsurf |
 | `sdlc-engine release [patch\|minor\|major]` | Bump SemVer, update package/changelog, and tag release |
 
 ---

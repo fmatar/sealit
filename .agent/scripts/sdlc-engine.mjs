@@ -1166,6 +1166,103 @@ jobs:
   };
 }
 
+// --- Multi-Agent Runtime Interoperability (Claude Code, Cursor, Windsurf, OpenCode) ---
+
+export function exportAgentRules({ agent = 'all', repoRoot = '.', force = true } = {}) {
+  console.log(`🤖 Exporting Agentic SDLC Framework Rules & Skills for target runtime: '${agent.toUpperCase()}'...`);
+  const results = {
+    agent,
+    filesCreated: [],
+    skillsLinked: 0
+  };
+
+  const frameworksRuleSummary = `# Agentic SDLC Framework Invariants & Autonomous Rules
+# Generated automatically by sdlc-engine (Universal Engine)
+# Adheres strictly to Robert C. Martin (Uncle Bob) Clean Code & Architecture
+
+## 1. Zero Direct Pushes
+- Direct git pushes to \`develop\` or \`main\` are STRICTLY FORBIDDEN.
+- All work must be conducted on feature/fix/hotfix/spike branches (\`feature/issue-#<id>-<name>\`) and merged via Pull Request.
+
+## 2. Mandatory Ticket & Intake Invariant
+- Never write code or modify tests without an associated Issue Ticket #ID.
+- Run: \`node .agent/scripts/sdlc-engine.mjs ticket create --title "<type>: <desc>"\` if no ID is supplied.
+
+## 3. Uncle Bob TDD & Clean-Room Craftsmanship
+- Follow Uncle Bob's Three Laws of TDD: Write failing tests FIRST before production logic.
+- Follow the Transformation Priority Premise (TPP).
+- Bug fixes mandate an upfront failing reproduction test harness.
+- Reject test smells: no trivial getter/setter tests, no framework plumbing tests, no mock abuse.
+
+## 4. Dual-Gate Quality Verification
+- Diff coverage threshold: >= 85% line and branch coverage.
+- Mutation kill score: >= 80% using PITest or Stryker.
+- Concentric ring Clean Architecture compliance: zero outer-layer imports into domain entities.
+
+## 5. Universal CLI Automation
+- Run fast affected tests: \`node .agent/scripts/sdlc-engine.mjs test --affected-only\`
+- Run strict quality gate: \`node .agent/scripts/sdlc-engine.mjs gate --strict\`
+- Audit architecture trace: \`node .agent/scripts/sdlc-engine.mjs arch trace\`
+`;
+
+  // 1. Claude Code (.claude/skills and CLAUDE.md)
+  if (agent === 'all' || agent === 'claude' || agent === 'claude-code') {
+    const claudeMdPath = path.resolve(repoRoot, 'CLAUDE.md');
+    fs.writeFileSync(claudeMdPath, frameworksRuleSummary, 'utf8');
+    results.filesCreated.push('CLAUDE.md');
+
+    // Export Claude custom commands
+    const claudeDir = path.resolve(repoRoot, '.claude');
+    fs.mkdirSync(claudeDir, { recursive: true });
+    const claudeSettings = path.resolve(claudeDir, 'settings.json');
+    const settings = {
+      rules: ['CLAUDE.md'],
+      commands: {
+        'sdlc-flow': 'node .agent/scripts/sdlc-engine.mjs gate --strict',
+        'sdlc-test': 'node .agent/scripts/sdlc-engine.mjs test --affected-only',
+        'sdlc-doctor': 'node .agent/scripts/sdlc-engine.mjs doctor --fix'
+      }
+    };
+    fs.writeFileSync(claudeSettings, JSON.stringify(settings, null, 2), 'utf8');
+    results.filesCreated.push('.claude/settings.json');
+  }
+
+  // 2. Cursor (.cursorrules and .cursor/rules/)
+  if (agent === 'all' || agent === 'cursor') {
+    const cursorRulesPath = path.resolve(repoRoot, '.cursorrules');
+    fs.writeFileSync(cursorRulesPath, frameworksRuleSummary, 'utf8');
+    results.filesCreated.push('.cursorrules');
+
+    const cursorDir = path.resolve(repoRoot, '.cursor/rules');
+    fs.mkdirSync(cursorDir, { recursive: true });
+    const cursorRuleFile = path.resolve(cursorDir, 'agentic-sdlc.mdc');
+    const mdcContent = `---
+description: Agentic SDLC Framework Lifecycle, TDD, and Dual-Gate Quality Rules
+globs: *
+alwaysApply: true
+---
+
+${frameworksRuleSummary}
+`;
+    fs.writeFileSync(cursorRuleFile, mdcContent, 'utf8');
+    results.filesCreated.push('.cursor/rules/agentic-sdlc.mdc');
+  }
+
+  // 3. Windsurf / OpenCode (.windsurfrules and .opencode/)
+  if (agent === 'all' || agent === 'windsurf' || agent === 'opencode') {
+    const windsurfPath = path.resolve(repoRoot, '.windsurfrules');
+    fs.writeFileSync(windsurfPath, frameworksRuleSummary, 'utf8');
+    results.filesCreated.push('.windsurfrules');
+  }
+
+  console.log(`✅ Multi-Agent Interoperability exported (${results.filesCreated.length} rules files created).`);
+  for (const f of results.filesCreated) {
+    console.log(`   • ${f}`);
+  }
+
+  return results;
+}
+
 // --- Pre-Flight Risk Scorer ---
 
 export function assessRisk(diffFiles = [], repoRoot = '.') {
@@ -3041,6 +3138,23 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       return result;
     }
 
+    case 'interop': {
+      const sub = args[1] || 'export';
+      let targetAgent = 'all';
+      for (let i = 2; i < args.length; i++) {
+        if (args[i] === '--agent' && args[i + 1]) targetAgent = args[++i];
+        else if (!args[i].startsWith('-')) targetAgent = args[i];
+      }
+      if (sub === 'export') {
+        const interopRes = exportAgentRules({ agent: targetAgent, repoRoot });
+        result.interop = interopRes;
+        return result;
+      }
+      console.error(`Unknown interop subcommand: ${sub}`);
+      result.success = false;
+      return result;
+    }
+
     case 'help':
     default: {
       console.log(`
@@ -3049,6 +3163,7 @@ Agentic SDLC Universal Engine (sdlc-engine.mjs)
 Usage:
   node .agent/scripts/sdlc-engine.mjs init [--global]     Install framework locally or globally
   node .agent/scripts/sdlc-engine.mjs doctor [--fix]      Run framework healthcheck & auto-heal missing assets
+  node .agent/scripts/sdlc-engine.mjs interop export [--agent <all|claude|cursor|windsurf>] Export multi-agent rules
   node .agent/scripts/sdlc-engine.mjs hooks install       Scaffold zero-dependency Git pre-commit & pre-push hooks
   node .agent/scripts/sdlc-engine.mjs ci-workflow install Scaffold GitHub Actions Quality Gate CI workflow
   node .agent/scripts/sdlc-engine.mjs detect              Detect stack and print config preview

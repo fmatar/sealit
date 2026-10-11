@@ -46,7 +46,8 @@ import {
   auditSecurity,
   scaffoldArchlensPolicy,
   suggestMutationStrengthening,
-  generateReviewPlan
+  generateReviewPlan,
+  exportAgentRules
 } from '../.agent/scripts/sdlc-engine.mjs';
 
 describe('Universal SDLC Engine: Complete Uncle Bob Test Suite', () => {
@@ -1228,5 +1229,32 @@ flowchart TD
       assert.equal(cliRes.archTrace.success, true);
       assert.equal(cliRes.archTrace.entry.ticket, '#2000');
     });
+
+    it('exports multi-agent rules for Claude Code, Cursor, and Windsurf', () => {
+      const expRes = exportAgentRules({ agent: 'all', repoRoot: tmpDir });
+      assert.equal(expRes.agent, 'all');
+      assert.ok(expRes.filesCreated.includes('CLAUDE.md'));
+      assert.ok(expRes.filesCreated.includes('.claude/settings.json'));
+      assert.ok(expRes.filesCreated.includes('.cursorrules'));
+      assert.ok(expRes.filesCreated.includes('.cursor/rules/agentic-sdlc.mdc'));
+      assert.ok(expRes.filesCreated.includes('.windsurfrules'));
+
+      assert.equal(fs.existsSync(path.join(tmpDir, 'CLAUDE.md')), true);
+      assert.equal(fs.existsSync(path.join(tmpDir, '.cursorrules')), true);
+      assert.equal(fs.existsSync(path.join(tmpDir, '.cursor/rules/agentic-sdlc.mdc')), true);
+
+      const claudeContent = fs.readFileSync(path.join(tmpDir, 'CLAUDE.md'), 'utf8');
+      assert.ok(claudeContent.includes('Zero Direct Pushes'));
+      assert.ok(claudeContent.includes('Dual-Gate Quality Verification'));
+    });
+
+    it('executes interop CLI command to export targeted agent rules', () => {
+      const cliRes = runCLI(['interop', 'export', '--agent', 'cursor'], null, tmpDir);
+      assert.equal(cliRes.command, 'interop');
+      assert.equal(cliRes.interop.agent, 'cursor');
+      assert.ok(cliRes.interop.filesCreated.includes('.cursorrules'));
+      assert.equal(fs.existsSync(path.join(tmpDir, '.cursorrules')), true);
+    });
   });
 });
+

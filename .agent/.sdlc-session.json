@@ -1,5 +1,5 @@
 {
-  "activeSessionId": 17,
+  "activeSessionId": 22,
   "sessions": {
     "17": {
       "active": true,
@@ -30,6 +30,37 @@
       },
       "startedAt": "2026-10-11T21:56:50.316Z",
       "updatedAt": "2026-10-11T22:05:57.526Z",
+      "activeSubagents": []
+    },
+    "22": {
+      "active": true,
+      "issueId": 22,
+      "type": "feat",
+      "branch": "feature/issue-#22-multi-agent-interop",
+      "worktree": null,
+      "stage": 5,
+      "stageName": "Docs & Showcase",
+      "remediationCount": 0,
+      "maxRemediations": 3,
+      "manifest": {
+        "specPath": null,
+        "prNumber": null,
+        "coverageReport": null,
+        "mutationScore": null,
+        "uiScreenshotPath": null,
+        "checkpoints": {
+          "stage1": null,
+          "stage2": "2026-10-11T22:17:09.237Z",
+          "stage3": null,
+          "stage4": null,
+          "stage5": "2026-10-11T22:18:29.155Z",
+          "stage6": null,
+          "stage7": null,
+          "stage8": null
+        }
+      },
+      "startedAt": "2026-10-11T22:17:09.236Z",
+      "updatedAt": "2026-10-11T22:18:29.156Z",
       "activeSubagents": []
     }
   }
