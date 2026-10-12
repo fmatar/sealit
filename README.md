@@ -28,6 +28,10 @@ The Agentic SDLC Framework is a **Hybrid Orchestration** system that transforms 
 * **API Contract Drift Sentinel & Schema Guardian**: `sdlc-engine contract check` audits OpenAPI, Swagger, and GraphQL schema git diffs for breaking mutations (dropped endpoints, deleted HTTP verbs, removed types); enforced strictly in `sdlc-engine gate --strict`.
 * **Automated Bug Reproduction Test Scaffold Generator**: `sdlc-engine reproduce --error "<trace>"` generates failing Red-Green-Refactor test harnesses directly from stack traces adhering to Robert Martin TDD.
 * **Session Telemetry, Velocity & ROI Tracker**: `sdlc-engine stats` tracks session volume, architecture mutation throughput, pipeline velocity score, and estimated engineering hours and dollar savings.
+* **Cryptographic SHA-256 Merkle Audit Ledger**: `sdlc-engine audit verify` cryptographically validates tamper-evident delivery chains in `docs/AUDIT_CHAIN.jsonl`, enforcing verifiable hash integrity across every stage checkpoint in `sdlc-engine gate --strict`.
+* **Visual UI & API Regression Proof Generator**: `sdlc-engine proof generate` produces automated visual DOM snapshots and API endpoint contract proofs in `docs/proofs/`, registering cryptographic attestation records directly into the project audit trail.
+* **Autonomous Topological DAG Epic Deconstructor**: `sdlc-engine deconstruct "<epic-markdown>"` parses complex product initiatives into topological sub-tasks with dependency graphs, interactive Mermaid diagrams, and optional direct ticket provisioning.
+* **Canary Health & Emergency Rollback Watchdog**: `sdlc-engine watchdog monitor` samples canary telemetry, audits error rates against strict failure thresholds, and executes automated deployment drains and rollbacks upon threshold breach.
 * **Automated Releases & Deployments**: `sdlc-release-changelog` automatically manages Semantic Versioning (SemVer), keeps an automated changelog, generates Docker containers, and deploys via Helm.
 
 ## 🏛️ Comprehensive Architecture & Lifecycle Workflow
@@ -171,6 +175,26 @@ You can drive the entire framework through standard conversational prompts. Here
 > **Prompt**: `"Spin up the SDLC visual dashboard and show me our delivery velocity and developer hours saved."`
 * **Under the Hood**: Launches the embedded zero-dependency web server (`sdlc-engine serve --port 4120`) and executes `sdlc-engine stats` to calculate developer hours saved and pipeline velocity.
 * **Expected Output**: Interactive visual webview live at `http://localhost:4120` with real-time session progress and estimated dollar savings.
+
+### 11. Tamper-Evident Cryptographic Merkle Audit Verification
+> **Prompt**: `"Audit our complete delivery chain and ensure zero records have been tampered with or corrupted."`
+* **Under the Hood**: Executes `sdlc-engine audit verify`, recalculating SHA-256 hashes recursively against genesis block `0000...0000` in `docs/AUDIT_CHAIN.jsonl`.
+* **Expected Output**: Cryptographic verification report confirming 100% immutable ledger integrity.
+
+### 12. Automated Visual & API Delivery Regression Proof
+> **Prompt**: `"Generate a formal delivery regression proof verifying our checkout API endpoints and UI dashboard."`
+* **Under the Hood**: Executes `sdlc-engine proof generate --name CheckoutGateway`, capturing SHA-256 digests of API contract responses and DOM snapshot trees into `docs/proofs/proof-checkoutgateway-*.md` and signing it into the Merkle chain.
+* **Expected Output**: Auditable markdown proof artifact with endpoint response digests and zero contract drift attestation.
+
+### 13. Autonomous Initiative DAG & Epic Deconstruction
+> **Prompt**: `"Deconstruct this user authentication epic into topological tickets and show me the dependency graph."`
+* **Under the Hood**: Runs `sdlc-engine deconstruct "<epic-markdown>" --title "User Auth Epic"`, topological sorting task nodes, identifying blockers, rendering a Mermaid graph TD, and optionally auto-provisioning tickets into GitHub/Jira/Linear.
+* **Expected Output**: Formatted task breakdown with dependency ordering and copy-pasteable Mermaid visualization.
+
+### 14. Canary Health Telemetry & Automated Rollback Watchdog
+> **Prompt**: `"Monitor our production canary deployment and immediately rollback if error rate exceeds 2%."`
+* **Under the Hood**: Executes `sdlc-engine watchdog monitor --url https://api.prod/health --threshold 0.02 --rollback "kubectl rollout undo deployment/api"`, evaluating consecutive probe samples and triggering the automated rollback command upon threshold violation.
+* **Expected Output**: Promoted deployment on clean metrics, or instant automated mitigation and emergency audit ledger logging on failure.
 
 ---
 
