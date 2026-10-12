@@ -76,30 +76,33 @@ REPO_NAME=$(gh repo view --json name -q .name 2>/dev/null)
 PROJECT_NAME=$(gh project list --owner "$OWNER" --format json 2>/dev/null | jq -r --arg repo "$REPO_NAME" '.projects[] | select((.title | ascii_downcase) | contains($repo | ascii_downcase)) | .title' | head -n 1)
 ```
 
-Create the structured ticket using either GitHub CLI (`gh issue create`), MCP `issue_write`, or the unified engine CLI:
+Create the structured ticket using either GitHub CLI (`gh issue create`), MCP `issue_write`, or the unified engine CLI with automatic template discovery:
 ```bash
-# Automated multi-provider creation (GitHub or local docs/KANBAN.md fallback):
-node .agent/scripts/sdlc-engine.mjs ticket create --title "<type>(<component>): <title>" --type <feat|bug> --body "<description>"
+# Automated template-aware multi-provider creation (Auto-discovers .github/ISSUE_TEMPLATE or Jira schemas):
+node .agent/scripts/sdlc-engine.mjs ticket create \
+  --title "<type>(<component>): <title>" \
+  --type <feat|bug> \
+  --problem "<concise problem statement>" \
+  --solution "<acceptance criteria and proposed solution>" \
+  [--reproduce "<reproduction steps for bugs>"] \
+  [--expected "<expected TDD behavior>"] \
+  [--environment "<OS/runtime info>"]
 ```
+
+#### Template Conformance & Discovery:
+The engine dynamically discovers and populates templates configured in the target project:
+1. **GitHub Issue Templates**: Inspects `.github/ISSUE_TEMPLATE/*.md` or `.yml`. It extracts YAML frontmatter labels (e.g., `enhancement`, `bug`), merges them with SDLC status labels (`status:ready`), and interpolates the user problem, proposed solution, reproduction steps, and environment directly into the template's markdown sections.
+2. **Jira & Local Kanban Fallbacks**: When GitHub templates are absent, it renders standardized Robert C. Martin specifications guaranteeing clean traceability, DoD, and TDD red-green verification steps.
 
 #### Ticket Schemas:
 - **For Features (`feat`)**:
   - **Title**: `feat(<component>): <short action-oriented title>`
   - **Labels**: `feature`, `status:ready`, `<layer>` (`backend`, `frontend`, etc.)
-  - **Body**:
-    - `## User Story`
-    - `## Technical Context & Scope`
-    - `## Acceptance Criteria (Definition of Done)`
-    - `## Target Files`
+  - **Body**: Automatically populated via discovered template or Robert Martin RFC structure.
 - **For Bug Fixes (`fix`)**:
   - **Title**: `fix(<component>): <concise symptom or failure>`
   - **Labels**: `bug`, `status:ready`
-  - **Body**:
-    - `## Bug Description & Impact`
-    - `## Reproduction Steps / Failing Conditions`
-    - `## Expected vs Actual Behavior`
-    - `## Acceptance Criteria (Definition of Done & Regression Test Requirement)`
-    - `## Target Files`
+  - **Body**: Automatically populated via discovered bug template or TDD reproduction structure.
 
 ---
 

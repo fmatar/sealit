@@ -27,6 +27,9 @@ import {
   renderDashboard,
   pollCIPRChecks,
   createTicket,
+  parseFrontmatter,
+  loadIssueTemplate,
+  formatTemplatedIssue,
   postPMComment,
   resolveAdHocTargets,
   loadEnv,
@@ -779,6 +782,103 @@ jobs:
       const spike = createTicket({ title: 'Explore WebAssembly engine', type: 'spike', repoRoot: tmpDir });
       assert.equal(spike.type, 'spike');
       assert.ok(spike.title.includes('spike:'));
+    });
+
+    it('parses markdown YAML frontmatter correctly', () => {
+      const md = '---\nname: Bug Report\nlabels: "bug, status:backlog"\n---\n\n**Describe the bug**\nSomething broke.';
+      const res = parseFrontmatter(md);
+      assert.equal(res.frontmatter.name, 'Bug Report');
+      assert.equal(res.frontmatter.labels, 'bug, status:backlog');
+      assert.ok(res.body.includes('**Describe the bug**'));
+    });
+
+    it('auto-discovers and interpolates GitHub feature request template with custom sections', () => {
+      const issueTplDir = path.join(tmpDir, '.github/ISSUE_TEMPLATE');
+      fs.mkdirSync(issueTplDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(issueTplDir, 'feature_request.md'),
+        '---\nname: Feature request\nlabels: "enhancement, status:backlog"\n---\n\n' +
+        '**Is your feature request related to a problem? Please describe.**\nA clear and concise description of what the problem is. Ex. I\'m always frustrated when [...]\n\n' +
+        '**Describe the solution you\'d like (Acceptance Criteria for sdlc-feature-spec)**\nA clear and concise description of what you want to happen. This will be ingested by the agentic `sdlc-feature-spec` skill.\n'
+      );
+
+      const templated = formatTemplatedIssue({
+        title: 'feat: add template parser',
+        type: 'feat',
+        problem: 'Issue templates are not automatically populated by the agent.',
+        solution: 'Parse GitHub ISSUE_TEMPLATE directory and interpolate user-specified sections.',
+        repoRoot: tmpDir
+      });
+
+      assert.equal(templated.template.source, 'github');
+      assert.equal(templated.template.name, 'Feature request');
+      assert.ok(templated.body.includes('Issue templates are not automatically populated by the agent.'));
+      assert.ok(templated.body.includes('Parse GitHub ISSUE_TEMPLATE directory and interpolate'));
+      assert.ok(templated.labels.includes('enhancement'));
+      assert.ok(templated.labels.includes('feature'));
+      assert.ok(templated.labels.includes('status:ready'));
+    });
+
+    it('auto-discovers and interpolates GitHub bug report template with reproduction steps and env', () => {
+      const issueTplDir = path.join(tmpDir, '.github/ISSUE_TEMPLATE');
+      fs.mkdirSync(issueTplDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(issueTplDir, 'bug_report.md'),
+        '---\nname: Bug report\nlabels: "bug, status:backlog"\n---\n\n' +
+        '**Describe the bug**\nA clear and concise description of what the bug is.\n\n' +
+        '**To Reproduce**\nSteps to reproduce the behavior:\n1. Go to \'...\'\n2. Click on \'....\'\n\n' +
+        '**Expected behavior (For sdlc-tdd-implement)**\nA clear and concise description of what you expected to happen. Our agent will use this to write a failing test first.\n\n' +
+        '**Environment (please complete the following information):**\n - OS: [e.g. iOS]\n - Browser [e.g. chrome, safari]\n'
+      );
+
+      const templated = formatTemplatedIssue({
+        title: 'fix: NPE on null token',
+        type: 'bug',
+        problem: 'NullPointerException when parsing auth header without bearer token.',
+        reproduce: '1. Send request without Authorization header\n2. Server crashes with 500 NPE',
+        expected: 'Server responds with 401 Unauthorized cleanly.',
+        environment: '- OS: mac\n- Node: v24.21.0',
+        repoRoot: tmpDir
+      });
+
+      assert.equal(templated.template.source, 'github');
+      assert.equal(templated.template.name, 'Bug report');
+      assert.ok(templated.body.includes('NullPointerException when parsing auth header'));
+      assert.ok(templated.body.includes('Send request without Authorization header'));
+      assert.ok(templated.body.includes('Server responds with 401 Unauthorized cleanly.'));
+      assert.ok(templated.body.includes('Node: v24.21.0'));
+      assert.ok(templated.labels.includes('bug'));
+      assert.ok(templated.labels.includes('status:ready'));
+    });
+
+    it('falls back to standardized Robert Martin clean structure when templates are absent', () => {
+      const templated = formatTemplatedIssue({
+        title: 'feat: clean fallback',
+        type: 'feat',
+        problem: 'Need consistent fallback format.',
+        solution: 'Use Robert Martin specification template.',
+        repoRoot: tmpDir
+      });
+
+      assert.equal(templated.template.source, 'standard');
+      assert.ok(templated.body.includes('Problem Statement & User Value'));
+      assert.ok(templated.body.includes('Solution & Acceptance Criteria'));
+      assert.ok(templated.body.includes('Clean Code Guarantees'));
+    });
+
+    it('executes ticket create CLI command with template interpolation flags cleanly', () => {
+      const res = runCLI([
+        'ticket', 'create',
+        '--title', 'User Profile Page',
+        '--type', 'feat',
+        '--problem', 'Users cannot view their profile.',
+        '--solution', 'Add user profile view and avatar upload.'
+      ], null, tmpDir);
+
+      assert.equal(res.command, 'ticket');
+      assert.equal(res.subcommand, 'create');
+      assert.ok(res.success);
+      assert.ok(res.title.includes('feat: User Profile Page'));
     });
 
     it('supports git worktree isolation in startSession', () => {
