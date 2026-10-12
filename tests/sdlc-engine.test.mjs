@@ -56,7 +56,8 @@ import {
   applyBranchProtection,
   appendAuditRecord,
   verifyAuditChain,
-  generateRegressionProof
+  generateRegressionProof,
+  deconstructEpic
 } from '../.agent/scripts/sdlc-engine.mjs';
 
 describe('Universal SDLC Engine: Complete Robert Martin Test Suite', () => {
@@ -1442,6 +1443,38 @@ flowchart TD
       assert.equal(cliRes.command, 'proof');
       assert.equal(cliRes.proof.success, true);
       assert.ok(cliRes.proof.proofId.includes('paymentgateway'));
+    });
+
+    it('deconstructs an epic initiative into topological DAG tickets and Mermaid graph', () => {
+      const epicText = `
+        1. feat: Core Domain Authentication Model
+        2. feat: REST JWT Login Controller [depends: 1]
+        3. fix: Session Cookie SameSite Strict [depends: 2]
+      `;
+
+      const deconstructRes = deconstructEpic({
+        epicText,
+        epicTitle: 'Auth Epic',
+        autoProvision: false,
+        repoRoot: tmpDir
+      });
+
+      assert.equal(deconstructRes.success, true);
+      assert.equal(deconstructRes.totalTasks, 3);
+      assert.equal(deconstructRes.tasks[0].type, 'feat');
+      assert.equal(deconstructRes.tasks[0].ready, true);
+      assert.equal(deconstructRes.tasks[1].dependsOn[0], '1');
+      assert.equal(deconstructRes.tasks[1].ready, false);
+      assert.ok(deconstructRes.mermaidDAG.includes('graph TD'));
+      assert.ok(deconstructRes.mermaidDAG.includes('T1 --> T2'));
+    });
+
+    it('executes deconstruct CLI command cleanly', () => {
+      const epic = `1. feat: Step A\n2. feat: Step B [depends: 1]`;
+      const cliRes = runCLI(['deconstruct', epic, '--title', 'CLI Epic'], null, tmpDir);
+      assert.equal(cliRes.command, 'deconstruct');
+      assert.equal(cliRes.deconstruct.success, true);
+      assert.equal(cliRes.deconstruct.totalTasks, 2);
     });
   });
 });
