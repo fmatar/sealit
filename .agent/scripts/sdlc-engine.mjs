@@ -200,44 +200,199 @@ export function getSessionStatus(repoRoot = '.') {
   }
 }
 
-export function createTicket({ title, type = 'feat', body = '', repoRoot = '.' } = {}) {
+export function parseFrontmatter(markdown = '') {
+  if (!markdown.startsWith('---')) return { frontmatter: {}, body: markdown };
+  const endIdx = markdown.indexOf('\n---', 3);
+  if (endIdx === -1) return { frontmatter: {}, body: markdown };
+  const rawYaml = markdown.slice(3, endIdx).trim();
+  const body = markdown.slice(endIdx + 4).trim();
+  const frontmatter = {};
+  for (const line of rawYaml.split('\n')) {
+    const colonIdx = line.indexOf(':');
+    if (colonIdx !== -1) {
+      const key = line.slice(0, colonIdx).trim();
+      let val = line.slice(colonIdx + 1).trim();
+      if ((val.startsWith("'") && val.endsWith("'")) || (val.startsWith('"') && val.endsWith('"'))) {
+        val = val.slice(1, -1);
+      }
+      frontmatter[key] = val;
+    }
+  }
+  return { frontmatter, body };
+}
+
+export function loadIssueTemplate({ type = 'feat', repoRoot = '.' } = {}) {
+  const normType = (type || 'feat').toLowerCase();
+  const templateDir = path.resolve(repoRoot, '.github/ISSUE_TEMPLATE');
+
+  if (fs.existsSync(templateDir)) {
+    try {
+      const files = fs.readdirSync(templateDir);
+      let matchFile = null;
+      if (normType === 'bug' || normType === 'fix' || normType === 'hotfix') {
+        matchFile = files.find(f => /bug|fix/i.test(f) && (f.endsWith('.md') || f.endsWith('.yml') || f.endsWith('.yaml')));
+      } else {
+        matchFile = files.find(f => /feat|feature|enhancement/i.test(f) && (f.endsWith('.md') || f.endsWith('.yml') || f.endsWith('.yaml')));
+      }
+
+      if (matchFile) {
+        const fullPath = path.join(templateDir, matchFile);
+        const raw = readFileSafe(fullPath);
+        if (raw) {
+          const { frontmatter, body } = parseFrontmatter(raw);
+          return {
+            source: 'github',
+            file: path.relative(repoRoot, fullPath),
+            frontmatter,
+            rawTemplate: body || raw,
+            name: frontmatter.name || matchFile,
+            labels: frontmatter.labels ? frontmatter.labels.split(',').map(s => s.trim()).filter(Boolean) : []
+          };
+        }
+      }
+    } catch {
+      // Ignore template discovery errors
+    }
+  }
+
+  // Jira standard fallback or generic clean SDLC template
+  return {
+    source: 'standard',
+    file: null,
+    frontmatter: {},
+    rawTemplate: null,
+    name: normType === 'bug' || normType === 'fix' || normType === 'hotfix' ? 'Standard Bug Report' : 'Standard Feature Request',
+    labels: []
+  };
+}
+
+export function formatTemplatedIssue({
+  title = '',
+  type = 'feat',
+  body = '',
+  problem = '',
+  solution = '',
+  acceptanceCriteria = '',
+  reproduce = '',
+  expected = '',
+  environment = '',
+  repoRoot = '.'
+} = {}) {
+  const template = loadIssueTemplate({ type, repoRoot });
+  const normType = (type || 'feat').toLowerCase();
+  const isBug = normType === 'bug' || normType === 'fix' || normType === 'hotfix';
+
+  let renderedBody = '';
+
+  if (template.rawTemplate) {
+    let t = template.rawTemplate;
+    if (isBug) {
+      const bugDesc = problem || body || title;
+      const reproSteps = reproduce || '1. Observe behavior\n2. Run automated test suite\n3. Note failure';
+      const expBehavior = expected || solution || 'All Robert Martin assertions pass with zero regressions.';
+      const envInfo = environment || '- OS: mac / linux\n- Runtime: node.js';
+
+      t = t.replace(/A clear and concise description of what the bug is\./i, bugDesc);
+      t = t.replace(/Steps to reproduce the behavior:[\s\S]*?(?=\*\*Expected|\n\n\*\*|$)/i, `Steps to reproduce the behavior:\n${reproSteps}\n`);
+      t = t.replace(/A clear and concise description of what you expected to happen\.[^\n]*/i, expBehavior);
+      t = t.replace(/- OS: \[e\.g\. iOS\][\s\S]*?(?=$|\n\n)/i, envInfo);
+    } else {
+      const probDesc = problem || body || `Enhancement required for ${title}.`;
+      const solDesc = solution || acceptanceCriteria || body || 'Deliver complete end-to-end functionality adhering to Robert Martin Clean Architecture and TDD.';
+
+      t = t.replace(/A clear and concise description of what the problem is\.[^\n]*/i, probDesc);
+      t = t.replace(/A clear and concise description of what you want to happen\.[^\n]*/i, solDesc);
+    }
+    renderedBody = t;
+  } else {
+    // Standard Robert Martin specification structure
+    if (isBug) {
+      renderedBody = `### 🐛 Bug Description\n${problem || body || title}\n\n` +
+        `### 🔄 Steps to Reproduce\n${reproduce || '1. Execute test suite\n2. Observe red failure'}\n\n` +
+        `### 🎯 Expected Behavior (Robert Martin TDD)\n${expected || solution || 'Failing red test must be made green with minimal implementation.'}\n\n` +
+        `### 💻 Environment\n${environment || '- OS: ' + (process.platform || 'mac')}\n`;
+    } else {
+      renderedBody = `### 🎯 Problem Statement & User Value\n${problem || body || title}\n\n` +
+        `### 🚀 Solution & Acceptance Criteria\n${solution || acceptanceCriteria || body || 'Complete implementation with Dual-Gate test and mutation coverage.'}\n\n` +
+        `### 🛡️ Clean Code Guarantees\n- 100% test pass rate with Robert Martin TDD\n- >= 85% diff test coverage\n- Zero direct pushes to protected branches\n`;
+    }
+  }
+
+  // Determine merged labels
+  const baseLabel = isBug ? (normType === 'hotfix' ? 'hotfix,status:ready,priority:critical' : 'bug,status:ready') : 'feature,status:ready';
+  const templateLabels = template.labels || [];
+  const mergedLabelsList = Array.from(new Set([...baseLabel.split(','), ...templateLabels])).filter(Boolean);
+
+  return {
+    template,
+    title,
+    body: renderedBody.trim(),
+    labels: mergedLabelsList.join(',')
+  };
+}
+
+export function createTicket({
+  title,
+  type = 'feat',
+  body = '',
+  problem = '',
+  solution = '',
+  acceptanceCriteria = '',
+  reproduce = '',
+  expected = '',
+  environment = '',
+  repoRoot = '.'
+} = {}) {
   const pm = detectPMProvider(repoRoot);
   const normalizedType = type.toLowerCase();
   let prefix = 'feat';
-  let defaultLabel = 'feature,status:ready';
 
   if (normalizedType === 'bug' || normalizedType === 'fix') {
     prefix = 'fix';
-    defaultLabel = 'bug,status:ready';
   } else if (normalizedType === 'hotfix') {
     prefix = 'hotfix';
-    defaultLabel = 'hotfix,status:ready,priority:critical';
   } else if (normalizedType === 'spike' || normalizedType === 'research') {
     prefix = 'spike';
-    defaultLabel = 'spike,status:ready';
   }
 
   const fullTitle = title.startsWith(`${prefix}:`) || title.startsWith(`${prefix}(`) ? title : `${prefix}: ${title}`;
+
+  // Build templated issue body and resolved labels
+  const templated = formatTemplatedIssue({
+    title: fullTitle,
+    type: prefix,
+    body,
+    problem,
+    solution,
+    acceptanceCriteria,
+    reproduce,
+    expected,
+    environment,
+    repoRoot
+  });
+
+  const issueBody = templated.body;
+  const labelsToApply = templated.labels;
 
   if (pm.provider === 'github') {
     try {
       let output = '';
       try {
         output = execSync(
-          `gh issue create --title "${fullTitle.replace(/"/g, '\\"')}" --body "${(body || fullTitle).replace(/"/g, '\\"')}" --label "${defaultLabel}"`,
+          `gh issue create --title "${fullTitle.replace(/"/g, '\\"')}" --body "${issueBody.replace(/"/g, '\\"')}" --label "${labelsToApply}"`,
           { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
         );
       } catch (labelErr) {
-        // If repository doesn't have custom 'feature' / 'status:ready' labels, fallback to standard issue creation
+        // If repository doesn't have custom labels, fallback to standard issue creation
         output = execSync(
-          `gh issue create --title "${fullTitle.replace(/"/g, '\\"')}" --body "${(body || fullTitle).replace(/"/g, '\\"')}"`,
+          `gh issue create --title "${fullTitle.replace(/"/g, '\\"')}" --body "${issueBody.replace(/"/g, '\\"')}"`,
           { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
         );
       }
       const url = output.trim();
       const match = url.match(/\/issues\/(\d+)/);
       const issueId = match ? Number(match[1]) : null;
-      return { success: true, provider: 'github', issueId, url, title: fullTitle, type: prefix };
+      return { success: true, provider: 'github', issueId, url, title: fullTitle, type: prefix, template: templated.template.name };
     } catch (err) {
       // Fallback to local living KANBAN.md if gh cli fails or unauthenticated
       console.warn('⚠️ GitHub issue creation failed or CLI not authenticated. Falling back to local docs/KANBAN.md.');
@@ -3788,21 +3943,39 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
 
       if (sub === 'create') {
         let title = '', type = 'feat', body = '';
+        let problem = '', solution = '', acceptanceCriteria = '', reproduce = '', expected = '', environment = '';
         for (let i = 2; i < args.length; i++) {
           if (args[i] === '--title' && args[i + 1]) title = args[++i];
           else if (args[i] === '--type' && args[i + 1]) type = args[++i];
           else if (args[i] === '--body' && args[i + 1]) body = args[++i];
+          else if (args[i] === '--problem' && args[i + 1]) problem = args[++i];
+          else if (args[i] === '--solution' && args[i + 1]) solution = args[++i];
+          else if ((args[i] === '--acceptance-criteria' || args[i] === '--criteria') && args[i + 1]) acceptanceCriteria = args[++i];
+          else if (args[i] === '--reproduce' && args[i + 1]) reproduce = args[++i];
+          else if (args[i] === '--expected' && args[i + 1]) expected = args[++i];
+          else if (args[i] === '--environment' && args[i + 1]) environment = args[++i];
         }
         if (!title) {
           title = args.slice(2).filter(a => !a.startsWith('--')).join(' ');
         }
         if (!title) {
-          console.error('Usage: sdlc-engine.mjs ticket create --title "<title>" [--type feat|bug] [--body "<summary>"]');
+          console.error('Usage: sdlc-engine.mjs ticket create --title "<title>" [--type feat|bug] [--problem "<text>"] [--solution "<text>"]');
           result.success = false;
           return result;
         }
 
-        const ticketRes = createTicket({ title, type, body, repoRoot });
+        const ticketRes = createTicket({
+          title,
+          type,
+          body,
+          problem,
+          solution,
+          acceptanceCriteria,
+          reproduce,
+          expected,
+          environment,
+          repoRoot
+        });
         console.log('🎫 SDLC Ticket Provisioned:');
         console.log(JSON.stringify(ticketRes, null, 2));
         return { ...result, ...ticketRes };
