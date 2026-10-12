@@ -30,6 +30,7 @@ import {
   parseFrontmatter,
   loadIssueTemplate,
   formatTemplatedIssue,
+  transitionPMState,
   postPMComment,
   resolveAdHocTargets,
   loadEnv,
@@ -1033,6 +1034,58 @@ jobs:
       const content = fs.readFileSync(path.join(tmpDir, 'docs/KANBAN.md'), 'utf8');
       assert.ok(content.includes('Audit for #5050'));
       assert.ok(content.includes('Approved by Peer Reviewer'));
+    });
+
+    it('transitions PM state across local KANBAN columns and maps status display names', () => {
+      // Initialize local KANBAN board with issue
+      createTicket({ title: 'Task for Transition', type: 'feat', repoRoot: tmpDir });
+      const kanbanPath = path.join(tmpDir, 'docs/KANBAN.md');
+      const initialContent = fs.readFileSync(kanbanPath, 'utf8');
+      const match = initialContent.match(/#(\d+):/);
+      assert.ok(match, 'Ticket ID should be in docs/KANBAN.md');
+      const issueId = Number(match[1]);
+
+      // Transition to In Progress
+      const trans1 = transitionPMState({ issueId, state: 'in-progress', repoRoot: tmpDir });
+      assert.equal(trans1.success, true);
+      assert.equal(trans1.state, 'in-progress');
+      assert.equal(trans1.statusDisplayName, 'In progress');
+
+      // Transition to Done
+      const trans2 = transitionPMState({ issueId, state: 'done', repoRoot: tmpDir });
+      assert.equal(trans2.success, true);
+      assert.equal(trans2.state, 'done');
+      assert.equal(trans2.statusDisplayName, 'Done');
+    });
+
+    it('executes pm transition CLI command cleanly with dropdown state mapping', () => {
+      createTicket({ title: 'CLI Transition Ticket', type: 'bug', repoRoot: tmpDir });
+      const kanbanPath = path.join(tmpDir, 'docs/KANBAN.md');
+      const content = fs.readFileSync(kanbanPath, 'utf8');
+      const match = content.match(/#(\d+):/);
+      assert.ok(match);
+      const issueId = match[1];
+
+      const res = runCLI(['pm', 'transition', issueId, 'in-review'], null, tmpDir);
+      assert.equal(res.command, 'pm');
+      assert.equal(res.subcommand, 'transition');
+      assert.equal(res.transitioned.success, true);
+      assert.equal(res.transitioned.state, 'in-review');
+      assert.equal(res.transitioned.statusDisplayName, 'In review');
+    });
+
+    it('auto-synchronizes PM transition during session update across stages', () => {
+      startSession({
+        issueId: 9090,
+        branch: 'feature/issue-#9090-sync',
+        stage: 1,
+        repoRoot: tmpDir
+      });
+
+      // Update to stage 6 (PR / In Review)
+      const res = updateSession({ stage: 6, repoRoot: tmpDir });
+      assert.equal(res.session.stage, 6);
+      assert.equal(res.session.issueId, 9090);
     });
 
     it('correctly calculates SemVer bumps for patch, minor, and major', () => {
