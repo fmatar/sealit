@@ -53,7 +53,12 @@ import {
   auditContractDrift,
   scaffoldReproductionTest,
   calculateSessionStats,
-  applyBranchProtection
+  applyBranchProtection,
+  appendAuditRecord,
+  verifyAuditChain,
+  generateRegressionProof,
+  deconstructEpic,
+  monitorCanaryHealthAndWatchdog
 } from '../.agent/scripts/sdlc-engine.mjs';
 
 describe('Universal SDLC Engine: Complete Robert Martin Test Suite', () => {
@@ -1360,6 +1365,156 @@ flowchart TD
       const cliRes = runCLI(['protect', 'main', 'develop'], null, tmpDir);
       assert.equal(cliRes.command, 'protect');
       assert.equal(cliRes.protect.localHookInstalled, true);
+    });
+
+    it('creates cryptographic SHA-256 Merkle audit chain records sequentially', () => {
+      const rec1 = appendAuditRecord({ event: 'SESSION_START', metadata: { issueId: 39 }, repoRoot: tmpDir });
+      assert.equal(rec1.success, true);
+      assert.equal(rec1.record.index, 0);
+      assert.equal(rec1.record.previousHash, '0000000000000000000000000000000000000000000000000000000000000000');
+      assert.equal(typeof rec1.record.currentHash, 'string');
+      assert.equal(rec1.record.currentHash.length, 64);
+
+      const rec2 = appendAuditRecord({ event: 'TDD_CYCLE_PASSED', metadata: { tests: 106 }, repoRoot: tmpDir });
+      assert.equal(rec2.record.index, 1);
+      assert.equal(rec2.record.previousHash, rec1.record.currentHash);
+
+      const verifyRes = verifyAuditChain(tmpDir);
+      assert.equal(verifyRes.valid, true);
+      assert.equal(verifyRes.recordsCount, 2);
+      assert.equal(verifyRes.merkleRoot, rec2.record.currentHash);
+    });
+
+    it('detects tampering or corruption in cryptographic audit ledger', () => {
+      appendAuditRecord({ event: 'ORIGINAL_EVENT', metadata: { legit: true }, repoRoot: tmpDir });
+      appendAuditRecord({ event: 'SECOND_EVENT', metadata: { step: 2 }, repoRoot: tmpDir });
+
+      const auditFile = path.join(tmpDir, 'docs/AUDIT_CHAIN.jsonl');
+      const lines = fs.readFileSync(auditFile, 'utf8').trim().split('\n');
+      const tamperedRecord = JSON.parse(lines[1]);
+      tamperedRecord.metadata.step = 999; // Tamper payload without changing SHA-256
+      lines[1] = JSON.stringify(tamperedRecord);
+      fs.writeFileSync(auditFile, lines.join('\n') + '\n', 'utf8');
+
+      const tamperedVerify = verifyAuditChain(tmpDir);
+      assert.equal(tamperedVerify.valid, false);
+      assert.ok(tamperedVerify.error.includes('tampering detected'));
+    });
+
+    it('executes audit verify and record CLI commands cleanly', () => {
+      const recCLI = runCLI(['audit', 'record', '--event', 'CLI_EVENT', '--metadata', '{"cli":true}'], null, tmpDir);
+      assert.equal(recCLI.command, 'audit');
+      assert.equal(recCLI.audit.success, true);
+      assert.equal(recCLI.audit.record.event, 'CLI_EVENT');
+
+      const verifyCLI = runCLI(['audit', 'verify'], null, tmpDir);
+      assert.equal(verifyCLI.command, 'audit');
+      assert.equal(verifyCLI.audit.valid, true);
+      assert.equal(verifyCLI.audit.recordsCount, 1);
+    });
+
+    it('generates visual DOM and API regression proof artifacts and links to audit ledger', () => {
+      const proofRes = generateRegressionProof({
+        targetName: 'OrderCheckout',
+        apiEndpoints: [
+          { method: 'POST', path: '/api/v1/checkout', expectedStatus: 201, sampleResponse: { orderId: 101 } }
+        ],
+        uiRoutes: [
+          { path: '/checkout', component: 'CheckoutWizard' }
+        ],
+        repoRoot: tmpDir
+      });
+
+      assert.equal(proofRes.success, true);
+      assert.ok(proofRes.proofId.includes('ordercheckout'));
+      assert.equal(fs.existsSync(proofRes.proofFilePath), true);
+      assert.equal(proofRes.apiProofs.length, 1);
+      assert.equal(proofRes.uiProofs.length, 1);
+      assert.ok(proofRes.markdown.includes('OrderCheckout'));
+      assert.ok(proofRes.markdown.includes('/api/v1/checkout'));
+
+      // Check audit chain verification reflects the new event
+      const auditVer = verifyAuditChain(tmpDir);
+      assert.equal(auditVer.valid, true);
+      assert.ok(auditVer.recordsCount >= 1);
+    });
+
+    it('executes proof CLI command cleanly', () => {
+      const cliRes = runCLI(['proof', 'generate', '--name', 'PaymentGateway'], null, tmpDir);
+      assert.equal(cliRes.command, 'proof');
+      assert.equal(cliRes.proof.success, true);
+      assert.ok(cliRes.proof.proofId.includes('paymentgateway'));
+    });
+
+    it('deconstructs an epic initiative into topological DAG tickets and Mermaid graph', () => {
+      const epicText = `
+        1. feat: Core Domain Authentication Model
+        2. feat: REST JWT Login Controller [depends: 1]
+        3. fix: Session Cookie SameSite Strict [depends: 2]
+      `;
+
+      const deconstructRes = deconstructEpic({
+        epicText,
+        epicTitle: 'Auth Epic',
+        autoProvision: false,
+        repoRoot: tmpDir
+      });
+
+      assert.equal(deconstructRes.success, true);
+      assert.equal(deconstructRes.totalTasks, 3);
+      assert.equal(deconstructRes.tasks[0].type, 'feat');
+      assert.equal(deconstructRes.tasks[0].ready, true);
+      assert.equal(deconstructRes.tasks[1].dependsOn[0], '1');
+      assert.equal(deconstructRes.tasks[1].ready, false);
+      assert.ok(deconstructRes.mermaidDAG.includes('graph TD'));
+      assert.ok(deconstructRes.mermaidDAG.includes('T1 --> T2'));
+    });
+
+    it('executes deconstruct CLI command cleanly', () => {
+      const epic = `1. feat: Step A\n2. feat: Step B [depends: 1]`;
+      const cliRes = runCLI(['deconstruct', epic, '--title', 'CLI Epic'], null, tmpDir);
+      assert.equal(cliRes.command, 'deconstruct');
+      assert.equal(cliRes.deconstruct.success, true);
+      assert.equal(cliRes.deconstruct.totalTasks, 2);
+    });
+
+    it('monitors canary health probes and triggers automatic rollback on breach', () => {
+      // 1. Healthy run
+      const healthyRes = monitorCanaryHealthAndWatchdog({
+        healthUrl: 'http://localhost:8080/health',
+        maxErrorRate: 0.1,
+        samples: 5,
+        simulatedErrors: 0,
+        repoRoot: tmpDir
+      });
+      assert.equal(healthyRes.healthy, true);
+      assert.equal(healthyRes.measuredErrorRate, 0);
+      assert.equal(healthyRes.rollbackExecuted, false);
+
+      // 2. Unhealthy breach triggering rollback
+      const breachRes = monitorCanaryHealthAndWatchdog({
+        healthUrl: 'http://localhost:8080/health',
+        maxErrorRate: 0.05,
+        samples: 5,
+        simulatedErrors: 2, // 40% error rate > 5% threshold
+        rollbackCommand: 'echo "ROLLBACK_SUCCESS"',
+        repoRoot: tmpDir
+      });
+      assert.equal(breachRes.healthy, false);
+      assert.equal(breachRes.measuredErrorRate, 0.4);
+      assert.equal(breachRes.rollbackExecuted, true);
+      assert.ok(breachRes.rollbackOutput.includes('ROLLBACK_SUCCESS'));
+
+      // Check Merkle audit chain logs rollback
+      const auditRes = verifyAuditChain(tmpDir);
+      assert.equal(auditRes.valid, true);
+      assert.ok(auditRes.recordsCount >= 2);
+    });
+
+    it('executes watchdog CLI command cleanly', () => {
+      const cliRes = runCLI(['watchdog', 'monitor', '--samples', '3'], null, tmpDir);
+      assert.equal(cliRes.command, 'watchdog');
+      assert.equal(cliRes.watchdog.healthy, true);
     });
   });
 });
