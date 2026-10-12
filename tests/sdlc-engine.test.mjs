@@ -57,7 +57,8 @@ import {
   appendAuditRecord,
   verifyAuditChain,
   generateRegressionProof,
-  deconstructEpic
+  deconstructEpic,
+  monitorCanaryHealthAndWatchdog
 } from '../.agent/scripts/sdlc-engine.mjs';
 
 describe('Universal SDLC Engine: Complete Robert Martin Test Suite', () => {
@@ -1475,6 +1476,45 @@ flowchart TD
       assert.equal(cliRes.command, 'deconstruct');
       assert.equal(cliRes.deconstruct.success, true);
       assert.equal(cliRes.deconstruct.totalTasks, 2);
+    });
+
+    it('monitors canary health probes and triggers automatic rollback on breach', () => {
+      // 1. Healthy run
+      const healthyRes = monitorCanaryHealthAndWatchdog({
+        healthUrl: 'http://localhost:8080/health',
+        maxErrorRate: 0.1,
+        samples: 5,
+        simulatedErrors: 0,
+        repoRoot: tmpDir
+      });
+      assert.equal(healthyRes.healthy, true);
+      assert.equal(healthyRes.measuredErrorRate, 0);
+      assert.equal(healthyRes.rollbackExecuted, false);
+
+      // 2. Unhealthy breach triggering rollback
+      const breachRes = monitorCanaryHealthAndWatchdog({
+        healthUrl: 'http://localhost:8080/health',
+        maxErrorRate: 0.05,
+        samples: 5,
+        simulatedErrors: 2, // 40% error rate > 5% threshold
+        rollbackCommand: 'echo "ROLLBACK_SUCCESS"',
+        repoRoot: tmpDir
+      });
+      assert.equal(breachRes.healthy, false);
+      assert.equal(breachRes.measuredErrorRate, 0.4);
+      assert.equal(breachRes.rollbackExecuted, true);
+      assert.ok(breachRes.rollbackOutput.includes('ROLLBACK_SUCCESS'));
+
+      // Check Merkle audit chain logs rollback
+      const auditRes = verifyAuditChain(tmpDir);
+      assert.equal(auditRes.valid, true);
+      assert.ok(auditRes.recordsCount >= 2);
+    });
+
+    it('executes watchdog CLI command cleanly', () => {
+      const cliRes = runCLI(['watchdog', 'monitor', '--samples', '3'], null, tmpDir);
+      assert.equal(cliRes.command, 'watchdog');
+      assert.equal(cliRes.watchdog.healthy, true);
     });
   });
 });
