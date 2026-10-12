@@ -233,6 +233,7 @@ All stages can be monitored or executed directly via the unified `sdlc-engine`:
 | `sdlc-engine audit record --event "<name>"` | Append immutable cryptographically-linked record to audit chain |
 | `sdlc-engine proof generate [--name "<target>"]` | Generate visual UI and API endpoint regression proof in `docs/proofs/` |
 | `sdlc-engine deconstruct "<epic-markdown>" [--title "<name>"] [--provision]` | Deconstruct epic into topological DAG tickets and Mermaid graph |
+| `sdlc-engine watchdog monitor [--url <url>] [--threshold <rate>] [--rollback "<cmd>"]` | Monitor canary error rates and trigger automated emergency rollbacks |
 | `sdlc-engine review plan` | Generate parallel subagent review plan JSON payload |
 | `sdlc-engine pr-summary --issue <id>` | Generate formatted markdown summary for GitHub PR |
 | `sdlc-engine flake-check --runs 5` | Detect non-deterministic test race conditions |
