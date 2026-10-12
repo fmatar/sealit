@@ -1,5 +1,5 @@
 {
-  "activeSessionId": 42,
+  "activeSessionId": 55,
   "sessions": {
     "17": {
       "active": true,
@@ -340,6 +340,37 @@
       },
       "startedAt": "2026-10-11T22:56:45.414Z",
       "updatedAt": "2026-10-11T22:57:56.610Z",
+      "activeSubagents": []
+    },
+    "55": {
+      "active": true,
+      "issueId": 55,
+      "type": "feat",
+      "branch": "feature/issue-#55-template-aware-tickets",
+      "worktree": null,
+      "stage": 5,
+      "stageName": "Docs & Showcase",
+      "remediationCount": 0,
+      "maxRemediations": 3,
+      "manifest": {
+        "specPath": null,
+        "prNumber": null,
+        "coverageReport": null,
+        "mutationScore": null,
+        "uiScreenshotPath": null,
+        "checkpoints": {
+          "stage1": "2026-10-12T14:02:42.336Z",
+          "stage2": "2026-10-12T14:02:46.473Z",
+          "stage3": null,
+          "stage4": null,
+          "stage5": "2026-10-12T15:02:19.595Z",
+          "stage6": null,
+          "stage7": null,
+          "stage8": null
+        }
+      },
+      "startedAt": "2026-10-12T14:02:42.335Z",
+      "updatedAt": "2026-10-12T15:02:19.596Z",
       "activeSubagents": []
     }
   }
