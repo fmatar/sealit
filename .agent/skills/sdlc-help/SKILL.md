@@ -17,6 +17,7 @@ Use this skill when you need guidance on navigating the Agentic SDLC ecosystem, 
 | What You Want to Accomplish | Recommended Skill | Trigger Phrase / Command |
 | :--- | :--- | :--- |
 | **Execute full issue-to-PR automated lifecycle** | **`sdlc-flow`** | *"Run sdlc-flow for issue #<id>"* |
+| **Trace architecture & block direct push to develop/main** | **`sdlc-arch-trace`** | *"Audit architectural trace and branch protection"* |
 | **Draft RFC, acceptance criteria, or GitHub issue** | **`sdlc-feature-spec`** | *"Draft a spec / issue for [feature]"* |
 | **Implement code via Robert Martin TDD & TPP** | **`sdlc-tdd-implement`** | *"Implement [component/service] with TDD"* |
 | **Enforce Dual-Gate (85% coverage + 80% mutation score)** | **`sdlc-test-coverage`** | *"Run tests and enforce mutation defense"* |
@@ -92,6 +93,21 @@ Use this skill when you need guidance on navigating the Agentic SDLC ecosystem, 
 ### 10. The Session State & Concurrency Lock Recipe
 > *"Run `node .agent/scripts/sdlc-engine.mjs session status` to inspect the active in-flight ticket, or `node .agent/scripts/sdlc-engine.mjs session release` to safely clear a completed or cancelled workflow lock."*
 
+### 11. The Cryptographic Merkle Audit Verifier Recipe
+> *"Run `node .agent/scripts/sdlc-engine.mjs audit verify` to cryptographically validate the SHA-256 Merkle chain in `docs/AUDIT_CHAIN.jsonl` and guarantee zero tampering across all delivery checkpoints."*
+
+### 12. The Delivery Regression Proof Generator Recipe
+> *"Run `node .agent/scripts/sdlc-engine.mjs proof generate --name [TargetName]` to capture visual DOM snapshots and verified API response digests into `docs/proofs/` and sign the delivery into the Merkle audit chain."*
+
+### 13. The Epic Initiative DAG Deconstructor Recipe
+> *"Run `node .agent/scripts/sdlc-engine.mjs deconstruct "[Epic Markdown]" --title "[Epic Name]" --provision` to break down large initiatives into topologically-ordered DAG tickets with dependency arrows and live Mermaid graph visualization."*
+
+### 14. The Canary Health Watchdog & Rollback Recipe
+> *"Run `node .agent/scripts/sdlc-engine.mjs watchdog monitor --url [HealthURL] --threshold [0.05] --rollback "[RollbackCommand]"` to sample deployment health and execute an automatic emergency rollback upon error rate breach."*
+
+### 15. The Multi-Branch Protection Enforcer Recipe
+> *"Run `node .agent/scripts/sdlc-engine.mjs protect main develop` to install local Git pre-push guards and configure remote GitHub branch protection requiring pull request reviews and forbidding direct pushes."*
+
 ---
 
 ## 🛠️ Tooling & Diagnostics Checklist
@@ -100,6 +116,8 @@ Use this skill when you need guidance on navigating the Agentic SDLC ecosystem, 
    ```bash
    node .agent/scripts/sdlc-engine.mjs env                # Verify environment variables, PM provider & Archlens
    node .agent/scripts/sdlc-engine.mjs detect             # Probe stack & preview configuration
+   node .agent/scripts/sdlc-engine.mjs doctor [--fix]     # Run healthcheck & auto-heal missing framework assets
+   node .agent/scripts/sdlc-engine.mjs serve [--port n]   # Launch visual Mission Control dashboard webview
    node .agent/scripts/sdlc-engine.mjs archlens check     # Audit Clean Architecture concentric layer policy
    node .agent/scripts/sdlc-engine.mjs pm status          # Check active PM provider (GitHub/Jira/Linear/Local)
    node .agent/scripts/sdlc-engine.mjs update             # Sync framework & Archlens policies
@@ -109,7 +127,13 @@ Use this skill when you need guidance on navigating the Agentic SDLC ecosystem, 
    node .agent/scripts/sdlc-engine.mjs test               # Run tests for touched modules
    node .agent/scripts/sdlc-engine.mjs coverage           # Run diff coverage check (>= 85%)
    node .agent/scripts/sdlc-engine.mjs mutation           # Run mutation defense check (>= 80%)
-   node .agent/scripts/sdlc-engine.mjs gate               # Run full quality gate (lint, build, test, archlens)
+   node .agent/scripts/sdlc-engine.mjs contract check     # Check API OpenAPI/GraphQL contracts for breaking drift
+   node .agent/scripts/sdlc-engine.mjs audit verify       # Verify SHA-256 Merkle chain in docs/AUDIT_CHAIN.jsonl
+   node .agent/scripts/sdlc-engine.mjs proof generate     # Generate visual UI and API regression proof
+   node .agent/scripts/sdlc-engine.mjs deconstruct "..."  # Deconstruct epic into topological DAG tickets
+   node .agent/scripts/sdlc-engine.mjs watchdog monitor   # Monitor canary health & auto-rollback on breach
+   node .agent/scripts/sdlc-engine.mjs protect [branches] # Enforce multi-branch protection on main & develop
+   node .agent/scripts/sdlc-engine.mjs gate [--strict]    # Full quality gate (lint, build, test, arch, security, audit)
    ```
 
 2. **Subagent Execution Capacity**:
@@ -121,3 +145,4 @@ Use this skill when you need guidance on navigating the Agentic SDLC ecosystem, 
 
 - To start an end-to-end automated run, invoke **`sdlc-flow`**.
 - To scope a specific feature or ticket, invoke **`sdlc-feature-spec`**.
+- To check project health and diagnostic status, run **`sdlc-engine doctor`**.
