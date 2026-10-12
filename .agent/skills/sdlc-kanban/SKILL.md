@@ -116,27 +116,26 @@ gh project field-create <project-number> --owner <owner> --name "Quality Gate" -
 
 ## 🔄 Automated Lifecycle State Transitions
 
-### Transitioning Issue Labels
+The SDLC framework synchronizes both GitHub Issue labels and **actual GitHub Project v2 Status single-select dropdown fields** (and local `docs/KANBAN.md` columns) simultaneously:
+
 ```bash
-# Transition to Ready
-gh issue edit <id> --remove-label "status:backlog" --add-label "status:ready"
-
-# Transition to In Progress
-gh issue edit <id> --remove-label "status:ready,status:backlog" --add-label "status:in-progress"
-
-# Transition to In Review
-gh issue edit <id> --remove-label "status:in-progress" --add-label "status:in-review"
-
-# Transition to Done
-gh issue edit <id> --remove-label "status:in-review" --add-label "status:done"
+# Unified transition command (updates both GitHub issue labels AND the Project v2 Status dropdown field):
+node .agent/scripts/sdlc-engine.mjs pm transition <issueId> <ready|in-progress|in-review|done>
 ```
 
-### Transitioning Project v2 Cards
-```bash
-# Add issue to project
-ITEM_ID=$(gh project item-add <project-number> --owner <owner> --url <issue-url> --format json | jq -r '.id')
+> [!TIP]
+> **Zero-Touch Stage Synchronization**: Whenever you run `node .agent/scripts/sdlc-engine.mjs session update --stage <n>`, the engine automatically invokes `transitionPMState` under the hood:
+> - Stage 1 $\rightarrow$ `Status: Ready` / `Todo`
+> - Stages 2-5 $\rightarrow$ `Status: In Progress`
+> - Stages 6-7 $\rightarrow$ `Status: In Review`
+> - Stage 8 $\rightarrow$ `Status: Done`
 
-# Move card status
+### Manual CLI Reference (If bypassing the engine):
+```bash
+# Transition labels
+gh issue edit <id> --remove-label "status:ready,status:backlog" --add-label "status:in-progress"
+
+# Transition Project v2 Status Dropdown field
 gh project item-edit --id "$ITEM_ID" --project-id "$PROJECT_ID" --field-id "$STATUS_FIELD_ID" --single-select-option-id "$OPTION_ID"
 ```
 

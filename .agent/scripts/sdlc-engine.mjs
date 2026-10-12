@@ -392,6 +392,14 @@ export function createTicket({
       const url = output.trim();
       const match = url.match(/\/issues\/(\d+)/);
       const issueId = match ? Number(match[1]) : null;
+
+      // Automatically add new issue to linked GitHub Project v2 and set initial status
+      if (issueId) {
+        try {
+          transitionPMState({ issueId, state: 'ready', repoRoot });
+        } catch {}
+      }
+
       return { success: true, provider: 'github', issueId, url, title: fullTitle, type: prefix, template: templated.template.name };
     } catch (err) {
       // Fallback to local living KANBAN.md if gh cli fails or unauthenticated
@@ -430,6 +438,209 @@ export function createTicket({
 
   fs.writeFileSync(kanbanPath, content, 'utf8');
   return { success: true, provider: 'local', issueId, url: `docs/KANBAN.md#${issueId}`, title: fullTitle, type: prefix };
+}
+
+export function transitionPMState({ issueId, state = 'in-progress', repoRoot = '.' } = {}) {
+  const pm = detectPMProvider(repoRoot);
+  const targetId = Number(issueId) || issueId;
+  const normalizedState = String(state).toLowerCase().trim();
+
+  // Normalize state name to common dropdown labels
+  let statusDisplayName = 'In progress';
+  if (normalizedState === 'backlog' || normalizedState === 'todo') {
+    statusDisplayName = 'Todo';
+  } else if (normalizedState === 'ready') {
+    statusDisplayName = 'Ready';
+  } else if (normalizedState === 'in-progress' || normalizedState === 'inprogress' || normalizedState === 'in progress') {
+    statusDisplayName = 'In progress';
+  } else if (normalizedState === 'in-review' || normalizedState === 'inreview' || normalizedState === 'review') {
+    statusDisplayName = 'In review';
+  } else if (normalizedState === 'done' || normalizedState === 'closed') {
+    statusDisplayName = 'Done';
+  }
+
+  let projectUpdated = false;
+  let labelUpdated = false;
+  let projectDetails = null;
+
+  if (pm.provider === 'github') {
+    // 1. Maintain GitHub issue labels (status:<state>)
+    try {
+      const stateLabel = `status:${normalizedState}`;
+      // Remove opposing status labels
+      const statusLabels = ['status:backlog', 'status:ready', 'status:in-progress', 'status:in-review', 'status:done'];
+      const toRemove = statusLabels.filter(l => l !== stateLabel).join(',');
+      try {
+        execSync(`gh issue edit ${targetId} --remove-label "${toRemove}" 2>/dev/null || true`, { cwd: repoRoot, stdio: 'pipe' });
+      } catch {}
+      execSync(`gh issue edit ${targetId} --add-label "${stateLabel}" 2>/dev/null || true`, { cwd: repoRoot, stdio: 'pipe' });
+      labelUpdated = true;
+    } catch {}
+
+    // 2. Discover GitHub Projects v2 and update the actual 'Status' single-select dropdown field
+    try {
+      // Get repo owner and repo name
+      const repoView = execSync('gh repo view --json nameWithOwner,owner,name 2>/dev/null || true', { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }).trim();
+      if (repoView) {
+        const repoObj = JSON.parse(repoView);
+        const owner = repoObj.owner?.login || repoObj.nameWithOwner?.split('/')[0];
+        const repoName = repoObj.name || repoObj.nameWithOwner?.split('/')[1];
+
+        // GraphQL query to find repository linked projects and their Status single-select field options
+        const gqlQuery = `query($owner: String!, $repo: String!) {
+          repository(owner: $owner, name: $repo) {
+            projectsV2(first: 5) {
+              nodes {
+                id
+                number
+                title
+                fields(first: 20) {
+                  nodes {
+                    ... on ProjectV2SingleSelectField {
+                      id
+                      name
+                      options {
+                        id
+                        name
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }`;
+
+        const gqlOutput = execSync(
+          `gh api graphql -f query='${gqlQuery.replace(/'/g, "'\\''")}' -F owner="${owner}" -F repo="${repoName}" 2>/dev/null || true`,
+          { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
+        ).trim();
+
+        if (gqlOutput) {
+          const gqlData = JSON.parse(gqlOutput);
+          const projects = gqlData.data?.repository?.projectsV2?.nodes || [];
+
+          for (const prj of projects) {
+            const statusField = prj.fields?.nodes?.find(f => f && f.name && f.name.toLowerCase() === 'status');
+            if (statusField && statusField.options && statusField.options.length > 0) {
+              // Find matching option (e.g. "In Progress", "In progress", "Todo", "Backlog", "Done")
+              let matchedOption = statusField.options.find(opt => opt.name.toLowerCase() === statusDisplayName.toLowerCase());
+              if (!matchedOption) {
+                matchedOption = statusField.options.find(opt => opt.name.toLowerCase().includes(statusDisplayName.toLowerCase()) || statusDisplayName.toLowerCase().includes(opt.name.toLowerCase()));
+              }
+              // Fallback to "Todo" if "Ready" / "Backlog" not present, or "In Progress" if "In review" not present
+              if (!matchedOption) {
+                if (statusDisplayName === 'Ready' || statusDisplayName === 'Backlog') {
+                  matchedOption = statusField.options.find(opt => opt.name.toLowerCase() === 'todo');
+                } else if (statusDisplayName === 'In review') {
+                  matchedOption = statusField.options.find(opt => opt.name.toLowerCase().includes('progress'));
+                }
+              }
+
+              if (matchedOption) {
+                // Ensure issue item exists in project
+                let itemId = null;
+                const issueUrl = `https://github.com/${owner}/${repoName}/issues/${targetId}`;
+                try {
+                  const addItemOut = execSync(
+                    `gh project item-add ${prj.number} --owner "${owner}" --url "${issueUrl}" --format json 2>/dev/null || true`,
+                    { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
+                  ).trim();
+                  if (addItemOut) {
+                    const itemObj = JSON.parse(addItemOut);
+                    itemId = itemObj.id;
+                  }
+                } catch {}
+
+                if (!itemId) {
+                  // Attempt item list lookup
+                  try {
+                    const listItemsOut = execSync(
+                      `gh project item-list ${prj.number} --owner "${owner}" --format json 2>/dev/null || true`,
+                      { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
+                    ).trim();
+                    if (listItemsOut) {
+                      const listData = JSON.parse(listItemsOut);
+                      const found = (listData.items || []).find(it => it.content?.number === Number(targetId));
+                      if (found) itemId = found.id;
+                    }
+                  } catch {}
+                }
+
+                if (itemId) {
+                  execSync(
+                    `gh project item-edit --id "${itemId}" --project-id "${prj.id}" --field-id "${statusField.id}" --single-select-option-id "${matchedOption.id}" 2>/dev/null || true`,
+                    { cwd: repoRoot, stdio: 'pipe' }
+                  );
+                  projectUpdated = true;
+                  projectDetails = {
+                    projectNumber: prj.number,
+                    projectTitle: prj.title,
+                    statusField: statusField.name,
+                    statusValue: matchedOption.name
+                  };
+                  break;
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (projectErr) {
+      // Graceful fallback to label-only if projects v2 not accessible
+    }
+
+    return {
+      success: true,
+      provider: 'github',
+      issueId: targetId,
+      state: normalizedState,
+      statusDisplayName,
+      labelUpdated,
+      projectUpdated,
+      projectDetails
+    };
+  }
+
+  // 3. Local docs/KANBAN.md update
+  const kanbanPath = path.resolve(repoRoot, 'docs/KANBAN.md');
+  if (fs.existsSync(kanbanPath)) {
+    try {
+      let content = fs.readFileSync(kanbanPath, 'utf8');
+      const ticketMarker = `#${targetId}`;
+      if (content.includes(ticketMarker)) {
+        // Move card to matching column if found
+        const lines = content.split('\n');
+        const updatedLines = [];
+        for (const line of lines) {
+          if (line.includes(ticketMarker) && line.startsWith('|')) {
+            const cells = line.split('|').map(c => c.trim());
+            if (cells.length >= 7) {
+              const itemContent = cells.slice(1, 6).find(c => c.includes(ticketMarker)) || `#${targetId}`;
+              let c1 = '', c2 = '', c3 = '', c4 = '', c5 = '';
+              if (normalizedState === 'backlog') c1 = itemContent;
+              else if (normalizedState === 'ready') c2 = itemContent;
+              else if (normalizedState === 'in-progress') c3 = itemContent;
+              else if (normalizedState === 'in-review') c4 = itemContent;
+              else if (normalizedState === 'done') c5 = itemContent;
+              updatedLines.push(`| ${c1} | ${c2} | ${c3} | ${c4} | ${c5} |`);
+              continue;
+            }
+          }
+          updatedLines.push(line);
+        }
+        fs.writeFileSync(kanbanPath, updatedLines.join('\n'), 'utf8');
+      }
+    } catch {}
+  }
+
+  return {
+    success: true,
+    provider: pm.provider,
+    issueId: targetId,
+    state: normalizedState,
+    statusDisplayName
+  };
 }
 
 export function postPMComment({ issueId, prNumber = null, comment = '', repoRoot = '.' } = {}) {
@@ -682,6 +893,19 @@ export function updateSession({ stage, stageName, activeSubagents, manifestUpdat
     session.stage = nextStage;
     if (session.manifest && session.manifest.checkpoints) {
       session.manifest.checkpoints[`stage${nextStage}`] = new Date().toISOString();
+    }
+
+    // Auto-synchronize Project v2 Status dropdown & issue labels on stage movement
+    if (session.issueId) {
+      let stageState = 'in-progress';
+      if (nextStage === 1) stageState = 'ready';
+      else if (nextStage === 2 || nextStage === 3 || nextStage === 4 || nextStage === 5) stageState = 'in-progress';
+      else if (nextStage === 6 || nextStage === 7) stageState = 'in-review';
+      else if (nextStage === 8) stageState = 'done';
+
+      try {
+        transitionPMState({ issueId: session.issueId, state: stageState, repoRoot });
+      } catch {}
     }
   }
 
@@ -3901,13 +4125,12 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
           return result;
         }
         console.log(`🔄 [${pm.provider.toUpperCase()}] Transitioning issue #${issueId} to state: '${state}'...`);
-        // If git/github provider and gh cli available
-        if (pm.provider === 'github') {
-          const stateLabel = `status:${state.toLowerCase()}`;
-          execSync(`gh issue edit ${issueId} --add-label "${stateLabel}" 2>/dev/null || true`, { cwd: repoRoot, stdio: 'inherit' });
+        const transRes = transitionPMState({ issueId, state, repoRoot });
+        if (transRes.projectUpdated && transRes.projectDetails) {
+          console.log(`📋 GitHub Project v2 Dropdown Updated: Project #${transRes.projectDetails.projectNumber} '${transRes.projectDetails.projectTitle}' -> Status: [${transRes.projectDetails.statusValue}]`);
         }
         console.log(`✅ Issue #${issueId} transition recorded.`);
-        result.transitioned = { issueId, state, provider: pm.provider };
+        result.transitioned = transRes;
         return result;
       }
 
