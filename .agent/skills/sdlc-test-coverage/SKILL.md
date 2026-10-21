@@ -1,7 +1,7 @@
 ---
 name: sdlc-test-coverage
 description: Stack-aware unit, integration, and mutation test runner enforcing Dual-Gate quality (>= 85% diff coverage AND >= 80% mutation kill score via PITest & Stryker) adhering to Robert C. Martin testing principles.
-version: 3.0.0
+version: 0.0.1
 license: Apache 2.0
 allowed-tools: run_command, view_file, write_to_file, replace_file_content
 ---

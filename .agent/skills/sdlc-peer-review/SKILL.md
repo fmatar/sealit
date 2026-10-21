@@ -1,7 +1,7 @@
 ---
 name: sdlc-peer-review
 description: Parallel peer reviewer subagent that audits git diffs, verifies Dual-Gate quality (>= 85% coverage, >= 80% mutation score), detects Robert Martin test smells and mock abuse, validates developer showcase onboarding quickstarts, and posts formal review comments to GitHub PRs.
-version: 2.0.0
+version: 0.0.1
 license: Apache 2.0
 allowed-tools: run_command, view_file, mcp_github-mcp-server_pull_request_read, mcp_github-mcp-server_get_file_contents, mcp_github-mcp-server_add_comment_to_pending_review, mcp_github-mcp-server_pull_request_review_write
 ---

@@ -1,7 +1,7 @@
 ---
 name: sdlc-kanban
 description: Manages GitHub Projects (Projects v2) and repository Kanban boards, automates ticket lifecycle state transitions (Backlog -> Ready -> In Progress -> Review -> Done), enforces WIP limits, provisions 6 traceable project views, and maintains living docs/KANBAN.md.
-version: 3.0.0
+version: 0.0.1
 license: Apache 2.0
 allowed-tools: run_command, view_file, write_to_file, replace_file_content, mcp_github-mcp-server_issue_read, mcp_github-mcp-server_issue_write, mcp_github-mcp-server_list_issues
 ---

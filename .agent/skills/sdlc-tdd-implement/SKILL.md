@@ -1,7 +1,7 @@
 ---
 name: sdlc-tdd-implement
 description: Guides test-driven and clean-code feature development using Robert C. Martin's Three Laws of TDD, Transformation Priority Premise (TPP), F.I.R.S.T. test harness isolation, and elimination of test waste across polyglot stacks.
-version: 4.0.0
+version: 0.0.1
 license: Apache 2.0
 allowed-tools: run_command, view_file, write_to_file, replace_file_content
 ---

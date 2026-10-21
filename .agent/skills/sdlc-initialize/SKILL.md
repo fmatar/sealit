@@ -1,7 +1,7 @@
 ---
 name: sdlc-initialize
 description: Universal project bootstrap installer and wizard. Uses structured discovery to auto-detect any polyglot stack, scaffold clean-room templates if greenfield, configure Archlens Clean Architecture governance, and wire pluggable PM providers (GitHub, Jira, Linear, or local KANBAN.md).
-version: 4.0.0
+version: 0.0.1
 license: Apache 2.0
 allowed-tools: run_command, view_file, write_to_file, ask_question
 ---

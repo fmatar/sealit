@@ -51,7 +51,14 @@
     "pr-summary": "node .agent/scripts/sdlc-engine.mjs pr-summary",
     "flake": "node .agent/scripts/sdlc-engine.mjs flake-check",
     "security": "node .agent/scripts/sdlc-engine.mjs security-audit",
-    "arch:scaffold": "node .agent/scripts/sdlc-engine.mjs archlens scaffold"
+    "arch:scaffold": "node .agent/scripts/sdlc-engine.mjs archlens scaffold",
+    "product:init": "node .agent/scripts/sdlc-engine.mjs product init",
+    "product:plan": "node .agent/scripts/sdlc-engine.mjs product plan",
+    "adr:list": "node .agent/scripts/sdlc-engine.mjs adr list",
+    "drift:check": "node .agent/scripts/sdlc-engine.mjs drift check",
+    "decision:sync": "node .agent/scripts/sdlc-engine.mjs decision-graph sync",
+    "cache:status": "node .agent/scripts/sdlc-engine.mjs cache status",
+    "workbench:serve": "node .agent/scripts/sdlc-engine.mjs serve"
   },
   "engines": {
     "node": ">=18.0.0"
