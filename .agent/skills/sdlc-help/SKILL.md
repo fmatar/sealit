@@ -1,7 +1,7 @@
 ---
 name: sdlc-help
 description: Interactive user and agent guide for the Agentic SDLC ecosystem. Provides command recipes, workflow diagrams, decision matrices, and tool diagnostics adhering to Robert C. Martin craftsmanship.
-version: 3.0.0
+version: 0.0.1
 license: Apache 2.0
 allowed-tools: run_command, view_file
 ---

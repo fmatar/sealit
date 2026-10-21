@@ -1,7 +1,7 @@
 ---
 name: sdlc-analyze
 description: SDLC compliance auditor that evaluates repository health, documentation presence, Dual-Gate test coverage, mutation testing defense, static analysis, and a11y across polyglot stacks.
-version: 4.0.0
+version: 0.0.1
 license: Apache 2.0
 allowed-tools: run_command, view_file
 ---

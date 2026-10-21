@@ -1,7 +1,7 @@
 ---
 name: sdlc-release-changelog
 description: Manages Semantic Versioning (SemVer), conventional changelogs (CHANGELOG.md adhering to Keep a Changelog standard), Git tagging, GitHub release creation, Docker containerization, and Kubernetes/Helm deployments.
-version: 2.0.0
+version: 0.0.1
 license: Apache 2.0
 allowed-tools: run_command, view_file, write_to_file, replace_file_content, mcp_github-mcp-server_get_latest_release
 ---

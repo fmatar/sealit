@@ -1,7 +1,7 @@
 ---
 name: sdlc-feature-spec
 description: Generates formal Product Requirements (PRDs), Software Requirements (SRS), C4 Architecture diagrams, ADRs, and standardized GitHub Issues for new features.
-version: 2.0.0
+version: 0.0.1
 license: Apache 2.0
 allowed-tools: run_command, view_file, write_to_file, replace_file_content, mcp_github-mcp-server_issue_read, mcp_github-mcp-server_issue_write, mcp_github-mcp-server_search_issues
 ---

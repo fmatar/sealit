@@ -1,5 +1,5 @@
 {
-  "activeSessionId": 60,
+  "activeSessionId": 63,
   "sessions": {
     "17": {
       "active": true,
@@ -402,6 +402,37 @@
       },
       "startedAt": "2026-10-12T17:51:18.879Z",
       "updatedAt": "2026-10-12T17:51:18.880Z",
+      "activeSubagents": []
+    },
+    "63": {
+      "active": true,
+      "issueId": 63,
+      "type": "feat",
+      "branch": "feature/issue-#63-product-autopilot-adr-workbench",
+      "worktree": null,
+      "stage": 6,
+      "stageName": "Pull Request Opening",
+      "remediationCount": 0,
+      "maxRemediations": 3,
+      "manifest": {
+        "specPath": "docs/specs/core-domain.md",
+        "prNumber": null,
+        "coverageReport": "135/135 passing",
+        "mutationScore": 88,
+        "uiScreenshotPath": null,
+        "checkpoints": {
+          "stage1": "2026-10-21T14:35:00.000Z",
+          "stage2": "2026-10-21T14:40:00.000Z",
+          "stage3": "2026-10-21T14:42:04.770Z",
+          "stage4": "2026-10-21T16:12:00.000Z",
+          "stage5": "2026-10-21T16:12:15.000Z",
+          "stage6": "2026-10-21T16:12:30.000Z",
+          "stage7": null,
+          "stage8": null
+        }
+      },
+      "startedAt": "2026-10-21T14:42:04.769Z",
+      "updatedAt": "2026-10-21T16:12:30.000Z",
       "activeSubagents": []
     }
   }
