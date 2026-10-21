@@ -1,7 +1,7 @@
 ---
 name: sdlc-flow
 description: Master SDLC orchestrator driving end-to-end feature implementation, bug fixes, and releases using an 8-stage lifecycle, session concurrency guards, ad-hoc fast-path routing, Kanban state transitions, Dual-Gate test & mutation coverage enforcement, developer showcase onboarding, and parallel fork-join subagent peer reviews.
-version: 5.0.0
+version: 0.0.1
 license: Apache 2.0
 allowed-tools: run_command, view_file, write_to_file, replace_file_content, invoke_subagent, manage_subagents, send_message, call_mcp_tool, mcp_github-mcp-server_issue_read, mcp_github-mcp-server_add_issue_comment, mcp_github-mcp-server_create_pull_request, mcp_github-mcp-server_pull_request_review_write, mcp_github-mcp-server_issue_write
 ---
@@ -49,6 +49,9 @@ flowchart TD
 ---
 
 ## 🛑 Gate 0: Mandatory Ticket Invariant & Intake Auto-Classification
+
+> [!TIP]
+> **Full-Spec / End-to-End Product Handover Routing**: If the user hands over full project specifications, a PRD, or `PRODUCT.md` to build or evolve a complete system end-to-end, automatically delegate to **[`sdlc-product`](../sdlc-product/SKILL.md)** to synthesize `PRODUCT.md` (`CAP-XX`, `INV-XX`, `SPEC-XX`), provision Genesis Ticket `#1`, and schedule the topological DAG waves.
 
 > [!IMPORTANT]
 > **HARD FRAMEWORK INVARIANT**: Under NO circumstances may any branch be created or any code/test files be modified without an associated tracking ticket (`#<id>`).
@@ -159,7 +162,17 @@ flowchart TD
 
 ### Stage 5: Documentation, Showcase & Changelog Sync (`sdlc-docs-wiki`)
 - **Session Update**: `node .agent/scripts/sdlc-engine.mjs session update --stage 5 --name "Documentation & Showcase Sync"`.
-- Synchronize all documentation and architectural traces before opening the PR to guarantee 100% diff traceability:
+- Synchronize all documentation, Spec-Drift ADRs, and architectural traces before opening the PR to guarantee 100% diff traceability:
+  - **Spec-Drift Sentinel & ADR Check**: Verify whether stack dependencies, C4 nodes, DB schemas, or API contracts drifted from `PRODUCT.md` / `docs/specs/`:
+    ```bash
+    node .agent/scripts/sdlc-engine.mjs drift check
+    # If drift is detected, mint a linked ADR and sync PRODUCT.md:
+    node .agent/scripts/sdlc-engine.mjs adr create --title "<decision>" --scope <technical|product> --ticket ${id} --supersedes CAP-01
+    ```
+  - **Causal Decision Graph Sync**: Regenerate `docs/DECISION_MAP.md` and `.agent/decision-graph.jsonl`:
+    ```bash
+    node .agent/scripts/sdlc-engine.mjs decision-graph sync
+    ```
   - **Architectural Mutation Trace**: Record diagram and layer delta:
     ```bash
     node .agent/scripts/sdlc-engine.mjs arch trace --reason "Architectural refinement for #${id}"
@@ -220,7 +233,7 @@ flowchart TD
        ```
     4. Remediate issues using TDD, re-verify tests, commit, push, and re-trigger review.
   - **Review Approved & Gate Passed**:
-    Proceed to Stage 8.
+    Issue the cryptographic Stage 7 Merkle Gate Receipt (`node .agent/scripts/sdlc-engine.mjs guard receipt`) and proceed to Stage 8.
 
 ### Stage 8: Quality Gate Passed, Release & Lock Release (`sdlc-release-changelog`)
 - **Session Update**: `node .agent/scripts/sdlc-engine.mjs session update --stage 8 --name "Release & Teardown"`.

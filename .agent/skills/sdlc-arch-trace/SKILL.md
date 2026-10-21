@@ -1,7 +1,7 @@
 ---
 name: sdlc-arch-trace
 description: Continuous architecture mutation tracer, Mermaid diagram diff auditor, and git branch protection enforcer. Guarantees 100% architectural traceability in docs/ARCH_TRACE.md and blocks direct pushes to develop or main.
-version: 1.0.0
+version: 0.0.1
 license: Apache 2.0
 allowed-tools: run_command, view_file, write_to_file, replace_file_content
 ---
@@ -34,7 +34,11 @@ node .agent/scripts/sdlc-engine.mjs arch trace --reason "<explanation of archite
 # Audit git diff for Clean Architecture concentric ring layer inversions:
 node .agent/scripts/sdlc-engine.mjs arch diff
 
-# Install git pre-push and pre-commit hooks enforcing branch protection:
+# Verify Spec-Drift Sentinel & synchronize Causal Decision Lineage (docs/DECISION_MAP.md):
+node .agent/scripts/sdlc-engine.mjs drift check
+node .agent/scripts/sdlc-engine.mjs decision-graph sync
+
+# Install 4-Layer Git pre-commit, pre-merge-commit, and pre-push hooks enforcing branch & session locks:
 node .agent/scripts/sdlc-engine.mjs hooks install
 ```
 

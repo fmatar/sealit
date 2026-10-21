@@ -1,7 +1,7 @@
 ---
 name: sdlc-docs-wiki
 description: Synchronizes documentation across the project, including root README showcase/quickstart, docs/specs/, CHANGELOG.md conventional commits, /wiki, OpenSpec delta specs, and inline code docs.
-version: 2.1.0
+version: 0.0.1
 license: Apache 2.0
 allowed-tools: run_command, view_file, write_to_file, replace_file_content
 ---

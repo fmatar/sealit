@@ -1,7 +1,7 @@
 ---
 name: sdlc-quality-gate
 description: Enforces rigorous pre-merge and pre-release quality checks, including automated formatting, static analysis, production build validation, test port isolation, Dual-Gate coverage & mutation testing, WCAG 2.1 AA a11y, DevSecOps, and Archlens Clean Architecture governance.
-version: 5.0.0
+version: 0.0.1
 license: Apache 2.0
 allowed-tools: run_command, view_file
 ---

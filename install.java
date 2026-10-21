@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Callable;
 
-@Command(name = "install", mixinStandardHelpOptions = true, version = "3.0",
+@Command(name = "install", mixinStandardHelpOptions = true, version = "0.0.1",
         description = "Installs the Agentic SDLC Framework skills, engine, and templates.")
 public class install implements Callable<Integer> {
 
