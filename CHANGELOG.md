@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **Universal `/sdlc` Command Router & 8 Verb Skills (`CAP-08`, #81, `ADR-004`)**: Replaced abstract skill names (`sdlc-init`, `sdlc-review-gate`) with 1 Universal Router (`sdlc`) + 8 Verb Skills (`sdlc-flow`, `sdlc-product`, `sdlc-doctor`, `sdlc-status`, `sdlc-tdd`, `sdlc-gate`, `sdlc-adr`, `sdlc-release`) and added `sdlc-init`/`sdlc-review-gate` to automatic upgrade pruning.
 - **NPX Multi-Agent Installer Wizard (`CAP-07`, #75, `ADR-003`)**: Added `npx github:fmatar/agentic-sdlc-framework install` (`.agent/scripts/lib/installer.mjs`) featuring a zero-dependency interactive ANSI TUI wizard to select AI coding tools (`gemini`, `claude`, `cursor`, `grok`, `windsurf`, `copilot`), scope (`local` vs `global`), and governance add-ons (`--with-archlens`, `--with-hooks`, `--with-ci`), plus automatic pruning of deprecated pre-`ADR-002` skills.
 - **Hybrid Architecture Diff & Decision Lineage UI (`CAP-05`, #72)**: Added `sdlc-engine ui-snapshot` and `/api/arch-diff` in `workbench-server.mjs` rendering live Clean Architecture ring changes and `CAP -> SPEC -> Ticket -> ADR` lineage inline via `<agent-embed>`.
 

@@ -26,18 +26,23 @@ flowchart TD
   SPEC_06["SPEC-06 (docs/specs/cap-06-dogfood-docs-tests.md)"]
   CAP_07["CAP-07: Native `npx` Multi-Agent Interactive Installer & Legacy Installer Removal (#75)"]
   SPEC_07["SPEC-07 (docs/specs/cap-07-npx-multi-agent-installer.md)"]
+  CAP_08["CAP-08: `/sdlc` Universal Command Router & 8 Verb-Driven Skills (#81)"]
+  SPEC_08["SPEC-08 (docs/specs/cap-08-command-verb-skills-router.md)"]
   ADR_001["ADR-001: Decompose sdlc-engine.mjs into Modular Domain Libraries with SHA-256 Gate Cache and SvelteKit 5 Decision Workbench"]
   _63["Ticket #63 (feature/issue-#63-product-autopilot-adr-workbench)"]
   ADR_002["ADR-002: Consolidate 14 Skills into 6 Schema-Valid Skills, Add Composite Stage CLI, and Enforce Real Dual-Gate Verification"]
   _68["Ticket #68 (feature/issue-#68-framework-hardening-v0-1)"]
   ADR_003["ADR-003: Replace Legacy Shell/Java Installers with Native npx Interactive Multi-Agent Installer Wizard"]
   _75["Ticket #75 (feature/issue-#75-npx-multi-agent-installer)"]
+  ADR_004["ADR-004: Introduce /sdlc Universal Router and 8 Verb-Driven Command Skills"]
+  _81["Ticket #81"]
   _SDLC_INIT["Ticket #SDLC-INIT (feature/arch-traceability-governance)"]
   _24["Ticket #24 (feature/issue-#24-api-contract-drift-sentinel)"]
   _25["Ticket #25 (feature/issue-#25-bug-reproduce-generator)"]
   _26["Ticket #26 (feature/issue-#26-session-telemetry-roi)"]
   _43["Ticket #43 (feature/issue-#43-multi-branch-protection)"]
   _77["Ticket #77 (feature/issue-#77-readme-overhaul)"]
+  _79["Ticket #79 (feature/issue-#79-readme-dx-redesign)"]
   CAP_01 -->|specified_by| SPEC_01
   CAP_02 -->|specified_by| SPEC_02
   CAP_03 -->|specified_by| SPEC_03
@@ -52,6 +57,9 @@ flowchart TD
   CAP_05 -->|depends_on| CAP_06
   CAP_07 -->|specified_by| SPEC_07
   CAP_06 -->|depends_on| CAP_07
+  CAP_08 -->|specified_by| SPEC_08
+  CAP_05 -->|depends_on| CAP_08
+  CAP_07 -->|depends_on| CAP_08
   _63 -->|triggered_drift_adr| ADR_001
   CAP_01 -.->|ADR Drift| ADR_001
   _68 -->|triggered_drift_adr| ADR_002
@@ -64,6 +72,10 @@ flowchart TD
   _75 -->|triggered_drift_adr| ADR_003
   CAP_06 -.->|ADR Drift| ADR_003
   CAP_07 -.->|ADR Drift| ADR_003
+  _81 -->|triggered_drift_adr| ADR_004
+  CAP_05 -.->|ADR Drift| ADR_004
+  CAP_07 -.->|ADR Drift| ADR_004
+  CAP_08 -.->|ADR Drift| ADR_004
   _63 -.->|ADR Drift| ADR_001
 ```
 
@@ -76,6 +88,7 @@ flowchart TD
 | **ADR-001** | Decompose sdlc-engine.mjs into Modular Domain Libraries with SHA-256 Gate Cache and SvelteKit 5 Decision Workbench | `technical` | `accepted` | #63 | CAP-01 |
 | **ADR-002** | Consolidate 14 Skills into 6 Schema-Valid Skills, Add Composite Stage CLI, and Enforce Real Dual-Gate Verification | `architectural` | `accepted` | #68 | CAP-01, CAP-02, CAP-03, CAP-04, CAP-05, CAP-06 |
 | **ADR-003** | Replace Legacy Shell/Java Installers with Native npx Interactive Multi-Agent Installer Wizard | `architectural` | `accepted` | #75 | CAP-06, CAP-07 |
+| **ADR-004** | Introduce /sdlc Universal Router and 8 Verb-Driven Command Skills | `architectural` | `accepted` | #81 | CAP-05, CAP-07, CAP-08 |
 
 ---
 
@@ -87,6 +100,7 @@ flowchart TD
 | **CAP-02** | Shell Injection Remediation & Polyglot Test Runners (#69) | `AMENDED (ADR-002)` |
 | **CAP-03** | Real Coverage/Mutation Parsers & Policy ArchDiff (#70) | `AMENDED (ADR-002)` |
 | **CAP-04** | Live Canary Watchdog, Real Proofs & Polyglot Reproduce (#71) | `AMENDED (ADR-002)` |
-| **CAP-05** | Consolidate 14 Skills into 6 Schema-Valid Core Skills (#72) | `AMENDED (ADR-002)` |
+| **CAP-05** | Consolidate 14 Skills into 6 Schema-Valid Core Skills (#72) | `AMENDED (ADR-004)` |
 | **CAP-06** | Dogfooding Configuration, Docs Sync & Full Test Suite (#73) | `AMENDED (ADR-002)` |
-| **CAP-07** | Native `npx` Multi-Agent Interactive Installer & Legacy Installer Removal (#75) | `AMENDED (ADR-003)` |
+| **CAP-07** | Native `npx` Multi-Agent Interactive Installer & Legacy Installer Removal (#75) | `AMENDED (ADR-004)` |
+| **CAP-08** | `/sdlc` Universal Command Router & 8 Verb-Driven Skills (#81) | `AMENDED (ADR-004)` |
