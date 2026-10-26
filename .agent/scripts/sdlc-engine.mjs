@@ -50,7 +50,11 @@ import {
 } from './lib/decision-graph.mjs';
 
 import {
+  renderCapabilitySpecMarkdown,
+  renderProductPrdMarkdown,
+  renderProductSrsMarkdown,
   initProductConstitution,
+  scaffoldCapabilitySpec,
   parseProductMarkdown,
   planProductDAG,
   controlProductDAG,
@@ -194,7 +198,11 @@ export {
   appendDecisionEvent,
   buildDecisionGraph,
   syncDecisionMapMarkdown,
+  renderCapabilitySpecMarkdown,
+  renderProductPrdMarkdown,
+  renderProductSrsMarkdown,
   initProductConstitution,
+  scaffoldCapabilitySpec,
   parseProductMarkdown,
   planProductDAG,
   controlProductDAG,
@@ -614,7 +622,52 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         result.product = controlProductDAG({ action, repoRoot });
         return result;
       }
+      if (sub === 'spec') {
+        let capId = null,
+          title = 'New Capability',
+          problem = '',
+          inputs = '',
+          processing = '',
+          outputs = '',
+          dependsOn = [];
+        for (let i = 2; i < args.length; i++) {
+          if ((args[i] === '--cap' || args[i] === '--id') && args[i + 1]) capId = args[++i];
+          else if (args[i] === '--title' && args[i + 1]) title = args[++i];
+          else if (args[i] === '--problem' && args[i + 1]) problem = args[++i];
+          else if (args[i] === '--inputs' && args[i + 1]) inputs = args[++i];
+          else if (args[i] === '--processing' && args[i + 1]) processing = args[++i];
+          else if (args[i] === '--outputs' && args[i + 1]) outputs = args[++i];
+          else if ((args[i] === '--depends-on' || args[i] === '--depends') && args[i + 1]) {
+            dependsOn = args[++i].split(',').map((s) => s.trim()).filter(Boolean);
+          }
+        }
+        result.spec = scaffoldCapabilitySpec({ capId, title, problem, inputs, processing, outputs, dependsOn, repoRoot });
+        return result;
+      }
       result.product = parseProductMarkdown(repoRoot);
+      return result;
+    }
+
+    case 'spec': {
+      let capId = null,
+        title = 'New Capability',
+        problem = '',
+        inputs = '',
+        processing = '',
+        outputs = '',
+        dependsOn = [];
+      for (let i = 1; i < args.length; i++) {
+        if ((args[i] === '--cap' || args[i] === '--id') && args[i + 1]) capId = args[++i];
+        else if (args[i] === '--title' && args[i + 1]) title = args[++i];
+        else if (args[i] === '--problem' && args[i + 1]) problem = args[++i];
+        else if (args[i] === '--inputs' && args[i + 1]) inputs = args[++i];
+        else if (args[i] === '--processing' && args[i + 1]) processing = args[++i];
+        else if (args[i] === '--outputs' && args[i + 1]) outputs = args[++i];
+        else if ((args[i] === '--depends-on' || args[i] === '--depends') && args[i + 1]) {
+          dependsOn = args[++i].split(',').map((s) => s.trim()).filter(Boolean);
+        }
+      }
+      result.spec = scaffoldCapabilitySpec({ capId, title, problem, inputs, processing, outputs, dependsOn, repoRoot });
       return result;
     }
 

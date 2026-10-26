@@ -28,6 +28,8 @@ flowchart TD
   SPEC_07["SPEC-07 (docs/specs/cap-07-npx-multi-agent-installer.md)"]
   CAP_08["CAP-08: `/sdlc` Universal Command Router & 8 Verb-Driven Skills (#81)"]
   SPEC_08["SPEC-08 (docs/specs/cap-08-command-verb-skills-router.md)"]
+  CAP_09["CAP-09: Two-Tier PRD & IEEE 29148 SRS Specification Engine (#84)"]
+  SPEC_09["SPEC-09 (docs/specs/cap-09-prd-srs-specification-engine.md)"]
   ADR_001["ADR-001: Decompose sdlc-engine.mjs into Modular Domain Libraries with SHA-256 Gate Cache and SvelteKit 5 Decision Workbench"]
   _63["Ticket #63 (feature/issue-#63-product-autopilot-adr-workbench)"]
   ADR_002["ADR-002: Consolidate 14 Skills into 6 Schema-Valid Skills, Add Composite Stage CLI, and Enforce Real Dual-Gate Verification"]
@@ -35,7 +37,9 @@ flowchart TD
   ADR_003["ADR-003: Replace Legacy Shell/Java Installers with Native npx Interactive Multi-Agent Installer Wizard"]
   _75["Ticket #75 (feature/issue-#75-npx-multi-agent-installer)"]
   ADR_004["ADR-004: Introduce /sdlc Universal Router and 8 Verb-Driven Command Skills"]
-  _81["Ticket #81"]
+  _81["Ticket #81 (feature/issue-#81-command-verb-skills-router)"]
+  ADR_005["ADR-005: Adopt Two-Tier PRD and IEEE 29148 SRS Specification Governance in sdlc-product"]
+  _84["Ticket #84"]
   _SDLC_INIT["Ticket #SDLC-INIT (feature/arch-traceability-governance)"]
   _24["Ticket #24 (feature/issue-#24-api-contract-drift-sentinel)"]
   _25["Ticket #25 (feature/issue-#25-bug-reproduce-generator)"]
@@ -60,6 +64,9 @@ flowchart TD
   CAP_08 -->|specified_by| SPEC_08
   CAP_05 -->|depends_on| CAP_08
   CAP_07 -->|depends_on| CAP_08
+  CAP_09 -->|specified_by| SPEC_09
+  CAP_05 -->|depends_on| CAP_09
+  CAP_08 -->|depends_on| CAP_09
   _63 -->|triggered_drift_adr| ADR_001
   CAP_01 -.->|ADR Drift| ADR_001
   _68 -->|triggered_drift_adr| ADR_002
@@ -76,7 +83,13 @@ flowchart TD
   CAP_05 -.->|ADR Drift| ADR_004
   CAP_07 -.->|ADR Drift| ADR_004
   CAP_08 -.->|ADR Drift| ADR_004
+  _84 -->|triggered_drift_adr| ADR_005
+  CAP_05 -.->|ADR Drift| ADR_005
+  CAP_08 -.->|ADR Drift| ADR_005
+  CAP_09 -.->|ADR Drift| ADR_005
   _63 -.->|ADR Drift| ADR_001
+  CAP_05 -->|realized_by| CAP_09
+  CAP_08 -->|realized_by| CAP_09
 ```
 
 ---
@@ -89,6 +102,7 @@ flowchart TD
 | **ADR-002** | Consolidate 14 Skills into 6 Schema-Valid Skills, Add Composite Stage CLI, and Enforce Real Dual-Gate Verification | `architectural` | `accepted` | #68 | CAP-01, CAP-02, CAP-03, CAP-04, CAP-05, CAP-06 |
 | **ADR-003** | Replace Legacy Shell/Java Installers with Native npx Interactive Multi-Agent Installer Wizard | `architectural` | `accepted` | #75 | CAP-06, CAP-07 |
 | **ADR-004** | Introduce /sdlc Universal Router and 8 Verb-Driven Command Skills | `architectural` | `accepted` | #81 | CAP-05, CAP-07, CAP-08 |
+| **ADR-005** | Adopt Two-Tier PRD and IEEE 29148 SRS Specification Governance in sdlc-product | `architectural` | `accepted` | #84 | CAP-05, CAP-08, CAP-09 |
 
 ---
 
@@ -104,3 +118,4 @@ flowchart TD
 | **CAP-06** | Dogfooding Configuration, Docs Sync & Full Test Suite (#73) | `AMENDED (ADR-002)` |
 | **CAP-07** | Native `npx` Multi-Agent Interactive Installer & Legacy Installer Removal (#75) | `AMENDED (ADR-004)` |
 | **CAP-08** | `/sdlc` Universal Command Router & 8 Verb-Driven Skills (#81) | `AMENDED (ADR-004)` |
+| **CAP-09** | Two-Tier PRD & IEEE 29148 SRS Specification Engine (#84) | `PLANNED` |

@@ -269,6 +269,8 @@ export function checkSpecDrift({
       triggers.push({ file, category: 'DB_SCHEMA_MIGRATION', reason: 'Database DDL migration introduced or altered' });
     } else if (lower.endsWith('.mmd') || lower.includes('docs/architecture/') || lower.includes('.archlens/policy.json')) {
       triggers.push({ file, category: 'C4_ARCHITECTURE_BOUNDARY_SHIFT', reason: 'Architecture diagram or concentric layer policy modified' });
+    } else if (lower === 'docs/prd.md' || lower.endsWith('/docs/prd.md') || lower === 'docs/srs.md' || lower.endsWith('/docs/srs.md')) {
+      triggers.push({ file, category: 'PRD_SRS_CONTRACT_MUTATION', reason: 'Macro PRD or IEEE 29148 SRS specification modified' });
     }
   }
 

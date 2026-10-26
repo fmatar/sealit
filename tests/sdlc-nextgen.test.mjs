@@ -20,6 +20,7 @@ import {
   generateTicketDossier,
   // PRODUCT.md & Topological DAG Autopilot
   initProductConstitution,
+  scaffoldCapabilitySpec,
   parseProductMarkdown,
   planProductDAG,
   controlProductDAG,
@@ -200,14 +201,30 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
 
       assert.equal(initRes.success, true);
       assert.equal(fs.existsSync(path.join(tmpDir, 'PRODUCT.md')), true);
+      assert.equal(fs.existsSync(path.join(tmpDir, 'docs/PRD.md')), true);
+      assert.equal(fs.existsSync(path.join(tmpDir, 'docs/SRS.md')), true);
+      const specContent = fs.readFileSync(path.join(tmpDir, 'docs/specs/order-intake.md'), 'utf8');
+      assert.ok(specContent.includes('## 1. PRD Slice: Problem Alignment & Scope'));
+      assert.ok(specContent.includes('## 2. Functional Requirements (IEEE 29148 SRS)'));
       assert.equal(initRes.genesisTicket.issueId, 1);
       assert.ok(initRes.genesisTicket.branch.includes('feature/issue-#1-product-genesis'));
 
+      const specRes = scaffoldCapabilitySpec({
+        capId: 'CAP-04',
+        title: 'Realtime Risk Scoring',
+        problem: 'Detect anomalous order velocity before ledger settlement.',
+        dependsOn: ['CAP-01', 'CAP-02'],
+        repoRoot: tmpDir
+      });
+      assert.equal(specRes.success, true);
+      assert.equal(fs.existsSync(specRes.absSpecPath), true);
+
       const parsed = parseProductMarkdown(tmpDir);
       assert.equal(parsed.title, 'Realtime Order Mesh');
-      assert.equal(parsed.capabilities.length, 3);
+      assert.equal(parsed.capabilities.length, 4);
       assert.equal(parsed.capabilities[0].id, 'CAP-01');
       assert.equal(parsed.capabilities[1].id, 'CAP-02');
+      assert.equal(parsed.capabilities[3].id, 'CAP-04');
       assert.deepEqual(parsed.capabilities[1].dependsOn, ['CAP-01']);
       assert.equal(parsed.invariants.length, 2);
       assert.equal(parsed.invariants[0].id, 'INV-01');
@@ -266,14 +283,15 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
       fs.writeFileSync(path.join(tmpDir, 'openapi.json'), JSON.stringify({ openapi: '3.0.0', paths: { '/v2/stream': {} } }));
 
       const driftRes = checkSpecDrift({
-        diffFiles: ['package.json', 'openapi.json'],
+        diffFiles: ['package.json', 'openapi.json', 'docs/PRD.md', 'docs/SRS.md'],
         ticketId: 12,
         repoRoot: tmpDir
       });
 
       assert.equal(driftRes.passed, false);
       assert.equal(driftRes.hasUndeclaredDrift, true);
-      assert.ok(driftRes.triggers.length >= 2);
+      assert.ok(driftRes.triggers.length >= 4);
+      assert.ok(driftRes.triggers.some((t) => t.category === 'PRD_SRS_CONTRACT_MUTATION'));
 
       // Now mint a linked technical ADR for ticket #12
       const adrRes = createADR({
@@ -386,6 +404,9 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
       assert.ok(dossierRes.dossier.fileSignatures[0].exports.includes('validateIdempotencyKey'));
       assert.equal(dossierRes.dossier.activeADRs.length, 1);
       assert.equal(dossierRes.dossier.activeADRs[0].id, 'ADR-001');
+      const dossierMd = fs.readFileSync(dossierRes.markdownPath, 'utf8');
+      assert.ok(dossierMd.includes('## 📋 Capability Spec & IEEE 29148 SRS Excerpt'));
+      assert.ok(dossierMd.includes('## 2. Functional Requirements (IEEE 29148 SRS)'));
     });
   });
 
