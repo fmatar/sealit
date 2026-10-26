@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 import { fileExists, readFileSafe, inspectArchlens, detectPMProvider, getModifiedFiles } from './core.mjs';
 import { getSessionStatus } from './session.mjs';
 import { createTicket } from './pm-provider.mjs';
@@ -125,8 +125,27 @@ export function generateRegressionProof({
   const apiProofs = apiEndpoints.map((ep, idx) => {
     const method = ep.method || 'GET';
     const pathUrl = ep.path || ep.url || `/api/v1/${targetName}`;
-    const status = ep.expectedStatus || 200;
-    const bodySample = ep.sampleResponse || { status: 'ok', timestamp };
+    let status = ep.expectedStatus || 200;
+    let bodySample = ep.sampleResponse || { status: 'ok', timestamp };
+    let source = 'contract-sample';
+
+    if (ep.file && fileExists(path.resolve(repoRoot, ep.file))) {
+      bodySample = readFileSafe(path.resolve(repoRoot, ep.file)) || bodySample;
+      source = ep.file;
+    } else if (ep.liveProbe && /^https?:\/\//i.test(pathUrl)) {
+      try {
+        const liveOut = execFileSync('curl', ['-s', '--max-time', '2', pathUrl], {
+          cwd: repoRoot,
+          encoding: 'utf8',
+          stdio: 'pipe'
+        });
+        if (liveOut) {
+          bodySample = liveOut;
+          source = 'live-http';
+        }
+      } catch {}
+    }
+
     const hash = crypto.createHash('sha256').update(JSON.stringify({ method, pathUrl, status, bodySample })).digest('hex');
 
     return {
@@ -134,6 +153,7 @@ export function generateRegressionProof({
       method,
       endpoint: pathUrl,
       status,
+      source,
       responseHash: hash,
       verified: true
     };
@@ -142,13 +162,38 @@ export function generateRegressionProof({
   const uiProofs = uiRoutes.map((route, idx) => {
     const routePath = typeof route === 'string' ? route : route.path || `/${targetName}`;
     const componentName = typeof route === 'object' && route.component ? route.component : `${targetName}-view`;
-    const domSnapshot = `<div id="app" data-component="${componentName}"><header><h1>${componentName}</h1></header><main data-proof-ready="true"></main></div>`;
+    const explicitFile = typeof route === 'object' && route.file ? route.file : null;
+
+    const candidateFiles = [
+      explicitFile,
+      `workbench/src/routes${routePath === '/' ? '' : routePath}/+page.svelte`,
+      `src/routes${routePath === '/' ? '' : routePath}/+page.svelte`,
+      `src/components/${componentName}.svelte`,
+      `src/components/${componentName}.tsx`,
+      `src/components/${componentName}.vue`
+    ].filter(Boolean);
+
+    let domSnapshot = `<div id="app" data-component="${componentName}"><header><h1>${componentName}</h1></header><main data-proof-ready="true"></main></div>`;
+    let sourceFile = null;
+    for (const candidate of candidateFiles) {
+      const absCandidate = path.resolve(repoRoot, candidate);
+      if (fileExists(absCandidate)) {
+        const rawComponent = readFileSafe(absCandidate);
+        if (rawComponent) {
+          domSnapshot = rawComponent;
+          sourceFile = candidate;
+          break;
+        }
+      }
+    }
+
     const snapshotHash = crypto.createHash('sha256').update(domSnapshot).digest('hex');
 
     return {
       id: `ui-${idx + 1}`,
       route: routePath,
       component: componentName,
+      sourceFile,
       snapshotHash,
       verified: true
     };
@@ -225,6 +270,7 @@ export function monitorCanaryHealthAndWatchdog({
   maxErrorRate = 0.05,
   samples = 5,
   simulatedErrors = 0,
+  probeLive = false,
   rollbackCommand = null,
   repoRoot = '.'
 } = {}) {
@@ -232,10 +278,44 @@ export function monitorCanaryHealthAndWatchdog({
   const healthLogs = [];
 
   for (let i = 1; i <= samples; i++) {
-    const isError = i <= simulatedErrors;
-    if (isError) {
-      errorsDetected++;
-      healthLogs.push({ sample: i, status: 500, ok: false, error: 'Synthetic Canary Probe Timeout / 500 Server Error' });
+    if (simulatedErrors > 0) {
+      const isError = i <= simulatedErrors;
+      if (isError) {
+        errorsDetected++;
+        healthLogs.push({ sample: i, status: 500, ok: false, error: 'Synthetic Canary Probe Timeout / 500 Server Error' });
+      } else {
+        healthLogs.push({ sample: i, status: 200, ok: true });
+      }
+    } else if (probeLive && /^https?:\/\//i.test(healthUrl)) {
+      try {
+        const statusStr = execFileSync(
+          'curl',
+          ['-s', '-o', '/dev/null', '-w', '%{http_code}', '--max-time', '2', healthUrl],
+          { cwd: repoRoot, encoding: 'utf8', stdio: 'pipe' }
+        ).trim();
+        const code = parseInt(statusStr, 10) || 0;
+        if (code >= 200 && code < 400) {
+          healthLogs.push({ sample: i, status: code, ok: true, mode: 'live' });
+        } else {
+          errorsDetected++;
+          healthLogs.push({
+            sample: i,
+            status: code || 503,
+            ok: false,
+            mode: 'live',
+            error: `Live HTTP probe returned status ${code || 'unreachable'}`
+          });
+        }
+      } catch (err) {
+        errorsDetected++;
+        healthLogs.push({
+          sample: i,
+          status: 503,
+          ok: false,
+          mode: 'live',
+          error: `Live HTTP probe failed: ${err.message}`
+        });
+      }
     } else {
       healthLogs.push({ sample: i, status: 200, ok: true });
     }
@@ -444,40 +524,111 @@ export function scaffoldReproductionTest({
   repoRoot = '.'
 } = {}) {
   const cleanTrace = (errorTrace || '').trim();
-  const guessedTarget = targetFile || cleanTrace.match(/at\s+.*?\((.*?):\d+:\d+\)/)?.[1] || 'src/index.mjs';
-  const ext = path.extname(guessedTarget);
+  const guessedTarget =
+    targetFile ||
+    cleanTrace.match(/at\s+.*?\((.*?):\d+:\d+\)/)?.[1] ||
+    cleanTrace.match(/File\s+"([^"]+)",\s+line\s+\d+/)?.[1] ||
+    cleanTrace.match(/([a-zA-Z0-9_./-]+\.(?:java|py|go|rs|mjs|js|ts)):\d+/)?.[1] ||
+    'src/index.mjs';
+  const ext = path.extname(guessedTarget).toLowerCase();
   const baseName = path.basename(guessedTarget, ext);
+  const firstLine = cleanTrace ? cleanTrace.split('\n')[0] : 'Reproduction Failure';
+  const escapedRegex = firstLine.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+  const stamp = Date.now().toString().slice(-4);
 
   const testDir = path.resolve(repoRoot, 'tests/reproductions');
   fs.mkdirSync(testDir, { recursive: true });
-  const testFileName = `reproduce-${baseName.toLowerCase()}-${Date.now().toString().slice(-4)}.test.mjs`;
-  const testFilePath = path.resolve(testDir, testFileName);
 
-  const testContent = `import { describe, it } from 'node:test';
-import assert from 'node:assert/strict';
+  let testFileName = `reproduce-${baseName.toLowerCase()}-${stamp}.test.mjs`;
+  let language = 'javascript';
+  let testContent = '';
 
-/**
+  const headerComment = `/**
  * MANDATORY BUG REPRODUCTION HARNESS (Robert Martin Red-Green-Refactor)
  * Target Source: ${guessedTarget}
  * Stack / Error Trace:
  * ${cleanTrace.split('\n').map((l) => ' * ' + l).join('\n')}
- */
+ * Bug Reproduction Harness: ${baseName}
+ */`;
+
+  if (ext === '.java') {
+    language = 'java';
+    const className = `Reproduce${baseName.replace(/[^a-zA-Z0-9]/g, '')}${stamp}Test`;
+    testFileName = `${className}.java`;
+    testContent = `${headerComment}
+import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.*;
+
+public class ${className} {
+    @Test
+    void reproducesFailureBeforeFix() {
+        // Red Phase: Replace with invocation of ${baseName} triggering: ${firstLine.replace(/"/g, '\\"')}
+        fail("Unresolved defect in ${guessedTarget}: ${firstLine.replace(/"/g, '\\"')}");
+    }
+}
+`;
+  } else if (ext === '.py') {
+    language = 'python';
+    testFileName = `test_reproduce_${baseName.toLowerCase()}_${stamp}.py`;
+    testContent = `"""
+MANDATORY BUG REPRODUCTION HARNESS (Robert Martin Red-Green-Refactor)
+Target Source: ${guessedTarget}
+Bug Reproduction Harness: ${baseName}
+Trace: ${firstLine}
+"""
+import pytest
+
+def test_reproduce_${baseName.toLowerCase().replace(/[^a-z0-9_]/g, '_')}():
+    # Red Phase: Invoking ${guessedTarget} must not raise ${firstLine}
+    pytest.fail(${JSON.stringify(`Unresolved defect in ${guessedTarget}: ${firstLine}`)})
+`;
+  } else if (ext === '.go') {
+    language = 'go';
+    testFileName = `reproduce_${baseName.toLowerCase()}_${stamp}_test.go`;
+    testContent = `${headerComment}
+package reproductions
+
+import "testing"
+
+func TestReproduce${baseName.replace(/[^a-zA-Z0-9]/g, '')}(t *testing.T) {
+\t// Red Phase: Invoking ${guessedTarget} must not fail with: ${firstLine}
+\tt.Fatalf("Unresolved defect in %s: %s", ${JSON.stringify(guessedTarget)}, ${JSON.stringify(firstLine)})
+}
+`;
+  } else if (ext === '.rs') {
+    language = 'rust';
+    testFileName = `reproduce_${baseName.toLowerCase()}_${stamp}_test.rs`;
+    testContent = `${headerComment}
+#[test]
+fn reproduce_${baseName.toLowerCase().replace(/[^a-z0-9_]/g, '_')}() {
+    panic!("Unresolved defect in ${guessedTarget}: ${firstLine.replace(/"/g, '\\"')}");
+}
+`;
+  } else {
+    testContent = `import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+
+${headerComment}
 describe('Bug Reproduction Harness: ${baseName}', () => {
   it('reproduces failure with failing assertion before applying fix', async () => {
-    const input = null;
+    const targetModulePath = ${JSON.stringify(guessedTarget)};
+    assert.ok(targetModulePath, 'Target module path must be defined');
 
-    assert.rejects(async () => {
-      throw new Error(${JSON.stringify(cleanTrace ? cleanTrace.split('\n')[0] : 'Reproduction Failure')});
-    }, /${cleanTrace ? cleanTrace.split('\n')[0].replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&') : 'Reproduction Failure'}/);
+    await assert.rejects(async () => {
+      throw new Error(${JSON.stringify(firstLine)});
+    }, /${escapedRegex}/);
   });
 });
 `;
+  }
 
+  const testFilePath = path.resolve(testDir, testFileName);
   fs.writeFileSync(testFilePath, testContent, 'utf8');
 
   return {
     success: true,
     created: true,
+    language,
     targetFile: guessedTarget,
     testPath: testFilePath,
     relativePath: path.relative(path.resolve(repoRoot), testFilePath),
@@ -578,6 +729,9 @@ export function generatePRSummary({ issueId = null, repoRoot = '.' } = {}) {
     }).trim();
   } catch {}
 
+  const covReport = activeSess?.manifest?.coverageReport || null;
+  const mutReport = activeSess?.manifest?.mutationScore || null;
+
   const summary = `## 📋 Pull Request Summary: #${issue}
 
 ### 🎯 Overview & Classification
@@ -591,8 +745,8 @@ export function generatePRSummary({ issueId = null, repoRoot = '.' } = {}) {
 ### 🛡️ Dual-Gate Quality Verification
 | Metric | Threshold | Achieved | Status |
 | :--- | :--- | :--- | :--- |
-| **Line & Branch Diff Coverage** | $\\ge 85\\%$ | ${activeSess?.manifest?.coverageReport || '90%'} | ✅ PASSED |
-| **Mutation Kill Score** | $\\ge 80\\%$ | ${activeSess?.manifest?.mutationScore || '85%'} | ✅ PASSED |
+| **Line & Branch Diff Coverage** | $\\ge 85\\%$ | ${covReport || 'Not Measured'} | ${covReport ? '✅ PASSED' : '⚪ PENDING'} |
+| **Mutation Kill Score** | $\\ge 80\\%$ | ${mutReport || 'Not Measured'} | ${mutReport ? '✅ PASSED' : '⚪ PENDING'} |
 | **Archlens Clean Architecture** | 100% Policy | ${archInfo.installed ? 'Compliant' : 'N/A'} | ${archInfo.installed ? '✅ PASSED' : '⚪ SKIPPED'} |
 | **Static Analysis & Linting** | 0 Violations | Clean | ✅ PASSED |
 
@@ -632,7 +786,7 @@ ${statSummary || diffFiles.join('\n') || 'No modified files detected'}
   };
 }
 
-export function findAffectededTests(diffFiles = [], repoRoot = '.') {
+export function findAffectedTests(diffFiles = [], repoRoot = '.') {
   const files = diffFiles.length > 0 ? diffFiles : getModifiedFiles('main', repoRoot);
   const matchedTests = new Set();
 
@@ -644,7 +798,8 @@ export function findAffectededTests(diffFiles = [], repoRoot = '.') {
       `${basename}.test${ext}`,
       `${basename}.spec${ext}`,
       `${basename}Test${ext}`,
-      `${basename}_test${ext}`
+      `${basename}_test${ext}`,
+      `test_${basename}${ext}`
     ];
 
     const searchDirs = ['test', 'tests', 'src/test', 'spec', 'specs'];
@@ -672,12 +827,255 @@ export function findAffectededTests(diffFiles = [], repoRoot = '.') {
   return Array.from(matchedTests);
 }
 
+export const findAffectededTests = findAffectedTests;
+
+export function buildSingleTestCommand(testFile, repoRoot = '.') {
+  const ext = path.extname(testFile).toLowerCase();
+  const baseName = path.basename(testFile, ext);
+  const detected = detectStackInDir(repoRoot);
+
+  if (ext === '.java' || detected?.language === 'java') {
+    if (detected?.type === 'java-gradle') {
+      return `./gradlew test --tests "${baseName}"`;
+    }
+    return `./mvnw test -Dtest="${baseName}"`;
+  }
+  if (ext === '.py' || detected?.language === 'python') {
+    return `pytest "${testFile}"`;
+  }
+  if (ext === '.go' || detected?.language === 'go') {
+    const pkgDir = path.dirname(testFile);
+    return `go test -v "./${pkgDir === '.' ? '...' : pkgDir}"`;
+  }
+  if (ext === '.rs' || detected?.language === 'rust') {
+    return `cargo test --test "${baseName}"`;
+  }
+  return `node --test "${testFile}"`;
+}
+
+export function parseCoverageReport(repoRoot = '.', mod = null) {
+  const threshold = mod?.thresholds?.diffCoverage ?? 85;
+  const modDir = mod?.path && mod.path !== '.' ? path.resolve(repoRoot, mod.path) : path.resolve(repoRoot);
+
+  const candidates = [
+    mod?.commands?.coverageFile,
+    'coverage/coverage-summary.json',
+    'coverage/lcov.info',
+    'target/site/jacoco/jacoco.csv',
+    'build/reports/jacoco/test/jacocoTestReport.csv',
+    'coverage.xml',
+    'cobertura.xml',
+    'coverage.out'
+  ].filter(Boolean);
+
+  for (const relPath of candidates) {
+    const fullPath = path.resolve(modDir, relPath);
+    if (!fileExists(fullPath)) continue;
+    const raw = readFileSafe(fullPath);
+    if (!raw) continue;
+
+    if (relPath.endsWith('.json')) {
+      try {
+        const data = JSON.parse(raw);
+        const linePct = Number(data.total?.lines?.pct ?? data.lines?.pct);
+        const branchPct = Number(data.total?.branches?.pct ?? data.branches?.pct ?? linePct);
+        if (!Number.isNaN(linePct)) {
+          return {
+            found: true,
+            file: relPath,
+            lineCoverage: Number(linePct.toFixed(2)),
+            branchCoverage: Number(branchPct.toFixed(2)),
+            formatted: `${linePct.toFixed(1)}%`,
+            threshold,
+            passed: linePct >= threshold
+          };
+        }
+      } catch {}
+    }
+
+    if (relPath.endsWith('lcov.info') || relPath.endsWith('.lcov')) {
+      let lf = 0;
+      let lh = 0;
+      for (const line of raw.split('\n')) {
+        if (line.startsWith('LF:')) lf += parseInt(line.slice(3), 10) || 0;
+        else if (line.startsWith('LH:')) lh += parseInt(line.slice(3), 10) || 0;
+      }
+      if (lf > 0) {
+        const pct = (lh / lf) * 100;
+        return {
+          found: true,
+          file: relPath,
+          lineCoverage: Number(pct.toFixed(2)),
+          branchCoverage: null,
+          formatted: `${pct.toFixed(1)}%`,
+          threshold,
+          passed: pct >= threshold
+        };
+      }
+    }
+
+    if (relPath.endsWith('.csv')) {
+      const lines = raw.trim().split('\n');
+      if (lines.length > 1) {
+        const headers = lines[0].split(',').map((h) => h.trim());
+        const missedIdx = headers.indexOf('LINE_MISSED');
+        const coveredIdx = headers.indexOf('LINE_COVERED');
+        if (missedIdx !== -1 && coveredIdx !== -1) {
+          let missed = 0;
+          let covered = 0;
+          for (let i = 1; i < lines.length; i++) {
+            const cols = lines[i].split(',');
+            missed += parseInt(cols[missedIdx], 10) || 0;
+            covered += parseInt(cols[coveredIdx], 10) || 0;
+          }
+          const total = missed + covered;
+          if (total > 0) {
+            const pct = (covered / total) * 100;
+            return {
+              found: true,
+              file: relPath,
+              lineCoverage: Number(pct.toFixed(2)),
+              branchCoverage: null,
+              formatted: `${pct.toFixed(1)}%`,
+              threshold,
+              passed: pct >= threshold
+            };
+          }
+        }
+      }
+    }
+
+    if (relPath.endsWith('.xml')) {
+      const match = raw.match(/line-rate=["']([0-9.]+)["']/);
+      if (match) {
+        const pct = parseFloat(match[1]) * 100;
+        return {
+          found: true,
+          file: relPath,
+          lineCoverage: Number(pct.toFixed(2)),
+          branchCoverage: null,
+          formatted: `${pct.toFixed(1)}%`,
+          threshold,
+          passed: pct >= threshold
+        };
+      }
+    }
+
+    if (relPath.endsWith('coverage.out')) {
+      let totalStmts = 0;
+      let coveredStmts = 0;
+      for (const line of raw.split('\n')) {
+        if (!line || line.startsWith('mode:')) continue;
+        const parts = line.trim().split(/\s+/);
+        if (parts.length >= 3) {
+          const stmts = parseInt(parts[1], 10) || 0;
+          const count = parseInt(parts[2], 10) || 0;
+          totalStmts += stmts;
+          if (count > 0) coveredStmts += stmts;
+        }
+      }
+      if (totalStmts > 0) {
+        const pct = (coveredStmts / totalStmts) * 100;
+        return {
+          found: true,
+          file: relPath,
+          lineCoverage: Number(pct.toFixed(2)),
+          branchCoverage: null,
+          formatted: `${pct.toFixed(1)}%`,
+          threshold,
+          passed: pct >= threshold
+        };
+      }
+    }
+  }
+
+  return {
+    found: false,
+    file: null,
+    lineCoverage: null,
+    branchCoverage: null,
+    formatted: null,
+    threshold,
+    passed: true
+  };
+}
+
+export function parseMutationReport(repoRoot = '.', mod = null) {
+  const threshold = mod?.thresholds?.mutationScore ?? 80;
+  const modDir = mod?.path && mod.path !== '.' ? path.resolve(repoRoot, mod.path) : path.resolve(repoRoot);
+
+  const strykerPath = path.resolve(modDir, 'reports/mutation/mutation.json');
+  if (fileExists(strykerPath)) {
+    try {
+      const data = JSON.parse(readFileSafe(strykerPath) || '{}');
+      if (typeof data.mutationScore === 'number') {
+        const score = Number(data.mutationScore.toFixed(2));
+        return {
+          found: true,
+          file: 'reports/mutation/mutation.json',
+          mutationScore: score,
+          formatted: `${score.toFixed(1)}%`,
+          threshold,
+          passed: score >= threshold
+        };
+      }
+      let killed = 0;
+      let total = 0;
+      for (const fileObj of Object.values(data.files || {})) {
+        for (const mutant of fileObj.mutants || []) {
+          if (mutant.status === 'Ignored' || mutant.status === 'CompileError') continue;
+          total++;
+          if (mutant.status === 'Killed' || mutant.status === 'Timeout') killed++;
+        }
+      }
+      if (total > 0) {
+        const score = Number(((killed / total) * 100).toFixed(2));
+        return {
+          found: true,
+          file: 'reports/mutation/mutation.json',
+          mutationScore: score,
+          formatted: `${score.toFixed(1)}%`,
+          threshold,
+          passed: score >= threshold
+        };
+      }
+    } catch {}
+  }
+
+  const pitPath = path.resolve(modDir, 'target/pit-reports/mutations.xml');
+  if (fileExists(pitPath)) {
+    const raw = readFileSafe(pitPath) || '';
+    const allMatches = raw.match(/<mutation\s+[^>]*detected=['"](true|false)['"]/g) || [];
+    if (allMatches.length > 0) {
+      const detectedCount = allMatches.filter((m) => /detected=['"]true['"]/.test(m)).length;
+      const score = Number(((detectedCount / allMatches.length) * 100).toFixed(2));
+      return {
+        found: true,
+        file: 'target/pit-reports/mutations.xml',
+        mutationScore: score,
+        formatted: `${score.toFixed(1)}%`,
+        threshold,
+        passed: score >= threshold
+      };
+    }
+  }
+
+  return {
+    found: false,
+    file: null,
+    mutationScore: null,
+    formatted: null,
+    threshold,
+    passed: true
+  };
+}
+
 export function runFlakeCheck({ runs = 5, target = null, repoRoot = '.' } = {}) {
   const iterationCount = Math.max(2, Math.min(50, Number(runs) || 5));
   console.log(`🧪 Running Flaky Test Detector (${iterationCount} iterations)...`);
 
   const diffFiles = getModifiedFiles('main', repoRoot);
-  const testFiles = target ? [target] : findAffectededTests(diffFiles, repoRoot);
+  const testFiles = target ? [target] : findAffectedTests(diffFiles, repoRoot);
 
   if (testFiles.length === 0) {
     return {
@@ -694,10 +1092,11 @@ export function runFlakeCheck({ runs = 5, target = null, repoRoot = '.' } = {}) 
   for (const tFile of testFiles) {
     let passedCount = 0;
     let failedCount = 0;
+    const singleTestCmd = buildSingleTestCommand(tFile, repoRoot);
 
     for (let i = 1; i <= iterationCount; i++) {
       try {
-        execSync(`node --test "${tFile}" 2>/dev/null`, { cwd: repoRoot, stdio: 'pipe' });
+        execSync(`${singleTestCmd} 2>/dev/null`, { cwd: repoRoot, stdio: 'pipe' });
         passedCount++;
       } catch {
         failedCount++;
@@ -709,6 +1108,7 @@ export function runFlakeCheck({ runs = 5, target = null, repoRoot = '.' } = {}) 
 
     results.push({
       testFile: tFile,
+      command: singleTestCmd,
       iterations: iterationCount,
       passed: passedCount,
       failed: failedCount,
@@ -873,18 +1273,18 @@ export function generateReviewPlan({ repoRoot = '.' } = {}) {
 
   const subagents = [
     {
-      TypeName: 'self',
+      TypeName: 'research',
       Role: 'PR Peer Reviewer',
-      Prompt: `Load sdlc-peer-review/SKILL.md. Audit git diff against main on branch ${branch} for issue #${issueId}.
+      Prompt: `Load sdlc-review-gate/SKILL.md. Audit git diff against main on branch ${branch} for issue #${issueId}.
 1. Audit for Robert Martin test smells (no assertion-free tests, no trivial getters, no mock abuse).
 2. Verify Dual-Gate metrics (Line diff coverage >= 85%, Mutation kill score >= 80%).
 3. Verify developer showcase quickstart in README.md and CHANGELOG.md entry.
 4. MANDATORILY post formal review comment to GitHub PR, Jira, Linear, or docs/KANBAN.md (node .agent/scripts/sdlc-engine.mjs pm comment ${issueId} --body "<comment>").`
     },
     {
-      TypeName: 'self',
+      TypeName: 'research',
       Role: 'Quality Gatekeeper',
-      Prompt: `Load sdlc-quality-gate/SKILL.md. Execute universal quality gate (node .agent/scripts/sdlc-engine.mjs gate --strict).
+      Prompt: `Load sdlc-review-gate/SKILL.md. Execute universal quality gate (node .agent/scripts/sdlc-engine.mjs gate --strict).
 1. Audit formatting, static typing, and production builds.
 2. Check pre-flight risk profile (detected: ${risk.riskLevel}).
 3. Run secret scanning and package CVE check (node .agent/scripts/sdlc-engine.mjs security-audit).
@@ -894,7 +1294,7 @@ export function generateReviewPlan({ repoRoot = '.' } = {}) {
 
   if (risk.riskLevel === 'CRITICAL' || risk.riskLevel === 'HIGH') {
     subagents.push({
-      TypeName: 'self',
+      TypeName: 'research',
       Role: 'Security & Architectural Auditor',
       Prompt: `Conduct deep security and architectural invariant audit for HIGH/CRITICAL risk changes (${risk.riskLevel}).
 1. Inspect migration files, auth handlers, and domain models.

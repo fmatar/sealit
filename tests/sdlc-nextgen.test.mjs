@@ -41,8 +41,21 @@ import {
   // Existing + Upgraded Engine Exports
   startSession,
   updateSession,
+  executeCompositeStage,
+  findAffectedTests,
+  buildSingleTestCommand,
+  parseCoverageReport,
+  parseMutationReport,
+  generatePRSummary,
+  checkArchDiff,
+  scaffoldReproductionTest,
+  generateRegressionProof,
+  createTicket,
+  postPMComment,
   installHooks,
   createWorkbenchServer,
+  buildArchDiffPayload,
+  generateArchitectureWidget,
   runCLI
 } from '../.agent/scripts/sdlc-engine.mjs';
 
@@ -574,6 +587,226 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
       const cacheCli = runCLI(['cache', 'status'], null, tmpDir);
       assert.equal(cacheCli.command, 'cache');
       assert.equal(typeof cacheCli.cache.entriesCount, 'number');
+    });
+  });
+
+  // =========================================================================
+  // 7. v0.1.0 Hardening: Composite Stage CLI, Polyglot Runners, Real Coverage/Mutation Parsers & Policy ArchDiff
+  // =========================================================================
+  describe('7. v0.1.0 Hardening: Composite Stage CLI, Polyglot Runners & Real Parsers', () => {
+    it('executes composite stage lifecycle (begin -> pre-pr -> complete) atomically', () => {
+      initTempGitRepo(tmpDir);
+      initProductConstitution({
+        title: 'Composite Stage Demo',
+        capabilities: [{ title: 'Stage CLI', spec: 'docs/specs/stage.md' }],
+        repoRoot: tmpDir
+      });
+      execSync('git add . && git commit -m "chore: add product constitution"', { cwd: tmpDir, stdio: 'pipe' });
+
+      const beginRes = runCLI(
+        ['stage', 'begin', '--issue=77', '--title=Composite Lifecycle', '--type=feat', '--checkout'],
+        null,
+        tmpDir
+      );
+      assert.equal(beginRes.success, true);
+      assert.equal(beginRes.stage.action, 'begin');
+      assert.equal(beginRes.stage.issueId, '77');
+      assert.equal(beginRes.stage.stage, 2);
+
+      const prePrRes = runCLI(
+        ['stage', 'pre-pr', '--issue=77', '--summary', 'Verified pre-PR composite stage'],
+        null,
+        tmpDir
+      );
+      assert.equal(prePrRes.stage.action, 'pre-pr');
+      assert.equal(prePrRes.stage.stage, 6);
+      assert.ok(fs.existsSync(prePrRes.stage.decisionMapPath));
+      assert.ok(prePrRes.stage.prSummary.markdown.includes('Not Measured'));
+
+      const completeRes = runCLI(['stage', 'complete', '--issue=77', '--pr=#99'], null, tmpDir);
+      assert.equal(completeRes.success, true);
+      assert.equal(completeRes.stage.action, 'complete');
+      assert.equal(completeRes.stage.stage, 8);
+    });
+
+    it('constructs stack-aware single-test commands across Java, Python, Go, Rust, and Node', () => {
+      assert.equal(buildSingleTestCommand('tests/auth.test.mjs', tmpDir), 'node --test "tests/auth.test.mjs"');
+      assert.equal(buildSingleTestCommand('tests/test_auth.py', tmpDir), 'pytest "tests/test_auth.py"');
+      assert.equal(buildSingleTestCommand('pkg/auth/auth_test.go', tmpDir), 'go test -v "./pkg/auth"');
+      assert.equal(buildSingleTestCommand('tests/auth_test.rs', tmpDir), 'cargo test --test "auth_test"');
+      assert.equal(buildSingleTestCommand('src/test/java/OrderServiceTest.java', tmpDir), './mvnw test -Dtest="OrderServiceTest"');
+
+      fs.writeFileSync(path.join(tmpDir, 'build.gradle'), 'plugins { id "java" }\n', 'utf8');
+      assert.equal(
+        buildSingleTestCommand('src/test/java/OrderServiceTest.java', tmpDir),
+        './gradlew test --tests "OrderServiceTest"'
+      );
+    });
+
+    it('parses coverage reports (JSON, LCOV, JaCoCo CSV, Cobertura XML, Go coverprofile) and mutation reports (Stryker, PITest)', () => {
+      // 1. JSON coverage-summary.json
+      fs.mkdirSync(path.join(tmpDir, 'coverage'), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpDir, 'coverage/coverage-summary.json'),
+        JSON.stringify({ total: { lines: { pct: 91.5 }, branches: { pct: 88.2 } } }),
+        'utf8'
+      );
+      const jsonCov = parseCoverageReport(tmpDir);
+      assert.equal(jsonCov.found, true);
+      assert.equal(jsonCov.lineCoverage, 91.5);
+      assert.equal(jsonCov.passed, true);
+      fs.unlinkSync(path.join(tmpDir, 'coverage/coverage-summary.json'));
+
+      // 2. LCOV
+      fs.writeFileSync(path.join(tmpDir, 'coverage/lcov.info'), 'SF:src/a.js\nLF:100\nLH:80\nend_of_record\n', 'utf8');
+      const lcovCov = parseCoverageReport(tmpDir);
+      assert.equal(lcovCov.found, true);
+      assert.equal(lcovCov.lineCoverage, 80);
+      assert.equal(lcovCov.passed, false);
+      fs.unlinkSync(path.join(tmpDir, 'coverage/lcov.info'));
+
+      // 3. JaCoCo CSV
+      fs.mkdirSync(path.join(tmpDir, 'target/site/jacoco'), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpDir, 'target/site/jacoco/jacoco.csv'),
+        'GROUP,PACKAGE,CLASS,LINE_MISSED,LINE_COVERED\napp,com.demo,Svc,5,95\n',
+        'utf8'
+      );
+      const jacocoCov = parseCoverageReport(tmpDir);
+      assert.equal(jacocoCov.found, true);
+      assert.equal(jacocoCov.lineCoverage, 95);
+      assert.equal(jacocoCov.passed, true);
+      fs.unlinkSync(path.join(tmpDir, 'target/site/jacoco/jacoco.csv'));
+
+      // 4. Cobertura / pytest XML
+      fs.writeFileSync(path.join(tmpDir, 'coverage.xml'), '<coverage line-rate="0.895"></coverage>', 'utf8');
+      const xmlCov = parseCoverageReport(tmpDir);
+      assert.equal(xmlCov.found, true);
+      assert.equal(xmlCov.lineCoverage, 89.5);
+      fs.unlinkSync(path.join(tmpDir, 'coverage.xml'));
+
+      // 5. Go coverage.out
+      fs.writeFileSync(
+        path.join(tmpDir, 'coverage.out'),
+        'mode: set\ngithub.com/org/pkg/a.go:1.1,10.2 8 1\ngithub.com/org/pkg/a.go:12.1,20.2 2 0\n',
+        'utf8'
+      );
+      const goCov = parseCoverageReport(tmpDir);
+      assert.equal(goCov.found, true);
+      assert.equal(goCov.lineCoverage, 80);
+
+      // 6. Stryker mutation.json
+      fs.mkdirSync(path.join(tmpDir, 'reports/mutation'), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpDir, 'reports/mutation/mutation.json'),
+        JSON.stringify({
+          files: {
+            'src/a.js': {
+              mutants: [{ status: 'Killed' }, { status: 'Killed' }, { status: 'Timeout' }, { status: 'Survived' }]
+            }
+          }
+        }),
+        'utf8'
+      );
+      const strykerMut = parseMutationReport(tmpDir);
+      assert.equal(strykerMut.found, true);
+      assert.equal(strykerMut.mutationScore, 75);
+      assert.equal(strykerMut.passed, false);
+      fs.unlinkSync(path.join(tmpDir, 'reports/mutation/mutation.json'));
+
+      // 7. PITest mutations.xml
+      fs.mkdirSync(path.join(tmpDir, 'target/pit-reports'), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpDir, 'target/pit-reports/mutations.xml'),
+        `<mutations><mutation detected='true'/><mutation detected='true'/><mutation detected='true'/><mutation detected='true'/><mutation detected='false'/></mutations>`,
+        'utf8'
+      );
+      const pitMut = parseMutationReport(tmpDir);
+      assert.equal(pitMut.found, true);
+      assert.equal(pitMut.mutationScore, 80);
+      assert.equal(pitMut.passed, true);
+    });
+
+    it('enforces .archlens/policy.json ring dependencies in checkArchDiff and scaffolds polyglot reproduction tests', () => {
+      initTempGitRepo(tmpDir);
+      fs.mkdirSync(path.join(tmpDir, '.archlens'), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpDir, '.archlens/policy.json'),
+        JSON.stringify({
+          layers: [
+            { name: 'CoreRing', paths: ['src/core'], allowedDependencies: [] },
+            { name: 'UseCaseRing', paths: ['src/usecases'], allowedDependencies: ['CoreRing'] },
+            { name: 'AdapterRing', paths: ['src/adapters'], allowedDependencies: ['CoreRing', 'UseCaseRing'] }
+          ]
+        }),
+        'utf8'
+      );
+      fs.mkdirSync(path.join(tmpDir, 'src/usecases'), { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, 'src/usecases/order.mjs'), 'export const x = 1;\n', 'utf8');
+      execSync('git add . && git commit -m "chore: setup policy"', { cwd: tmpDir, stdio: 'pipe' });
+
+      // Switch to feature branch and modify UseCaseRing to import AdapterRing (violates allowedDependencies: ['CoreRing'])
+      execSync('git checkout -b feature/issue-#70-policy-test', { cwd: tmpDir, stdio: 'pipe' });
+      fs.writeFileSync(
+        path.join(tmpDir, 'src/usecases/order.mjs'),
+        `import { db } from '../adapters/postgres.mjs';\nexport const x = 1;\n`,
+        'utf8'
+      );
+      execSync('git add . && git commit -m "feat: add illegal outer import"', { cwd: tmpDir, stdio: 'pipe' });
+
+      const archRes = checkArchDiff(tmpDir);
+      assert.equal(archRes.enabled, true);
+      assert.equal(archRes.passed, false);
+      assert.equal(archRes.violationsCount, 1);
+      assert.equal(archRes.violations[0].sourceLayer, 'UseCaseRing');
+      assert.equal(archRes.violations[0].targetLayer, 'AdapterRing');
+
+      // Polyglot reproduction test generation (.py, .java, .go, .rs)
+      const pyRepro = scaffoldReproductionTest({
+        errorTrace: 'ValueError: invalid literal\n  File "src/billing/calc.py", line 19',
+        repoRoot: tmpDir
+      });
+      assert.equal(pyRepro.language, 'python');
+      assert.ok(pyRepro.testContent.includes('pytest.fail'));
+
+      const javaRepro = scaffoldReproductionTest({
+        errorTrace: 'NullPointerException at OrderService.java:44',
+        targetFile: 'src/main/java/OrderService.java',
+        repoRoot: tmpDir
+      });
+      assert.equal(javaRepro.language, 'java');
+      assert.ok(javaRepro.testContent.includes('@Test'));
+
+      // Real file digest in generateRegressionProof
+      fs.mkdirSync(path.join(tmpDir, 'src/components'), { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, 'src/components/CheckoutView.svelte'), '<main>Checkout v2</main>', 'utf8');
+      const proof = generateRegressionProof({
+        targetName: 'checkout',
+        uiRoutes: [{ path: '/checkout', component: 'CheckoutView' }],
+        repoRoot: tmpDir
+      });
+      assert.equal(proof.uiProofs[0].sourceFile, 'src/components/CheckoutView.svelte');
+
+      // Safe markdown backticks & $() in createTicket / postPMComment
+      const safeTicket = createTicket({
+        title: 'Fix `shell` $(echo INJECTED) parsing',
+        body: 'Code block:\n```sh\n$(echo PWNED)\n```',
+        repoRoot: tmpDir
+      });
+      assert.equal(safeTicket.success, true);
+
+      // Hybrid Architecture Diff & Decision Lineage UI snapshot generator
+      const archPayload = buildArchDiffPayload(tmpDir);
+      assert.equal(typeof archPayload.rings, 'object');
+      assert.ok(Array.isArray(archPayload.modifiedFiles));
+
+      const widgetOut = path.join(tmpDir, 'custom-arch-widget.html');
+      const widgetRes = generateArchitectureWidget({ outputPath: widgetOut, repoRoot: tmpDir });
+      assert.equal(widgetRes.success, true);
+      assert.equal(fs.existsSync(widgetOut), true);
+      assert.equal(fs.existsSync(path.join(tmpDir, '.agent/workbench/index.html')), true);
+      const widgetHtml = fs.readFileSync(widgetOut, 'utf8');
+      assert.ok(widgetHtml.includes('SDLC Architecture Diff & Decision Workbench'));
     });
   });
 });

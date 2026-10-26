@@ -11,18 +11,49 @@ flowchart TD
   INV_01["INV-01: Zero direct commits, merges, or pushes to main or develop"]
   INV_02["INV-02: 100% of code changes require an active SDLC ticket session and Dual-Gate verification (>=85% coverage, >=80% mutation)"]
   INV_03["INV-03: All spec drift must be recorded via an ADR (docs/adr/ADR-00X.md) and synchronized with PRODUCT.md"]
+  INV_04["INV-04: Zero shell command interpolation of untrusted user/markdown inputs in PM, Git, or test runner execution paths"]
   CAP_01["CAP-01: Core Domain & Architecture Foundation"]
-  SPEC_01["SPEC-01 (docs/specs/core-domain.md)"]
+  SPEC_01["SPEC-01 (docs/specs/cap-01-composite-stage-session.md)"]
+  CAP_02["CAP-02: Shell Injection Remediation & Polyglot Test Runners (#69)"]
+  SPEC_02["SPEC-02 (docs/specs/cap-02-security-polyglot-runners.md)"]
+  CAP_03["CAP-03: Real Coverage/Mutation Parsers & Policy ArchDiff (#70)"]
+  SPEC_03["SPEC-03 (docs/specs/cap-03-real-dual-gate-archdiff.md)"]
+  CAP_04["CAP-04: Live Canary Watchdog, Real Proofs & Polyglot Reproduce (#71)"]
+  SPEC_04["SPEC-04 (docs/specs/cap-04-live-probes-reproduce.md)"]
+  CAP_05["CAP-05: Consolidate 14 Skills into 6 Schema-Valid Core Skills (#72)"]
+  SPEC_05["SPEC-05 (docs/specs/cap-05-skill-consolidation.md)"]
+  CAP_06["CAP-06: Dogfooding Configuration, Docs Sync & Full Test Suite (#73)"]
+  SPEC_06["SPEC-06 (docs/specs/cap-06-dogfood-docs-tests.md)"]
   ADR_001["ADR-001: Decompose sdlc-engine.mjs into Modular Domain Libraries with SHA-256 Gate Cache and SvelteKit 5 Decision Workbench"]
   _63["Ticket #63 (feature/issue-#63-product-autopilot-adr-workbench)"]
+  ADR_002["ADR-002: Consolidate 14 Skills into 6 Schema-Valid Skills, Add Composite Stage CLI, and Enforce Real Dual-Gate Verification"]
+  _68["Ticket #68 (feature/issue-#68-framework-hardening-v0-1)"]
   _SDLC_INIT["Ticket #SDLC-INIT (feature/arch-traceability-governance)"]
   _24["Ticket #24 (feature/issue-#24-api-contract-drift-sentinel)"]
   _25["Ticket #25 (feature/issue-#25-bug-reproduce-generator)"]
   _26["Ticket #26 (feature/issue-#26-session-telemetry-roi)"]
   _43["Ticket #43 (feature/issue-#43-multi-branch-protection)"]
   CAP_01 -->|specified_by| SPEC_01
+  CAP_02 -->|specified_by| SPEC_02
+  CAP_03 -->|specified_by| SPEC_03
+  CAP_01 -->|depends_on| CAP_03
+  CAP_02 -->|depends_on| CAP_03
+  CAP_04 -->|specified_by| SPEC_04
+  CAP_02 -->|depends_on| CAP_04
+  CAP_05 -->|specified_by| SPEC_05
+  CAP_03 -->|depends_on| CAP_05
+  CAP_04 -->|depends_on| CAP_05
+  CAP_06 -->|specified_by| SPEC_06
+  CAP_05 -->|depends_on| CAP_06
   _63 -->|triggered_drift_adr| ADR_001
   CAP_01 -.->|ADR Drift| ADR_001
+  _68 -->|triggered_drift_adr| ADR_002
+  CAP_01 -.->|ADR Drift| ADR_002
+  CAP_02 -.->|ADR Drift| ADR_002
+  CAP_03 -.->|ADR Drift| ADR_002
+  CAP_04 -.->|ADR Drift| ADR_002
+  CAP_05 -.->|ADR Drift| ADR_002
+  CAP_06 -.->|ADR Drift| ADR_002
   _63 -.->|ADR Drift| ADR_001
 ```
 
@@ -33,6 +64,7 @@ flowchart TD
 | ADR ID | Decision Title | Scope | Status | Triggered By | Supersedes / Amends |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **ADR-001** | Decompose sdlc-engine.mjs into Modular Domain Libraries with SHA-256 Gate Cache and SvelteKit 5 Decision Workbench | `technical` | `accepted` | #63 | CAP-01 |
+| **ADR-002** | Consolidate 14 Skills into 6 Schema-Valid Skills, Add Composite Stage CLI, and Enforce Real Dual-Gate Verification | `architectural` | `accepted` | #68 | CAP-01, CAP-02, CAP-03, CAP-04, CAP-05, CAP-06 |
 
 ---
 
@@ -41,3 +73,8 @@ flowchart TD
 | Capability ID | Description | Current Status |
 | :--- | :--- | :--- |
 | **CAP-01** | Core Domain & Architecture Foundation | `PLANNED` |
+| **CAP-02** | Shell Injection Remediation & Polyglot Test Runners (#69) | `AMENDED (ADR-002)` |
+| **CAP-03** | Real Coverage/Mutation Parsers & Policy ArchDiff (#70) | `AMENDED (ADR-002)` |
+| **CAP-04** | Live Canary Watchdog, Real Proofs & Polyglot Reproduce (#71) | `AMENDED (ADR-002)` |
+| **CAP-05** | Consolidate 14 Skills into 6 Schema-Valid Core Skills (#72) | `AMENDED (ADR-002)` |
+| **CAP-06** | Dogfooding Configuration, Docs Sync & Full Test Suite (#73) | `AMENDED (ADR-002)` |

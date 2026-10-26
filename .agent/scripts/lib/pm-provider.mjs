@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { fileExists, readFileSafe, parseFrontmatter, detectPMProvider } from './core.mjs';
 
 export function loadIssueTemplate({ type = 'feat', repoRoot = '.' } = {}) {
@@ -138,14 +138,14 @@ export function transitionPMState({ issueId, state = 'in-progress', repoRoot = '
       const statusLabels = ['status:backlog', 'status:ready', 'status:in-progress', 'status:in-review', 'status:done'];
       const toRemove = statusLabels.filter((l) => l !== stateLabel).join(',');
       try {
-        execSync(`gh issue edit ${targetId} --remove-label "${toRemove}" 2>/dev/null || true`, { cwd: repoRoot, stdio: 'pipe' });
+        execFileSync('gh', ['issue', 'edit', String(targetId), '--remove-label', toRemove], { cwd: repoRoot, stdio: 'pipe' });
       } catch {}
-      execSync(`gh issue edit ${targetId} --add-label "${stateLabel}" 2>/dev/null || true`, { cwd: repoRoot, stdio: 'pipe' });
+      execFileSync('gh', ['issue', 'edit', String(targetId), '--add-label', stateLabel], { cwd: repoRoot, stdio: 'pipe' });
       labelUpdated = true;
     } catch {}
 
     try {
-      const repoView = execSync('gh repo view --json nameWithOwner,owner,name 2>/dev/null || true', {
+      const repoView = execFileSync('gh', ['repo', 'view', '--json', 'nameWithOwner,owner,name'], {
         cwd: repoRoot,
         stdio: 'pipe',
         encoding: 'utf8'
@@ -179,8 +179,9 @@ export function transitionPMState({ issueId, state = 'in-progress', repoRoot = '
           }
         }`;
 
-        const gqlOutput = execSync(
-          `gh api graphql -f query='${gqlQuery.replace(/'/g, "'\\''")}' -F owner="${owner}" -F repo="${repoName}" 2>/dev/null || true`,
+        const gqlOutput = execFileSync(
+          'gh',
+          ['api', 'graphql', '-f', `query=${gqlQuery}`, '-F', `owner=${owner}`, '-F', `repo=${repoName}`],
           { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
         ).trim();
 
@@ -211,8 +212,9 @@ export function transitionPMState({ issueId, state = 'in-progress', repoRoot = '
                 let itemId = null;
                 const issueUrl = `https://github.com/${owner}/${repoName}/issues/${targetId}`;
                 try {
-                  const addItemOut = execSync(
-                    `gh project item-add ${prj.number} --owner "${owner}" --url "${issueUrl}" --format json 2>/dev/null || true`,
+                  const addItemOut = execFileSync(
+                    'gh',
+                    ['project', 'item-add', String(prj.number), '--owner', owner, '--url', issueUrl, '--format', 'json'],
                     { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
                   ).trim();
                   if (addItemOut) {
@@ -223,8 +225,9 @@ export function transitionPMState({ issueId, state = 'in-progress', repoRoot = '
 
                 if (!itemId) {
                   try {
-                    const listItemsOut = execSync(
-                      `gh project item-list ${prj.number} --owner "${owner}" --format json 2>/dev/null || true`,
+                    const listItemsOut = execFileSync(
+                      'gh',
+                      ['project', 'item-list', String(prj.number), '--owner', owner, '--format', 'json'],
                       { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
                     ).trim();
                     if (listItemsOut) {
@@ -236,8 +239,20 @@ export function transitionPMState({ issueId, state = 'in-progress', repoRoot = '
                 }
 
                 if (itemId) {
-                  execSync(
-                    `gh project item-edit --id "${itemId}" --project-id "${prj.id}" --field-id "${statusField.id}" --single-select-option-id "${matchedOption.id}" 2>/dev/null || true`,
+                  execFileSync(
+                    'gh',
+                    [
+                      'project',
+                      'item-edit',
+                      '--id',
+                      String(itemId),
+                      '--project-id',
+                      String(prj.id),
+                      '--field-id',
+                      String(statusField.id),
+                      '--single-select-option-id',
+                      String(matchedOption.id)
+                    ],
                     { cwd: repoRoot, stdio: 'pipe' }
                   );
                   projectUpdated = true;
@@ -353,13 +368,15 @@ export function createTicket({
     try {
       let output = '';
       try {
-        output = execSync(
-          `gh issue create --title "${fullTitle.replace(/"/g, '\\"')}" --body "${issueBody.replace(/"/g, '\\"')}" --label "${labelsToApply}"`,
+        output = execFileSync(
+          'gh',
+          ['issue', 'create', '--title', fullTitle, '--body', issueBody, '--label', labelsToApply],
           { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
         );
       } catch {
-        output = execSync(
-          `gh issue create --title "${fullTitle.replace(/"/g, '\\"')}" --body "${issueBody.replace(/"/g, '\\"')}"`,
+        output = execFileSync(
+          'gh',
+          ['issue', 'create', '--title', fullTitle, '--body', issueBody],
           { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
         );
       }
@@ -423,7 +440,7 @@ export function postPMComment({ issueId, prNumber = null, comment = '', repoRoot
 
     if (prNumber) {
       try {
-        execSync(`gh pr comment ${prNumber} --body "${comment.replace(/"/g, '\\"')}"`, { cwd: repoRoot, stdio: 'pipe' });
+        execFileSync('gh', ['pr', 'comment', String(prNumber), '--body', comment], { cwd: repoRoot, stdio: 'pipe' });
         posted = true;
       } catch (err) {
         errors.push(`gh pr comment: ${err.message}`);
@@ -431,7 +448,7 @@ export function postPMComment({ issueId, prNumber = null, comment = '', repoRoot
     }
 
     try {
-      execSync(`gh issue comment ${issueId || prNumber} --body "${comment.replace(/"/g, '\\"')}"`, { cwd: repoRoot, stdio: 'pipe' });
+      execFileSync('gh', ['issue', 'comment', String(issueId || prNumber), '--body', comment], { cwd: repoRoot, stdio: 'pipe' });
       posted = true;
     } catch (err) {
       errors.push(`gh issue comment: ${err.message}`);
@@ -455,7 +472,11 @@ export function postPMComment({ issueId, prNumber = null, comment = '', repoRoot
           content: [{ type: 'paragraph', content: [{ type: 'text', text: comment }] }]
         }
       });
-      execSync(`curl -s -X POST "${url}" -H "Authorization: Basic ${auth}" -H "Content-Type: application/json" -d '${bodyPayload.replace(/'/g, "'\\''")}'`, { cwd: repoRoot, stdio: 'pipe' });
+      execFileSync(
+        'curl',
+        ['-s', '-X', 'POST', url, '-H', `Authorization: Basic ${auth}`, '-H', 'Content-Type: application/json', '-d', bodyPayload],
+        { cwd: repoRoot, stdio: 'pipe' }
+      );
       console.log(`💬 [JIRA] Review comment posted to Jira issue ${issueId}`);
       return { success: true, provider: 'jira', targetId: issueId, comment };
     } catch (err) {
@@ -469,7 +490,22 @@ export function postPMComment({ issueId, prNumber = null, comment = '', repoRoot
         query: `mutation CreateComment($issueId: String!, $body: String!) { commentCreate(input: { issueId: $issueId, body: $body }) { success } }`,
         variables: { issueId: String(issueId), body: comment }
       });
-      execSync(`curl -s -X POST https://api.linear.app/graphql -H "Authorization: ${process.env.LINEAR_API_KEY}" -H "Content-Type: application/json" -d '${gql.replace(/'/g, "'\\''")}'`, { cwd: repoRoot, stdio: 'pipe' });
+      execFileSync(
+        'curl',
+        [
+          '-s',
+          '-X',
+          'POST',
+          'https://api.linear.app/graphql',
+          '-H',
+          `Authorization: ${process.env.LINEAR_API_KEY}`,
+          '-H',
+          'Content-Type: application/json',
+          '-d',
+          gql
+        ],
+        { cwd: repoRoot, stdio: 'pipe' }
+      );
       console.log(`💬 [LINEAR] Review comment posted to Linear issue ${issueId}`);
       return { success: true, provider: 'linear', targetId: issueId, comment };
     } catch (err) {
@@ -561,18 +597,38 @@ export function installFramework({ targetDir = '.', global = false, repoRoot = '
   return { success: true, global: isGlobal, skillsCount: loadedSkills, destSkills, destScripts };
 }
 
+export const createPMIssue = createTicket;
+
+export function syncKanbanBoard(repoRoot = '.') {
+  const kanbanPath = path.resolve(repoRoot, 'docs/KANBAN.md');
+  const now = new Date().toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
+  if (fileExists(kanbanPath)) {
+    try {
+      let content = fs.readFileSync(kanbanPath, 'utf8');
+      content = content.replace(/> \*\*Last Synced\*\*: `[^`]+`/, `> **Last Synced**: \`${now}\``);
+      fs.writeFileSync(kanbanPath, content, 'utf8');
+    } catch {}
+  }
+  return { success: true, kanbanPath, syncedAt: now };
+}
+
 export function pollCIPRChecks(prNumber, { timeoutSeconds = 300, pollIntervalSeconds = 15, repoRoot = '.' } = {}) {
   console.log(`🛰️ Polling remote CI/CD status checks for PR #${prNumber} (timeout: ${timeoutSeconds}s)...`);
   const startTime = Date.now();
+  const safeSleepSeconds = String(Math.max(1, Math.min(60, Number(pollIntervalSeconds) || 15)));
 
   while (Date.now() - startTime < timeoutSeconds * 1000) {
     try {
-      const output = execSync(`gh pr checks ${prNumber} 2>&1`, { cwd: repoRoot, encoding: 'utf8' });
+      const output = execFileSync('gh', ['pr', 'checks', String(prNumber)], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        stdio: 'pipe'
+      });
       if (output.includes('fail') || output.includes('error')) {
         return { success: false, passed: false, error: 'Remote CI check failure detected.', output };
       }
       if (output.includes('pending') || output.includes('running')) {
-        execSync(`sleep ${pollIntervalSeconds}`);
+        execFileSync('sleep', [safeSleepSeconds]);
         continue;
       }
       return { success: true, passed: true, output };
@@ -581,7 +637,7 @@ export function pollCIPRChecks(prNumber, { timeoutSeconds = 300, pollIntervalSec
         return { success: false, passed: false, error: 'Remote CI check failure detected.', output: err.stdout };
       }
       try {
-        execSync(`sleep ${pollIntervalSeconds}`);
+        execFileSync('sleep', [safeSleepSeconds]);
       } catch {}
     }
   }

@@ -180,6 +180,7 @@ if [[ "$MODE" == "global" ]]; then
 
     # Fix POSIX execution permissions
     chmod +x "$DEST_SKILLS"/*/scripts/*.sh 2>/dev/null || true
+    chmod +x "$DEST_SCRIPTS"/*.sh 2>/dev/null || true
     chmod +x "$DEST_SCRIPTS"/*.mjs 2>/dev/null || true
 
     SKILL_COUNT=$(find "$DEST_SKILLS" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
@@ -258,4 +259,4 @@ if [[ "$IS_UPDATE" == true ]]; then
 else
     echo "🎉 Agentic SDLC Framework is ready across all agent runtimes!"
 fi
-echo "👉 Prompt your Agent (Antigravity, Claude Code, Cursor, Windsurf): \"Run sdlc-flow for issue #<id>\" or \"Run sdlc-help\""
+echo "👉 Prompt your Agent (Antigravity, Claude Code, Cursor, Windsurf): \"Run sdlc-flow for issue #<id>\" or \"Run sdlc-init\""

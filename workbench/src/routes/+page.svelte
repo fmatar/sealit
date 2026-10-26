@@ -1,7 +1,8 @@
 <script>
   // Svelte 5 Runes: Bidirectional Mission Control & Causal Decision Lineage Workbench
-  let activeTab = $state('lineage');
+  let activeTab = $state('rings');
   let statusData = $state({ active: false, session: null, audit: { valid: true, recordsCount: 0 } });
+  let archDiffData = $state({ archDiff: { passed: true, violationsCount: 0, violations: [] }, modifiedFiles: [], rings: {}, latestSnapshot: null });
   let graphData = $state({ nodes: [], edges: [], driftPivots: [], timeline: [], archSnapshots: [], stats: {} });
   let productData = $state({ product: { title: 'Loading...', capabilities: [], invariants: [] }, dag: { waves: [], state: { status: 'idle' } } });
   let selectedNode = $state(null);
@@ -27,12 +28,14 @@
 
   async function refreshAll() {
     try {
-      const [stRes, grRes, prRes] = await Promise.all([
+      const [stRes, arRes, grRes, prRes] = await Promise.all([
         fetch('/api/status').then((r) => r.json()),
+        fetch('/api/arch-diff').then((r) => r.json()),
         fetch('/api/decision-graph').then((r) => r.json()),
         fetch('/api/product').then((r) => r.json())
       ]);
       statusData = stRes;
+      archDiffData = arRes;
       graphData = grRes;
       productData = prRes;
       if (grRes.archSnapshots?.length > 0 && sliderIdx === 0) {
@@ -98,6 +101,9 @@
   {/if}
 
   <nav class="tabs">
+    <button class:active={activeTab === 'rings'} onclick={() => (activeTab = 'rings')}>
+      🏛️ Ring & AST Diff ({archDiffData.modifiedFiles?.length || 0} Files)
+    </button>
     <button class:active={activeTab === 'lineage'} onclick={() => (activeTab = 'lineage')}>
       🧬 Causal Decision Lineage ({graphData.nodes?.length || 0})
     </button>
@@ -111,6 +117,48 @@
       ⚡ ADR Drift Queue ({pendingAdrs.length} Pending)
     </button>
   </nav>
+
+  {#if activeTab === 'rings'}
+    <section class="card">
+      <div class="card-header">
+        <h2>🏛️ Clean Architecture Ring Boundaries & Mermaid AST Diffs</h2>
+        <span class="badge {archDiffData.archDiff?.passed !== false ? 'ok' : 'err'}">
+          {archDiffData.archDiff?.passed !== false
+            ? '✅ 0 Concentric Ring Violations'
+            : `⚠️ ${archDiffData.archDiff?.violationsCount} Ring Violation(s)`}
+        </span>
+      </div>
+
+      <div class="node-grid">
+        {#each Object.entries(archDiffData.rings || {}) as [ringName, files]}
+          <div class="node-card cat-arch">
+            <div class="node-top">
+              <span>CONCENTRIC RING</span>
+              <span>{files.length} file(s)</span>
+            </div>
+            <div class="node-id">{ringName}</div>
+            <div class="node-label">
+              {#if files.length > 0}
+                {#each files.slice(0, 5) as f}
+                  <div>• <code>{f}</code></div>
+                {/each}
+                {#if files.length > 5}
+                  <div>+{files.length - 5} more...</div>
+                {/if}
+              {:else}
+                Unchanged
+              {/if}
+            </div>
+          </div>
+        {/each}
+      </div>
+
+      {#if archDiffData.latestSnapshot}
+        <h3>📐 Latest Mermaid AST Snapshot ({archDiffData.latestSnapshot.ticket} on {archDiffData.latestSnapshot.branch})</h3>
+        <pre>{JSON.stringify(archDiffData.latestSnapshot.diagramChanges || [], null, 2)}</pre>
+      {/if}
+    </section>
+  {/if}
 
   {#if activeTab === 'lineage'}
     <section class="panel-grid">
