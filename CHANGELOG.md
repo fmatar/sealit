@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-25
+### Added
+- **Composite Stage Lifecycle CLI (`CAP-01`, #68)**: Added `sdlc-engine stage <begin|pre-pr|complete>` (`executeCompositeStage` in `session.mjs`) collapsing ~15 manual bookkeeping commands into 3 atomic lifecycle transitions.
+- **Polyglot Single-Test Runner (`CAP-02`, #69)**: Added `buildSingleTestCommand` and `findAffectedTests` in `quality-gate.mjs` supporting Maven, Gradle, pytest, Go test, Cargo test, and Node test runners.
+- **Real Coverage & Mutation Report Parsers (`CAP-03`, #70)**: Added `parseCoverageReport` (`coverage-summary.json`, `lcov.info`, `jacoco.csv`, `coverage.xml`, `coverage.out`) and `parseMutationReport` (Stryker `mutation.json`, PITest `mutations.xml`) with threshold enforcement and session manifest recording.
+- **Policy-Driven `checkArchDiff` (`CAP-03`, #70)**: Upgraded `arch-trace.mjs` to parse `.archlens/policy.json` ring definitions (`layers` and `order`/`levels`) and flag unauthorized inner-to-outer ring imports.
+- **Live Canary Probes, Real File Digests & Polyglot Reproduce (`CAP-04`, #71)**: Upgraded `monitorCanaryHealthAndWatchdog` (`--live` HTTP probing), `generateRegressionProof` (SHA-256 digests of real route/component files on disk), and `scaffoldReproductionTest` (idiomatic Java, Python, Go, Rust, and Node Red-first harnesses).
+
+### Changed
+- **Consolidated 14 Skills into 6 Canonical Skills (`CAP-05`, #72, `ADR-002`)**: Consolidated `.agent/skills/` into `sdlc-flow`, `sdlc-product`, `sdlc-tdd`, `sdlc-review-gate`, `sdlc-release`, and `sdlc-init` with valid `read_file`/`write_file`/`edit_file` and `invoke_subagent` tool schemas. Relocated `kanban-sync.sh` and `project-setup.sh` to `.agent/scripts/`.
+- **Honest PR Summary Metrics (`CAP-03`, #70)**: Replaced fabricated `'90%'` coverage and `'85%'` mutation defaults in `generatePRSummary` with `'Not Measured'` (`⚪ PENDING`) when unmeasured.
+- **Self-Dogfooding Test Suite (`CAP-06`, #73)**: Updated `.agent/sdlc-config.json` and `package.json` to run all 3 test suites (`sdlc-engine.test.mjs`, `sdlc-nextgen.test.mjs`, `scripts.test.mjs`) with `--experimental-test-coverage`.
+
+### Security
+- **Shell Injection Remediation (`CAP-02`, #69)**: Replaced shell-interpolated `execSync` calls in `pm-provider.mjs` (`gh issue create`, `gh pr/issue comment`, Jira/Linear `curl`) with `execFileSync` argument arrays.
+
 ## [0.0.1] - 2026-10-21
 
 ### Added

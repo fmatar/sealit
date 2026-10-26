@@ -82,6 +82,8 @@ import {
   loadIssueTemplate,
   formatTemplatedIssue,
   createTicket,
+  createPMIssue,
+  syncKanbanBoard,
   transitionPMState,
   postPMComment,
   installFramework,
@@ -103,7 +105,8 @@ import {
   getExemptionsPath,
   recordExemption,
   getExemptions,
-  calculateSessionStats
+  calculateSessionStats,
+  executeCompositeStage
 } from './lib/session.mjs';
 
 import {
@@ -123,7 +126,11 @@ import {
   scaffoldReproductionTest,
   assessRisk,
   generatePRSummary,
+  findAffectedTests,
   findAffectededTests,
+  buildSingleTestCommand,
+  parseCoverageReport,
+  parseMutationReport,
   runFlakeCheck,
   auditSecurity,
   suggestMutationStrengthening,
@@ -138,6 +145,9 @@ import {
 } from './lib/quality-gate.mjs';
 
 import {
+  buildArchDiffPayload,
+  generateArchitectureWidget,
+  ensureWorkbenchRunning,
   renderWorkbenchHTML,
   createWorkbenchServer
 } from './lib/workbench-server.mjs';
@@ -193,6 +203,8 @@ export {
   loadIssueTemplate,
   formatTemplatedIssue,
   createTicket,
+  createPMIssue,
+  syncKanbanBoard,
   transitionPMState,
   postPMComment,
   installFramework,
@@ -212,6 +224,7 @@ export {
   recordExemption,
   getExemptions,
   calculateSessionStats,
+  executeCompositeStage,
   checkArchDiff,
   parseMermaidDiagram,
   diffMermaidGraphs,
@@ -225,7 +238,11 @@ export {
   scaffoldReproductionTest,
   assessRisk,
   generatePRSummary,
+  findAffectedTests,
   findAffectededTests,
+  buildSingleTestCommand,
+  parseCoverageReport,
+  parseMutationReport,
   runFlakeCheck,
   auditSecurity,
   suggestMutationStrengthening,
@@ -237,6 +254,9 @@ export {
   matchFilesToModules,
   generateConfig,
   printPreview,
+  buildArchDiffPayload,
+  generateArchitectureWidget,
+  ensureWorkbenchRunning,
   renderWorkbenchHTML,
   createWorkbenchServer
 };
@@ -408,10 +428,11 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       const affectedOnly = args.includes('--affected-only');
 
       if (affectedOnly) {
-        const affectedTests = findAffectededTests(files, repoRoot);
+        const affectedTests = findAffectedTests(files, repoRoot);
         if (affectedTests.length > 0) {
           for (const testFile of affectedTests) {
-            execSync(`node --test "${testFile}"`, { stdio: 'inherit', cwd: repoRoot });
+            const singleCmd = buildSingleTestCommand(testFile, repoRoot);
+            execSync(singleCmd, { stdio: 'inherit', cwd: repoRoot });
           }
           result.affectedTests = affectedTests;
           return result;
@@ -438,7 +459,25 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         }
         const cwd = path.resolve(repoRoot, mod.path);
         execSync(mod.commands.coverage, { stdio: 'inherit', cwd });
-        recordGateCache({ checkType: 'coverage', modulePath: mod.path, result: { passed: true }, repoRoot });
+
+        const covReport = parseCoverageReport(repoRoot, mod);
+        result.coverageReport = covReport;
+        if (covReport.found) {
+          try {
+            updateSession({ manifestUpdate: { coverageReport: covReport.formatted }, repoRoot });
+          } catch {}
+          if (!covReport.passed) {
+            throw new Error(
+              `Coverage threshold breach in [${mod.name}]: ${covReport.formatted} < ${covReport.threshold}% (${covReport.file})`
+            );
+          }
+        }
+        recordGateCache({
+          checkType: 'coverage',
+          modulePath: mod.path,
+          result: { passed: true, coverage: covReport.formatted },
+          repoRoot
+        });
       }
       result.activeModules = activeModules;
       return result;
@@ -455,7 +494,25 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         }
         const cwd = path.resolve(repoRoot, mod.path);
         execSync(mod.commands.mutation, { stdio: 'inherit', cwd });
-        recordGateCache({ checkType: 'mutation', modulePath: mod.path, result: { passed: true }, repoRoot });
+
+        const mutReport = parseMutationReport(repoRoot, mod);
+        result.mutationReport = mutReport;
+        if (mutReport.found) {
+          try {
+            updateSession({ manifestUpdate: { mutationScore: mutReport.formatted }, repoRoot });
+          } catch {}
+          if (!mutReport.passed) {
+            throw new Error(
+              `Mutation threshold breach in [${mod.name}]: ${mutReport.formatted} < ${mutReport.threshold}% (${mutReport.file})`
+            );
+          }
+        }
+        recordGateCache({
+          checkType: 'mutation',
+          modulePath: mod.path,
+          result: { passed: true, mutation: mutReport.formatted },
+          repoRoot
+        });
       }
       result.activeModules = activeModules;
       return result;
@@ -529,6 +586,8 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       if (sub === 'plan') {
         const autoProvision = args.includes('--provision');
         result.product = planProductDAG({ repoRoot, autoProvision });
+        ensureWorkbenchRunning({ repoRoot });
+        result.uiWidget = generateArchitectureWidget({ repoRoot });
         return result;
       }
       if (sub === 'control') {
@@ -561,6 +620,8 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
           else if (args[i] === '--consequences' && args[i + 1]) consequences = args[++i];
         }
         result.adr = createADR({ title, scope, ticketId, supersedes, context, decision, consequences, repoRoot });
+        ensureWorkbenchRunning({ repoRoot });
+        result.uiWidget = generateArchitectureWidget({ repoRoot });
         return result;
       }
       if (sub === 'decide') {
@@ -646,6 +707,47 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         return result;
       }
       result.cache = getGateCacheStats(repoRoot);
+      return result;
+    }
+
+    case 'stage': {
+      const action = args[1] || 'begin';
+      let issueId = null,
+        title = null,
+        type = 'feat',
+        branch = null,
+        worktree = null,
+        prNumber = null,
+        summary = null,
+        checkoutBranch = false;
+      for (let i = 2; i < args.length; i++) {
+        if (args[i] === '--issue' && args[i + 1]) issueId = args[++i];
+        else if (args[i].startsWith('--issue=')) issueId = args[i].split('=')[1];
+        else if (args[i] === '--title' && args[i + 1]) title = args[++i];
+        else if (args[i].startsWith('--title=')) title = args[i].split('=')[1];
+        else if (args[i] === '--type' && args[i + 1]) type = args[++i];
+        else if (args[i].startsWith('--type=')) type = args[i].split('=')[1];
+        else if (args[i] === '--branch' && args[i + 1]) branch = args[++i];
+        else if (args[i] === '--worktree' && args[i + 1]) worktree = args[++i];
+        else if (args[i] === '--pr' && args[i + 1]) prNumber = args[++i];
+        else if (args[i].startsWith('--pr=')) prNumber = args[i].split('=')[1];
+        else if (args[i] === '--summary' && args[i + 1]) summary = args[++i];
+        else if (args[i] === '--checkout') checkoutBranch = true;
+      }
+      const stageRes = executeCompositeStage({
+        action,
+        issueId,
+        title,
+        type,
+        branch,
+        worktree,
+        prNumber,
+        summary,
+        checkoutBranch,
+        repoRoot
+      });
+      result.stage = stageRes;
+      result.success = stageRes.success;
       return result;
     }
 
@@ -1120,6 +1222,19 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       return result;
     }
 
+    case 'ui-snapshot': {
+      let outputPath = null;
+      for (let i = 1; i < args.length; i++) {
+        if ((args[i] === '--output' || args[i] === '-o') && args[i + 1]) outputPath = args[++i];
+        else if (args[i].startsWith('--output=')) outputPath = args[i].split('=')[1];
+      }
+      const wb = ensureWorkbenchRunning({ repoRoot });
+      const widget = generateArchitectureWidget({ outputPath, repoRoot });
+      result.workbench = wb;
+      result.uiWidget = widget;
+      return result;
+    }
+
     case 'serve': {
       let port = 4120;
       for (let i = 1; i < args.length; i++) {
@@ -1198,6 +1313,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         maxErrorRate = 0.05,
         samples = 5,
         simulatedErrors = 0,
+        probeLive = args.includes('--live'),
         rollbackCommand = null;
       for (let i = 2; i < args.length; i++) {
         if (args[i] === '--url' && args[i + 1]) healthUrl = args[++i];
@@ -1211,6 +1327,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         maxErrorRate,
         samples,
         simulatedErrors,
+        probeLive,
         rollbackCommand,
         repoRoot
       });
@@ -1225,6 +1342,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
 Agentic SDLC Universal Engine (sdlc-engine.mjs)
 
 Usage:
+  node .agent/scripts/sdlc-engine.mjs stage <begin|pre-pr|complete> [--issue <id>]
   node .agent/scripts/sdlc-engine.mjs product <init|status|plan|control>
   node .agent/scripts/sdlc-engine.mjs adr <create|list|decide>
   node .agent/scripts/sdlc-engine.mjs drift check

@@ -1,6 +1,6 @@
 {
   "name": "@fmatar/agentic-sdlc",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Autonomous Agentic Software Development Lifecycle (SDLC) Framework for AI Coding Agents",
   "keywords": [
     "agentic-sdlc",
@@ -37,9 +37,13 @@
     "detect": "node .agent/scripts/sdlc-engine.mjs detect",
     "env": "node .agent/scripts/sdlc-engine.mjs env",
     "gate": "node .agent/scripts/sdlc-engine.mjs gate",
-    "test": "node .agent/scripts/sdlc-engine.mjs test",
+    "test": "node --test tests/sdlc-engine.test.mjs tests/sdlc-nextgen.test.mjs tests/scripts.test.mjs",
+    "test:coverage": "node --test --experimental-test-coverage tests/sdlc-engine.test.mjs tests/sdlc-nextgen.test.mjs tests/scripts.test.mjs",
     "coverage": "node .agent/scripts/sdlc-engine.mjs coverage",
     "mutation": "node .agent/scripts/sdlc-engine.mjs mutation",
+    "stage:begin": "node .agent/scripts/sdlc-engine.mjs stage begin",
+    "stage:pre-pr": "node .agent/scripts/sdlc-engine.mjs stage pre-pr",
+    "stage:complete": "node .agent/scripts/sdlc-engine.mjs stage complete",
     "dashboard": "node .agent/scripts/sdlc-engine.mjs session dashboard",
     "resume": "node .agent/scripts/sdlc-engine.mjs session resume",
     "exemptions": "node .agent/scripts/sdlc-engine.mjs exemption list",

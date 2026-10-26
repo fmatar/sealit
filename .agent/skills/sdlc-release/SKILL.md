@@ -1,0 +1,45 @@
+---
+name: sdlc-release
+description: Synchronizes project documentation (README.md, docs/specs/, CHANGELOG.md, wiki/) and automates Semantic Versioning (SemVer) releases, Git tagging, regression proofs, and canary health watchdog verification.
+tools: read_file, write_file, edit_file, run_command
+---
+
+# 📦 Documentation Sync & Release Manager (`sdlc-release`)
+
+## 1. Documentation & Knowledge Synchronization
+
+Before cutting a release or completing a feature ticket, synchronize documentation with the actual repository state:
+1. **`README.md` & Quickstart**: Ensure CLI commands, architecture diagrams, and quickstart instructions reflect current behavior without dead links or stale counts.
+2. **`docs/specs/` & `docs/DECISION_MAP.md`**: Refresh the Causal Decision Lineage Graph:
+   ```bash
+   node .agent/scripts/sdlc-engine.mjs decision-graph sync
+   ```
+3. **`CHANGELOG.md` (Keep a Changelog & SemVer)**: Categorize changes under `## [Unreleased]` (`Added`, `Changed`, `Fixed`, `Security`, `Removed`).
+4. **`wiki/` Synchronization**: When `wiki/` exists in the workspace, keep `wiki/Skills-Reference.md` and `wiki/Architecture.md` aligned with `README.md`.
+
+---
+
+## 2. Automated Release & Canary Verification
+
+### Step 1: Pre-Release Quality Gate & Regression Proof
+Generate a cryptographic delivery regression proof (`docs/proofs/proof-*.md`) hashing verified API endpoints and UI route components on disk:
+```bash
+node .agent/scripts/sdlc-engine.mjs proof generate --name <component-or-release>
+```
+
+### Step 2: Execute SemVer Release (`patch` | `minor` | `major`)
+Preview the version bump first with `--dry-run`, then execute the release across `package.json`, `pom.xml`, `pyproject.toml`, or `Cargo.toml`:
+```bash
+# Dry-run preview:
+node .agent/scripts/sdlc-engine.mjs release patch --dry-run
+
+# Execute release (updates manifest, rolls CHANGELOG.md, commits, and creates annotated git tag):
+node .agent/scripts/sdlc-engine.mjs release <patch|minor|major>
+```
+
+### Step 3: Post-Deployment Canary Watchdog
+Monitor live canary health endpoints (or run synthetic error-rate verification) with automatic rollback on threshold breach:
+```bash
+# Live HTTP probing against a deployed health endpoint:
+node .agent/scripts/sdlc-engine.mjs watchdog monitor --url https://service.example.com/health --threshold 0.05 --samples 5 --live --rollback "git revert HEAD --no-edit"
+```

@@ -209,14 +209,14 @@ You can drive the entire framework through standard conversational prompts. Here
 
 #### Method A: Modern Skills Ecosystem (Recommended via [skills.sh](https://skills.sh) / [vercel-labs/skills](https://github.com/vercel-labs/skills))
 ```bash
-# Add all 13 framework skills to your project:
+# Add all 6 consolidated framework skills to your project:
 npx skills add fmatar/agentic-sdlc-framework -y
 
 # Or install globally for all Antigravity agent sessions:
 npx skills add fmatar/agentic-sdlc-framework -g -y
 
 # Select specific skills interactively or by name:
-npx skills add fmatar/agentic-sdlc-framework --skill sdlc-flow sdlc-quality-gate -y
+npx skills add fmatar/agentic-sdlc-framework --skill sdlc-flow sdlc-review-gate -y
 ```
 
 #### Method B: Turnkey POSIX Script or npm Package
@@ -243,6 +243,7 @@ All stages can be monitored or executed directly via the unified `sdlc-engine`:
 
 | Command | Purpose |
 |---|---|
+| `sdlc-engine stage <begin\|pre-pr\|complete>` | Atomic composite stage transitions (Session + Branch + PM + Drift + Merkle Receipt) |
 | `sdlc-engine session status` | View active ticket, stage, branch, and subagents |
 | `sdlc-engine session dashboard` | View live interactive ASCII lifecycle progress |
 | `sdlc-engine stats` | Track token velocity, session telemetry, and engineering ROI metrics |

@@ -1,0 +1,19 @@
+# Node & Build Artifacts
+node_modules/
+coverage/
+.nyc_output/
+workbench/.svelte-kit/
+workbench/build/
+workbench/node_modules/
+
+# Agentic SDLC Ephemeral Cache, Local Locks & Secrets
+.env
+.env.*
+!.env.example
+.agent/.cache/
+.agent/.sdlc-session.json
+*.lcov
+
+# OS & Editor
+.DS_Store
+Thumbs.db

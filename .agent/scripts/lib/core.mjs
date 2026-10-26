@@ -204,7 +204,13 @@ export function getModifiedFiles(baseBranch = 'main', repoRoot = '.') {
       `git diff --name-only origin/${baseBranch}...HEAD 2>/dev/null || git diff --name-only ${baseBranch}...HEAD 2>/dev/null || git diff --name-only HEAD~1 2>/dev/null`,
       { cwd: repoRoot, encoding: 'utf8', stdio: 'pipe' }
     );
-    return output.split('\n').map((s) => s.trim()).filter(Boolean);
+    const branchFiles = output.split('\n').map((s) => s.trim()).filter(Boolean);
+    const workingTreeOutput = execSync(
+      `git diff --name-only HEAD 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null`,
+      { cwd: repoRoot, encoding: 'utf8', stdio: 'pipe' }
+    );
+    const workingFiles = workingTreeOutput.split('\n').map((s) => s.trim()).filter(Boolean);
+    return Array.from(new Set([...branchFiles, ...workingFiles]));
   } catch {
     return [];
   }

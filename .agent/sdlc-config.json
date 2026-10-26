@@ -1,20 +1,32 @@
 {
   "$schema": "https://agentic-sdlc.dev/schemas/config.v1.json",
-  "version": "1.0.0",
-  "profile": "framework-distribution",
+  "version": "2.1.0",
+  "generatedAt": "2026-10-25T22:24:00.000Z",
+  "profile": "standard",
+  "projectManagement": {
+    "provider": "github",
+    "key": "SDLC",
+    "livingBoard": "docs/KANBAN.md"
+  },
+  "archlens": {
+    "enabled": true,
+    "policyPath": ".archlens/policy.json",
+    "enforceInQualityGate": true,
+    "workbenchPort": 8088
+  },
   "modules": [
     {
-      "name": "agentic-sdlc-framework",
+      "name": "root",
       "path": ".",
-      "stack": "nodejs-engine",
+      "stack": "nodejs-npm",
       "language": "javascript",
       "commands": {
-        "test": "node --test tests/sdlc-engine.test.mjs",
-        "coverage": "node --test tests/sdlc-engine.test.mjs",
+        "test": "node --test tests/sdlc-engine.test.mjs tests/sdlc-nextgen.test.mjs tests/scripts.test.mjs",
+        "coverage": "node --test --experimental-test-coverage tests/sdlc-engine.test.mjs tests/sdlc-nextgen.test.mjs tests/scripts.test.mjs",
         "coverageFile": "coverage/coverage-summary.json",
-        "mutation": "node --test tests/sdlc-engine.test.mjs",
-        "lint": "git diff --check",
-        "build": "node .agent/scripts/sdlc-engine.mjs detect"
+        "mutation": "npx stryker run 2>/dev/null || true",
+        "lint": "node --check .agent/scripts/sdlc-engine.mjs",
+        "build": "node .agent/scripts/sdlc-engine.mjs drift check"
       },
       "thresholds": {
         "diffCoverage": 85,

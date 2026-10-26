@@ -1,0 +1,10 @@
+{
+  "rules": [
+    "CLAUDE.md"
+  ],
+  "commands": {
+    "sdlc-flow": "node .agent/scripts/sdlc-engine.mjs gate --strict",
+    "sdlc-test": "node .agent/scripts/sdlc-engine.mjs test --affected-only",
+    "sdlc-doctor": "node .agent/scripts/sdlc-engine.mjs doctor --fix"
+  }
+}
