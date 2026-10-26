@@ -37,6 +37,7 @@ flowchart TD
   _25["Ticket #25 (feature/issue-#25-bug-reproduce-generator)"]
   _26["Ticket #26 (feature/issue-#26-session-telemetry-roi)"]
   _43["Ticket #43 (feature/issue-#43-multi-branch-protection)"]
+  _77["Ticket #77 (feature/issue-#77-readme-overhaul)"]
   CAP_01 -->|specified_by| SPEC_01
   CAP_02 -->|specified_by| SPEC_02
   CAP_03 -->|specified_by| SPEC_03
