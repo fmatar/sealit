@@ -70,6 +70,8 @@ describe('Kanban Scripts & Consolidated 6-Skill Schema Validation', () => {
 
       assert.ok(content.includes(`name: ${skillName}`), `${skillName} must declare matching name`);
       assert.ok(content.includes('description:'), `${skillName} must declare description`);
+      const descLine = content.split('\n').find((line) => line.startsWith('description:')) || '';
+      assert.ok(!descLine.includes(' #'), `${skillName} description must not contain unquoted YAML # comment character`);
       assert.ok(content.includes('read_file'), `${skillName} must declare read_file tool`);
       assert.ok(content.includes('write_file'), `${skillName} must declare write_file tool`);
       assert.ok(content.includes('edit_file'), `${skillName} must declare edit_file tool`);
