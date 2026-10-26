@@ -28,15 +28,24 @@ flowchart TD
     TechADR --> Map["🗺️ Sync Causal Decision Graph\n(docs/DECISION_MAP.md)"]
 ```
 
-### Step 1: Initialize or Update `PRODUCT.md` & `docs/specs/`
-- Initialize `PRODUCT.md` if not present:
+### Step 1: Initialize or Update Two-Tier Product Specifications (`PRODUCT.md`, `docs/PRD.md`, `docs/SRS.md` & `docs/specs/`)
+- **Macro Product Bootstrap (`PRODUCT.md` + `docs/PRD.md` + `docs/SRS.md`)**:
+  Initialize `PRODUCT.md`, macro Product Requirements (`docs/PRD.md`), IEEE 29148 Software Requirements (`docs/SRS.md`), and initial capability specs if not present:
   ```bash
   node .agent/scripts/sdlc-engine.mjs product init --title "<Product Title>" --vision "<Vision>"
   ```
-- For each capability (`CAP-XX`), create a specification file in `docs/specs/cap-XX-<slug>.md` containing:
-  - Problem Statement & User Value
-  - Domain Contract & Acceptance Criteria
-  - C4 Container / Component Mermaid Diagram (if architectural)
+- **Per-Capability Specification (`docs/specs/cap-XX-<slug>.md`)**:
+  For each new or updated capability (`CAP-XX`), scaffold or refine its unified specification file combining **PRD Slice** (Problem, Scope/Non-Goals, UX flows), **IEEE 29148 SRS Slice** (`Inputs`, `Processing`, `Outputs`, NFRs), and **C4 Mermaid Diagram**, while automatically syncing `PRODUCT.md`, `docs/PRD.md`, and `docs/SRS.md`:
+  ```bash
+  node .agent/scripts/sdlc-engine.mjs product spec \
+    --cap CAP-XX \
+    --title "<Capability Title>" \
+    --problem "<User Problem & Value>" \
+    --inputs "<Validated Inputs>" \
+    --processing "<Domain Processing>" \
+    --outputs "<Outputs & Artifacts>" \
+    --depends-on "<CAP-YY,CAP-ZZ>"
+  ```
 
 ### Step 2: Plan Topological Execution Waves & Provision Tickets
 Compute the dependency DAG across capabilities and provision tickets in your PM provider (GitHub Issues, Jira, Linear, or `docs/KANBAN.md`):

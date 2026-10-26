@@ -22,6 +22,7 @@ When the user invokes `/sdlc <subcommand> [arguments]`, map the request directly
 | `/sdlc test` | `node .agent/scripts/sdlc-engine.mjs test --affected-only` |
 | `/sdlc coverage` / `/sdlc mutation` | `node .agent/scripts/sdlc-engine.mjs coverage` / `mutation` |
 | `/sdlc reproduce "<trace>"` | `node .agent/scripts/sdlc-engine.mjs reproduce --error "<trace>"` |
+| `/sdlc spec --cap CAP-XX --title "<title>"` | `node .agent/scripts/sdlc-engine.mjs product spec --cap CAP-XX --title "<title>"` |
 | `/sdlc drift` | `node .agent/scripts/sdlc-engine.mjs drift check` |
 | `/sdlc adr <create\|list\|decide>` | `node .agent/scripts/sdlc-engine.mjs adr <subcommand>` |
 | `/sdlc gate` | `node .agent/scripts/sdlc-engine.mjs gate --strict` |

@@ -233,7 +233,9 @@ your-project/
 │       ├── sdlc-engine.mjs            # Universal zero-dependency CLI engine
 │       └── lib/                       # Modular domain libraries (installer, session, git-guard, adr-drift, product-dag, workbench-server, ...)
 └── docs/
-    ├── specs/                         # Functional specifications (cap-XX-*.md) & C4 diagrams
+    ├── PRD.md                         # Macro Product Requirements Document (Problem, Scope, UX, KPIs)
+    ├── SRS.md                         # IEEE 29148 Software Requirements Specification & C4 System Model
+    ├── specs/                         # Rich per-capability specs (cap-XX-*.md: PRD + SRS I/O + C4)
     ├── adr/                           # Architecture Decision Records (ADR-00X-*.md)
     ├── KANBAN.md                      # Living Kanban board & 7-layer Traceability Matrix
     ├── DECISION_MAP.md                # Auto-synced Causal Decision Lineage graph
@@ -254,7 +256,7 @@ your-project/
 | **Lifecycle Stages** | `node .agent/scripts/sdlc-engine.mjs stage begin --title "<t>" --checkout` | Create ticket, checkout feature branch, start session lock |
 | | `node .agent/scripts/sdlc-engine.mjs stage pre-pr --issue <id>` | Run drift check, sync docs, sign Stage 7 Merkle receipt, build UI |
 | | `node .agent/scripts/sdlc-engine.mjs stage complete --issue <id>` | Mark ticket `done`, sync `docs/KANBAN.md`, release session lock |
-| **Product & ADRs** | `node .agent/scripts/sdlc-engine.mjs product <init\|plan\|status>` | Initialize `PRODUCT.md` and schedule topological DAG waves |
+| **Product & ADRs** | `node .agent/scripts/sdlc-engine.mjs product <init\|spec\|plan\|status>` | Generate `PRODUCT.md`, `docs/PRD.md`, `docs/SRS.md`, `CAP-XX` specs & DAG waves |
 | | `node .agent/scripts/sdlc-engine.mjs adr <create\|list\|decide>` | Create or approve/reject Architecture Decision Records |
 | | `node .agent/scripts/sdlc-engine.mjs drift check` | Block undeclared dependency, schema, C4, or API contract drift |
 | **TDD & Quality Gate** | `node .agent/scripts/sdlc-engine.mjs test [--affected-only]` | Run full or diff-affected unit tests |
