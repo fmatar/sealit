@@ -106,23 +106,16 @@ flowchart LR
     CircuitBreaker -->|"Changes Requested (Max 3)"| TDDLoop
 ```
 
-## 🧠 Core Agentic Skills
+## 🧠 Core Agentic Skills (6 Canonical Skills — `ADR-002`)
 
-The framework operates via interlocking skills located in `.agent/skills/`. Each skill defines a "Next Recommended Step," allowing agents to chain workflows autonomously:
+The framework operates via **6 consolidated, schema-valid skills** located in `.agent/skills/`:
 
-1. **`sdlc-flow`**: Master orchestrator running the 8-stage issue-to-PR automated pipeline with session concurrency locking, ad-hoc fast-path routing, and parallel fork-join subagent reviews.
-2. **`sdlc-arch-trace`**: Architectural mutation tracer & Mermaid diagram diff auditor maintaining an immutable audit log in `docs/ARCH_TRACE.md` and strictly blocking direct pushes to `develop` or `main`.
-3. **`sdlc-feature-spec`**: Generates structured PRD/SRS documentation, C4 diagrams, and GitHub issues.
-4. **`sdlc-tdd-implement`**: Clean-code and TDD feature development adhering to Robert Martin's Three Laws of TDD and the Transformation Priority Premise (TPP).
-5. **`sdlc-test-coverage`**: Dual-Gate test enforcer requiring $\ge 85\%$ diff coverage and $\ge 80\%$ mutation score via PITest & Stryker.
-6. **`sdlc-peer-review`**: Subagent that audits PR diffs, detects Robert Martin test smells and mock abuse, and posts review comments.
-7. **`sdlc-kanban`**: Manages GitHub Projects v2, ticket state transitions (`status:*`), WIP limits, and `docs/KANBAN.md`.
-8. **`sdlc-docs-wiki`**: Synchronizes documentation across `docs/specs/`, `CHANGELOG.md`, and `/wiki`.
-9. **`sdlc-quality-gate`**: Pre-merge quality, formatting, security, Archlens concentric layers, and build validation.
-10. **`sdlc-release-changelog`**: Version bumping, Docker containerization, and K8s/Helm deployment.
-11. **`sdlc-analyze`**: SDLC compliance auditor evaluating project health against framework standards.
-12. **`sdlc-initialize`**: Interactive full-stack project bootstrapper and skill installer.
-13. **`sdlc-help`**: Interactive diagnostic guide and prompt recipes.
+1. **`sdlc-flow`**: Master orchestrator driving the composite issue-to-PR pipeline (`stage begin`, `stage pre-pr`, `stage complete`), Kanban synchronization (`docs/KANBAN.md`), architectural traceability (`docs/ARCH_TRACE.md`), and embedded Architecture Diff UI (`sdlc-engine ui-snapshot`).
+2. **`sdlc-product`**: End-to-end Product Autopilot & Feature Specification architect synthesizing `PRODUCT.md` (`CAP-XX`, `INV-XX`, `SPEC-XX`), authoring PRDs/SRS/C4/ADRs in `docs/specs/`, and scheduling topological DAG execution waves.
+3. **`sdlc-tdd`**: Guides Robert C. Martin's Three Laws of TDD, Transformation Priority Premise (TPP), and F.I.R.S.T. isolation, and executes real Dual-Gate test coverage ($\ge 85\%$) and mutation testing ($\ge 80\%$) across polyglot stacks.
+4. **`sdlc-review-gate`**: Parallel Fork-Join PR peer reviewer (`TypeName: "research"`), strict 9-pillar quality gatekeeper, Archlens concentric ring auditor, and repository compliance scorecard.
+5. **`sdlc-release`**: Synchronizes project documentation (`README.md`, `docs/specs/`, `CHANGELOG.md`, `wiki/`) and automates Semantic Versioning (SemVer) releases, regression proofs, and canary health watchdogs.
+6. **`sdlc-init`**: Universal project bootstrap installer (`npx github:fmatar/agentic-sdlc-framework install`), interactive multi-agent TUI wizard (`gemini`, `claude`, `cursor`, `grok`, `windsurf`, `copilot`), stack auto-detector, and `doctor --fix`.
 
 ---
 
@@ -207,26 +200,27 @@ You can drive the entire framework through standard conversational prompts. Here
 
 ### Step 1: Install Framework
 
-#### Method A: Modern Skills Ecosystem (Recommended via [skills.sh](https://skills.sh) / [vercel-labs/skills](https://github.com/vercel-labs/skills))
+#### Method A: Native Multi-Agent Installer Wizard (Recommended — `ADR-003`)
+Installs the **6 canonical skills**, the full `.agent/scripts/` execution engine (`sdlc-engine.mjs` + workbench UI), prunes deprecated legacy skills, and configures native rule/skill adapters for **Gemini / Antigravity**, **Claude Code**, **Cursor**, **Grok**, **Windsurf**, and **GitHub Copilot**:
+
 ```bash
-# Add all 6 consolidated framework skills to your project:
-npx skills add fmatar/agentic-sdlc-framework -y
+# Interactive multi-agent TUI wizard (select tools, scope, and governance add-ons):
+npx github:fmatar/agentic-sdlc-framework install
 
-# Or install globally for all Antigravity agent sessions:
-npx skills add fmatar/agentic-sdlc-framework -g -y
+# Non-interactive install for specific AI coding tools:
+npx github:fmatar/agentic-sdlc-framework install --agents gemini,claude,cursor,grok --yes
 
-# Select specific skills interactively or by name:
-npx skills add fmatar/agentic-sdlc-framework --skill sdlc-flow sdlc-review-gate -y
+# Install for all supported AI tools with Archlens, 4-Layer Git Hooks & GitHub Actions CI:
+npx github:fmatar/agentic-sdlc-framework install --agents all --with-archlens --with-hooks --with-ci --yes
+
+# Global user config installation (~/.gemini, ~/.claude, ~/.grok):
+npx github:fmatar/agentic-sdlc-framework install --global --agents gemini,claude,grok --yes
 ```
 
-#### Method B: Turnkey POSIX Script or npm Package
+#### Method B: Skills-Only Registry ([skills.sh](https://skills.sh) / [vercel-labs/skills](https://github.com/vercel-labs/skills))
 ```bash
-# Automated installer (auto-detects skills CLI, with zero-dependency POSIX fallback):
-curl -sL "https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/install.sh" | bash
-
-# Or via npm package CLI:
-npx @fmatar/agentic-sdlc init          # Local
-npx @fmatar/agentic-sdlc init --global # Global
+# Add the 6 markdown skills via the open skills CLI:
+npx skills add fmatar/agentic-sdlc-framework -y
 ```
 
 ### Step 2: Bootstrap & Auto-Heal Project

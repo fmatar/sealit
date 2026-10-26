@@ -56,6 +56,12 @@ import {
   createWorkbenchServer,
   buildArchDiffPayload,
   generateArchitectureWidget,
+  SUPPORTED_AGENTS,
+  CANONICAL_SDLC_SKILLS,
+  DEPRECATED_SDLC_SKILLS,
+  pruneDeprecatedSkills,
+  installFramework,
+  parseInstallArgs,
   runCLI
 } from '../.agent/scripts/sdlc-engine.mjs';
 
@@ -807,6 +813,95 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
       assert.equal(fs.existsSync(path.join(tmpDir, '.agent/workbench/index.html')), true);
       const widgetHtml = fs.readFileSync(widgetOut, 'utf8');
       assert.ok(widgetHtml.includes('SDLC Architecture Diff & Decision Workbench'));
+    });
+
+    it('provisions all 6 AI coding tools (Gemini, Claude, Cursor, Grok, Windsurf, Copilot) and prunes deprecated skills (CAP-07 / ADR-003)', () => {
+      initTempGitRepo(tmpDir);
+      // Pre-seed deprecated skills and a custom user skill to verify selective pruning
+      const legacySkillDir = path.join(tmpDir, '.agent/skills/sdlc-kanban');
+      const customSkillDir = path.join(tmpDir, '.agent/skills/my-custom-skill');
+      fs.mkdirSync(legacySkillDir, { recursive: true });
+      fs.mkdirSync(customSkillDir, { recursive: true });
+      fs.writeFileSync(path.join(legacySkillDir, 'SKILL.md'), 'legacy', 'utf8');
+      fs.writeFileSync(path.join(customSkillDir, 'SKILL.md'), 'custom', 'utf8');
+
+      assert.equal(SUPPORTED_AGENTS.length, 6);
+      assert.equal(CANONICAL_SDLC_SKILLS.length, 6);
+      assert.ok(DEPRECATED_SDLC_SKILLS.includes('sdlc-kanban'));
+
+      const parsed = parseInstallArgs(
+        [
+          'install',
+          '--target',
+          tmpDir,
+          '--agents',
+          'gemini,claude,cursor,grok,windsurf,copilot',
+          '--with-archlens',
+          '--with-hooks',
+          '--with-ci',
+          '--yes'
+        ],
+        process.cwd()
+      );
+      assert.deepEqual(parsed.agents, ['gemini', 'claude', 'cursor', 'grok', 'windsurf', 'copilot']);
+      assert.equal(parsed.withArchlens, true);
+      assert.equal(parsed.withHooks, true);
+      assert.equal(parsed.withCi, true);
+
+      const cliRes = runCLI(
+        [
+          'install',
+          '--target',
+          tmpDir,
+          '--agents',
+          'gemini,claude,cursor,grok,windsurf,copilot',
+          '--with-archlens',
+          '--with-hooks',
+          '--with-ci',
+          '--yes'
+        ],
+        null,
+        process.cwd()
+      );
+      assert.equal(cliRes.installed.success, true);
+      assert.equal(cliRes.installed.skillsCount, 6);
+      assert.ok(cliRes.installed.prunedSkills.includes('sdlc-kanban'));
+
+      // Deprecated skill removed, custom skill preserved, 6 canonical skills present
+      assert.equal(fs.existsSync(legacySkillDir), false);
+      assert.equal(fs.existsSync(customSkillDir), true);
+      for (const s of CANONICAL_SDLC_SKILLS) {
+        assert.equal(fs.existsSync(path.join(tmpDir, '.agent/skills', s, 'SKILL.md')), true);
+        assert.equal(fs.existsSync(path.join(tmpDir, '.claude/skills', s, 'SKILL.md')), true);
+        assert.equal(fs.existsSync(path.join(tmpDir, '.claude/commands', `${s}.md`)), true);
+        assert.equal(fs.existsSync(path.join(tmpDir, '.grok/skills', s, 'SKILL.md')), true);
+        assert.equal(fs.existsSync(path.join(tmpDir, '.cursor/rules', `${s}.mdc`)), true);
+        assert.equal(fs.existsSync(path.join(tmpDir, '.windsurf/workflows', `${s}.md`)), true);
+        assert.equal(fs.existsSync(path.join(tmpDir, '.github/prompts', `${s}.prompt.md`)), true);
+      }
+      assert.equal(fs.existsSync(path.join(tmpDir, 'AGENTS.md')), true);
+      assert.equal(fs.existsSync(path.join(tmpDir, 'CLAUDE.md')), true);
+      assert.equal(fs.existsSync(path.join(tmpDir, 'GROK.md')), true);
+      assert.equal(fs.existsSync(path.join(tmpDir, '.cursorrules')), true);
+      assert.equal(fs.existsSync(path.join(tmpDir, '.windsurfrules')), true);
+      assert.equal(fs.existsSync(path.join(tmpDir, '.github/copilot-instructions.md')), true);
+      assert.equal(fs.existsSync(path.join(tmpDir, '.archlens/policy.json')), true);
+      assert.equal(fs.existsSync(path.join(tmpDir, '.github/workflows/sdlc-quality-gate.yml')), true);
+
+      // Verify global install into isolated homeDir
+      const fakeHome = path.join(tmpDir, 'fake-home');
+      fs.mkdirSync(fakeHome, { recursive: true });
+      const globalRes = installFramework({
+        global: true,
+        homeDir: fakeHome,
+        agents: ['gemini', 'claude', 'grok'],
+        packageRoot: process.cwd()
+      });
+      assert.equal(globalRes.success, true);
+      assert.equal(globalRes.mode, 'global');
+      assert.equal(fs.existsSync(path.join(fakeHome, '.gemini/config/skills/sdlc-flow/SKILL.md')), true);
+      assert.equal(fs.existsSync(path.join(fakeHome, '.claude/skills/sdlc-flow/SKILL.md')), true);
+      assert.equal(fs.existsSync(path.join(fakeHome, '.grok/skills/sdlc-flow/SKILL.md')), true);
     });
   });
 });

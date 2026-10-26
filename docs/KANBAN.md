@@ -5,7 +5,7 @@
 > To refresh this board: `.agent/scripts/kanban-sync.sh`
 
 > **Repository**: `fmatar/agentic-sdlc-framework`  
-> **Last Synced**: `2026-10-26 14:08:41 UTC`
+> **Last Synced**: `2026-10-26 14:50:13 UTC`
 
 ---
 
@@ -13,7 +13,7 @@
 
 | 📥 Backlog | 📋 Ready | ⚡ In Progress | 🔍 In Review | ✅ Done |
 | :--- | :--- | :--- | :--- | :--- |
-|  |  |  |  | [#73 chore(dogfood): CAP-06 dogfood full test suite, relocate kanban scripts & sync documentation](https://github.com/fmatar/agentic-sdlc-framework/issues/73) |
+| [#75 feat: npx-multi-agent-installer](https://github.com/fmatar/agentic-sdlc-framework/issues/75) |  |  |  | [#73 chore(dogfood): CAP-06 dogfood full test suite, relocate kanban scripts & sync documentation](https://github.com/fmatar/agentic-sdlc-framework/issues/73) |
 |  |  |  |  | [#72 refactor(skills): CAP-05 consolidate 14 skills into 6 schema-valid core skills](https://github.com/fmatar/agentic-sdlc-framework/issues/72) |
 |  |  |  |  | [#71 feat(quality): CAP-04 live canary watchdog probes, real regression proofs & polyglot reproduce](https://github.com/fmatar/agentic-sdlc-framework/issues/71) |
 |  |  |  |  | [#70 feat(gate): CAP-03 real coverage/mutation report parsers & policy-driven checkArchDiff](https://github.com/fmatar/agentic-sdlc-framework/issues/70) |
@@ -41,6 +41,7 @@
 
 | Issue | Status | Priority | Component | Milestone | Spec / Contract |
 | :--- | :--- | :--- | :--- | :--- | :--- |
+| [#75 feat: npx-multi-agent-installer](https://github.com/fmatar/agentic-sdlc-framework/issues/75) | `status:backlog` | P2 - Medium | General | — | — |
 | [#73 chore(dogfood): CAP-06 dogfood full test suite, relocate kanban scripts & sync documentation](https://github.com/fmatar/agentic-sdlc-framework/issues/73) | `status:done` | P2 - Medium | General | — | — |
 | [#72 refactor(skills): CAP-05 consolidate 14 skills into 6 schema-valid core skills](https://github.com/fmatar/agentic-sdlc-framework/issues/72) | `status:done` | P2 - Medium | General | — | — |
 | [#71 feat(quality): CAP-04 live canary watchdog probes, real regression proofs & polyglot reproduce](https://github.com/fmatar/agentic-sdlc-framework/issues/71) | `status:done` | P2 - Medium | General | — | — |

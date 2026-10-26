@@ -24,10 +24,14 @@ flowchart TD
   SPEC_05["SPEC-05 (docs/specs/cap-05-skill-consolidation.md)"]
   CAP_06["CAP-06: Dogfooding Configuration, Docs Sync & Full Test Suite (#73)"]
   SPEC_06["SPEC-06 (docs/specs/cap-06-dogfood-docs-tests.md)"]
+  CAP_07["CAP-07: Native `npx` Multi-Agent Interactive Installer & Legacy Installer Removal (#75)"]
+  SPEC_07["SPEC-07 (docs/specs/cap-07-npx-multi-agent-installer.md)"]
   ADR_001["ADR-001: Decompose sdlc-engine.mjs into Modular Domain Libraries with SHA-256 Gate Cache and SvelteKit 5 Decision Workbench"]
   _63["Ticket #63 (feature/issue-#63-product-autopilot-adr-workbench)"]
   ADR_002["ADR-002: Consolidate 14 Skills into 6 Schema-Valid Skills, Add Composite Stage CLI, and Enforce Real Dual-Gate Verification"]
   _68["Ticket #68 (feature/issue-#68-framework-hardening-v0-1)"]
+  ADR_003["ADR-003: Replace Legacy Shell/Java Installers with Native npx Interactive Multi-Agent Installer Wizard"]
+  _75["Ticket #75"]
   _SDLC_INIT["Ticket #SDLC-INIT (feature/arch-traceability-governance)"]
   _24["Ticket #24 (feature/issue-#24-api-contract-drift-sentinel)"]
   _25["Ticket #25 (feature/issue-#25-bug-reproduce-generator)"]
@@ -45,6 +49,8 @@ flowchart TD
   CAP_04 -->|depends_on| CAP_05
   CAP_06 -->|specified_by| SPEC_06
   CAP_05 -->|depends_on| CAP_06
+  CAP_07 -->|specified_by| SPEC_07
+  CAP_06 -->|depends_on| CAP_07
   _63 -->|triggered_drift_adr| ADR_001
   CAP_01 -.->|ADR Drift| ADR_001
   _68 -->|triggered_drift_adr| ADR_002
@@ -54,6 +60,9 @@ flowchart TD
   CAP_04 -.->|ADR Drift| ADR_002
   CAP_05 -.->|ADR Drift| ADR_002
   CAP_06 -.->|ADR Drift| ADR_002
+  _75 -->|triggered_drift_adr| ADR_003
+  CAP_06 -.->|ADR Drift| ADR_003
+  CAP_07 -.->|ADR Drift| ADR_003
   _63 -.->|ADR Drift| ADR_001
 ```
 
@@ -65,6 +74,7 @@ flowchart TD
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **ADR-001** | Decompose sdlc-engine.mjs into Modular Domain Libraries with SHA-256 Gate Cache and SvelteKit 5 Decision Workbench | `technical` | `accepted` | #63 | CAP-01 |
 | **ADR-002** | Consolidate 14 Skills into 6 Schema-Valid Skills, Add Composite Stage CLI, and Enforce Real Dual-Gate Verification | `architectural` | `accepted` | #68 | CAP-01, CAP-02, CAP-03, CAP-04, CAP-05, CAP-06 |
+| **ADR-003** | Replace Legacy Shell/Java Installers with Native npx Interactive Multi-Agent Installer Wizard | `architectural` | `accepted` | #75 | CAP-06, CAP-07 |
 
 ---
 
@@ -78,3 +88,4 @@ flowchart TD
 | **CAP-04** | Live Canary Watchdog, Real Proofs & Polyglot Reproduce (#71) | `AMENDED (ADR-002)` |
 | **CAP-05** | Consolidate 14 Skills into 6 Schema-Valid Core Skills (#72) | `AMENDED (ADR-002)` |
 | **CAP-06** | Dogfooding Configuration, Docs Sync & Full Test Suite (#73) | `AMENDED (ADR-002)` |
+| **CAP-07** | Native `npx` Multi-Agent Interactive Installer & Legacy Installer Removal (#75) | `AMENDED (ADR-003)` |

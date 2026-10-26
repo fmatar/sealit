@@ -536,67 +536,6 @@ export function postPMComment({ issueId, prNumber = null, comment = '', repoRoot
   return { success: true, provider: 'local', targetId, comment, file: 'docs/KANBAN.md' };
 }
 
-export function installFramework({ targetDir = '.', global = false, repoRoot = '.' } = {}) {
-  const isGlobal = !!global;
-  const packageDir = path.resolve(import.meta.dirname, '../../..');
-  const sourceSkills = path.resolve(packageDir, '.agent/skills');
-  const sourceScripts = path.resolve(packageDir, '.agent/scripts');
-  const sourceDocs = path.resolve(packageDir, 'docs/templates');
-
-  let destSkills, destScripts, destDocs;
-
-  if (isGlobal) {
-    const home = process.env.HOME || process.env.USERPROFILE || '';
-    destSkills = path.resolve(home, '.gemini/config/skills');
-    destScripts = path.resolve(home, '.gemini/config/scripts');
-    console.log(`⚡ Installing Agentic SDLC Framework globally into ${destSkills}...`);
-  } else {
-    const targetAbs = path.resolve(repoRoot, targetDir);
-    const agentDirName = fs.existsSync(path.resolve(targetAbs, '.agents/skills')) ? '.agents' : '.agent';
-    destSkills = path.resolve(targetAbs, agentDirName, 'skills');
-    destScripts = path.resolve(targetAbs, agentDirName, 'scripts');
-    destDocs = path.resolve(targetAbs, 'docs/templates');
-    console.log(`⚡ Installing Agentic SDLC Framework locally into ${targetAbs}...`);
-  }
-
-  fs.mkdirSync(destSkills, { recursive: true });
-  fs.mkdirSync(destScripts, { recursive: true });
-  if (destDocs) fs.mkdirSync(destDocs, { recursive: true });
-
-  function copyRecursive(src, dest) {
-    if (!fs.existsSync(src)) return;
-    const entries = fs.readdirSync(src, { withFileTypes: true });
-    for (const entry of entries) {
-      const srcPath = path.join(src, entry.name);
-      const destPath = path.join(dest, entry.name);
-      if (entry.isDirectory()) {
-        fs.mkdirSync(destPath, { recursive: true });
-        copyRecursive(srcPath, destPath);
-      } else {
-        fs.copyFileSync(srcPath, destPath);
-        if (entry.name.endsWith('.sh') || entry.name.endsWith('.mjs')) {
-          try {
-            fs.chmodSync(destPath, 0o755);
-          } catch {}
-        }
-      }
-    }
-  }
-
-  copyRecursive(sourceSkills, destSkills);
-  copyRecursive(sourceScripts, destScripts);
-  if (destDocs && fs.existsSync(sourceDocs)) {
-    copyRecursive(sourceDocs, destDocs);
-  }
-
-  const loadedSkills = fs.existsSync(destSkills)
-    ? fs.readdirSync(destSkills).filter((f) => fs.statSync(path.join(destSkills, f)).isDirectory()).length
-    : 0;
-  console.log(`✅ Installation complete (${loadedSkills} skills loaded).`);
-
-  return { success: true, global: isGlobal, skillsCount: loadedSkills, destSkills, destScripts };
-}
-
 export const createPMIssue = createTicket;
 
 export function syncKanbanBoard(repoRoot = '.') {

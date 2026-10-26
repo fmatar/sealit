@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- **NPX Multi-Agent Installer Wizard (`CAP-07`, #75, `ADR-003`)**: Added `npx github:fmatar/agentic-sdlc-framework install` (`.agent/scripts/lib/installer.mjs`) featuring a zero-dependency interactive ANSI TUI wizard to select AI coding tools (`gemini`, `claude`, `cursor`, `grok`, `windsurf`, `copilot`), scope (`local` vs `global`), and governance add-ons (`--with-archlens`, `--with-hooks`, `--with-ci`), plus automatic pruning of deprecated pre-`ADR-002` skills.
+- **Hybrid Architecture Diff & Decision Lineage UI (`CAP-05`, #72)**: Added `sdlc-engine ui-snapshot` and `/api/arch-diff` in `workbench-server.mjs` rendering live Clean Architecture ring changes and `CAP -> SPEC -> Ticket -> ADR` lineage inline via `<agent-embed>`.
+
+### Removed
+- **Legacy Installers (`ADR-003`, #75)**: Removed `install.sh` and `install.java` in favor of the unified `npx github:fmatar/agentic-sdlc-framework install` CLI.
 
 ## [0.1.0] - 2026-10-25
 ### Added

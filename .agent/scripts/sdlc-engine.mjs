@@ -86,11 +86,22 @@ import {
   syncKanbanBoard,
   transitionPMState,
   postPMComment,
-  installFramework,
   pollCIPRChecks,
   parseSemVer,
   bumpSemVer
 } from './lib/pm-provider.mjs';
+
+import {
+  SUPPORTED_AGENTS,
+  CANONICAL_SDLC_SKILLS,
+  DEPRECATED_SDLC_SKILLS,
+  pruneDeprecatedSkills,
+  provisionAgentIntegrations,
+  installFramework,
+  parseInstallArgs,
+  printInstallerHelp,
+  runInstallerCLI
+} from './lib/installer.mjs';
 
 import {
   getSessionPath,
@@ -207,7 +218,15 @@ export {
   syncKanbanBoard,
   transitionPMState,
   postPMComment,
+  SUPPORTED_AGENTS,
+  CANONICAL_SDLC_SKILLS,
+  DEPRECATED_SDLC_SKILLS,
+  pruneDeprecatedSkills,
+  provisionAgentIntegrations,
   installFramework,
+  parseInstallArgs,
+  printInstallerHelp,
+  runInstallerCLI,
   pollCIPRChecks,
   parseSemVer,
   bumpSemVer,
@@ -1081,14 +1100,24 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
 
     case 'init':
     case 'install': {
-      let targetDir = '.',
-        global = false;
-      for (let i = 1; i < args.length; i++) {
-        if (args[i] === '--global' || args[i] === '-g') global = true;
-        else if ((args[i] === '--target' || args[i] === '-t') && args[i + 1]) targetDir = args[++i];
-        else if (!args[i].startsWith('-') && i === 1) targetDir = args[i];
+      const parsed = parseInstallArgs(args, repoRoot);
+      if (parsed.help) {
+        printInstallerHelp();
+        result.help = true;
+        return result;
       }
-      result.installed = installFramework({ targetDir, global, repoRoot });
+      const onDetect = (dir) => {
+        const cfg = generateConfig(dir);
+        const cfgFile = path.join(dir, '.agent', 'sdlc-config.json');
+        fs.mkdirSync(path.dirname(cfgFile), { recursive: true });
+        fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2));
+      };
+      const onInstallCi = ({ repoRoot: dir }) => installCIWorkflow({ repoRoot: dir, force: true });
+      result.installed = installFramework({
+        ...parsed,
+        onDetect,
+        onInstallCi
+      });
       return result;
     }
 
@@ -1342,6 +1371,8 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
 Agentic SDLC Universal Engine (sdlc-engine.mjs)
 
 Usage:
+  npx github:fmatar/agentic-sdlc-framework install [--agents <list>] [--global]
+  node .agent/scripts/sdlc-engine.mjs install [--agents gemini,claude,grok,cursor,windsurf,copilot]
   node .agent/scripts/sdlc-engine.mjs stage <begin|pre-pr|complete> [--issue <id>]
   node .agent/scripts/sdlc-engine.mjs product <init|status|plan|control>
   node .agent/scripts/sdlc-engine.mjs adr <create|list|decide>
@@ -1357,16 +1388,34 @@ Usage:
   }
 }
 
+function invokeMainCLI() {
+  const cliArgs = process.argv.slice(2);
+  const cmd = (cliArgs[0] || '').toLowerCase();
+  if (cmd === 'install' || cmd === 'init') {
+    const repoRoot = process.cwd();
+    const onDetect = (dir) => {
+      const cfg = generateConfig(dir);
+      const cfgFile = path.join(dir, '.agent', 'sdlc-config.json');
+      fs.mkdirSync(path.dirname(cfgFile), { recursive: true });
+      fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2));
+    };
+    const onInstallCi = ({ repoRoot: dir }) => installCIWorkflow({ repoRoot: dir, force: true });
+    runInstallerCLI(cliArgs, { repoRoot, onDetect, onInstallCi });
+    return;
+  }
+  runCLI();
+}
+
 if (process.argv[1]) {
   try {
     const isDirect = path.resolve(process.argv[1]) === path.resolve(import.meta.filename);
     const isRealTarget = fs.realpathSync(process.argv[1]) === path.resolve(import.meta.filename);
     if (isDirect || isRealTarget) {
-      runCLI();
+      invokeMainCLI();
     }
   } catch {
     if (path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {
-      runCLI();
+      invokeMainCLI();
     }
   }
 }

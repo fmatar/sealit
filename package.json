@@ -22,14 +22,14 @@
   "type": "module",
   "main": "./.agent/scripts/sdlc-engine.mjs",
   "bin": {
-    "sdlc": "./.agent/scripts/sdlc-engine.mjs",
-    "agentic-sdlc": "./.agent/scripts/sdlc-engine.mjs"
+    "agentic-sdlc-framework": "./.agent/scripts/sdlc-engine.mjs",
+    "agentic-sdlc": "./.agent/scripts/sdlc-engine.mjs",
+    "sdlc": "./.agent/scripts/sdlc-engine.mjs"
   },
   "files": [
     ".agent/skills",
     ".agent/scripts",
     "docs/templates",
-    "install.sh",
     "README.md",
     "LICENSE"
   ],
