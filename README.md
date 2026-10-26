@@ -3,7 +3,7 @@
   <p><b>Turn AI Coding Assistants into a Disciplined Software Engineering Team</b></p>
 
   [![Version](https://img.shields.io/badge/Version-0.1.0-4f46e5.svg)](./CHANGELOG.md)
-  [![Skills](https://img.shields.io/badge/Skills-6_Canonical-0d9488.svg)](./wiki/Skills-Reference.md)
+  [![Skills](https://img.shields.io/badge/Skills-1_Router_%2B_8_Verbs-0d9488.svg)](./wiki/Skills-Reference.md)
   [![Agents](https://img.shields.io/badge/Works_With-Gemini_%7C_Claude_%7C_Cursor_%7C_Grok_%7C_Windsurf_%7C_Copilot-2563eb.svg)](#-quick-install-npx)
   [![Coverage](https://img.shields.io/badge/TDD_Gate-%E2%89%A585%25_Cov_%7C_%E2%89%A580%25_Mut-16a34a.svg)](#-polyglot-stack-support)
   [![License](https://img.shields.io/badge/License-Apache_2.0-64748b.svg)](./LICENSE)
@@ -112,9 +112,9 @@ Once installed, drive the entire engineering lifecycle directly from your AI cha
   2. **`/sdlc-tdd`**: Writes a failing Red test first, implements minimal Green domain code, and verifies **≥ 85% coverage** and zero inner-to-outer ring imports against `.archlens/policy.json`.
   3. **`stage pre-pr`**: Verifies zero undeclared spec drift, updates `docs/DECISION_MAP.md` and `docs/ARCH_TRACE.md`, signs the cryptographic **SHA-256 Merkle Gate Receipt**, and launches the live **Architecture Diff UI**.
 
-### Step 3: Parallel Peer Review & Merge (`/sdlc-review-gate`)
-> **Prompt**: `"/sdlc-review-gate Audit the diff and merge to main."`
-* Spawns two parallel read-only subagents (`PR Peer Reviewer` + `Quality Gate Auditor`) to inspect the diff for Robert Martin test smells, security leaks, and layer violations, posts the review verdict, merges the PR, and runs `stage complete`.
+### Step 3: Parallel Peer Review & Merge (`/sdlc-gate`)
+> **Prompt**: `"/sdlc-gate Audit the diff and merge to main."` (or `/sdlc gate`)
+* Spawns two parallel read-only subagents (`PR Peer Reviewer` + `Architecture & Security Gatekeeper`) to inspect the diff for Robert Martin test smells, security leaks, and layer violations, posts the review verdict, merges the PR, and runs `stage complete`.
 
 ---
 
@@ -129,29 +129,32 @@ flowchart LR
     classDef done fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#ffffff,font-weight:bold;
 
     P["🏛️ /sdlc-product<br/>• PRODUCT.md & Specs<br/>• ADR & DAG Waves"]:::spec
-    B["1. stage begin<br/>• Provision Ticket #id<br/>• Checkout feature/issue-#id<br/>• Lock .sdlc-session.json"]:::stage
+    B["1. /sdlc begin<br/>• Provision Ticket #id<br/>• Checkout feature/issue-#id<br/>• Lock .sdlc-session.json"]:::stage
     T["2. /sdlc-tdd<br/>• Failing Red Test First<br/>• Minimal Green Code<br/>• ≥85% Cov / ≥80% Mut"]:::tdd
-    PR["3. stage pre-pr<br/>• Drift & Archlens Check<br/>• Sync DECISION_MAP.md<br/>• Sign SHA-256 Gate Receipt"]:::stage
-    RG["4. /sdlc-review-gate<br/>• Parallel Subagent Audit<br/>• Security & Contract Gate<br/>• Post Verdict to PM"]:::gate
-    C["5. stage complete<br/>• Squash Merge PR<br/>• Transition status:done<br/>• Release Session Lock"]:::done
+    PR["3. /sdlc pre-pr<br/>• Drift & Archlens Check<br/>• Sync DECISION_MAP.md<br/>• Sign SHA-256 Gate Receipt"]:::stage
+    RG["4. /sdlc-gate<br/>• Parallel Subagent Audit<br/>• Security & Contract Gate<br/>• Post Verdict to PM"]:::gate
+    C["5. /sdlc complete<br/>• Squash Merge PR<br/>• Transition status:done<br/>• Release Session Lock"]:::done
 
     P --> B --> T --> PR --> RG --> C
 ```
 
 ---
 
-## 🧠 The 6 Canonical Skills (`ADR-002`)
+## 🧠 1 Router + 8 Verb Skills (`ADR-004`)
 
-Instead of dozens of fragmented prompts, the framework is organized into **6 focused skills**:
+Every command is available either through the **`/sdlc <subcommand>` router** or via **8 dedicated verb skills**:
 
-| Skill / Command | Role | When to Use It | Primary CLI Backing |
+| Skill / Command | Category | What It Does | Primary CLI Mapping |
 | :--- | :--- | :--- | :--- |
-| **`/sdlc-init`** | **Bootstrap & Doctor** | Setting up a repo, auto-detecting stacks, installing Git hooks, or healing missing config | `sdlc-engine install` / `doctor --fix` |
-| **`/sdlc-product`** | **Product & Spec Architect** | Turning raw ideas into `PRODUCT.md`, PRDs/SRS (`docs/specs/`), C4 diagrams, ADRs, and DAG waves | `sdlc-engine product <init\|plan>` |
-| **`/sdlc-flow`** | **Master Orchestrator** | Implementing a feature, bug fix, or hotfix end-to-end from branch creation to PR merge | `sdlc-engine stage <begin\|pre-pr\|complete>` |
-| **`/sdlc-tdd`** | **TDD & Dual-Gate Runner** | Writing Red-Green-Refactor unit tests, running affected tests, and checking coverage/mutation scores | `sdlc-engine test` / `coverage` / `mutation` |
-| **`/sdlc-review-gate`** | **Parallel PR Gatekeeper** | Running concurrent subagent code reviews, security/CVE audits, and strict pre-merge gates | `sdlc-engine gate --strict` |
-| **`/sdlc-release`** | **Docs Sync & Release** | Syncing `README.md`/`CHANGELOG.md`/`wiki/`, bumping SemVer manifests, and probing live canaries | `sdlc-engine release <patch\|minor\|major>` |
+| **`/sdlc <cmd>`** | **Universal Router** | Accepts any subcommand in chat (`/sdlc doctor`, `/sdlc begin #12`, `/sdlc drift`, `/sdlc pre-pr`, `/sdlc kanban`, `/sdlc ui`) | `sdlc-engine <subcommand>` |
+| **`/sdlc-flow`** | **Macro Autopilot** | End-to-end ticket autopilot (`stage begin` → TDD → `stage pre-pr` → parallel review → `stage complete`) | `sdlc-engine stage <begin\|pre-pr\|complete>` |
+| **`/sdlc-product`** | **Macro Autopilot** | Spec/PRD-to-DAG autopilot (`PRODUCT.md`, `docs/specs/*.md`, topological waves) | `sdlc-engine product <init\|plan>` |
+| **`/sdlc-doctor`** | **Ops & Diagnostics** | Stack detection, `doctor --fix`, 4-Layer Git hooks, `.archlens/policy.json`, and multi-agent installer | `sdlc-engine doctor --fix` / `install` |
+| **`/sdlc-status`** | **Ops & Diagnostics** | Active session, 8-stage progress, drift check, `KANBAN.md` state, and live Architecture Diff UI | `sdlc-engine session dashboard` / `ui-snapshot` |
+| **`/sdlc-tdd`** | **Stage Action** | Robert Martin Red-Green-Refactor loop + Dual-Gate (`coverage`, `mutation`, `reproduce`) | `sdlc-engine test` / `coverage` / `mutation` |
+| **`/sdlc-gate`** | **Stage Action** | Parallel Fork-Join PR review subagents + `gate --strict` + Stage 7 SHA-256 Merkle receipt | `sdlc-engine gate --strict` / `guard receipt` |
+| **`/sdlc-adr`** | **Stage Action** | Mint or approve Spec-Drift ADRs (`docs/adr/ADR-00X.md`) and sync `docs/DECISION_MAP.md` | `sdlc-engine adr <create\|list\|decide>` |
+| **`/sdlc-release`** | **Stage Action** | Sync `README.md`/`CHANGELOG.md`/`wiki/`, generate regression proofs, cut SemVer release, and probe canaries | `sdlc-engine release <patch\|minor\|major>` |
 
 ---
 
@@ -225,7 +228,7 @@ your-project/
 │   └── policy.json                    # Concentric Clean Architecture ring definitions (Core → UseCase → Adapter)
 ├── .agent/
 │   ├── sdlc-config.json               # Auto-detected polyglot stack & test/coverage/mutation commands
-│   ├── skills/                        # The 6 canonical skills (sdlc-init, sdlc-product, sdlc-flow, sdlc-tdd, sdlc-review-gate, sdlc-release)
+│   ├── skills/                        # 1 Router (sdlc) + 8 Verb Skills (sdlc-flow, sdlc-product, sdlc-doctor, sdlc-status, sdlc-tdd, sdlc-gate, sdlc-adr, sdlc-release)
 │   └── scripts/
 │       ├── sdlc-engine.mjs            # Universal zero-dependency CLI engine
 │       └── lib/                       # Modular domain libraries (installer, session, git-guard, adr-drift, product-dag, workbench-server, ...)

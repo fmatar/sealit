@@ -826,8 +826,10 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
       fs.writeFileSync(path.join(customSkillDir, 'SKILL.md'), 'custom', 'utf8');
 
       assert.equal(SUPPORTED_AGENTS.length, 6);
-      assert.equal(CANONICAL_SDLC_SKILLS.length, 6);
+      assert.equal(CANONICAL_SDLC_SKILLS.length, 9);
       assert.ok(DEPRECATED_SDLC_SKILLS.includes('sdlc-kanban'));
+      assert.ok(DEPRECATED_SDLC_SKILLS.includes('sdlc-init'));
+      assert.ok(DEPRECATED_SDLC_SKILLS.includes('sdlc-review-gate'));
 
       const parsed = parseInstallArgs(
         [
@@ -864,7 +866,7 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
         process.cwd()
       );
       assert.equal(cliRes.installed.success, true);
-      assert.equal(cliRes.installed.skillsCount, 6);
+      assert.equal(cliRes.installed.skillsCount, 9);
       assert.ok(cliRes.installed.prunedSkills.includes('sdlc-kanban'));
 
       // Deprecated skill removed, custom skill preserved, 6 canonical skills present

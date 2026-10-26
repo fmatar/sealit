@@ -12,22 +12,27 @@ export const DEPRECATED_SDLC_SKILLS = [
   'sdlc-docs-wiki',
   'sdlc-feature-spec',
   'sdlc-help',
+  'sdlc-init',
   'sdlc-initialize',
   'sdlc-kanban',
   'sdlc-peer-review',
   'sdlc-quality-gate',
   'sdlc-release-changelog',
+  'sdlc-review-gate',
   'sdlc-tdd-implement',
   'sdlc-test-coverage'
 ];
 
 export const CANONICAL_SDLC_SKILLS = [
+  'sdlc',
+  'sdlc-adr',
+  'sdlc-doctor',
   'sdlc-flow',
+  'sdlc-gate',
   'sdlc-product',
-  'sdlc-tdd',
-  'sdlc-review-gate',
   'sdlc-release',
-  'sdlc-init'
+  'sdlc-status',
+  'sdlc-tdd'
 ];
 
 export const SUPPORTED_AGENTS = [
@@ -99,13 +104,16 @@ export const CONSTITUTIONAL_RULES_SUMMARY = `# Agentic SDLC Framework Invariants
 - Mutation kill score: >= 80% using PITest, Stryker, mutmut, or cargo-mutants.
 - Concentric ring Clean Architecture compliance: zero outer-layer imports into domain entities (\`.archlens/policy.json\`).
 
-## 4. Consolidated 6-Skill Suite
-- \`/sdlc-flow\`: Master orchestrator (\`stage begin\`, \`stage pre-pr\`, \`stage complete\`, Kanban sync, Architecture Diff UI).
-- \`/sdlc-product\`: Constitutional \`PRODUCT.md\` autopilot, \`docs/specs/\` architect, ADR lifecycle, and topological DAG waves.
+## 4. Universal Router + 8 Verb Skills Suite (ADR-004)
+- \`/sdlc\`: Universal 1:1 subcommand router (\`/sdlc doctor\`, \`/sdlc begin #id\`, \`/sdlc status\`, \`/sdlc drift\`, \`/sdlc pre-pr\`, \`/sdlc gate\`, \`/sdlc kanban\`, \`/sdlc ui\`).
+- \`/sdlc-flow\`: End-to-end ticket autopilot (\`stage begin\` -> TDD -> \`stage pre-pr\` -> parallel review -> \`stage complete\`).
+- \`/sdlc-product\`: Constitutional \`PRODUCT.md\` autopilot, \`docs/specs/\` architect, and topological DAG waves.
+- \`/sdlc-doctor\`: Stack detection, \`doctor --fix\`, 4-Layer Git hooks, \`.archlens/policy.json\`, and multi-agent installer.
+- \`/sdlc-status\`: Active session, 8-stage progress, drift check, \`KANBAN.md\` state, and live Architecture Diff UI.
 - \`/sdlc-tdd\`: Robert Martin Red-Green-Refactor TDD, polyglot test runners, and real coverage/mutation report parsers.
-- \`/sdlc-review-gate\`: Parallel fork-join PR review subagents, \`gate --strict\`, and Archlens ring enforcement.
-- \`/sdlc-release\`: README/Docs/Wiki showcase sync, SemVer tagging, regression proofs, and live canary watchdog.
-- \`/sdlc-init\`: Interactive multi-agent installer (\`npx github:fmatar/agentic-sdlc-framework install\`) and environment doctor.
+- \`/sdlc-gate\`: Parallel fork-join PR review subagents, \`gate --strict\`, and Stage 7 SHA-256 Merkle Gate Receipt.
+- \`/sdlc-adr\`: Mint or approve Spec-Drift ADRs and synchronize \`docs/DECISION_MAP.md\`.
+- \`/sdlc-release\`: README/Docs/Wiki sync, SemVer tagging, regression proofs, and live canary watchdog.
 `;
 
 /**

@@ -21,7 +21,7 @@ tools: read_file, write_file, edit_file, run_command, invoke_subagent
 flowchart LR
     B["1. stage begin\n(Ticket + Branch + Session + PM In-Progress)"] --> T["2. TDD Loop\n(sdlc-tdd: Red -> Green -> Refactor)"]
     T --> P["3. stage pre-pr\n(Drift + DecisionMap + ArchTrace + Merkle Receipt)"]
-    P --> R["4. Review Gate\n(sdlc-review-gate: Parallel Subagents + Strict Gate)"]
+    P --> R["4. Review Gate\n(sdlc-gate: Parallel Subagents + Strict Gate)"]
     R --> C["5. stage complete\n(PR Merge + PM Done + Kanban Sync + Release Lock)"]
 ```
 
@@ -68,12 +68,12 @@ After running `stage begin` or `stage pre-pr`, copy `.agent/workbench/index.html
 <agent-embed src="file:///<artifactDir>/sdlc-architecture-diff.html"></agent-embed>
 ```
 
-### Phase 4: Parallel Fork-Join Review & Quality Gate (`sdlc-review-gate`)
-Load `.agent/skills/sdlc-review-gate/SKILL.md` and dispatch two `invoke_subagent` calls in parallel using valid tool arguments:
+### Phase 4: Parallel Fork-Join Review & Quality Gate (`sdlc-gate`)
+Load `.agent/skills/sdlc-gate/SKILL.md` and dispatch two `invoke_subagent` calls in parallel using valid tool arguments:
 - **Call 1 (`PR Peer Reviewer`)**:
   - `TypeName`: `"research"`
   - `Role`: `"PR Peer Reviewer"`
-  - `Prompt`: `"Read .agent/skills/sdlc-review-gate/SKILL.md. Audit git diff against main for Robert Martin test smells, Dual-Gate coverage, and clean architecture boundaries. Return a structured review verdict."`
+  - `Prompt`: `"Read .agent/skills/sdlc-gate/SKILL.md. Audit git diff against main for Robert Martin test smells, Dual-Gate coverage, and clean architecture boundaries. Return a structured review verdict."`
 - **Call 2 (`Quality Gate Auditor`)**:
   - `TypeName`: `"research"`
   - `Role`: `"Quality Gate Auditor"`

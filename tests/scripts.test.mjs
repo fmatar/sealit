@@ -42,13 +42,16 @@ describe('Kanban Scripts & Consolidated 6-Skill Schema Validation', () => {
     assert.ok(scriptCode.includes('Traceability Matrix'));
   });
 
-  it('verifies exactly 6 consolidated skills exist in .agent/skills/ with valid tool schemas', () => {
+  it('verifies 1 Router + 8 Verb Skills (9 canonical skills) exist in .agent/skills/ with valid tool schemas (ADR-004)', () => {
     const expectedSkills = [
+      'sdlc',
+      'sdlc-adr',
+      'sdlc-doctor',
       'sdlc-flow',
-      'sdlc-init',
+      'sdlc-gate',
       'sdlc-product',
       'sdlc-release',
-      'sdlc-review-gate',
+      'sdlc-status',
       'sdlc-tdd'
     ];
     const skillsDir = path.resolve('.agent/skills');
@@ -58,6 +61,7 @@ describe('Kanban Scripts & Consolidated 6-Skill Schema Validation', () => {
       .sort();
 
     assert.deepEqual(actualSkills, expectedSkills);
+    assert.equal(fs.existsSync(path.resolve('.agents/skills')), false, '.agents/skills duplicate folder must not exist');
 
     for (const skillName of expectedSkills) {
       const skillFile = path.join(skillsDir, skillName, 'SKILL.md');
