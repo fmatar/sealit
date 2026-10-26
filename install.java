@@ -90,6 +90,7 @@ public class install implements Callable<Integer> {
             String home = System.getProperty("user.home");
             Path targetSkills = Paths.get(home, ".gemini", "config", "skills");
             Path targetScripts = Paths.get(home, ".gemini", "config", "scripts");
+            engine.addTask(new PruneDeprecatedSkillsTask("Prune Deprecated SDLC Skills", targetSkills));
             engine.addTask(new CopyTask("Install Global Skills", Paths.get(sourceSkills), targetSkills));
             if (Files.exists(Paths.get(sourceScripts))) {
                 engine.addTask(new CopyTask("Install Global Engine Scripts", Paths.get(sourceScripts), targetScripts));
@@ -104,6 +105,7 @@ public class install implements Callable<Integer> {
             Path targetScripts = targetPath.resolve(agentDir).resolve("scripts");
             Path targetDocs = targetPath.resolve("docs").resolve("templates");
             
+            engine.addTask(new PruneDeprecatedSkillsTask("Prune Deprecated SDLC Skills", targetSkills));
             engine.addTask(new CopyTask("Install Local Skills", Paths.get(sourceSkills), targetSkills));
             if (Files.exists(Paths.get(sourceScripts))) {
                 engine.addTask(new CopyTask("Install Local Engine Scripts", Paths.get(sourceScripts), targetScripts));
@@ -170,6 +172,48 @@ public class install implements Callable<Integer> {
     interface WorkflowTask {
         String getName();
         void execute() throws Exception;
+    }
+
+    static class PruneDeprecatedSkillsTask implements WorkflowTask {
+        private static final String[] DEPRECATED_SKILLS = {
+            "sdlc-analyze", "sdlc-arch-trace", "sdlc-docs-wiki", "sdlc-feature-spec",
+            "sdlc-help", "sdlc-initialize", "sdlc-kanban", "sdlc-peer-review",
+            "sdlc-quality-gate", "sdlc-release-changelog", "sdlc-tdd-implement", "sdlc-test-coverage"
+        };
+        private final String name;
+        private final Path targetSkills;
+
+        public PruneDeprecatedSkillsTask(String name, Path targetSkills) {
+            this.name = name;
+            this.targetSkills = targetSkills;
+        }
+
+        @Override
+        public String getName() {
+            return name + " (" + targetSkills + ")";
+        }
+
+        @Override
+        public void execute() throws Exception {
+            if (!Files.exists(targetSkills)) return;
+            for (String skill : DEPRECATED_SKILLS) {
+                Path oldDir = targetSkills.resolve(skill);
+                if (Files.exists(oldDir)) {
+                    Files.walkFileTree(oldDir, new SimpleFileVisitor<Path>() {
+                        @Override
+                        public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                            Files.delete(file);
+                            return FileVisitResult.CONTINUE;
+                        }
+                        @Override
+                        public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+                            Files.delete(dir);
+                            return FileVisitResult.CONTINUE;
+                        }
+                    });
+                }
+            }
+        }
     }
 
     static class CopyTask implements WorkflowTask {

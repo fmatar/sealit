@@ -116,28 +116,55 @@ fi
 
 echo "⚡ Installing Agentic SDLC Framework ($MODE mode)..."
 
+DEPRECATED_SDLC_SKILLS=(
+    "sdlc-analyze"
+    "sdlc-arch-trace"
+    "sdlc-docs-wiki"
+    "sdlc-feature-spec"
+    "sdlc-help"
+    "sdlc-initialize"
+    "sdlc-kanban"
+    "sdlc-peer-review"
+    "sdlc-quality-gate"
+    "sdlc-release-changelog"
+    "sdlc-tdd-implement"
+    "sdlc-test-coverage"
+)
+
+prune_deprecated_skills() {
+    local skills_dir="$1"
+    [[ ! -d "$skills_dir" ]] && return 0
+    for old_skill in "${DEPRECATED_SDLC_SKILLS[@]}"; do
+        if [[ -d "${skills_dir}/${old_skill}" ]]; then
+            rm -rf "${skills_dir:?}/${old_skill:?}"
+        fi
+    done
+}
+
 # --- Vercel Labs Skills CLI Integration (https://skills.sh) ---
 SKILLS_CLI_SUCCESS=false
-if [[ "$USE_SKILLS_CLI" != false ]] && command -v npx &>/dev/null; then
-    echo "📦 Checking Vercel Labs Skills ecosystem (npx skills)..."
-    SKILLS_CLI_ARGS="add fmatar/agentic-sdlc-framework --skill '*' -y --copy"
-    if [[ "$MODE" == "global" ]]; then
-        SKILLS_CLI_ARGS="$SKILLS_CLI_ARGS --global"
-    fi
-
-    # Run skills CLI from target directory (or current directory for global)
-    RUN_DIR="$TARGET_DIR"
-    [[ "$MODE" == "global" ]] && RUN_DIR="$ORIGINAL_DIR"
-
-    if (cd "$RUN_DIR" && npx --yes skills $SKILLS_CLI_ARGS 2>/dev/null); then
-        echo "✅ Skills successfully installed via Vercel Labs skills CLI!"
-        SKILLS_CLI_SUCCESS=true
-    else
-        if [[ "$USE_SKILLS_CLI" == true ]]; then
-            echo "❌ Failed to install via skills CLI." >&2
-            exit 1
+if [[ "$USE_SKILLS_CLI" == true ]] || [[ "$USE_SKILLS_CLI" == "auto" && "$IN_GIT_REPO" == false ]]; then
+    if command -v npx &>/dev/null; then
+        echo "📦 Checking Vercel Labs Skills ecosystem (npx skills)..."
+        SKILLS_CLI_ARGS="add fmatar/agentic-sdlc-framework --skill '*' -y --copy"
+        if [[ "$MODE" == "global" ]]; then
+            SKILLS_CLI_ARGS="$SKILLS_CLI_ARGS --global"
         fi
-        echo "ℹ️  Skills CLI unavailable or skipped; proceeding with universal direct installer..."
+
+        # Run skills CLI from target directory (or current directory for global)
+        RUN_DIR="$TARGET_DIR"
+        [[ "$MODE" == "global" ]] && RUN_DIR="$ORIGINAL_DIR"
+
+        if (cd "$RUN_DIR" && npx --yes skills $SKILLS_CLI_ARGS 2>/dev/null); then
+            echo "✅ Skills successfully installed via Vercel Labs skills CLI!"
+            SKILLS_CLI_SUCCESS=true
+        else
+            if [[ "$USE_SKILLS_CLI" == true ]]; then
+                echo "❌ Failed to install via skills CLI." >&2
+                exit 1
+            fi
+            echo "ℹ️  Skills CLI unavailable or skipped; proceeding with universal direct installer..."
+        fi
     fi
 fi
 
@@ -169,6 +196,7 @@ if [[ "$MODE" == "global" ]]; then
     DEST_SKILLS="$HOME/.gemini/config/skills"
     DEST_SCRIPTS="$HOME/.gemini/config/scripts"
     mkdir -p "$DEST_SKILLS" "$DEST_SCRIPTS"
+    prune_deprecated_skills "$DEST_SKILLS"
 
     if [[ "$IN_GIT_REPO" == true ]]; then
         cp -R "${SCRIPT_DIR}/.agent/skills/." "$DEST_SKILLS/"
@@ -183,12 +211,12 @@ if [[ "$MODE" == "global" ]]; then
     chmod +x "$DEST_SCRIPTS"/*.sh 2>/dev/null || true
     chmod +x "$DEST_SCRIPTS"/*.mjs 2>/dev/null || true
 
-    SKILL_COUNT=$(find "$DEST_SKILLS" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
+    SKILL_COUNT=$(find "$DEST_SKILLS" -mindepth 1 -maxdepth 1 -type d -name "sdlc-*" | wc -l | tr -d ' ')
     echo "✅ Global installation complete!"
-    echo "   • Skills ($SKILL_COUNT loaded): $DEST_SKILLS"
+    echo "   • SDLC Skills ($SKILL_COUNT loaded): $DEST_SKILLS"
     echo "   • Engine & Scripts:    $DEST_SCRIPTS"
     echo ""
-    echo "💡 All Antigravity agent sessions can now access sdlc-* skills globally."
+    echo "💡 All Antigravity agent sessions can now access the 6 consolidated sdlc-* skills globally."
     exit 0
 fi
 
@@ -205,6 +233,8 @@ DEST_SCRIPTS="${TARGET_ABS}/${AGENT_DIR_NAME}/scripts"
 DEST_TEMPLATES="${TARGET_ABS}/docs/templates"
 
 mkdir -p "$DEST_SKILLS" "$DEST_SCRIPTS" "$DEST_TEMPLATES"
+prune_deprecated_skills "${TARGET_ABS}/.agent/skills"
+prune_deprecated_skills "${TARGET_ABS}/.agents/skills"
 
 if [[ "$IN_GIT_REPO" == true ]]; then
     if [[ "$TARGET_ABS" != "$SCRIPT_DIR" ]]; then
@@ -220,12 +250,13 @@ fi
 
 # Fix POSIX execution permissions
 chmod +x "$DEST_SKILLS"/*/scripts/*.sh 2>/dev/null || true
+chmod +x "$DEST_SCRIPTS"/*.sh 2>/dev/null || true
 chmod +x "$DEST_SCRIPTS"/*.mjs 2>/dev/null || true
 
-SKILL_COUNT=$(find "$DEST_SKILLS" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
+SKILL_COUNT=$(find "$DEST_SKILLS" -mindepth 1 -maxdepth 1 -type d -name "sdlc-*" | wc -l | tr -d ' ')
 
 echo "✅ Local installation complete in: $TARGET_ABS"
-echo "   • Skills ($SKILL_COUNT loaded): ${TARGET_ABS}/${AGENT_DIR_NAME}/skills"
+echo "   • SDLC Skills ($SKILL_COUNT loaded): ${TARGET_ABS}/${AGENT_DIR_NAME}/skills"
 echo "   • Engine & Scripts:    ${TARGET_ABS}/${AGENT_DIR_NAME}/scripts"
 echo "   • Specs & Templates:   ${TARGET_ABS}/docs/templates"
 

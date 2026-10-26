@@ -1,15 +1,17 @@
-# Assistant Guidelines
+# Agentic SDLC Framework Invariants & Autonomous Rules
+# Generated automatically by sdlc-engine (Universal Engine)
+# Adheres strictly to Robert C. Martin Clean Code & Architecture
 
-## Archlens Clean Architecture Workbench Companion Protocol
+## 1. Zero Direct Pushes (4-Layer Git Guard)
+- Direct git commits, merges, or pushes to `develop` or `main` are STRICTLY FORBIDDEN.
+- Every commit requires an active session in `.agent/.sdlc-session.json` matching the current branch.
+- Every merge into `main` requires a signed Stage 7 SHA-256 Merkle Gate Receipt in `docs/AUDIT_CHAIN.jsonl`.
 
-This project is governed by the **Archlens Dynamic Clean Architecture Workbench**.
-- **Workbench UI & API**: `http://localhost:8088`
-- **Architectural Policy**: `.archlens/policy.json`
-- **Mailbox IPC**:
-  - Inbound queue: `.archlens/to-agent.json`
-  - Outbound response: `.archlens/to-viewer.json`
+## 2. PRODUCT.md Constitution & Spec Drift ADR Protocol
+- Full-spec project handovers synthesize `PRODUCT.md` (`CAP-XX`, `INV-XX`, `SPEC-XX`) starting at Genesis Ticket `#1`.
+- Any mutation to dependencies, C4 architecture boundaries, DB schemas, or API contracts MUST be accompanied by an ADR (`node .agent/scripts/sdlc-engine.mjs adr create`).
 
-### Handling Mailbox Commands:
-1. **REGEN**: Re-index AST, evaluate package dependency rules, and acknowledge.
-2. **APPLY_PROPOSAL**: Reorganize packages to conform to concentric rings (Adapters -> Application -> Domain Core). Where an inner layer relies on an outer layer, apply the **Dependency Inversion Principle** by creating an interface port in the inner layer and implementing it in the outer layer.
-3. **REFRESH_CRAP**: Execute test suite and report code coverage metrics.
+## 3. Robert Martin TDD & Dual-Gate Quality Verification
+- Diff coverage threshold: >= 85% line and branch coverage.
+- Mutation kill score: >= 80% using PITest or Stryker.
+- Concentric ring Clean Architecture compliance: zero outer-layer imports into domain entities.
