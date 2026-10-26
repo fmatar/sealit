@@ -1,303 +1,196 @@
 <div align="center">
-  <h1>Agentic SDLC Framework</h1>
-  <p><b>State-of-the-Art Autonomous Software Development Lifecycle Orchestration</b></p>
+  <h1>⚡ Agentic SDLC Framework</h1>
+  <p><b>Constitutional Multi-Agent Software Development Lifecycle Orchestration</b></p>
 
+  [![Version](https://img.shields.io/badge/Version-0.1.0-indigo.svg)](./CHANGELOG.md)
+  [![Skills](https://img.shields.io/badge/Canonical_Skills-6-0d9488.svg)](./wiki/Skills-Reference.md)
+  [![Agents](https://img.shields.io/badge/Agents-Gemini_%7C_Claude_%7C_Cursor_%7C_Grok_%7C_Windsurf_%7C_Copilot-2563eb.svg)](#1-install-via-npx-interactive-multi-agent-wizard)
+  [![Quality Gate](https://img.shields.io/badge/Dual--Gate-Enforced-success.svg)](#)
   [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-  [![Quality Gate](https://img.shields.io/badge/Quality_Gate-Enforced-success.svg)](#)
-  [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
-
 </div>
 
 ---
 
-## ⚡ What is the Agentic SDLC Framework?
+## 🎯 Overview
 
-The Agentic SDLC Framework is a **Hybrid Orchestration** system that transforms standard coding agents (like Google Antigravity) into a highly disciplined, multi-agent engineering team. Instead of letting agents write code aimlessly, this framework enforces industry best practices (SVPG PRDs, IEEE 29148 SRS, Simon Brown C4 Architecture) and automates the entire software lifecycle from ideation to release.
-
-## 🚀 Key Features
-
-* **End-to-End Product Autopilot (`sdlc-product` & `PRODUCT.md`)**: Synthesizes raw specs into a canonical `PRODUCT.md` Constitution (`CAP-XX`, `INV-XX`, `SPEC-XX`), enforces Genesis Ticket `#1` (`feature/issue-#1-product-genesis`), and schedules topological DAG waves across parallel Git worktrees.
-* **Dual-Enforced Spec-Drift Sentinel & ADR Engine**: `sdlc-engine drift check` blocks any PR that mutates stack dependencies, C4 architecture nodes, DB schemas, or API contracts without a linked `docs/adr/ADR-00X.md` (`sdlc-engine adr create`), routing technical ADRs automatically while pausing Product/Contract ADRs for human approval.
-* **Strict 4-Layer Git Guard & Stage 7 Cryptographic Gate Receipts**: Blocks direct commits to `main`/`develop`, requires an active branch-matched `.sdlc-session.json` on every `pre-commit`, and requires a signed Stage 7 SHA-256 Merkle Gate Receipt (`sdlc-engine guard receipt`) before any branch merges into `main`.
-* **SvelteKit 5 (Runes) Causal Decision Lineage Workbench**: Interactive web mission control (`workbench/` + `sdlc-engine serve`) and auto-generated `docs/DECISION_MAP.md` visualizing `CAP-XX -> SPEC-XX -> Ticket -> ADR Pivot -> Architecture`, an Architecture Time-Machine slider, and bidirectional ADR/DAG controls over SSE.
-* **Modular Engine, SHA-256 Gate Cache & Context-Compressed Dossiers**: Decomposed `.agent/scripts/lib/*.mjs` architecture featuring content-addressable SHA-256 git-tree gate caching (`.agent/.cache/`), async parallel subprocess execution, and compact per-ticket subagent dossiers (`.agent/dossiers/`).
-* **Autonomous 8-Stage Lifecycle & Circuit Breaker**: The `sdlc-flow` orchestrator drives intake auto-classification (`feat`, `bug`, `hotfix`, `spike`), branching, TDD implementation, coverage enforcement, docs sync, PR creation, parallel subagent peer review, CI status polling, and release with session concurrency locking (`.agent/.sdlc-session.json`), Git worktree isolation, automated remediation circuit breakers (max 3 loops), and real-time visual progress dashboards.
-* **Living Kanban & Pluggable PM Providers**: The `sdlc-kanban` skill automates ticket state transitions (`status:*`), manages GitHub Projects v2 multi-views, Jira, Linear, and syncs an in-repo `docs/KANBAN.md` dashboard with full bidirectional traceability.
-* **Dual-Gate Testing & Mutation Defense**: Enforces Robert C. Martin craftsmanship with $\ge 85\%$ diff coverage and $\ge 80\%$ mutation kill score (PITest for Quarkus, Stryker for Svelte 5) to eliminate vanity coverage metrics and kill surviving mutants.
-* **Fork-Join Parallel Peer Review & Quality Gate**: Spawns independent read-only subagents via `invoke_subagent` to audit PR diffs, detect test smells (no trivial getter tests, no mock abuse), run static gates, and post review comments via GitHub MCP.
-* **Built-in DevSecOps & Quality Gate**: `sdlc-quality-gate` verifies Spotless formatting, static typing (`svelte-check`), test port isolation (`quarkus.http.test-port=0`), WCAG a11y, SAST audits, and production builds.
-* **Architectural Traceability & Mutation Ledger**: The `sdlc-arch-trace` skill continuously audits system architecture evolution, extracts Mermaid AST graphs, detects node/edge mutations, and appends an immutable audit log to `docs/ARCH_TRACE.md` and `.agent/arch-trace.jsonl`.
-* **Zero-Direct-Push Branch Protection**: Enforces physical Git `pre-push` hooks and SDLC flow guards forbidding direct pushes to `develop` and `main`, mandating feature branches (`feature/*`), Dual-Gate verification, and PR reviews.
-* **Multi-Agent Runtime Interoperability**: `sdlc-engine interop export` exports framework lifecycle rules, slash commands, and Robert Martin TDD invariants to Claude Code (`CLAUDE.md`, `.claude/settings.json`), Cursor (`.cursorrules`, `.cursor/rules/agentic-sdlc.mdc`), and Windsurf (`.windsurfrules`).
-* **Visual SDLC Mission Control & Webview**: Embedded zero-dependency HTTP server (`sdlc-engine serve [--port <n>]`) rendering real-time 8-stage lifecycle progress, living Kanban state, and architectural trace ledgers.
-* **API Contract Drift Sentinel & Schema Guardian**: `sdlc-engine contract check` audits OpenAPI, Swagger, and GraphQL schema git diffs for breaking mutations (dropped endpoints, deleted HTTP verbs, removed types); enforced strictly in `sdlc-engine gate --strict`.
-* **Automated Bug Reproduction Test Scaffold Generator**: `sdlc-engine reproduce --error "<trace>"` generates failing Red-Green-Refactor test harnesses directly from stack traces adhering to Robert Martin TDD.
-* **Session Telemetry, Velocity & ROI Tracker**: `sdlc-engine stats` tracks session volume, architecture mutation throughput, pipeline velocity score, and estimated engineering hours and dollar savings.
-* **Cryptographic SHA-256 Merkle Audit Ledger**: `sdlc-engine audit verify` cryptographically validates tamper-evident delivery chains in `docs/AUDIT_CHAIN.jsonl`, enforcing verifiable hash integrity across every stage checkpoint in `sdlc-engine gate --strict`.
-* **Visual UI & API Regression Proof Generator**: `sdlc-engine proof generate` produces automated visual DOM snapshots and API endpoint contract proofs in `docs/proofs/`, registering cryptographic attestation records directly into the project audit trail.
-* **Autonomous Topological DAG Epic Deconstructor**: `sdlc-engine deconstruct "<epic-markdown>"` parses complex product initiatives into topological sub-tasks with dependency graphs, interactive Mermaid diagrams, and optional direct ticket provisioning.
-* **Canary Health & Emergency Rollback Watchdog**: `sdlc-engine watchdog monitor` samples canary telemetry, audits error rates against strict failure thresholds, and executes automated deployment drains and rollbacks upon threshold breach.
-* **Automated Releases & Deployments**: `sdlc-release-changelog` automatically manages Semantic Versioning (SemVer), keeps an automated changelog, generates Docker containers, and deploys via Helm.
-
-## 🏛️ Comprehensive Architecture & Lifecycle Workflow
-
-The following diagram illustrates the complete supervisor fork-join lifecycle of the `sdlc-flow` orchestrator, from Gate 0 ticket ingestion to Stage 8 release and session teardown:
-
-```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'fontFamily': 'system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif', 'fontSize': '13px', 'darkMode': false, 'lineColor': '#64748b' }}}%%
-flowchart LR
-    %% Styling Palette (High Contrast, GitHub-Native Aesthetics)
-    classDef trigger fill:#4f46e5,stroke:#4338ca,stroke-width:2px,color:#ffffff,font-weight:bold;
-    classDef gate0 fill:#7c3aed,stroke:#6d28d9,stroke-width:1.5px,color:#ffffff;
-    classDef stage fill:#0284c7,stroke:#0369a1,stroke-width:1.5px,color:#ffffff;
-    classDef gate fill:#0d9488,stroke:#0f766e,stroke-width:1.5px,color:#ffffff;
-    classDef subagent fill:#059669,stroke:#047857,stroke-width:1.5px,color:#ffffff;
-    classDef circuit fill:#e11d48,stroke:#be123c,stroke-width:1.5px,color:#ffffff;
-    classDef done fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#ffffff,font-weight:bold;
-
-    %% 1. Ingestion & Pre-Flight
-    subgraph Phase1 [" 🛑 INTAKE & CONCURRENCY "]
-        direction TB
-        UserReq["🎯 User Request<br/><i>(Feature, Fix, Hotfix, Spike)</i>"]:::trigger
-        Gate0["Gate 0: Auto-Classifier<br/>• Provision Ticket #id<br/>• Tag status:ready"]:::gate0
-        PreFlight{"Active Session<br/>Check"}:::gate0
-        UserReq --> Gate0 --> PreFlight
-    end
-
-    %% 2. TDD & Architecture
-    subgraph Phase2 [" ⚙️ TDD & CLEAN ARCHITECTURE "]
-        direction TB
-        BranchSync["Stage 2: Branch & Kanban<br/>• feature/issue-#id<br/>• status:in-progress"]:::stage
-        TDDLoop["Stage 3: Robert Martin TDD<br/>• Failing test first (Red-Green)<br/>• Port decoupling (DIP)"]:::stage
-        BranchSync --> TDDLoop
-    end
-
-    %% 3. Dual-Gate Verification
-    subgraph Phase3 [" 🛡️ DUAL-GATE DEFENSE "]
-        direction TB
-        DualGate["Stage 4: Dual-Gate<br/>• ≥85% Diff Coverage<br/>• ≥80% Mutation Score<br/>• Archlens concentric rings"]:::gate
-        ArchTrace["Stage 5: Docs & Trace<br/>• docs/ARCH_TRACE.md<br/>• 5-min Quickstart README<br/>• CHANGELOG.md"]:::gate
-        DualGate --> ArchTrace
-    end
-
-    %% 4. Fork-Join Review
-    subgraph Phase4 [" ⚡ FORK-JOIN AUDIT "]
-        direction TB
-        OpenPR["Stage 6: Pull Request<br/>• status:in-review<br/>• Generated PR summary"]:::subagent
-        ForkJoin["Stage 7: Concurrent Subagents<br/>• PR Peer Reviewer<br/>• Strict Quality Gatekeeper<br/>• Archlens Auditor"]:::subagent
-        CircuitBreaker{"Gate & Review<br/>Passed?"}:::circuit
-        OpenPR --> ForkJoin --> CircuitBreaker
-    end
-
-    %% 5. Release & Teardown
-    subgraph Phase5 [" 🏁 RELEASE & TEARDOWN "]
-        direction TB
-        RemoteCI["Stage 8: CI Polling<br/>• GitHub Actions green"]:::done
-        MergeDone["Release Lock & Done<br/>• Squash merge & SemVer<br/>• status:done"]:::done
-        RemoteCI --> MergeDone
-    end
-
-    %% Pipeline Interconnections
-    PreFlight -->|"No Active Session"| BranchSync
-    PreFlight -.->|"Active Ticket"| TDDLoop
-    TDDLoop --> DualGate
-    ArchTrace --> OpenPR
-    CircuitBreaker -->|"Approved"| RemoteCI
-    CircuitBreaker -->|"Changes Requested (Max 3)"| TDDLoop
-```
-
-## 🧠 Core Agentic Skills (6 Canonical Skills — `ADR-002`)
-
-The framework operates via **6 consolidated, schema-valid skills** located in `.agent/skills/`:
-
-1. **`sdlc-flow`**: Master orchestrator driving the composite issue-to-PR pipeline (`stage begin`, `stage pre-pr`, `stage complete`), Kanban synchronization (`docs/KANBAN.md`), architectural traceability (`docs/ARCH_TRACE.md`), and embedded Architecture Diff UI (`sdlc-engine ui-snapshot`).
-2. **`sdlc-product`**: End-to-end Product Autopilot & Feature Specification architect synthesizing `PRODUCT.md` (`CAP-XX`, `INV-XX`, `SPEC-XX`), authoring PRDs/SRS/C4/ADRs in `docs/specs/`, and scheduling topological DAG execution waves.
-3. **`sdlc-tdd`**: Guides Robert C. Martin's Three Laws of TDD, Transformation Priority Premise (TPP), and F.I.R.S.T. isolation, and executes real Dual-Gate test coverage ($\ge 85\%$) and mutation testing ($\ge 80\%$) across polyglot stacks.
-4. **`sdlc-review-gate`**: Parallel Fork-Join PR peer reviewer (`TypeName: "research"`), strict 9-pillar quality gatekeeper, Archlens concentric ring auditor, and repository compliance scorecard.
-5. **`sdlc-release`**: Synchronizes project documentation (`README.md`, `docs/specs/`, `CHANGELOG.md`, `wiki/`) and automates Semantic Versioning (SemVer) releases, regression proofs, and canary health watchdogs.
-6. **`sdlc-init`**: Universal project bootstrap installer (`npx github:fmatar/agentic-sdlc-framework install`), interactive multi-agent TUI wizard (`gemini`, `claude`, `cursor`, `grok`, `windsurf`, `copilot`), stack auto-detector, and `doctor --fix`.
+The **Agentic SDLC Framework** transforms AI coding assistants (**Google Antigravity / Gemini**, **Claude Code**, **Cursor**, **Grok**, **Windsurf**, and **GitHub Copilot**) into a disciplined software engineering organization. Instead of letting agents write ad-hoc code on `main`, it enforces **Constitutional Product Specs (`PRODUCT.md`)**, **Spec-Drift ADR Gates**, **Robert C. Martin TDD**, **Concentric Clean Architecture (`.archlens/policy.json`)**, **Parallel Fork-Join Subagent Peer Reviews**, and **Cryptographic SHA-256 Merkle Gate Receipts**.
 
 ---
 
-## 💬 Prompting the Agent: Practical Real-World Scenarios
+## 🚀 30-Second Quickstart
 
-You can drive the entire framework through standard conversational prompts. Here are the exact battle-tested prompts to use across every phase of software development:
+### 1. Install via `npx` (Interactive Multi-Agent Wizard)
 
-### 1. New Feature Implementation (Autonomous End-to-End)
-> **Prompt**: `"Implement feature #104: Add multi-tenant JWT token rotation with rate limiting. Follow the sdlc-flow lifecycle."`
-> *(If you don't have an issue number, say: `"Build a multi-tenant JWT token rotation with rate limiting."` Gate 0 will auto-classify it as `feat`, provision the issue, and begin).*
-* **Under the Hood**: Auto-proves Clean Architecture governance, creates branch, executes Robert Martin TDD, enforces $\ge 85\%$ diff coverage & $\ge 80\%$ mutation kill score, syncs README & CHANGELOG, opens PR, and launches parallel peer review & quality gate subagents.
-* **Expected Output**: Linked PR with Dual-Gate test/mutation badge, clean concentric imports, and green remote CI verification.
-
-### 2. Bug Fix with Mandatory Reproduction Harness
-> **Prompt**: `"Fix bug #205: Session timeout triggers NullPointerException when user profile has null email."`
-* **Under the Hood**: The agent adheres to the **Reproduction Invariant**: it invokes `sdlc-engine reproduce` to author a failing test reproducing the exact failure *before* modifying any application logic, proves it fails red, applies the fix, and runs through the Dual-Gate.
-* **Expected Output**: A new unit test in `tests/reproductions/` passing green and confirming the fix without regression.
-
-### 3. Ad-Hoc Fast-Path (Tweaking an In-Flight Ticket)
-> **Prompt**: `"Also make sure the token TTL is configurable via environment variable JWT_ROTATION_TTL_SECONDS."`
-* **Under the Hood**: Detects active session on `#104`, appends the checklist item to the active ticket, skips intake overhead, and executes TDD + affected-only tests (`sdlc-engine test --affected-only`) directly on the branch.
-* **Expected Output**: Fast iteration in seconds without re-running unaffected parts of the monorepo test suite.
-
-### 4. Concurrent Urgent Hotfix (Git Worktree Isolation)
-> **Prompt**: `"Urgent hotfix: Stripe webhook payload version 2026-09-01 breaks checkout. Don't lose my current work on the JWT feature!"`
-* **Under the Hood**: Detects session collision, creates an isolated git worktree (`../worktree-hotfix-stripe`), provisions `#206`, resolves the fix in isolation, and tears down the worktree without stashing or dirtying your active feature workspace.
-* **Expected Output**: Hotfix PR merged to `main` while your active feature branch remains completely untouched.
-
-### 5. API Breaking Contract Drift & Schema Guard
-> **Prompt**: `"Refactor the user profile API to deprecate 'billingAddress' in favor of 'addresses[]'. Check for breaking contract drift before opening the PR."`
-* **Under the Hood**: Executes `sdlc-engine contract check`, audits the diff against OpenAPI/Swagger/GraphQL specs, flags deleted routes or removed required fields, and mandates backward-compatible deprecation notices.
-* **Expected Output**: Zero unversioned breaking mutations permitted through the strict quality gate.
-
-### 6. Flaky Test & Race Condition Elimination
-> **Prompt**: `"The test in 'OrderProcessor.test.mjs' intermittently fails in CI. Run a flake audit and fix the race condition."`
-* **Under the Hood**: Executes `sdlc-engine flake-check --runs 20 --target OrderProcessor.test.mjs`, isolates unawaited asynchronous promises or port collisions, applies the deterministic fix, and verifies 20 consecutive passes.
-* **Expected Output**: Deterministic green test suite with 0 non-deterministic flakes.
-
-### 7. Mutation Testing & Assertion Density Hardening
-> **Prompt**: `"Run mutation testing on the pricing calculation engine and strengthen assertions against any surviving mutants."`
-* **Under the Hood**: Runs `sdlc-engine mutation`, identifies surviving mutant operators (`ConditionalsBoundary`, `NegateCondition`, `Math`), and runs `sdlc-engine strengthen` to recommend boundary value test cases.
-* **Expected Output**: Mutation kill score reaches $\ge 80\%$, eliminating false-confidence vanity line coverage.
-
-### 8. Multi-Agent Engine Sync (Claude Code, Cursor, Windsurf)
-> **Prompt**: `"Export all our SDLC rules and TDD invariants so my teammates using Claude Code and Cursor have the exact same constraints."`
-* **Under the Hood**: Runs `sdlc-engine interop export --agent all`, generating synchronized `CLAUDE.md`, `.claude/settings.json`, `.cursorrules`, `.cursor/rules/agentic-sdlc.mdc`, and `.windsurfrules`.
-* **Expected Output**: Unified cross-IDE agent behavior across your entire engineering organization.
-
-### 9. Architectural Traceability & Clean Boundary Refactoring
-> **Prompt**: `"Extract the payment calculation logic into a standalone domain module. Verify that inner domain code does not import outer web controllers."`
-* **Under the Hood**: Applies Robert Martin concentric ring rules, audits imports with `sdlc-engine arch diff`, extracts Mermaid AST diagrams, and appends the immutable trace entry to `docs/ARCH_TRACE.md`.
-* **Expected Output**: 0 architectural layer inversions and a verified audit entry in the architecture ledger.
-
-### 10. Live Mission Control & Engineering ROI Telemetry
-> **Prompt**: `"Spin up the SDLC visual dashboard and show me our delivery velocity and developer hours saved."`
-* **Under the Hood**: Launches the embedded zero-dependency web server (`sdlc-engine serve --port 4120`) and executes `sdlc-engine stats` to calculate developer hours saved and pipeline velocity.
-* **Expected Output**: Interactive visual webview live at `http://localhost:4120` with real-time session progress and estimated dollar savings.
-
-### 11. Tamper-Evident Cryptographic Merkle Audit Verification
-> **Prompt**: `"Audit our complete delivery chain and ensure zero records have been tampered with or corrupted."`
-* **Under the Hood**: Executes `sdlc-engine audit verify`, recalculating SHA-256 hashes recursively against genesis block `0000...0000` in `docs/AUDIT_CHAIN.jsonl`.
-* **Expected Output**: Cryptographic verification report confirming 100% immutable ledger integrity.
-
-### 12. Automated Visual & API Delivery Regression Proof
-> **Prompt**: `"Generate a formal delivery regression proof verifying our checkout API endpoints and UI dashboard."`
-* **Under the Hood**: Executes `sdlc-engine proof generate --name CheckoutGateway`, capturing SHA-256 digests of API contract responses and DOM snapshot trees into `docs/proofs/proof-checkoutgateway-*.md` and signing it into the Merkle chain.
-* **Expected Output**: Auditable markdown proof artifact with endpoint response digests and zero contract drift attestation.
-
-### 13. Autonomous Initiative DAG & Epic Deconstruction
-> **Prompt**: `"Deconstruct this user authentication epic into topological tickets and show me the dependency graph."`
-* **Under the Hood**: Runs `sdlc-engine deconstruct "<epic-markdown>" --title "User Auth Epic"`, topological sorting task nodes, identifying blockers, rendering a Mermaid graph TD, and optionally auto-provisioning tickets into GitHub/Jira/Linear.
-* **Expected Output**: Formatted task breakdown with dependency ordering and copy-pasteable Mermaid visualization.
-
-### 14. Canary Health Telemetry & Automated Rollback Watchdog
-> **Prompt**: `"Monitor our production canary deployment and immediately rollback if error rate exceeds 2%."`
-* **Under the Hood**: Executes `sdlc-engine watchdog monitor --url https://api.prod/health --threshold 0.02 --rollback "kubectl rollout undo deployment/api"`, evaluating consecutive probe samples and triggering the automated rollback command upon threshold violation.
-* **Expected Output**: Promoted deployment on clean metrics, or instant automated mitigation and emergency audit ledger logging on failure.
-
----
-
-## ⏱️ 5-Minute Developer Quickstart
-
-### Step 1: Install Framework
-
-#### Method A: Native Multi-Agent Installer Wizard (Recommended — `ADR-003`)
-Installs the **6 canonical skills**, the full `.agent/scripts/` execution engine (`sdlc-engine.mjs` + workbench UI), prunes deprecated legacy skills, and configures native rule/skill adapters for **Gemini / Antigravity**, **Claude Code**, **Cursor**, **Grok**, **Windsurf**, and **GitHub Copilot**:
+Run the zero-dependency installer inside any repository. Use `↑/↓` and `Space` to select your AI coding tools, installation scope (**Local** vs. **Global**), and governance add-ons:
 
 ```bash
-# Interactive multi-agent TUI wizard (select tools, scope, and governance add-ons):
+# Launch the interactive multi-agent TUI wizard:
 npx github:fmatar/agentic-sdlc-framework install
+```
 
-# Non-interactive install for specific AI coding tools:
-npx github:fmatar/agentic-sdlc-framework install --agents gemini,claude,cursor,grok --yes
+#### Non-Interactive & Global One-Liners
+```bash
+# Install for specific AI tools in the current project:
+npx github:fmatar/agentic-sdlc-framework install --agents gemini,claude,cursor,grok --with-archlens --with-hooks --yes
 
-# Install for all supported AI tools with Archlens, 4-Layer Git Hooks & GitHub Actions CI:
+# Install for ALL 6 supported AI tools + Archlens + 4-Layer Git Hooks + GitHub Actions CI:
 npx github:fmatar/agentic-sdlc-framework install --agents all --with-archlens --with-hooks --with-ci --yes
 
-# Global user config installation (~/.gemini, ~/.claude, ~/.grok):
-npx github:fmatar/agentic-sdlc-framework install --global --agents gemini,claude,grok --yes
-```
+# Install globally into ~/.gemini, ~/.claude, ~/.grok, and ~/.cursor:
+npx github:fmatar/agentic-sdlc-framework install --global --agents gemini,claude,grok,cursor --yes
 
-#### Method B: Skills-Only Registry ([skills.sh](https://skills.sh) / [vercel-labs/skills](https://github.com/vercel-labs/skills))
-```bash
-# Add the 6 markdown skills via the open skills CLI:
+# Alternative: Skills-only install via Vercel Labs skills.sh CLI:
 npx skills add fmatar/agentic-sdlc-framework -y
 ```
 
-### Step 2: Bootstrap & Auto-Heal Project
-```bash
-# Verify toolchain, git hooks, Archlens governance, and local Kanban board:
-node .agent/scripts/sdlc-engine.mjs doctor --fix
+### 2. What Gets Provisioned Per AI Tool (`ADR-003`)
 
-# Auto-detect stack, CI workflows, and scaffold .agent/sdlc-config.json:
-node .agent/scripts/sdlc-engine.mjs detect
-```
-
-### Step 3: Run the Universal Engine CLI
-All stages can be monitored or executed directly via the unified `sdlc-engine`:
-
-| Command | Purpose |
-|---|---|
-| `sdlc-engine stage <begin\|pre-pr\|complete>` | Atomic composite stage transitions (Session + Branch + PM + Drift + Merkle Receipt) |
-| `sdlc-engine session status` | View active ticket, stage, branch, and subagents |
-| `sdlc-engine session dashboard` | View live interactive ASCII lifecycle progress |
-| `sdlc-engine stats` | Track token velocity, session telemetry, and engineering ROI metrics |
-| `sdlc-engine serve [--port <port>]` | Launch interactive web-based Mission Control visual workbench |
-| `sdlc-engine test --affected-only` | Run tests strictly for files modified in the active diff |
-| `sdlc-engine coverage` | Run diff coverage gate ($\ge 85\%$ line & branch) |
-| `sdlc-engine mutation` | Run mutation testing defense ($\ge 80\%$ kill score) |
-| `sdlc-engine archlens diff` | Audit diff for Clean Architecture concentric layer inversions |
-| `sdlc-engine gate --strict` | Unified strict gate (Lint, Build, Test, Risk, Security, Flake, Contract Drift) |
-| `sdlc-engine contract check` | Audit OpenAPI, Swagger, and GraphQL schema diffs for breaking drift |
-| `sdlc-engine reproduce --error "<trace>" [--target <file>]` | Scaffold Robert Martin bug reproduction test harness matching error stack |
-| `sdlc-engine arch trace --reason "<msg>"` | Audit Mermaid AST & record changes to `docs/ARCH_TRACE.md` |
-| `sdlc-engine arch diff` | Verify Clean Architecture concentric rings against git diff |
-| `sdlc-engine hooks install` | Scaffold pre-push & pre-commit hooks enforcing branch protection |
-| `sdlc-engine protect [branches...]` | Configure physical Git pre-push hook and remote protection for `main` and `develop` |
-| `sdlc-engine audit verify` | Cryptographically verify SHA-256 Merkle chain in `docs/AUDIT_CHAIN.jsonl` |
-| `sdlc-engine audit record --event "<name>"` | Append immutable cryptographically-linked record to audit chain |
-| `sdlc-engine proof generate [--name "<target>"]` | Generate visual UI and API endpoint regression proof in `docs/proofs/` |
-| `sdlc-engine deconstruct "<epic-markdown>" [--title "<name>"] [--provision]` | Deconstruct epic into topological DAG tickets and Mermaid graph |
-| `sdlc-engine watchdog monitor [--url <url>] [--threshold <rate>] [--rollback "<cmd>"]` | Monitor canary error rates and trigger automated emergency rollbacks |
-| `sdlc-engine review plan` | Generate parallel subagent review plan JSON payload |
-| `sdlc-engine pr-summary --issue <id>` | Generate formatted markdown summary for GitHub PR |
-| `sdlc-engine flake-check --runs 5` | Detect non-deterministic test race conditions |
-| `sdlc-engine security-audit` | Scan diff for leaked secrets, API keys, and package CVEs |
-| `sdlc-engine interop export [--agent <all\|claude\|cursor\|windsurf>]` | Export framework rules & TDD invariants to Claude Code (`CLAUDE.md`), Cursor (`.cursorrules`), and Windsurf |
-| `sdlc-engine release [patch\|minor\|major]` | Bump SemVer, update package/changelog, and tag release |
+| AI Coding Tool | Flag | Local Project Artifacts | Global User Config (`--global`) |
+| :--- | :--- | :--- | :--- |
+| **Gemini / Antigravity** | `gemini` | `.agent/skills/<skill>/SKILL.md`, `.agent/scripts/`, `AGENTS.md` | `~/.gemini/config/skills/<skill>/SKILL.md` |
+| **Claude Code** | `claude` | `CLAUDE.md`, `.claude/skills/<skill>/SKILL.md`, `.claude/commands/<skill>.md` | `~/.claude/CLAUDE.md`, `~/.claude/skills/`, `~/.claude/commands/` |
+| **Cursor** | `cursor` | `.cursor/rules/agentic-sdlc.mdc`, `.cursor/rules/<skill>.mdc`, `.cursorrules` | `~/.cursor/rules/agentic-sdlc.mdc`, `~/.cursor/rules/<skill>.mdc` |
+| **Grok (xAI)** | `grok` | `GROK.md`, `.grok/skills/<skill>/SKILL.md`, `.grok/rules/agentic-sdlc.md` | `~/.grok/GROK.md`, `~/.grok/skills/<skill>/SKILL.md` |
+| **Windsurf** | `windsurf` | `.windsurf/rules/agentic-sdlc.md`, `.windsurf/workflows/<skill>.md`, `.windsurfrules` | `~/.codeium/windsurf/memories/global_rules.md` |
+| **GitHub Copilot** | `copilot` | `.github/copilot-instructions.md`, `.github/prompts/<skill>.prompt.md` | `~/.github/copilot-instructions.md`, `~/.github/prompts/` |
 
 ---
 
-## 🛠️ Advanced Framework Architecture
+## 🏛️ Six Core Engineering Pillars
+
+| Pillar | What It Enforces | Engine Entrypoint |
+| :--- | :--- | :--- |
+| **1. Constitutional Product Autopilot** | Synthesizes specs into `PRODUCT.md` (`CAP-XX`, `INV-XX`, `SPEC-XX`), authors PRDs/SRS/C4 in `docs/specs/`, and schedules topological DAG waves. | `sdlc-engine product <init\|plan\|control>` |
+| **2. Spec-Drift Sentinel & ADR Engine** | Blocks undeclared changes to stack dependencies, C4 diagrams, DB migrations, or OpenAPI/GraphQL contracts unless linked to an accepted `docs/adr/ADR-00X.md`. | `sdlc-engine drift check` / `adr create` |
+| **3. Composite 3-Command Lifecycle** | Collapses branching, session locking, Kanban state transitions, architectural trace logging, and Merkle receipt signing into 3 atomic transitions. | `sdlc-engine stage <begin\|pre-pr\|complete>` |
+| **4. 4-Layer Git Guard & Merkle Receipts** | Physically blocks direct commits/pushes to `main`/`develop`, requires an active branch-matched session on `pre-commit`, and verifies a signed SHA-256 Gate Receipt on `pre-merge`. | `sdlc-engine guard <pre-commit\|pre-merge\|receipt>` |
+| **5. Polyglot TDD & Real Dual-Gate** | Enforces Robert Martin's 3 Laws of TDD with real report parsers (`coverage-summary.json`, `lcov.info`, `jacoco.csv`, `coverage.xml`, `coverage.out`, Stryker, PITest) at $\ge 85\%$ coverage and $\ge 80\%$ mutation kill score. | `sdlc-engine coverage` / `mutation` |
+| **6. Clean Architecture & Live Workbench UI** | Audits imports against `.archlens/policy.json` concentric rings (`Core -> UseCase -> Adapter`) and renders an interactive Architecture Diff & Decision Lineage UI (`http://localhost:4120` & inline `<agent-embed>`). | `sdlc-engine ui-snapshot` / `serve` |
+
+---
+
+## 🧠 Canonical 6-Skill Ecosystem (`ADR-002`)
+
+All 6 skills live in `.agent/skills/` with validated tool schemas (`read_file`, `write_file`, `edit_file`, `run_command`, `invoke_subagent`):
+
+| Skill | Role | Primary Responsibilities |
+| :--- | :--- | :--- |
+| **`/sdlc-init`** | **Bootstrap & Doctor** | Runs the multi-agent installer wizard, auto-detects polyglot stacks (`.agent/sdlc-config.json`), scaffolds `.archlens/policy.json` & CI workflows, and heals repos via `doctor --fix`. |
+| **`/sdlc-product`** | **Product Autopilot** | Authors `PRODUCT.md` (`CAP-XX`, `INV-XX`), `docs/specs/*.md`, C4 diagrams, and ADRs; provisions templated tickets and schedules topological DAG waves. |
+| **`/sdlc-flow`** | **Master Orchestrator** | Drives end-to-end implementation (`stage begin` $\rightarrow$ TDD $\rightarrow$ `stage pre-pr` $\rightarrow$ Review Gate $\rightarrow$ `stage complete`), syncs `docs/KANBAN.md`, and embeds the live Architecture Diff UI. |
+| **`/sdlc-tdd`** | **TDD & Dual-Gate** | Enforces Robert C. Martin Red-Green-Refactor cycles, Transformation Priority Premise (TPP), F.I.R.S.T. test isolation, affected-only test runs, and real coverage/mutation gates. |
+| **`/sdlc-review-gate`** | **Parallel Review Gate** | Spawns concurrent read-only subagents (`PR Peer Reviewer` + `Quality Gate Auditor`) to audit diffs for test smells, security leaks, and concentric ring violations. |
+| **`/sdlc-release`** | **Docs Sync & Release** | Synchronizes `README.md`, `docs/specs/`, `CHANGELOG.md`, and `wiki/`, bumps SemVer manifests, generates regression proofs, and runs canary rollback watchdogs. |
+
+---
+
+## 🗺️ Lifecycle Architecture
+
+```mermaid
+flowchart LR
+    classDef init fill:#1e1b4b,stroke:#6366f1,stroke-width:2px,color:#eef2ff;
+    classDef stage fill:#0284c7,stroke:#0369a1,stroke-width:1.5px,color:#ffffff;
+    classDef tdd fill:#0d9488,stroke:#0f766e,stroke-width:1.5px,color:#ffffff;
+    classDef gate fill:#7c3aed,stroke:#6d28d9,stroke-width:1.5px,color:#ffffff;
+    classDef done fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#ffffff,font-weight:bold;
+
+    P["🏛️ /sdlc-product\n• PRODUCT.md & Specs\n• ADR & DAG Plan"]:::init
+    B["1. stage begin\n• Provision Ticket #id\n• Checkout feature/issue-#id\n• Lock .sdlc-session.json"]:::stage
+    T["2. /sdlc-tdd\n• Failing Red Test First\n• Minimal Green Code\n• ≥85% Cov / ≥80% Mut"]:::tdd
+    PR["3. stage pre-pr\n• Drift & Archlens Check\n• Sync DECISION_MAP.md\n• Sign SHA-256 Gate Receipt\n• Refresh Arch Diff UI"]:::stage
+    RG["4. /sdlc-review-gate\n• Parallel Subagent Audit\n• Security & Contract Check\n• Post Verdict to PM"]:::gate
+    C["5. stage complete\n• Squash Merge PR\n• Transition status:done\n• Release Session Lock"]:::done
+
+    P --> B --> T --> PR --> RG --> C
+```
+
+---
+
+## 💬 Prompting Your Agent: Everyday Workflows
+
+### 1. Spec-to-Product Autopilot (`/sdlc-product`)
+> **Prompt**: `"/sdlc-product Synthesize our requirements into PRODUCT.md, create the functional specs in docs/specs/, and plan the execution waves."`
+* **What Happens**: Generates `PRODUCT.md` (`CAP-XX`, `INV-XX`), authors spec files, computes the topological DAG (`sdlc-engine product plan`), and provisions tracked GitHub Issues.
+
+### 2. End-to-End Feature Implementation (`/sdlc-flow`)
+> **Prompt**: `"/sdlc-flow Implement feature #104: Add multi-tenant JWT token rotation with rate limiting."`
+* **What Happens**: Runs `stage begin --issue 104 --checkout`, executes Red-Green-Refactor TDD, verifies $\ge 85\%$ coverage and `.archlens/policy.json` rings, runs `stage pre-pr` (signing the Merkle Gate Receipt and embedding the Architecture Diff UI), runs parallel subagent reviews, and merges via `stage complete`.
+
+### 3. Bug Fix with Mandatory Red Reproduction Harness
+> **Prompt**: `"/sdlc-flow Fix bug #205: Session timeout throws NullPointerException when user profile email is null."`
+* **What Happens**: Runs `sdlc-engine reproduce --error "NullPointerException..."` to scaffold an idiomatic failing test (`.java`, `.py`, `.go`, `.rs`, or `.mjs`) *before* touching production code, proves it fails Red, applies the fix, and passes the Dual-Gate.
+
+### 4. Inspect Live Architecture Diff & Decision Lineage UI
+> **Prompt**: `"Show me the UI with our architecture ring changes and decision lineage."`
+* **What Happens**: Runs `sdlc-engine ui-snapshot`, starts the workbench server (`http://localhost:4120`), and renders the interactive **Concentric Ring Inspector (`Core -> UseCase -> Adapter`)** and **Causal Lineage (`CAP -> SPEC -> Ticket -> ADR`)** inline.
+
+### 5. Automated SemVer Release & Canary Watchdog (`/sdlc-release`)
+> **Prompt**: `"/sdlc-release Cut a minor release and monitor the production canary health endpoint."`
+* **What Happens**: Verifies the strict quality gate, updates `package.json`/`pom.xml`/`pyproject.toml`/`Cargo.toml` and `CHANGELOG.md`, tags the release, and probes `/health` via `sdlc-engine watchdog --live`.
 
 <details>
-<summary><b>Click to expand Advanced SDLC Engine Features & Safeguards</b></summary>
+<summary><b>📂 Click to expand 9 Advanced DevSecOps, Architecture & Multi-Agent Prompts</b></summary>
 
-### 1. Zero-Code Ticket Auto-Classification
-Incoming requests without an explicit `#id` are deterministically classified:
-- `feat`: Architectural capabilities or user features (`status:ready`).
-- `fix`: Defect remediation requiring an upfront failing reproduction test.
-- `hotfix`: Critical production blockers with P0 priority.
-- `spike`: Timeboxed research ending in an ADR.
+<br/>
 
-### 2. Remediation Circuit Breaker & Exemption Ledger
-If parallel subagent peer review or mutation testing rejects a PR, the agent remediates up to 3 times automatically. On the 3rd failure, the circuit breaker halts token consumption and presents an interactive `ask_question` modal (request exemption, extend budget, or rollback).
-- **Exemption Ledger**: Document unkillable compiler bytecode quirks or shutdown hooks in `.agent/sdlc-exemptions.json`:
-  ```bash
-  node .agent/scripts/sdlc-engine.mjs exemption add --mutant "OrderService:42:NegateCondition" --reason "JVM shutdown hook side-effect" --by "@lead"
-  ```
-
-### 3. Remote CI Polling & Git Hooks
-- Install zero-dependency local pre-commit/pre-push hooks: `node .agent/scripts/sdlc-engine.mjs hooks install`.
-- Scaffold GitHub Actions Quality Gate CI: `node .agent/scripts/sdlc-engine.mjs ci-workflow install`.
-- Verify GitHub Actions matrix status before merging: `node .agent/scripts/sdlc-engine.mjs check-ci <pr-id>`.
+1. **Ad-Hoc Fast-Path (In-Flight Ticket Tweak)**:
+   > `"Also make the token TTL configurable via JWT_ROTATION_TTL_SECONDS."` — Appends to the active ticket and runs `sdlc-engine test --affected-only`.
+2. **Concurrent Hotfix via Git Worktree Isolation**:
+   > `"Urgent hotfix: Stripe webhook payload breaks checkout. Isolate in a worktree so my active branch isn't touched."` — Uses `startSession` with `--worktree`.
+3. **API Breaking Contract Drift Guard**:
+   > `"Audit our OpenAPI and GraphQL schemas for breaking changes before opening the PR."` — Runs `sdlc-engine contract check`.
+4. **Flaky Test & Race Condition Elimination**:
+   > `"Run a 20-iteration flake audit on OrderProcessor.test.mjs and fix the race condition."` — Runs `sdlc-engine flake-check --runs 20`.
+5. **Mutation Testing & Assertion Strengthening**:
+   > `"Run mutation testing and strengthen assertions against surviving boundary mutants."` — Runs `sdlc-engine mutation` and `sdlc-engine strengthen`.
+6. **Multi-Agent IDE Rule Synchronization**:
+   > `"Sync our SDLC rules across Gemini, Claude Code, Cursor, Grok, Windsurf, and Copilot."` — Runs `sdlc-engine interop export --agent all`.
+7. **Concentric Clean Architecture Refactoring**:
+   > `"Extract payment calculation into Domain Core and verify zero inner-to-outer ring imports."` — Runs `sdlc-engine arch diff`.
+8. **Cryptographic Merkle Audit Chain Verification**:
+   > `"Verify that our delivery audit ledger in docs/AUDIT_CHAIN.jsonl has zero tampering."` — Runs `sdlc-engine audit verify`.
+9. **Visual UI & API Regression Proof Generation**:
+   > `"Generate a cryptographic regression proof for our checkout UI routes and REST endpoints."` — Runs `sdlc-engine proof generate --name Checkout`.
 
 </details>
 
-## 📖 Documentation & Specifications
-Detailed deep dives and architecture guides are available in:
-- [`docs/SDLC_AGENTIC_OPERATIONS_GUIDE.md`](./docs/SDLC_AGENTIC_OPERATIONS_GUIDE.md)
-- [`wiki/`](./wiki/)
+---
+
+## 🛠️ Universal Engine CLI Reference (`sdlc-engine.mjs`)
+
+| Category | Command | Description |
+| :--- | :--- | :--- |
+| **Installer & Setup** | `npx github:fmatar/agentic-sdlc-framework install` | Interactive TUI wizard to install skills, engine, and multi-agent adapters |
+| | `sdlc-engine detect` | Auto-detect polyglot stack and generate `.agent/sdlc-config.json` |
+| | `sdlc-engine doctor [--fix]` | Audit toolchain & auto-heal `KANBAN.md`, `.archlens/policy.json`, and hooks |
+| | `sdlc-engine interop export [--agent <list\|all>]` | Export native rules/skills for `gemini,claude,cursor,grok,windsurf,copilot` |
+| **Composite Lifecycle** | `sdlc-engine stage begin --title "<t>" --checkout` | Provision ticket, create feature branch, start session, mark `in-progress` |
+| | `sdlc-engine stage pre-pr --issue <id>` | Check drift, sync `DECISION_MAP.md` & `ARCH_TRACE.md`, sign Merkle receipt, build UI |
+| | `sdlc-engine stage complete --issue <id>` | Transition ticket to `done`, sync `docs/KANBAN.md`, release session lock |
+| **Product & ADRs** | `sdlc-engine product <init\|plan\|control\|status>` | Initialize `PRODUCT.md`, compute topological DAG waves, pause/resume waves |
+| | `sdlc-engine adr <create\|list\|decide>` | Create or approve/reject Architecture Decision Records in `docs/adr/` |
+| | `sdlc-engine drift check` | Block undeclared dependency, schema, C4, or API contract drift |
+| **TDD & Quality Gate** | `sdlc-engine test [--affected-only]` | Run full or diff-affected polyglot unit test suite |
+| | `sdlc-engine coverage` / `mutation` | Parse real coverage ($\ge 85\%$) and mutation ($\ge 80\%$) reports |
+| | `sdlc-engine reproduce --error "<trace>"` | Generate failing Red reproduction test in `.java`, `.py`, `.go`, `.rs`, or `.mjs` |
+| | `sdlc-engine gate --strict` | Run full quality gate (Tests, Archlens, Drift, Security, Flake, Audit Chain) |
+| **Architecture & UI** | `sdlc-engine ui-snapshot [--output <file.html>]` | Generate standalone HTML widget & start workbench server (`localhost:4120`) |
+| | `sdlc-engine serve [--port 4120]` | Launch live Architecture Diff & Decision Lineage HTTP/SSE server |
+| | `sdlc-engine arch diff` / `arch trace` | Enforce `.archlens/policy.json` rings & append to `docs/ARCH_TRACE.md` |
+| **Security & Release** | `sdlc-engine guard <pre-commit\|pre-merge\|receipt>` | 4-Layer Git Guard verification and Stage 7 Merkle Gate Receipt signing |
+| | `sdlc-engine release <patch\|minor\|major>` | Bump SemVer manifest, roll `CHANGELOG.md`, and create Git tag |
+| | `sdlc-engine watchdog --url <url> --live` | Probe live HTTP canary endpoint and trigger automatic rollback on breach |
+
+---
+
+## 📖 Documentation & Deep Dives
+
+- **Product Constitution**: [`PRODUCT.md`](./PRODUCT.md)
+- **Skills Reference Catalog**: [`wiki/Skills-Reference.md`](./wiki/Skills-Reference.md)
+- **Operations & TDD Guide**: [`docs/SDLC_AGENTIC_OPERATIONS_GUIDE.md`](./docs/SDLC_AGENTIC_OPERATIONS_GUIDE.md)
+- **Architecture Decision Records**: [`docs/adr/`](./docs/adr/)
+- **Causal Decision Map**: [`docs/DECISION_MAP.md`](./docs/DECISION_MAP.md)
 
 ## 📄 License
-This project is licensed under the Apache 2.0 License - see the [LICENSE](./LICENSE) file for details.
 
+Licensed under the [Apache 2.0 License](./LICENSE).

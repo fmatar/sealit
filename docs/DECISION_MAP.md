@@ -31,7 +31,7 @@ flowchart TD
   ADR_002["ADR-002: Consolidate 14 Skills into 6 Schema-Valid Skills, Add Composite Stage CLI, and Enforce Real Dual-Gate Verification"]
   _68["Ticket #68 (feature/issue-#68-framework-hardening-v0-1)"]
   ADR_003["ADR-003: Replace Legacy Shell/Java Installers with Native npx Interactive Multi-Agent Installer Wizard"]
-  _75["Ticket #75"]
+  _75["Ticket #75 (feature/issue-#75-npx-multi-agent-installer)"]
   _SDLC_INIT["Ticket #SDLC-INIT (feature/arch-traceability-governance)"]
   _24["Ticket #24 (feature/issue-#24-api-contract-drift-sentinel)"]
   _25["Ticket #25 (feature/issue-#25-bug-reproduce-generator)"]
