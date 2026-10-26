@@ -9,6 +9,7 @@ import { appendAuditRecord } from './audit-chain.mjs';
 import { auditContractDrift } from './adr-drift.mjs';
 import { installHooks } from './git-guard.mjs';
 import { scaffoldArchlensPolicy } from './arch-trace.mjs';
+import { provisionAgentIntegrations } from './installer.mjs';
 
 export function runDoctor(repoRoot = '.', { fix = false } = {}) {
   console.log('\n================================================================');
@@ -444,78 +445,19 @@ jobs:
 
 export function exportAgentRules({ agent = 'all', repoRoot = '.' } = {}) {
   console.log(`🤖 Exporting Agentic SDLC Framework Rules & Skills for target runtime: '${agent.toUpperCase()}'...`);
-  const results = {
+  const provisioned = provisionAgentIntegrations({
+    agents: agent,
+    targetDir: repoRoot,
+    global: false
+  });
+
+  return {
     agent,
-    filesCreated: [],
-    skillsLinked: 0
+    selectedAgents: provisioned.selectedAgents,
+    filesCreated: provisioned.filesCreated,
+    skillsLinked: provisioned.skillsCount,
+    prunedSkills: provisioned.prunedSkills
   };
-
-  const frameworksRuleSummary = `# Agentic SDLC Framework Invariants & Autonomous Rules
-# Generated automatically by sdlc-engine (Universal Engine)
-# Adheres strictly to Robert C. Martin Clean Code & Architecture
-
-## 1. Zero Direct Pushes (4-Layer Git Guard)
-- Direct git commits, merges, or pushes to \`develop\` or \`main\` are STRICTLY FORBIDDEN.
-- Every commit requires an active session in \`.agent/.sdlc-session.json\` matching the current branch.
-- Every merge into \`main\` requires a signed Stage 7 SHA-256 Merkle Gate Receipt in \`docs/AUDIT_CHAIN.jsonl\`.
-
-## 2. PRODUCT.md Constitution & Spec Drift ADR Protocol
-- Full-spec project handovers synthesize \`PRODUCT.md\` (\`CAP-XX\`, \`INV-XX\`, \`SPEC-XX\`) starting at Genesis Ticket \`#1\`.
-- Any mutation to dependencies, C4 architecture boundaries, DB schemas, or API contracts MUST be accompanied by an ADR (\`node .agent/scripts/sdlc-engine.mjs adr create\`).
-
-## 3. Robert Martin TDD & Dual-Gate Quality Verification
-- Diff coverage threshold: >= 85% line and branch coverage.
-- Mutation kill score: >= 80% using PITest or Stryker.
-- Concentric ring Clean Architecture compliance: zero outer-layer imports into domain entities.
-`;
-
-  if (agent === 'all' || agent === 'claude' || agent === 'claude-code') {
-    const claudeMdPath = path.resolve(repoRoot, 'CLAUDE.md');
-    fs.writeFileSync(claudeMdPath, frameworksRuleSummary, 'utf8');
-    results.filesCreated.push('CLAUDE.md');
-
-    const claudeDir = path.resolve(repoRoot, '.claude');
-    fs.mkdirSync(claudeDir, { recursive: true });
-    const claudeSettings = path.resolve(claudeDir, 'settings.json');
-    const settings = {
-      rules: ['CLAUDE.md'],
-      commands: {
-        'sdlc-flow': 'node .agent/scripts/sdlc-engine.mjs gate --strict',
-        'sdlc-test': 'node .agent/scripts/sdlc-engine.mjs test --affected-only',
-        'sdlc-doctor': 'node .agent/scripts/sdlc-engine.mjs doctor --fix'
-      }
-    };
-    fs.writeFileSync(claudeSettings, JSON.stringify(settings, null, 2), 'utf8');
-    results.filesCreated.push('.claude/settings.json');
-  }
-
-  if (agent === 'all' || agent === 'cursor') {
-    const cursorRulesPath = path.resolve(repoRoot, '.cursorrules');
-    fs.writeFileSync(cursorRulesPath, frameworksRuleSummary, 'utf8');
-    results.filesCreated.push('.cursorrules');
-
-    const cursorDir = path.resolve(repoRoot, '.cursor/rules');
-    fs.mkdirSync(cursorDir, { recursive: true });
-    const cursorRuleFile = path.resolve(cursorDir, 'agentic-sdlc.mdc');
-    const mdcContent = `---
-description: Agentic SDLC Framework Lifecycle, TDD, and Dual-Gate Quality Rules
-globs: *
-alwaysApply: true
----
-
-${frameworksRuleSummary}
-`;
-    fs.writeFileSync(cursorRuleFile, mdcContent, 'utf8');
-    results.filesCreated.push('.cursor/rules/agentic-sdlc.mdc');
-  }
-
-  if (agent === 'all' || agent === 'windsurf' || agent === 'opencode') {
-    const windsurfPath = path.resolve(repoRoot, '.windsurfrules');
-    fs.writeFileSync(windsurfPath, frameworksRuleSummary, 'utf8');
-    results.filesCreated.push('.windsurfrules');
-  }
-
-  return results;
 }
 
 export function scaffoldReproductionTest({

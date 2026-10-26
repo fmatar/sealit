@@ -74,4 +74,14 @@ describe('Kanban Scripts & Consolidated 6-Skill Schema Validation', () => {
       assert.ok(!content.includes('replace_file_content'), `${skillName} must not contain legacy replace_file_content tool`);
     }
   });
+
+  it('verifies ADR-003: legacy install.sh and install.java are removed and package.json exposes npx bin entrypoints', () => {
+    assert.equal(fs.existsSync(path.resolve('install.sh')), false, 'install.sh must be removed per ADR-003');
+    assert.equal(fs.existsSync(path.resolve('install.java')), false, 'install.java must be removed per ADR-003');
+    const pkg = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8'));
+    assert.equal(pkg.bin['agentic-sdlc-framework'], './.agent/scripts/sdlc-engine.mjs');
+    assert.equal(pkg.bin['agentic-sdlc'], './.agent/scripts/sdlc-engine.mjs');
+    assert.equal(pkg.bin['sdlc'], './.agent/scripts/sdlc-engine.mjs');
+    assert.equal(pkg.files.includes('install.sh'), false);
+  });
 });
