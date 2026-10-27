@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import { execSync, execFileSync } from 'node:child_process';
 import { fileExists, readFileSafe, inspectArchlens, detectPMProvider, getModifiedFiles } from './core.mjs';
 import { getSessionStatus } from './session.mjs';
-import { createTicket } from './pm-provider.mjs';
+import { createTicket, scaffoldIssueTemplates } from './pm-provider.mjs';
 import { appendAuditRecord } from './audit-chain.mjs';
 import { auditContractDrift } from './adr-drift.mjs';
 import { installHooks } from './git-guard.mjs';
@@ -45,6 +45,7 @@ export function runDoctor(repoRoot = '.', { fix = false } = {}) {
     { name: 'Living Kanban', path: 'docs/KANBAN.md', critical: false },
     { name: 'Changelog', path: 'CHANGELOG.md', critical: false },
     { name: 'Spec Templates', path: 'docs/templates', critical: false },
+    { name: 'Issue Templates', path: '.github/ISSUE_TEMPLATE/feature_request.md', critical: false },
     { name: 'Archlens Policy', path: '.archlens/policy.json', critical: false }
   ];
 
@@ -75,6 +76,9 @@ export function runDoctor(repoRoot = '.', { fix = false } = {}) {
         if (a.path === 'docs/KANBAN.md') {
           createTicket({ title: 'Initialize Project Kanban', type: 'spike', repoRoot });
           autoFixed.push('docs/KANBAN.md');
+        } else if (a.path === '.github/ISSUE_TEMPLATE/feature_request.md') {
+          scaffoldIssueTemplates({ repoRoot });
+          autoFixed.push('.github/ISSUE_TEMPLATE');
         } else if (a.path === '.archlens/policy.json') {
           scaffoldArchlensPolicy(repoRoot);
           autoFixed.push('.archlens/policy.json');

@@ -5,6 +5,7 @@ import readline from 'node:readline';
 import { fileExists, readFileSafe, parseFrontmatter } from './core.mjs';
 import { scaffoldArchlensPolicy } from './arch-trace.mjs';
 import { installHooks } from './git-guard.mjs';
+import { scaffoldIssueTemplates } from './pm-provider.mjs';
 
 export const DEPRECATED_SDLC_SKILLS = [
   'sdlc-analyze',
@@ -607,7 +608,31 @@ export async function runInteractiveWizard() {
   ]);
 
   let addons = ['detect', 'hooks', 'archlens'];
+  let pmProvider = 'github';
   if (scope === 'local') {
+    pmProvider = await promptSingleSelect('Select your Project Management & Ticket Provider:', [
+      {
+        label: 'GitHub Issues & Projects v2 (Recommended)',
+        hint: 'Uses gh CLI + .github/ISSUE_TEMPLATE/*.md',
+        value: 'github'
+      },
+      {
+        label: 'Linear (GraphQL API)',
+        hint: 'Uses LINEAR_API_KEY + LINEAR_TEAM_KEY with local KANBAN.md mirror',
+        value: 'linear'
+      },
+      {
+        label: 'Jira (REST API v3)',
+        hint: 'Uses JIRA_BASE_URL + JIRA_EMAIL + JIRA_API_TOKEN with local KANBAN.md mirror',
+        value: 'jira'
+      },
+      {
+        label: 'Local Kanban Only (Offline)',
+        hint: 'Manages tickets exclusively in docs/KANBAN.md',
+        value: 'local'
+      }
+    ]);
+
     addons = await promptMultiSelect(
       'Select SDLC Governance & Automation Add-ons:',
       '(Press Space to toggle, Enter to confirm)',
@@ -643,6 +668,7 @@ export async function runInteractiveWizard() {
   return {
     agents,
     global: scope === 'global',
+    pmProvider,
     skipDetect: !addons.includes('detect'),
     withHooks: addons.includes('hooks'),
     withArchlens: addons.includes('archlens'),
@@ -659,6 +685,7 @@ export function installFramework({
   repoRoot = '.',
   global = false,
   agents = ['gemini', 'claude', 'cursor'],
+  pmProvider = null,
   withArchlens = false,
   withHooks = false,
   withCi = false,
@@ -719,6 +746,9 @@ export function installFramework({
 
   const addonsInstalled = [];
   if (!isGlobal) {
+    scaffoldIssueTemplates({ repoRoot: absTarget });
+    addonsInstalled.push('.github/ISSUE_TEMPLATE');
+
     if (withArchlens) {
       scaffoldArchlensPolicy(absTarget);
       addonsInstalled.push('.archlens/policy.json');
@@ -734,6 +764,22 @@ export function installFramework({
     if (!skipDetect && typeof onDetect === 'function') {
       onDetect(absTarget);
       addonsInstalled.push('stack-detect');
+    }
+    if (pmProvider) {
+      const cfgPath = path.join(absTarget, '.agent/sdlc-config.json');
+      let cfgObj = {};
+      if (fileExists(cfgPath)) {
+        try {
+          cfgObj = JSON.parse(readFileSafe(cfgPath)) || {};
+        } catch {}
+      }
+      cfgObj.projectManagement = {
+        ...(cfgObj.projectManagement || {}),
+        provider: String(pmProvider).toLowerCase()
+      };
+      fs.mkdirSync(path.dirname(cfgPath), { recursive: true });
+      fs.writeFileSync(cfgPath, JSON.stringify(cfgObj, null, 2) + '\n', 'utf8');
+      addonsInstalled.push(`pm:${String(pmProvider).toLowerCase()}`);
     }
   }
 
@@ -756,6 +802,7 @@ export function parseInstallArgs(args = [], repoRoot = '.') {
   let isGlobal = false;
   let targetDir = '.';
   let agentsArg = null;
+  let pmProvider = null;
   let withArchlens = false;
   let withHooks = false;
   let withCi = false;
@@ -779,6 +826,10 @@ export function parseInstallArgs(args = [], repoRoot = '.') {
       if (args[i + 1]) agentsArg = args[++i];
     } else if (arg.startsWith('--agents=')) {
       agentsArg = arg.split('=')[1];
+    } else if (arg === '--pm' || arg === '--provider') {
+      if (args[i + 1]) pmProvider = args[++i].toLowerCase();
+    } else if (arg.startsWith('--pm=') || arg.startsWith('--provider=')) {
+      pmProvider = arg.split('=')[1].toLowerCase();
     } else if (arg === '--with-archlens') {
       withArchlens = true;
     } else if (arg === '--with-hooks') {
@@ -801,6 +852,7 @@ export function parseInstallArgs(args = [], repoRoot = '.') {
     global: isGlobal,
     agentsArg,
     agents: agentsArg ? normalizeAgentList(agentsArg) : ['gemini', 'claude', 'cursor'],
+    pmProvider,
     withArchlens,
     withHooks,
     withCi,

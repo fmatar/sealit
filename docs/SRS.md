@@ -23,6 +23,7 @@ End-to-end spec-driven autonomous software development lifecycle, Spec-Drift ADR
 | `CAP-07` | Native `npx` Multi-Agent Interactive Installer & Legacy Installer Removal (#75) | [`docs/specs/cap-07-npx-multi-agent-installer.md`](../docs/specs/cap-07-npx-multi-agent-installer.md) | `CAP-06` | `AMENDED (ADR-004)` |
 | `CAP-08` | `/sdlc` Universal Command Router & 8 Verb-Driven Skills (#81) | [`docs/specs/cap-08-command-verb-skills-router.md`](../docs/specs/cap-08-command-verb-skills-router.md) | `CAP-05, CAP-07` | `AMENDED (ADR-004)` |
 | `CAP-09` | Two-Tier PRD & IEEE 29148 SRS Specification Engine (#84) | [`docs/specs/cap-09-prd-srs-specification-engine.md`](../docs/specs/cap-09-prd-srs-specification-engine.md) | `CAP-05, CAP-08` | `AMENDED (ADR-005)` |
+| `CAP-10` | Unified Multi-Provider Ticket Engine & Issue Templates (#86) | [`docs/specs/cap-10-unified-multi-provider-ticket-engine-issue-templ.md`](../docs/specs/cap-10-unified-multi-provider-ticket-engine-issue-templ.md) | `CAP-02, CAP-09` | `PLANNED` |
 
 ## 2. Overall Description & C4 System Architecture
 ### 2.1 Product Perspective (C4 Container View)
@@ -102,6 +103,12 @@ flowchart TB
 #### CAP-09: Two-Tier PRD & IEEE 29148 SRS Specification Engine (#84)
 - **Specification Contract**: [`docs/specs/cap-09-prd-srs-specification-engine.md`](../docs/specs/cap-09-prd-srs-specification-engine.md)
 - **Inputs**: Validated CLI/API parameters and repository state for `CAP-09`.
+- **Processing**: Deterministic domain execution enforcing Clean Architecture rings and `INV-XX` invariants.
+- **Outputs**: Verifiable state transitions, updated artifacts, and SHA-256 audit chain records.
+
+#### CAP-10: Unified Multi-Provider Ticket Engine & Issue Templates (#86)
+- **Specification Contract**: [`docs/specs/cap-10-unified-multi-provider-ticket-engine-issue-templ.md`](../docs/specs/cap-10-unified-multi-provider-ticket-engine-issue-templ.md)
+- **Inputs**: Validated CLI/API parameters and repository state for `CAP-10`.
 - **Processing**: Deterministic domain execution enforcing Clean Architecture rings and `INV-XX` invariants.
 - **Outputs**: Verifiable state transitions, updated artifacts, and SHA-256 audit chain records.
 
