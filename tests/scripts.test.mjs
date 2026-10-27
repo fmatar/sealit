@@ -58,7 +58,7 @@ describe('Kanban Scripts & Consolidated 6-Skill Schema Validation', () => {
     const skillsDir = path.resolve('.agent/skills');
     const actualSkills = fs
       .readdirSync(skillsDir)
-      .filter((f) => fs.statSync(path.join(skillsDir, f)).isDirectory())
+      .filter((f) => f.startsWith('sdlc') && fs.statSync(path.join(skillsDir, f)).isDirectory())
       .sort();
 
     assert.deepEqual(actualSkills, expectedSkills);

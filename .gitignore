@@ -13,6 +13,10 @@ workbench/node_modules/
 .agent/.cache/
 .agent/.sdlc-session.json
 *.lcov
+.impeccable/review/
+.impeccable/mocks/
+.impeccable/questions/
+.impeccable/config.local.json
 
 # OS & Editor
 .DS_Store

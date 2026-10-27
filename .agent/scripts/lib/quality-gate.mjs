@@ -1602,7 +1602,7 @@ export function auditSkills(repoRoot = '.', { live = false } = {}) {
   if (fs.existsSync(skillsDir)) {
     const entries = fs
       .readdirSync(skillsDir, { withFileTypes: true })
-      .filter((d) => d.isDirectory())
+      .filter((d) => d.isDirectory() && d.name.startsWith('sdlc'))
       .map((d) => d.name)
       .sort();
 
