@@ -12,8 +12,9 @@ When the user invokes `/sdlc <subcommand> [arguments]`, map the request directly
 
 | Chat Command | Executed CLI Command |
 | :--- | :--- |
-| `/sdlc install [flags]` | `npx github:fmatar/agentic-sdlc-framework install [flags]` |
+| `/sdlc install [flags]` | `node .agent/scripts/sdlc-engine.mjs install [flags]` |
 | `/sdlc doctor` | `node .agent/scripts/sdlc-engine.mjs doctor --fix` |
+| `/sdlc skill-audit` | `node .agent/scripts/sdlc-engine.mjs skill-audit` |
 | `/sdlc detect` | `node .agent/scripts/sdlc-engine.mjs detect` |
 | `/sdlc status` / `/sdlc dashboard` | `node .agent/scripts/sdlc-engine.mjs session dashboard` |
 | `/sdlc begin <title-or-#id>` | `node .agent/scripts/sdlc-engine.mjs stage begin --title "<title>" --checkout` |

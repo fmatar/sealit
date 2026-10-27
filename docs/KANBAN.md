@@ -5,7 +5,7 @@
 > To refresh this board: `.agent/scripts/kanban-sync.sh`
 
 > **Repository**: `fmatar/agentic-sdlc-framework`  
-> **Last Synced**: `2026-10-27 04:44:52 UTC`
+> **Last Synced**: `2026-10-27 05:11:22 UTC`
 
 ---
 
@@ -13,7 +13,8 @@
 
 | 📥 Backlog | 📋 Ready | ⚡ In Progress | 🔍 In Review | ✅ Done |
 | :--- | :--- | :--- | :--- | :--- |
-|  |  |  | [#86 feat: multi-provider-ticket-engine-and-templates](https://github.com/fmatar/agentic-sdlc-framework/issues/86) |  |
+|  |  |  | [#88 fix: skillspector-zero-findings-and-skill-audit](https://github.com/fmatar/agentic-sdlc-framework/issues/88) |  |
+|  |  |  |  | [#84 feat: two-tier-prd-srs-specification-engine](https://github.com/fmatar/agentic-sdlc-framework/issues/84) |
 |  |  |  |  | [#81 feat: command-verb-skills-router](https://github.com/fmatar/agentic-sdlc-framework/issues/81) |
 |  |  |  |  | [#79 feat: readme-dx-redesign](https://github.com/fmatar/agentic-sdlc-framework/issues/79) |
 |  |  |  |  | [#77 feat: readme-overhaul](https://github.com/fmatar/agentic-sdlc-framework/issues/77) |
@@ -46,7 +47,8 @@
 
 | Issue | Status | Priority | Component | Milestone | Spec / Contract |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-|  |  |  | [#86 feat: multi-provider-ticket-engine-and-templates](https://github.com/fmatar/agentic-sdlc-framework/issues/86) |  |
+|  |  |  | [#88 fix: skillspector-zero-findings-and-skill-audit](https://github.com/fmatar/agentic-sdlc-framework/issues/88) |  |
+| [#86 feat: multi-provider-ticket-engine-and-templates](https://github.com/fmatar/agentic-sdlc-framework/issues/86) | `status:done` | P2 - Medium | General | — | — |
 | [#84 feat: two-tier-prd-srs-specification-engine](https://github.com/fmatar/agentic-sdlc-framework/issues/84) | `status:done` | P2 - Medium | General | — | — |
 | [#81 feat: command-verb-skills-router](https://github.com/fmatar/agentic-sdlc-framework/issues/81) | `status:done` | P2 - Medium | General | — | — |
 | [#79 feat: readme-dx-redesign](https://github.com/fmatar/agentic-sdlc-framework/issues/79) | `status:done` | P2 - Medium | General | — | — |

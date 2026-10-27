@@ -51,6 +51,7 @@ flowchart TD
   _43["Ticket #43 (feature/issue-#43-multi-branch-protection)"]
   _77["Ticket #77 (feature/issue-#77-readme-overhaul)"]
   _79["Ticket #79 (feature/issue-#79-readme-dx-redesign)"]
+  _86["Ticket #86 (feature/issue-#86-multi-provider-ticket-engine-and-templat)"]
   CAP_01 -->|specified_by| SPEC_01
   CAP_02 -->|specified_by| SPEC_02
   CAP_03 -->|specified_by| SPEC_03

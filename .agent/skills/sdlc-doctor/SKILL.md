@@ -29,17 +29,17 @@ node .agent/scripts/sdlc-engine.mjs interop export --agent all
 
 ---
 
-## 2. Multi-Agent NPX Installer Wizard
+## 2. Multi-Agent CLI Installer Wizard (`sdlc-engine install`)
 
 To install or upgrade the framework across local or global AI coding environments:
 
 ```bash
 # Interactive TUI wizard:
-npx github:fmatar/agentic-sdlc-framework install
+node .agent/scripts/sdlc-engine.mjs install
 
 # Non-interactive local setup:
-npx github:fmatar/agentic-sdlc-framework install --agents gemini,claude,cursor,grok --with-archlens --with-hooks --yes
+node .agent/scripts/sdlc-engine.mjs install --agents gemini,claude,cursor,grok --with-archlens --with-hooks --yes
 
 # Global user config (~/.gemini, ~/.claude, ~/.grok, ~/.cursor):
-npx github:fmatar/agentic-sdlc-framework install --global --agents gemini,claude,grok,cursor --yes
+node .agent/scripts/sdlc-engine.mjs install --global --agents gemini,claude,grok,cursor --yes
 ```

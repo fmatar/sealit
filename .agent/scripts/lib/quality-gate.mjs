@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execSync, execFileSync } from 'node:child_process';
-import { fileExists, readFileSafe, inspectArchlens, detectPMProvider, getModifiedFiles } from './core.mjs';
+import { fileExists, readFileSafe, parseFrontmatter, inspectArchlens, detectPMProvider, getModifiedFiles } from './core.mjs';
 import { getSessionStatus } from './session.mjs';
 import { createTicket, scaffoldIssueTemplates } from './pm-provider.mjs';
 import { appendAuditRecord } from './audit-chain.mjs';
@@ -1588,4 +1588,99 @@ export function printPreview(config) {
     console.log(`   Build:      ${mod.commands.build}`);
     console.log('----------------------------------------------------------------');
   }
+}
+
+/**
+ * Audits `.agent/skills/*` against NVIDIA SkillSpector static rules (`RP1` unpinned npx,
+ * `AS3` cross-skill file enumeration, frontmatter YAML truncation, and optional live `uvx` scan).
+ */
+export function auditSkills(repoRoot = '.', { live = false } = {}) {
+  const skillsDir = path.resolve(repoRoot, '.agent/skills');
+  const results = [];
+  let totalFindings = 0;
+
+  if (fs.existsSync(skillsDir)) {
+    const entries = fs
+      .readdirSync(skillsDir, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name)
+      .sort();
+
+    for (const skillName of entries) {
+      const skillFile = path.join(skillsDir, skillName, 'SKILL.md');
+      if (!fs.existsSync(skillFile)) continue;
+      const content = fs.readFileSync(skillFile, 'utf8');
+      const { frontmatter, body } = parseFrontmatter(content);
+      const findings = [];
+
+      // 1. YAML frontmatter truncation check (unquoted # in description)
+      if (!frontmatter.name || !frontmatter.description) {
+        findings.push({
+          rule: 'FM1',
+          severity: 'MEDIUM',
+          message: 'Missing required YAML frontmatter name or description'
+        });
+      } else if (frontmatter.description.trim().endsWith(',')) {
+        findings.push({
+          rule: 'FM2',
+          severity: 'MEDIUM',
+          message: 'Description appears truncated by an unquoted YAML # comment'
+        });
+      }
+
+      // 2. SkillSpector RP1: Unpinned npx package invocation
+      const lines = (body || content).split('\n');
+      lines.forEach((line, idx) => {
+        if (/\bnpx\s+(?:-[yY]\s+)?(?:github:|[a-zA-Z0-9@_/-]+)(?!@[0-9])/i.test(line)) {
+          findings.push({
+            rule: 'RP1',
+            severity: 'MEDIUM',
+            line: idx + 1,
+            message: `Unpinned npx package invocation detected: "${line.trim()}"`
+          });
+        }
+        // 3. SkillSpector AS3: Cross-skill file enumeration (.agent/skills/<other>/SKILL.md)
+        const crossMatch = line.match(/\.agent\/skills\/([a-z0-9-]+)\/SKILL\.md/i);
+        if (crossMatch && crossMatch[1] !== skillName) {
+          findings.push({
+            rule: 'AS3',
+            severity: 'MEDIUM',
+            line: idx + 1,
+            message: `Cross-skill file enumeration referencing ${crossMatch[0]} (use skill identifier instead)`
+          });
+        }
+      });
+
+      totalFindings += findings.length;
+      results.push({
+        skill: skillName,
+        score: findings.length === 0 ? 0 : findings.length * 7,
+        severity: 'LOW',
+        findingsCount: findings.length,
+        findings
+      });
+    }
+  }
+
+  let skillspectorOutput = null;
+  if (live) {
+    try {
+      skillspectorOutput = execFileSync(
+        'uvx',
+        ['--from', 'git+https://github.com/NVIDIA/skillspector.git', 'skillspector', 'scan', skillsDir, '--recursive', '--no-llm'],
+        { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
+      );
+    } catch (err) {
+      skillspectorOutput = err.stdout ? String(err.stdout) : err.message;
+    }
+  }
+
+  return {
+    success: totalFindings === 0,
+    skillsScanned: results.length,
+    totalFindings,
+    maxScore: results.reduce((max, r) => Math.max(max, r.score), 0),
+    skills: results,
+    skillspectorOutput
+  };
 }

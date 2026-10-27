@@ -40,7 +40,7 @@ node .agent/scripts/sdlc-engine.mjs stage begin --title "<title>" --type <feat|f
   ```
 
 ### Phase 2: Robert Martin TDD Implementation (`sdlc-tdd`)
-Load and follow `.agent/skills/sdlc-tdd/SKILL.md`:
+Execute the **Robert C. Martin TDD** loop (`sdlc-tdd`):
 1. Write a failing unit test (**Red**), make it pass with minimal code (**Green**), and decouple (**Refactor**).
 2. Run affected tests and coverage verification:
    ```bash
@@ -69,11 +69,11 @@ After running `stage begin` or `stage pre-pr`, copy `.agent/workbench/index.html
 ```
 
 ### Phase 4: Parallel Fork-Join Review & Quality Gate (`sdlc-gate`)
-Load `.agent/skills/sdlc-gate/SKILL.md` and dispatch two `invoke_subagent` calls in parallel using valid tool arguments:
+Dispatch two `invoke_subagent` calls in parallel using valid tool arguments:
 - **Call 1 (`PR Peer Reviewer`)**:
   - `TypeName`: `"research"`
   - `Role`: `"PR Peer Reviewer"`
-  - `Prompt`: `"Read .agent/skills/sdlc-gate/SKILL.md. Audit git diff against main for Robert Martin test smells, Dual-Gate coverage, and clean architecture boundaries. Return a structured review verdict."`
+  - `Prompt`: `"Audit git diff against main for Robert Martin test smells, Dual-Gate coverage (>=85%), and clean architecture boundaries. Return a structured review verdict."`
 - **Call 2 (`Quality Gate Auditor`)**:
   - `TypeName`: `"research"`
   - `Role`: `"Quality Gate Auditor"`
