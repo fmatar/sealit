@@ -158,7 +158,8 @@ import {
   discoverModules,
   matchFilesToModules,
   generateConfig,
-  printPreview
+  printPreview,
+  auditSkills
 } from './lib/quality-gate.mjs';
 
 import {
@@ -285,6 +286,7 @@ export {
   matchFilesToModules,
   generateConfig,
   printPreview,
+  auditSkills,
   buildArchDiffPayload,
   generateArchitectureWidget,
   ensureWorkbenchRunning,
@@ -1054,6 +1056,13 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
 
     case 'security-audit': {
       result.security = auditSecurity(repoRoot);
+      return result;
+    }
+
+    case 'skill-audit': {
+      const live = args.includes('--live');
+      result.skillAudit = auditSkills(repoRoot, { live });
+      result.success = result.skillAudit.success;
       return result;
     }
 

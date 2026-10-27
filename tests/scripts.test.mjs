@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
+import { auditSkills } from '../.agent/scripts/sdlc-engine.mjs';
 
 describe('Kanban Scripts & Consolidated 6-Skill Schema Validation', () => {
   it('verifies kanban-sync.sh is executable and exists in .agent/scripts/', () => {
@@ -79,6 +80,11 @@ describe('Kanban Scripts & Consolidated 6-Skill Schema Validation', () => {
       assert.ok(!content.includes('write_to_file'), `${skillName} must not contain legacy write_to_file tool`);
       assert.ok(!content.includes('replace_file_content'), `${skillName} must not contain legacy replace_file_content tool`);
     }
+
+    const auditRes = auditSkills(process.cwd());
+    assert.equal(auditRes.success, true, 'All 9 skills must pass SkillSpector static rules (RP1, AS3, FM1/FM2)');
+    assert.equal(auditRes.totalFindings, 0);
+    assert.equal(auditRes.maxScore, 0);
   });
 
   it('verifies ADR-003: legacy install.sh and install.java are removed and package.json exposes npx bin entrypoints', () => {
