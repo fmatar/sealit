@@ -83,6 +83,8 @@ import {
 } from './lib/git-guard.mjs';
 
 import {
+  CANONICAL_ISSUE_TEMPLATES,
+  scaffoldIssueTemplates,
   loadIssueTemplate,
   formatTemplatedIssue,
   createTicket,
@@ -219,6 +221,8 @@ export {
   verifyPushGuard,
   installHooks,
   applyBranchProtection,
+  CANONICAL_ISSUE_TEMPLATES,
+  scaffoldIssueTemplates,
   loadIssueTemplate,
   formatTemplatedIssue,
   createTicket,
@@ -1073,6 +1077,15 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         result.pm = pm;
         return result;
       }
+      if (sub === 'sync') {
+        result.synced = syncKanbanBoard(repoRoot);
+        return result;
+      }
+      if (sub === 'templates' || sub === 'init-templates') {
+        const force = args.includes('--force');
+        result.templates = scaffoldIssueTemplates({ repoRoot, force });
+        return result;
+      }
       if (sub === 'transition') {
         const issueId = args[2];
         const state = args[3] || 'in-progress';
@@ -1104,8 +1117,51 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
     }
 
     case 'ticket': {
-      const sub = args[1] || 'create';
+      const knownSubs = ['create', 'transition', 'comment', 'sync', 'templates', 'init-templates'];
+      const rawSub = args[1] || 'create';
+      const sub = knownSubs.includes(rawSub) ? rawSub : 'create';
+      const startIndex = knownSubs.includes(rawSub) ? 2 : 1;
       result.subcommand = sub;
+
+      if (sub === 'templates' || sub === 'init-templates') {
+        const force = args.includes('--force');
+        result.templates = scaffoldIssueTemplates({ repoRoot, force });
+        return result;
+      }
+
+      if (sub === 'sync') {
+        result.synced = syncKanbanBoard(repoRoot);
+        return result;
+      }
+
+      if (sub === 'transition') {
+        const issueId = args[2];
+        const state = args[3] || 'in-progress';
+        if (!issueId) {
+          result.success = false;
+          return result;
+        }
+        result.transitioned = transitionPMState({ issueId, state, repoRoot });
+        return result;
+      }
+
+      if (sub === 'comment') {
+        const issueId = args[2];
+        let commentText = '',
+          prNumber = null;
+        for (let i = 3; i < args.length; i++) {
+          if (args[i] === '--pr' && args[i + 1]) prNumber = args[++i];
+          else if (args[i] === '--body' && args[i + 1]) commentText = args[++i];
+        }
+        if (!commentText) commentText = args.slice(3).filter((a) => !a.startsWith('--')).join(' ');
+        if (!issueId || !commentText) {
+          result.success = false;
+          return result;
+        }
+        result.commented = postPMComment({ issueId, prNumber, comment: commentText, repoRoot });
+        return result;
+      }
+
       if (sub === 'create') {
         let title = '',
           type = 'feat',
@@ -1116,7 +1172,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
           reproduce = '',
           expected = '',
           environment = '';
-        for (let i = 2; i < args.length; i++) {
+        for (let i = startIndex; i < args.length; i++) {
           if (args[i] === '--title' && args[i + 1]) title = args[++i];
           else if (args[i] === '--type' && args[i + 1]) type = args[++i];
           else if (args[i] === '--body' && args[i + 1]) body = args[++i];
@@ -1128,7 +1184,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
           else if (args[i] === '--expected' && args[i + 1]) expected = args[++i];
           else if (args[i] === '--environment' && args[i + 1]) environment = args[++i];
         }
-        if (!title) title = args.slice(2).filter((a) => !a.startsWith('--')).join(' ');
+        if (!title) title = args.slice(startIndex).filter((a) => !a.startsWith('--')).join(' ');
         if (!title) {
           result.success = false;
           return result;

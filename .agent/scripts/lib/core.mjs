@@ -134,8 +134,37 @@ export function inspectArchlens(repoRoot = '.') {
 export function detectPMProvider(repoRoot = '.') {
   loadEnv(repoRoot);
 
+  const explicitEnv = (process.env.SDLC_PM_PROVIDER || '').toLowerCase().trim();
+  if (explicitEnv === 'jira') {
+    return { provider: 'jira', configured: true, key: process.env.JIRA_PROJECT_KEY || 'SDLC' };
+  }
+  if (explicitEnv === 'linear') {
+    return { provider: 'linear', configured: true, key: process.env.LINEAR_TEAM_KEY || 'DEV' };
+  }
+  if (explicitEnv === 'github') {
+    return { provider: 'github', configured: true };
+  }
+  if (explicitEnv === 'local') {
+    return { provider: 'local', configured: true, file: 'docs/KANBAN.md' };
+  }
+
   const hasJira = !!(process.env.JIRA_API_TOKEN && process.env.JIRA_BASE_URL);
   const hasLinear = !!process.env.LINEAR_API_KEY;
+
+  if (hasJira) return { provider: 'jira', configured: true, key: process.env.JIRA_PROJECT_KEY || 'SDLC' };
+  if (hasLinear) return { provider: 'linear', configured: true, key: process.env.LINEAR_TEAM_KEY || 'DEV' };
+
+  const cfgPath = path.resolve(repoRoot, '.agent/sdlc-config.json');
+  if (fs.existsSync(cfgPath)) {
+    try {
+      const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+      const cfgProvider = (cfg?.projectManagement?.provider || '').toLowerCase().trim();
+      const cfgKey = cfg?.projectManagement?.projectKey || 'SDLC';
+      if (cfgProvider === 'jira') return { provider: 'jira', configured: true, key: process.env.JIRA_PROJECT_KEY || cfgKey };
+      if (cfgProvider === 'linear') return { provider: 'linear', configured: true, key: process.env.LINEAR_TEAM_KEY || cfgKey };
+      if (cfgProvider === 'local') return { provider: 'local', configured: true, file: 'docs/KANBAN.md' };
+    } catch {}
+  }
 
   let hasGhCliAuth = false;
   try {
@@ -144,9 +173,6 @@ export function detectPMProvider(repoRoot = '.') {
   } catch {}
 
   const hasGitHub = !!(process.env.GITHUB_TOKEN || process.env.GH_TOKEN || hasGhCliAuth);
-
-  if (hasJira) return { provider: 'jira', configured: true, key: process.env.JIRA_PROJECT_KEY || 'SDLC' };
-  if (hasLinear) return { provider: 'linear', configured: true, key: process.env.LINEAR_TEAM_KEY || 'DEV' };
   if (hasGitHub) return { provider: 'github', configured: true };
 
   return { provider: 'local', configured: true, file: 'docs/KANBAN.md' };

@@ -51,8 +51,13 @@ import {
   checkArchDiff,
   scaffoldReproductionTest,
   generateRegressionProof,
+  scaffoldIssueTemplates,
+  loadIssueTemplate,
+  formatTemplatedIssue,
   createTicket,
+  transitionPMState,
   postPMComment,
+  detectPMProvider,
   installHooks,
   createWorkbenchServer,
   buildArchDiffPayload,
@@ -925,6 +930,147 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
       assert.equal(fs.existsSync(path.join(fakeHome, '.gemini/config/skills/sdlc-flow/SKILL.md')), true);
       assert.equal(fs.existsSync(path.join(fakeHome, '.claude/skills/sdlc-flow/SKILL.md')), true);
       assert.equal(fs.existsSync(path.join(fakeHome, '.grok/skills/sdlc-flow/SKILL.md')), true);
+    });
+
+    it('scaffolds canonical GitHub issue/PR templates and executes 4-operation parity across GitHub, Linear, and Jira (CAP-10 / ADR-006)', () => {
+      initTempGitRepo(tmpDir);
+
+      // 1. Scaffold canonical templates via CLI (`sdlc-engine ticket templates`)
+      const tplRes = runCLI(['ticket', 'templates'], null, tmpDir);
+      assert.equal(tplRes.success, true);
+      assert.equal(tplRes.templates.created.length, 5);
+      assert.equal(fs.existsSync(path.join(tmpDir, '.github/ISSUE_TEMPLATE/feature_request.md')), true);
+      assert.equal(fs.existsSync(path.join(tmpDir, '.github/ISSUE_TEMPLATE/bug_report.md')), true);
+      assert.equal(fs.existsSync(path.join(tmpDir, '.github/ISSUE_TEMPLATE/hotfix_incident.md')), true);
+      assert.equal(fs.existsSync(path.join(tmpDir, '.github/ISSUE_TEMPLATE/architecture_spike.md')), true);
+      assert.equal(fs.existsSync(path.join(tmpDir, '.github/pull_request_template.md')), true);
+
+      // 2. Verify hotfix & spike template loading and rendering
+      const hotfixTpl = loadIssueTemplate('hotfix', tmpDir);
+      assert.equal(hotfixTpl.name, 'Production Hotfix Incident (P0)');
+      assert.ok(hotfixTpl.file.endsWith('hotfix_incident.md'));
+      assert.ok(hotfixTpl.labels.includes('priority:critical'));
+
+      const spikeFormatted = formatTemplatedIssue({
+        title: 'Evaluate CQRS Event Store',
+        type: 'spike',
+        problem: 'High write contention on audit log',
+        solution: 'Compare Postgres append-only vs Kafka',
+        repoRoot: tmpDir
+      });
+      assert.equal(spikeFormatted.template.name, 'Architecture Spike & ADR Exploration');
+      assert.ok(spikeFormatted.template.file.endsWith('architecture_spike.md'));
+      assert.ok(spikeFormatted.body.includes('High write contention on audit log'));
+
+      // 3. Verify explicit PM provider override via .agent/sdlc-config.json
+      fs.mkdirSync(path.join(tmpDir, '.agent'), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpDir, '.agent/sdlc-config.json'),
+        JSON.stringify({ projectManagement: { provider: 'linear' } }),
+        'utf8'
+      );
+      assert.equal(detectPMProvider(tmpDir).provider, 'linear');
+
+      // 4. Test Linear GraphQL createTicket, transitionPMState, and postPMComment with mock execFn
+      const linearCalls = [];
+      const mockLinearExec = (bin, args) => {
+        linearCalls.push({ bin, args });
+        const payloadIdx = args.indexOf('-d');
+        const payload = payloadIdx !== -1 ? args[payloadIdx + 1] : '';
+        if (payload.includes('query Teams')) {
+          return JSON.stringify({ data: { teams: { nodes: [{ id: 'team-123', key: 'ENG', name: 'Engineering' }] } } });
+        }
+        if (payload.includes('mutation IssueCreate')) {
+          return JSON.stringify({
+            data: {
+              issueCreate: {
+                success: true,
+                issue: { id: 'uuid-99', identifier: 'ENG-42', url: 'https://linear.app/acme/issue/ENG-42', title: 'feat: Linear Ticket' }
+              }
+            }
+          });
+        }
+        if (payload.includes('query WorkflowStates')) {
+          return JSON.stringify({
+            data: {
+              workflowStates: {
+                nodes: [
+                  { id: 'state-in-progress', name: 'In Progress', type: 'started' },
+                  { id: 'state-done', name: 'Done', type: 'completed' }
+                ]
+              }
+            }
+          });
+        }
+        return JSON.stringify({ data: { issueUpdate: { success: true }, commentCreate: { success: true } } });
+      };
+
+      const linearCreated = createTicket({
+        title: 'Linear Ticket',
+        type: 'feat',
+        problem: 'Need Linear GraphQL ticket creation',
+        solution: 'Call issueCreate mutation',
+        repoRoot: tmpDir,
+        execFn: mockLinearExec
+      });
+      assert.equal(linearCreated.provider, 'linear');
+      assert.equal(linearCreated.issueId, 'ENG-42');
+      assert.equal(linearCreated.url, 'https://linear.app/acme/issue/ENG-42');
+      assert.ok(fs.readFileSync(path.join(tmpDir, 'docs/KANBAN.md'), 'utf8').includes('ENG-42'));
+
+      const linearTrans = transitionPMState({
+        issueId: 'ENG-42',
+        state: 'in-progress',
+        repoRoot: tmpDir,
+        execFn: mockLinearExec
+      });
+      assert.equal(linearTrans.provider, 'linear');
+      assert.equal(linearTrans.stateId, 'state-in-progress');
+
+      // 5. Switch to Jira provider and test REST API v3 createTicket + transitionPMState
+      fs.writeFileSync(
+        path.join(tmpDir, '.agent/sdlc-config.json'),
+        JSON.stringify({ projectManagement: { provider: 'jira' } }),
+        'utf8'
+      );
+      assert.equal(detectPMProvider(tmpDir).provider, 'jira');
+
+      const mockJiraExec = (bin, args) => {
+        if (args.includes('GET') && args.some((a) => a.includes('/transitions'))) {
+          return JSON.stringify({
+            transitions: [
+              { id: '31', name: 'In progress', to: { name: 'In Progress' } },
+              { id: '41', name: 'Done', to: { name: 'Done' } }
+            ]
+          });
+        }
+        if (args.includes('POST') && args.some((a) => a.endsWith('/rest/api/3/issue'))) {
+          return JSON.stringify({ id: '10099', key: 'SDLC-88' });
+        }
+        return JSON.stringify({ ok: true });
+      };
+
+      const jiraCreated = createTicket({
+        title: 'Jira Ticket',
+        type: 'hotfix',
+        problem: 'Production 502 spike',
+        solution: 'Rollback canary and patch pool size',
+        repoRoot: tmpDir,
+        execFn: mockJiraExec
+      });
+      assert.equal(jiraCreated.provider, 'jira');
+      assert.equal(jiraCreated.issueId, 'SDLC-88');
+      assert.equal(jiraCreated.template, 'Production Hotfix Incident (P0)');
+      assert.ok(fs.readFileSync(path.join(tmpDir, 'docs/KANBAN.md'), 'utf8').includes('SDLC-88'));
+
+      const jiraTrans = transitionPMState({
+        issueId: 'SDLC-88',
+        state: 'done',
+        repoRoot: tmpDir,
+        execFn: mockJiraExec
+      });
+      assert.equal(jiraTrans.provider, 'jira');
+      assert.equal(jiraTrans.transitionId, '41');
     });
   });
 });

@@ -3,18 +3,154 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileExists, readFileSafe, parseFrontmatter, detectPMProvider } from './core.mjs';
 
-export function loadIssueTemplate({ type = 'feat', repoRoot = '.' } = {}) {
-  const normType = (type || 'feat').toLowerCase();
+export const CANONICAL_ISSUE_TEMPLATES = {
+  '.github/ISSUE_TEMPLATE/feature_request.md': `---
+name: Feature Request (CAP-XX / SPEC-XX)
+about: Propose a constitutional product capability or feature governed by Robert C. Martin TDD
+title: "feat: "
+labels: feature, status:ready
+---
+
+### 🎯 Problem Statement & User Value
+A clear and concise description of what the problem is.
+
+### 🚀 Solution & Acceptance Criteria
+A clear and concise description of what you want to happen.
+
+### 📐 Linked Specification & Architecture
+- **Capability ID**: \`CAP-XX\`
+- **Specification**: \`docs/specs/cap-XX.md\`
+- **Ring Impact**: \`Domain Core -> UseCase -> Adapter\`
+
+### 🛡️ Clean Code & Dual-Gate Guarantees
+- [ ] Failing Red test written before production code (\`/sdlc-tdd\`)
+- [ ] Diff line coverage \`>= 85%\` and mutation score \`>= 80%\`
+- [ ] Zero concentric ring violations (\`.archlens/policy.json\`)
+`,
+  '.github/ISSUE_TEMPLATE/bug_report.md': `---
+name: Bug Report (Red-First Reproduction)
+about: Report a defect with deterministic reproduction steps for /sdlc reproduce
+title: "fix: "
+labels: bug, status:ready
+---
+
+### 🐛 Bug Description
+A clear and concise description of what the bug is.
+
+### 🔄 Steps to Reproduce
+Steps to reproduce the behavior:
+1. Execute command or endpoint
+2. Observe failure or stack trace
+
+### 🎯 Expected Behavior (Robert Martin TDD)
+A clear and concise description of what you expected to happen.
+
+### 💻 Environment
+- OS: [e.g. macOS / Linux]
+- Runtime: [e.g. Node.js 22 / Java 21 / Python 3.12]
+`,
+  '.github/ISSUE_TEMPLATE/hotfix_incident.md': `---
+name: Production Hotfix Incident (P0)
+about: Critical production incident isolated in a dedicated git worktree
+title: "hotfix: "
+labels: hotfix, status:ready, priority:critical
+---
+
+### 🚨 Incident Summary & Blast Radius
+A clear and concise description of what the bug is.
+
+### 🔄 Reproduction & Stack Trace
+Steps to reproduce the behavior:
+1. Capture failing production payload or stack trace
+2. Scaffold failing Red test via \`/sdlc reproduce\`
+
+### 🎯 Remediation & Rollback Plan
+A clear and concise description of what you expected to happen.
+
+### 💻 Environment
+- OS: Production
+- Canary Health Endpoint: \`/health\`
+`,
+  '.github/ISSUE_TEMPLATE/architecture_spike.md': `---
+name: Architecture Spike & ADR Exploration
+about: Time-boxed architectural investigation producing an ADR in docs/adr/
+title: "spike: "
+labels: spike, status:ready
+---
+
+### 🏛️ Architectural Context & Problem
+A clear and concise description of what the problem is.
+
+### ⚖️ Candidate Options & Exit Criteria
+A clear and concise description of what you want to happen.
+
+### 📋 Deliverables
+- [ ] Mint ADR via \`/sdlc-adr\` (\`docs/adr/ADR-00X.md\`)
+- [ ] Update \`PRODUCT.md\` and \`docs/DECISION_MAP.md\`
+`,
+  '.github/pull_request_template.md': `## 📋 Summary & Constitutional Traceability
+- **Closes Ticket**: #
+- **Linked Capability / Spec**: \`CAP-XX\` (\`docs/specs/cap-XX.md\`)
+- **Superseding ADR (if applicable)**: \`ADR-00X\`
+
+## 🛡️ Dual-Gate & Architectural Verification
+| Gate Pillar | Requirement | Status |
+| :--- | :--- | :--- |
+| **Robert C. Martin TDD** | Red -> Green -> Refactor | ✅ Verified |
+| **Diff Test Coverage** | \`>= 85%\` | ✅ Verified |
+| **Mutation Score** | \`>= 80%\` | ✅ Verified |
+| **Archlens Ring Audit** | Zero Inner -> Outer Ring Imports | ✅ Verified |
+| **Spec-Drift Sentinel** | \`sdlc-engine drift check\` | ✅ Verified |
+| **Stage 7 Merkle Receipt** | Signed in \`docs/AUDIT_CHAIN.jsonl\` | ✅ Verified |
+`
+};
+
+export function scaffoldIssueTemplates({ repoRoot = '.', force = false } = {}) {
+  const created = [];
+  const skipped = [];
+
+  for (const [relPath, content] of Object.entries(CANONICAL_ISSUE_TEMPLATES)) {
+    const absPath = path.resolve(repoRoot, relPath);
+    if (fs.existsSync(absPath) && !force) {
+      skipped.push(relPath);
+      continue;
+    }
+    fs.mkdirSync(path.dirname(absPath), { recursive: true });
+    fs.writeFileSync(absPath, content, 'utf8');
+    created.push(relPath);
+  }
+
+  return {
+    success: true,
+    created,
+    skipped
+  };
+}
+
+export function loadIssueTemplate(typeOrOpts = 'feat', maybeRepoRoot = '.') {
+  const isObj = typeOrOpts && typeof typeOrOpts === 'object';
+  const type = isObj ? typeOrOpts.type || 'feat' : typeOrOpts || 'feat';
+  const repoRoot = isObj ? typeOrOpts.repoRoot || '.' : maybeRepoRoot || '.';
+  const normType = String(type).toLowerCase();
   const templateDir = path.resolve(repoRoot, '.github/ISSUE_TEMPLATE');
 
   if (fs.existsSync(templateDir)) {
     try {
       const files = fs.readdirSync(templateDir);
+      const isTemplateFile = (f) => f.endsWith('.md') || f.endsWith('.yml') || f.endsWith('.yaml');
       let matchFile = null;
-      if (normType === 'bug' || normType === 'fix' || normType === 'hotfix') {
-        matchFile = files.find((f) => /bug|fix/i.test(f) && (f.endsWith('.md') || f.endsWith('.yml') || f.endsWith('.yaml')));
+      if (normType === 'hotfix') {
+        matchFile =
+          files.find((f) => /hotfix|incident/i.test(f) && isTemplateFile(f)) ||
+          files.find((f) => /bug/i.test(f) && isTemplateFile(f));
+      } else if (normType === 'bug' || normType === 'fix') {
+        matchFile = files.find((f) => (/bug/i.test(f) || (/fix/i.test(f) && !/hotfix/i.test(f))) && isTemplateFile(f));
+      } else if (normType === 'spike' || normType === 'research') {
+        matchFile =
+          files.find((f) => /spike|adr|arch/i.test(f) && isTemplateFile(f)) ||
+          files.find((f) => /feat|feature|enhancement/i.test(f) && isTemplateFile(f));
       } else {
-        matchFile = files.find((f) => /feat|feature|enhancement/i.test(f) && (f.endsWith('.md') || f.endsWith('.yml') || f.endsWith('.yaml')));
+        matchFile = files.find((f) => /feat|feature|enhancement/i.test(f) && isTemplateFile(f));
       }
 
       if (matchFile) {
@@ -110,7 +246,85 @@ export function formatTemplatedIssue({
   };
 }
 
-export function transitionPMState({ issueId, state = 'in-progress', repoRoot = '.' } = {}) {
+function updateLocalKanbanState(repoRoot, targetId, normalizedState) {
+  const kanbanPath = path.resolve(repoRoot, 'docs/KANBAN.md');
+  if (!fs.existsSync(kanbanPath)) return false;
+  try {
+    const content = fs.readFileSync(kanbanPath, 'utf8');
+    const ticketMarker = String(targetId).startsWith('#') ? String(targetId) : `#${targetId}`;
+    const rawMarker = String(targetId);
+    if (!content.includes(ticketMarker) && !content.includes(rawMarker)) return false;
+
+    const lines = content.split('\n');
+    const updatedLines = [];
+    for (const line of lines) {
+      if ((line.includes(ticketMarker) || line.includes(`${rawMarker}:`)) && line.startsWith('|')) {
+        const cells = line.split('|').map((c) => c.trim());
+        if (cells.length >= 7) {
+          const itemContent =
+            cells.slice(1, 6).find((c) => c.includes(ticketMarker) || c.includes(`${rawMarker}:`)) || ticketMarker;
+          let c1 = '',
+            c2 = '',
+            c3 = '',
+            c4 = '',
+            c5 = '';
+          if (normalizedState === 'backlog' || normalizedState === 'todo') c1 = itemContent;
+          else if (normalizedState === 'ready') c2 = itemContent;
+          else if (normalizedState === 'in-progress' || normalizedState === 'inprogress' || normalizedState === 'in progress')
+            c3 = itemContent;
+          else if (normalizedState === 'in-review' || normalizedState === 'inreview' || normalizedState === 'review')
+            c4 = itemContent;
+          else if (normalizedState === 'done' || normalizedState === 'closed') c5 = itemContent;
+          updatedLines.push(`| ${c1} | ${c2} | ${c3} | ${c4} | ${c5} |`);
+          continue;
+        }
+      }
+      updatedLines.push(line);
+    }
+    fs.writeFileSync(kanbanPath, updatedLines.join('\n'), 'utf8');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function mirrorTicketToKanban(repoRoot, { issueId, prefix, fullTitle }) {
+  const kanbanPath = path.resolve(repoRoot, 'docs/KANBAN.md');
+  const now = new Date().toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
+  let content = readFileSafe(kanbanPath);
+
+  if (!content) {
+    fs.mkdirSync(path.dirname(kanbanPath), { recursive: true });
+    content = `# 📋 Project Kanban Board & Traceability Matrix\n\n> **Living Project State & Audit Trail**\n> **Last Synced**: \`${now}\`\n\n---\n\n## 📊 Board Overview\n\n| 📥 Backlog | 📋 Ready | ⚡ In Progress | 🔍 In Review | ✅ Done |\n| :--- | :--- | :--- | :--- | :--- |\n\n---\n\n## 🎯 End-to-End Traceability Matrix\n\n| Issue / Spec | Status | Priority | Component | Milestone | Spec / Contract |\n| :--- | :--- | :--- | :--- | :--- |\n`;
+  }
+
+  const displayId = String(issueId).startsWith('#') || /^[A-Z]+-\d+$/.test(String(issueId)) ? String(issueId) : `#${issueId}`;
+  const ticketRef = `${displayId}: [${prefix.toUpperCase()}] ${fullTitle}`;
+  if (!content.includes(`${displayId}:`)) {
+    const tableMarker = '| :--- | :--- | :--- | :--- | :--- |\n';
+    const tableIdx = content.indexOf(tableMarker);
+    if (tableIdx !== -1) {
+      const insertPos = tableIdx + tableMarker.length;
+      content = content.slice(0, insertPos) + `| | ${ticketRef} | | | |\n` + content.slice(insertPos);
+    }
+
+    const matrixMarker =
+      '## 🎯 End-to-End Traceability Matrix\n\n| Issue / Spec | Status | Priority | Component | Milestone | Spec / Contract |\n| :--- | :--- | :--- | :--- | :--- |\n';
+    const matrixIdx = content.indexOf(matrixMarker);
+    if (matrixIdx !== -1) {
+      const insertPos = matrixIdx + matrixMarker.length;
+      const priority = prefix === 'hotfix' ? '`P0 - Blocker`' : prefix === 'fix' || prefix === 'bug' ? '`P1 - High`' : '`P2 - Medium`';
+      content =
+        content.slice(0, insertPos) +
+        `| **${displayId}** | \`status:ready\` | ${priority} | Core | Current | ${fullTitle} |\n` +
+        content.slice(insertPos);
+    }
+    fs.writeFileSync(kanbanPath, content, 'utf8');
+  }
+  return kanbanPath;
+}
+
+export function transitionPMState({ issueId, state = 'in-progress', repoRoot = '.', execFn = execFileSync } = {}) {
   const pm = detectPMProvider(repoRoot);
   const targetId = Number(issueId) || issueId;
   const normalizedState = String(state).toLowerCase().trim();
@@ -132,20 +346,22 @@ export function transitionPMState({ issueId, state = 'in-progress', repoRoot = '
   let labelUpdated = false;
   let projectDetails = null;
 
+  updateLocalKanbanState(repoRoot, targetId, normalizedState);
+
   if (pm.provider === 'github') {
     try {
       const stateLabel = `status:${normalizedState}`;
       const statusLabels = ['status:backlog', 'status:ready', 'status:in-progress', 'status:in-review', 'status:done'];
       const toRemove = statusLabels.filter((l) => l !== stateLabel).join(',');
       try {
-        execFileSync('gh', ['issue', 'edit', String(targetId), '--remove-label', toRemove], { cwd: repoRoot, stdio: 'pipe' });
+        execFn('gh', ['issue', 'edit', String(targetId), '--remove-label', toRemove], { cwd: repoRoot, stdio: 'pipe' });
       } catch {}
-      execFileSync('gh', ['issue', 'edit', String(targetId), '--add-label', stateLabel], { cwd: repoRoot, stdio: 'pipe' });
+      execFn('gh', ['issue', 'edit', String(targetId), '--add-label', stateLabel], { cwd: repoRoot, stdio: 'pipe' });
       labelUpdated = true;
     } catch {}
 
     try {
-      const repoView = execFileSync('gh', ['repo', 'view', '--json', 'nameWithOwner,owner,name'], {
+      const repoView = execFn('gh', ['repo', 'view', '--json', 'nameWithOwner,owner,name'], {
         cwd: repoRoot,
         stdio: 'pipe',
         encoding: 'utf8'
@@ -179,7 +395,7 @@ export function transitionPMState({ issueId, state = 'in-progress', repoRoot = '
           }
         }`;
 
-        const gqlOutput = execFileSync(
+        const gqlOutput = execFn(
           'gh',
           ['api', 'graphql', '-f', `query=${gqlQuery}`, '-F', `owner=${owner}`, '-F', `repo=${repoName}`],
           { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
@@ -212,7 +428,7 @@ export function transitionPMState({ issueId, state = 'in-progress', repoRoot = '
                 let itemId = null;
                 const issueUrl = `https://github.com/${owner}/${repoName}/issues/${targetId}`;
                 try {
-                  const addItemOut = execFileSync(
+                  const addItemOut = execFn(
                     'gh',
                     ['project', 'item-add', String(prj.number), '--owner', owner, '--url', issueUrl, '--format', 'json'],
                     { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
@@ -225,7 +441,7 @@ export function transitionPMState({ issueId, state = 'in-progress', repoRoot = '
 
                 if (!itemId) {
                   try {
-                    const listItemsOut = execFileSync(
+                    const listItemsOut = execFn(
                       'gh',
                       ['project', 'item-list', String(prj.number), '--owner', owner, '--format', 'json'],
                       { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
@@ -239,7 +455,7 @@ export function transitionPMState({ issueId, state = 'in-progress', repoRoot = '
                 }
 
                 if (itemId) {
-                  execFileSync(
+                  execFn(
                     'gh',
                     [
                       'project',
@@ -283,34 +499,140 @@ export function transitionPMState({ issueId, state = 'in-progress', repoRoot = '
     };
   }
 
-  const kanbanPath = path.resolve(repoRoot, 'docs/KANBAN.md');
-  if (fs.existsSync(kanbanPath)) {
+  if (pm.provider === 'linear') {
     try {
-      let content = fs.readFileSync(kanbanPath, 'utf8');
-      const ticketMarker = `#${targetId}`;
-      if (content.includes(ticketMarker)) {
-        const lines = content.split('\n');
-        const updatedLines = [];
-        for (const line of lines) {
-          if (line.includes(ticketMarker) && line.startsWith('|')) {
-            const cells = line.split('|').map((c) => c.trim());
-            if (cells.length >= 7) {
-              const itemContent = cells.slice(1, 6).find((c) => c.includes(ticketMarker)) || `#${targetId}`;
-              let c1 = '', c2 = '', c3 = '', c4 = '', c5 = '';
-              if (normalizedState === 'backlog') c1 = itemContent;
-              else if (normalizedState === 'ready') c2 = itemContent;
-              else if (normalizedState === 'in-progress') c3 = itemContent;
-              else if (normalizedState === 'in-review') c4 = itemContent;
-              else if (normalizedState === 'done') c5 = itemContent;
-              updatedLines.push(`| ${c1} | ${c2} | ${c3} | ${c4} | ${c5} |`);
-              continue;
-            }
-          }
-          updatedLines.push(line);
-        }
-        fs.writeFileSync(kanbanPath, updatedLines.join('\n'), 'utf8');
+      const apiKey = process.env.LINEAR_API_KEY || '';
+      const statesQuery = JSON.stringify({
+        query: `query WorkflowStates { workflowStates(first: 50) { nodes { id name type } } }`
+      });
+      const statesOut = execFn(
+        'curl',
+        [
+          '-s',
+          '-X',
+          'POST',
+          'https://api.linear.app/graphql',
+          '-H',
+          `Authorization: ${apiKey}`,
+          '-H',
+          'Content-Type: application/json',
+          '-d',
+          statesQuery
+        ],
+        { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
+      );
+      const parsedStates = statesOut ? JSON.parse(statesOut) : {};
+      const stateNodes = parsedStates?.data?.workflowStates?.nodes || [];
+      let matchedState = stateNodes.find((s) => s.name?.toLowerCase() === statusDisplayName.toLowerCase());
+      if (!matchedState) {
+        matchedState = stateNodes.find(
+          (s) =>
+            s.name?.toLowerCase().includes(statusDisplayName.toLowerCase()) ||
+            (normalizedState === 'done' && s.type === 'completed') ||
+            (normalizedState === 'in-progress' && s.type === 'started') ||
+            ((normalizedState === 'ready' || normalizedState === 'todo') && s.type === 'unstarted') ||
+            (normalizedState === 'backlog' && s.type === 'backlog')
+        );
+      }
+
+      if (matchedState?.id) {
+        const updatePayload = JSON.stringify({
+          query: `mutation IssueUpdate($id: String!, $stateId: String!) { issueUpdate(id: $id, input: { stateId: $stateId }) { success } }`,
+          variables: { id: String(targetId), stateId: String(matchedState.id) }
+        });
+        execFn(
+          'curl',
+          [
+            '-s',
+            '-X',
+            'POST',
+            'https://api.linear.app/graphql',
+            '-H',
+            `Authorization: ${apiKey}`,
+            '-H',
+            'Content-Type: application/json',
+            '-d',
+            updatePayload
+          ],
+          { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
+        );
+        return {
+          success: true,
+          provider: 'linear',
+          issueId: targetId,
+          state: normalizedState,
+          statusDisplayName: matchedState.name || statusDisplayName,
+          stateId: matchedState.id
+        };
       }
     } catch {}
+
+    return {
+      success: true,
+      provider: 'linear',
+      issueId: targetId,
+      state: normalizedState,
+      statusDisplayName
+    };
+  }
+
+  if (pm.provider === 'jira') {
+    try {
+      const baseUrl = (process.env.JIRA_BASE_URL || 'https://jira.example.com').replace(/\/$/, '');
+      const auth = Buffer.from(`${process.env.JIRA_EMAIL || 'bot'}:${process.env.JIRA_API_TOKEN || ''}`).toString('base64');
+      const transitionsUrl = `${baseUrl}/rest/api/3/issue/${targetId}/transitions`;
+      const getOut = execFn(
+        'curl',
+        ['-s', '-X', 'GET', transitionsUrl, '-H', `Authorization: Basic ${auth}`, '-H', 'Accept: application/json'],
+        { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
+      );
+      const transitionsData = getOut ? JSON.parse(getOut) : {};
+      const transitions = transitionsData.transitions || [];
+      let matchedTransition = transitions.find(
+        (t) =>
+          t.name?.toLowerCase() === statusDisplayName.toLowerCase() ||
+          t.to?.name?.toLowerCase() === statusDisplayName.toLowerCase() ||
+          t.name?.toLowerCase().includes(statusDisplayName.toLowerCase())
+      );
+      if (!matchedTransition && transitions.length > 0) {
+        matchedTransition = transitions[0];
+      }
+      if (matchedTransition?.id) {
+        const postBody = JSON.stringify({ transition: { id: String(matchedTransition.id) } });
+        execFn(
+          'curl',
+          [
+            '-s',
+            '-X',
+            'POST',
+            transitionsUrl,
+            '-H',
+            `Authorization: Basic ${auth}`,
+            '-H',
+            'Content-Type: application/json',
+            '-d',
+            postBody
+          ],
+          { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
+        );
+        return {
+          success: true,
+          provider: 'jira',
+          issueId: targetId,
+          state: normalizedState,
+          statusDisplayName: matchedTransition.name || statusDisplayName,
+          transitionId: matchedTransition.id
+        };
+      }
+    } catch {}
+
+    return {
+      success: true,
+      provider: 'jira',
+      issueId: targetId,
+      state: normalizedState,
+      statusDisplayName
+    };
   }
 
   return {
@@ -332,7 +654,8 @@ export function createTicket({
   reproduce = '',
   expected = '',
   environment = '',
-  repoRoot = '.'
+  repoRoot = '.',
+  execFn = execFileSync
 } = {}) {
   const pm = detectPMProvider(repoRoot);
   const normalizedType = type.toLowerCase();
@@ -368,13 +691,13 @@ export function createTicket({
     try {
       let output = '';
       try {
-        output = execFileSync(
+        output = execFn(
           'gh',
           ['issue', 'create', '--title', fullTitle, '--body', issueBody, '--label', labelsToApply],
           { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
         );
       } catch {
-        output = execFileSync(
+        output = execFn(
           'gh',
           ['issue', 'create', '--title', fullTitle, '--body', issueBody],
           { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
@@ -385,8 +708,9 @@ export function createTicket({
       const issueId = match ? Number(match[1]) : null;
 
       if (issueId) {
+        mirrorTicketToKanban(repoRoot, { issueId, prefix, fullTitle });
         try {
-          transitionPMState({ issueId, state: 'ready', repoRoot });
+          transitionPMState({ issueId, state: 'ready', repoRoot, execFn });
         } catch {}
       }
 
@@ -396,38 +720,164 @@ export function createTicket({
     }
   }
 
-  const kanbanPath = path.resolve(repoRoot, 'docs/KANBAN.md');
-  const now = new Date().toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
-  let issueId = Date.now() % 10000;
-  let content = readFileSafe(kanbanPath);
+  if (pm.provider === 'linear') {
+    try {
+      const apiKey = process.env.LINEAR_API_KEY || '';
+      const teamKey = process.env.LINEAR_TEAM_KEY || '';
+      const teamsQuery = JSON.stringify({
+        query: `query Teams { teams(first: 10) { nodes { id key name } } }`
+      });
+      const teamsOut = execFn(
+        'curl',
+        [
+          '-s',
+          '-X',
+          'POST',
+          'https://api.linear.app/graphql',
+          '-H',
+          `Authorization: ${apiKey}`,
+          '-H',
+          'Content-Type: application/json',
+          '-d',
+          teamsQuery
+        ],
+        { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
+      );
+      const teamsData = teamsOut ? JSON.parse(teamsOut) : {};
+      const teams = teamsData?.data?.teams?.nodes || [];
+      const matchedTeam = (teamKey && teams.find((t) => t.key?.toLowerCase() === teamKey.toLowerCase())) || teams[0];
+      const teamId = matchedTeam?.id || 'TEAM-DEFAULT';
+      const priority = prefix === 'hotfix' ? 1 : prefix === 'fix' ? 2 : 3;
 
-  if (!content) {
-    fs.mkdirSync(path.dirname(kanbanPath), { recursive: true });
-    content = `# 📋 Project Kanban Board & Traceability Matrix\n\n> **Living Project State & Audit Trail**\n> **Last Synced**: \`${now}\`\n\n---\n\n## 📊 Board Overview\n\n| 📥 Backlog | 📋 Ready | ⚡ In Progress | 🔍 In Review | ✅ Done |\n| :--- | :--- | :--- | :--- | :--- |\n\n---\n\n## 🎯 End-to-End Traceability Matrix\n\n| Issue / Spec | Status | Priority | Component | Milestone | Spec / Contract |\n| :--- | :--- | :--- | :--- | :--- |\n`;
+      const createMutation = JSON.stringify({
+        query: `mutation IssueCreate($input: IssueCreateInput!) { issueCreate(input: $input) { success issue { id identifier url title } } }`,
+        variables: {
+          input: {
+            teamId,
+            title: fullTitle,
+            description: issueBody,
+            priority
+          }
+        }
+      });
+
+      const createOut = execFn(
+        'curl',
+        [
+          '-s',
+          '-X',
+          'POST',
+          'https://api.linear.app/graphql',
+          '-H',
+          `Authorization: ${apiKey}`,
+          '-H',
+          'Content-Type: application/json',
+          '-d',
+          createMutation
+        ],
+        { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
+      );
+      const created = createOut ? JSON.parse(createOut) : {};
+      const issueNode = created?.data?.issueCreate?.issue;
+      if (issueNode && (issueNode.identifier || issueNode.id)) {
+        const issueId = issueNode.identifier || issueNode.id;
+        const url = issueNode.url || `https://linear.app/issue/${issueId}`;
+        mirrorTicketToKanban(repoRoot, { issueId, prefix, fullTitle });
+        return {
+          success: true,
+          provider: 'linear',
+          issueId,
+          url,
+          title: fullTitle,
+          type: prefix,
+          template: templated.template.name
+        };
+      }
+    } catch {
+      console.warn('⚠️ Linear issue creation failed. Falling back to local docs/KANBAN.md.');
+    }
   }
 
-  const ticketRef = `#${issueId}: [${prefix.toUpperCase()}] ${fullTitle}`;
-  const tableMarker = '| :--- | :--- | :--- | :--- | :--- |\n';
-  const tableIdx = content.indexOf(tableMarker);
+  if (pm.provider === 'jira') {
+    try {
+      const baseUrl = (process.env.JIRA_BASE_URL || 'https://jira.example.com').replace(/\/$/, '');
+      const projectKey = process.env.JIRA_PROJECT_KEY || 'SDLC';
+      const auth = Buffer.from(`${process.env.JIRA_EMAIL || 'bot'}:${process.env.JIRA_API_TOKEN || ''}`).toString('base64');
+      const issueTypeName =
+        prefix === 'fix' || prefix === 'hotfix' ? 'Bug' : prefix === 'spike' ? 'Task' : 'Story';
 
-  if (tableIdx !== -1) {
-    const insertPos = tableIdx + tableMarker.length;
-    content = content.slice(0, insertPos) + `| | ${ticketRef} | | | |\n` + content.slice(insertPos);
+      const payload = JSON.stringify({
+        fields: {
+          project: { key: projectKey },
+          summary: fullTitle,
+          issuetype: { name: issueTypeName },
+          labels: labelsToApply
+            .split(',')
+            .map((l) => l.trim().replace(/\s+/g, '-'))
+            .filter(Boolean),
+          description: {
+            type: 'doc',
+            version: 1,
+            content: [
+              {
+                type: 'paragraph',
+                content: [{ type: 'text', text: issueBody }]
+              }
+            ]
+          }
+        }
+      });
+
+      const createOut = execFn(
+        'curl',
+        [
+          '-s',
+          '-X',
+          'POST',
+          `${baseUrl}/rest/api/3/issue`,
+          '-H',
+          `Authorization: Basic ${auth}`,
+          '-H',
+          'Content-Type: application/json',
+          '-d',
+          payload
+        ],
+        { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
+      );
+      const created = createOut ? JSON.parse(createOut) : {};
+      if (created.key || created.id) {
+        const issueId = created.key || created.id;
+        const url = `${baseUrl}/browse/${issueId}`;
+        mirrorTicketToKanban(repoRoot, { issueId, prefix, fullTitle });
+        return {
+          success: true,
+          provider: 'jira',
+          issueId,
+          url,
+          title: fullTitle,
+          type: prefix,
+          template: templated.template.name
+        };
+      }
+    } catch {
+      console.warn('⚠️ Jira issue creation failed. Falling back to local docs/KANBAN.md.');
+    }
   }
 
-  const matrixMarker = '## 🎯 End-to-End Traceability Matrix\n\n| Issue / Spec | Status | Priority | Component | Milestone | Spec / Contract |\n| :--- | :--- | :--- | :--- | :--- |\n';
-  const matrixIdx = content.indexOf(matrixMarker);
-  if (matrixIdx !== -1) {
-    const insertPos = matrixIdx + matrixMarker.length;
-    const priority = prefix === 'hotfix' ? '`P0 - Blocker`' : (prefix === 'bug' ? '`P1 - High`' : '`P2 - Medium`');
-    content = content.slice(0, insertPos) + `| **#${issueId}** | \`status:ready\` | ${priority} | Core | Current | ${fullTitle} |\n` + content.slice(insertPos);
-  }
-
-  fs.writeFileSync(kanbanPath, content, 'utf8');
-  return { success: true, provider: 'local', issueId, url: `docs/KANBAN.md#${issueId}`, title: fullTitle, type: prefix };
+  const issueId = Date.now() % 10000;
+  mirrorTicketToKanban(repoRoot, { issueId, prefix, fullTitle });
+  return {
+    success: true,
+    provider: 'local',
+    issueId,
+    url: `docs/KANBAN.md#${issueId}`,
+    title: fullTitle,
+    type: prefix,
+    template: templated.template.name
+  };
 }
 
-export function postPMComment({ issueId, prNumber = null, comment = '', repoRoot = '.' } = {}) {
+export function postPMComment({ issueId, prNumber = null, comment = '', repoRoot = '.', execFn = execFileSync } = {}) {
   const pm = detectPMProvider(repoRoot);
   const targetId = issueId || prNumber;
   if (!targetId || !comment) {
@@ -440,7 +890,7 @@ export function postPMComment({ issueId, prNumber = null, comment = '', repoRoot
 
     if (prNumber) {
       try {
-        execFileSync('gh', ['pr', 'comment', String(prNumber), '--body', comment], { cwd: repoRoot, stdio: 'pipe' });
+        execFn('gh', ['pr', 'comment', String(prNumber), '--body', comment], { cwd: repoRoot, stdio: 'pipe' });
         posted = true;
       } catch (err) {
         errors.push(`gh pr comment: ${err.message}`);
@@ -448,7 +898,7 @@ export function postPMComment({ issueId, prNumber = null, comment = '', repoRoot
     }
 
     try {
-      execFileSync('gh', ['issue', 'comment', String(issueId || prNumber), '--body', comment], { cwd: repoRoot, stdio: 'pipe' });
+      execFn('gh', ['issue', 'comment', String(issueId || prNumber), '--body', comment], { cwd: repoRoot, stdio: 'pipe' });
       posted = true;
     } catch (err) {
       errors.push(`gh issue comment: ${err.message}`);
@@ -463,8 +913,8 @@ export function postPMComment({ issueId, prNumber = null, comment = '', repoRoot
 
   if (pm.provider === 'jira') {
     try {
-      const auth = Buffer.from(`${process.env.JIRA_EMAIL || 'bot'}:${process.env.JIRA_API_TOKEN}`).toString('base64');
-      const url = `${process.env.JIRA_BASE_URL.replace(/\/$/, '')}/rest/api/3/issue/${issueId}/comment`;
+      const auth = Buffer.from(`${process.env.JIRA_EMAIL || 'bot'}:${process.env.JIRA_API_TOKEN || ''}`).toString('base64');
+      const url = `${(process.env.JIRA_BASE_URL || 'https://jira.example.com').replace(/\/$/, '')}/rest/api/3/issue/${issueId}/comment`;
       const bodyPayload = JSON.stringify({
         body: {
           type: 'doc',
@@ -472,7 +922,7 @@ export function postPMComment({ issueId, prNumber = null, comment = '', repoRoot
           content: [{ type: 'paragraph', content: [{ type: 'text', text: comment }] }]
         }
       });
-      execFileSync(
+      execFn(
         'curl',
         ['-s', '-X', 'POST', url, '-H', `Authorization: Basic ${auth}`, '-H', 'Content-Type: application/json', '-d', bodyPayload],
         { cwd: repoRoot, stdio: 'pipe' }
@@ -490,7 +940,7 @@ export function postPMComment({ issueId, prNumber = null, comment = '', repoRoot
         query: `mutation CreateComment($issueId: String!, $body: String!) { commentCreate(input: { issueId: $issueId, body: $body }) { success } }`,
         variables: { issueId: String(issueId), body: comment }
       });
-      execFileSync(
+      execFn(
         'curl',
         [
           '-s',
@@ -498,7 +948,7 @@ export function postPMComment({ issueId, prNumber = null, comment = '', repoRoot
           'POST',
           'https://api.linear.app/graphql',
           '-H',
-          `Authorization: ${process.env.LINEAR_API_KEY}`,
+          `Authorization: ${process.env.LINEAR_API_KEY || ''}`,
           '-H',
           'Content-Type: application/json',
           '-d',
@@ -539,6 +989,7 @@ export function postPMComment({ issueId, prNumber = null, comment = '', repoRoot
 export const createPMIssue = createTicket;
 
 export function syncKanbanBoard(repoRoot = '.') {
+  const pm = detectPMProvider(repoRoot);
   const kanbanPath = path.resolve(repoRoot, 'docs/KANBAN.md');
   const now = new Date().toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
   if (fileExists(kanbanPath)) {
@@ -548,7 +999,7 @@ export function syncKanbanBoard(repoRoot = '.') {
       fs.writeFileSync(kanbanPath, content, 'utf8');
     } catch {}
   }
-  return { success: true, kanbanPath, syncedAt: now };
+  return { success: true, provider: pm.provider, kanbanPath, syncedAt: now };
 }
 
 export function pollCIPRChecks(prNumber, { timeoutSeconds = 300, pollIntervalSeconds = 15, repoRoot = '.' } = {}) {

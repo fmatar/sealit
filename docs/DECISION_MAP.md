@@ -30,6 +30,8 @@ flowchart TD
   SPEC_08["SPEC-08 (docs/specs/cap-08-command-verb-skills-router.md)"]
   CAP_09["CAP-09: Two-Tier PRD & IEEE 29148 SRS Specification Engine (#84)"]
   SPEC_09["SPEC-09 (docs/specs/cap-09-prd-srs-specification-engine.md)"]
+  CAP_10["CAP-10: Unified Multi-Provider Ticket Engine & Issue Templates (#86)"]
+  SPEC_10["SPEC-10 (docs/specs/cap-10-unified-multi-provider-ticket-engine-issue-templ.md)"]
   ADR_001["ADR-001: Decompose sdlc-engine.mjs into Modular Domain Libraries with SHA-256 Gate Cache and SvelteKit 5 Decision Workbench"]
   _63["Ticket #63 (feature/issue-#63-product-autopilot-adr-workbench)"]
   ADR_002["ADR-002: Consolidate 14 Skills into 6 Schema-Valid Skills, Add Composite Stage CLI, and Enforce Real Dual-Gate Verification"]
@@ -39,7 +41,9 @@ flowchart TD
   ADR_004["ADR-004: Introduce /sdlc Universal Router and 8 Verb-Driven Command Skills"]
   _81["Ticket #81 (feature/issue-#81-command-verb-skills-router)"]
   ADR_005["ADR-005: Adopt Two-Tier PRD and IEEE 29148 SRS Specification Governance in sdlc-product"]
-  _84["Ticket #84"]
+  _84["Ticket #84 (feature/issue-#84-two-tier-prd-srs-specification-engine)"]
+  ADR_006["ADR-006: Unified Multi-Provider Ticket Engine and Canonical Issue Templates"]
+  __86["##86"]
   _SDLC_INIT["Ticket #SDLC-INIT (feature/arch-traceability-governance)"]
   _24["Ticket #24 (feature/issue-#24-api-contract-drift-sentinel)"]
   _25["Ticket #25 (feature/issue-#25-bug-reproduce-generator)"]
@@ -67,6 +71,9 @@ flowchart TD
   CAP_09 -->|specified_by| SPEC_09
   CAP_05 -->|depends_on| CAP_09
   CAP_08 -->|depends_on| CAP_09
+  CAP_10 -->|specified_by| SPEC_10
+  CAP_02 -->|depends_on| CAP_10
+  CAP_09 -->|depends_on| CAP_10
   _63 -->|triggered_drift_adr| ADR_001
   CAP_01 -.->|ADR Drift| ADR_001
   _68 -->|triggered_drift_adr| ADR_002
@@ -87,9 +94,18 @@ flowchart TD
   CAP_05 -.->|ADR Drift| ADR_005
   CAP_08 -.->|ADR Drift| ADR_005
   CAP_09 -.->|ADR Drift| ADR_005
+  CAP_02 -.->|ADR Drift| ADR_006
+  CAP_09 -.->|ADR Drift| ADR_006
+  CAP_10 -.->|ADR Drift| ADR_006
   _63 -.->|ADR Drift| ADR_001
   CAP_05 -->|realized_by| CAP_09
   CAP_08 -->|realized_by| CAP_09
+  CAP_02 -->|realized_by| CAP_10
+  CAP_09 -->|realized_by| CAP_10
+  __86 -.->|ADR Drift| ADR_006
+  CAP_02 -->|realized_by| ADR_006
+  CAP_09 -->|realized_by| ADR_006
+  CAP_10 -->|realized_by| ADR_006
 ```
 
 ---
@@ -103,6 +119,7 @@ flowchart TD
 | **ADR-003** | Replace Legacy Shell/Java Installers with Native npx Interactive Multi-Agent Installer Wizard | `architectural` | `accepted` | #75 | CAP-06, CAP-07 |
 | **ADR-004** | Introduce /sdlc Universal Router and 8 Verb-Driven Command Skills | `architectural` | `accepted` | #81 | CAP-05, CAP-07, CAP-08 |
 | **ADR-005** | Adopt Two-Tier PRD and IEEE 29148 SRS Specification Governance in sdlc-product | `architectural` | `accepted` | #84 | CAP-05, CAP-08, CAP-09 |
+| **ADR-006** | Unified Multi-Provider Ticket Engine and Canonical Issue Templates | `technical` | `rejected` | N/A | CAP-02, CAP-09, CAP-10 |
 
 ---
 
@@ -111,7 +128,7 @@ flowchart TD
 | Capability ID | Description | Current Status |
 | :--- | :--- | :--- |
 | **CAP-01** | Core Domain & Architecture Foundation | `PLANNED` |
-| **CAP-02** | Shell Injection Remediation & Polyglot Test Runners (#69) | `AMENDED (ADR-002)` |
+| **CAP-02** | Shell Injection Remediation & Polyglot Test Runners (#69) | `AMENDED (ADR-006)` |
 | **CAP-03** | Real Coverage/Mutation Parsers & Policy ArchDiff (#70) | `AMENDED (ADR-002)` |
 | **CAP-04** | Live Canary Watchdog, Real Proofs & Polyglot Reproduce (#71) | `AMENDED (ADR-002)` |
 | **CAP-05** | Consolidate 14 Skills into 6 Schema-Valid Core Skills (#72) | `AMENDED (ADR-004)` |
@@ -119,3 +136,4 @@ flowchart TD
 | **CAP-07** | Native `npx` Multi-Agent Interactive Installer & Legacy Installer Removal (#75) | `AMENDED (ADR-004)` |
 | **CAP-08** | `/sdlc` Universal Command Router & 8 Verb-Driven Skills (#81) | `AMENDED (ADR-004)` |
 | **CAP-09** | Two-Tier PRD & IEEE 29148 SRS Specification Engine (#84) | `PLANNED` |
+| **CAP-10** | Unified Multi-Provider Ticket Engine & Issue Templates (#86) | `PLANNED` |

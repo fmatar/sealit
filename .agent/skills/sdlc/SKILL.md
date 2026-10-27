@@ -26,6 +26,7 @@ When the user invokes `/sdlc <subcommand> [arguments]`, map the request directly
 | `/sdlc drift` | `node .agent/scripts/sdlc-engine.mjs drift check` |
 | `/sdlc adr <create\|list\|decide>` | `node .agent/scripts/sdlc-engine.mjs adr <subcommand>` |
 | `/sdlc gate` | `node .agent/scripts/sdlc-engine.mjs gate --strict` |
+| `/sdlc ticket <create\|transition\|comment\|sync\|templates>` | `node .agent/scripts/sdlc-engine.mjs ticket <subcommand> [args]` |
 | `/sdlc kanban` | `.agent/scripts/kanban-sync.sh` |
 | `/sdlc ui` / `/sdlc serve` | `node .agent/scripts/sdlc-engine.mjs ui-snapshot` + embed `<agent-embed>` |
 | `/sdlc release [patch\|minor\|major]` | `node .agent/scripts/sdlc-engine.mjs release <bump>` |

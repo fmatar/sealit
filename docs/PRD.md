@@ -24,6 +24,7 @@
 - **CAP-07 (Native `npx` Multi-Agent Interactive Installer & Legacy Installer Removal (#75))**: Governed by [`docs/specs/cap-07-npx-multi-agent-installer.md`](../docs/specs/cap-07-npx-multi-agent-installer.md) (Depends on: CAP-06)
 - **CAP-08 (`/sdlc` Universal Command Router & 8 Verb-Driven Skills (#81))**: Governed by [`docs/specs/cap-08-command-verb-skills-router.md`](../docs/specs/cap-08-command-verb-skills-router.md) (Depends on: CAP-05, CAP-07)
 - **CAP-09 (Two-Tier PRD & IEEE 29148 SRS Specification Engine (#84))**: Governed by [`docs/specs/cap-09-prd-srs-specification-engine.md`](../docs/specs/cap-09-prd-srs-specification-engine.md) (Depends on: CAP-05, CAP-08)
+- **CAP-10 (Unified Multi-Provider Ticket Engine & Issue Templates (#86))**: Governed by [`docs/specs/cap-10-unified-multi-provider-ticket-engine-issue-templ.md`](../docs/specs/cap-10-unified-multi-provider-ticket-engine-issue-templ.md) (Depends on: CAP-02, CAP-09)
 
 ### Out of Scope (Non-Goals)
 - Bypassing the 4-Layer Git Guard or merging unverified code without a Stage 7 SHA-256 Merkle Gate Receipt.
