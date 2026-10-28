@@ -285,6 +285,8 @@ export function recordArchTrace({
     : [
         path.resolve(repoRoot, 'docs/architecture/system.mmd'),
         path.resolve(repoRoot, 'docs/specs/architecture.mmd'),
+        path.resolve(repoRoot, 'wiki/Architecture.md'),
+        path.resolve(repoRoot, 'wiki/Codebase-Map.md'),
         path.resolve(repoRoot, '.agent/skills/sdlc-flow/SKILL.md'),
         path.resolve(repoRoot, 'README.md')
       ].filter((f) => fs.existsSync(f));

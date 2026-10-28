@@ -33,7 +33,8 @@ export const CANONICAL_SDLC_SKILLS = [
   'sdlc-product',
   'sdlc-release',
   'sdlc-status',
-  'sdlc-tdd'
+  'sdlc-tdd',
+  'sdlc-wiki'
 ];
 
 export const SUPPORTED_AGENTS = [

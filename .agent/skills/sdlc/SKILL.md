@@ -30,6 +30,7 @@ When the user invokes `/sdlc <subcommand> [arguments]`, map the request directly
 | `/sdlc ticket <create\|transition\|comment\|sync\|templates>` | `node .agent/scripts/sdlc-engine.mjs ticket <subcommand> [args]` |
 | `/sdlc kanban` | `.agent/scripts/kanban-sync.sh` |
 | `/sdlc ui` / `/sdlc serve` | `node .agent/scripts/sdlc-engine.mjs ui-snapshot` + embed `<agent-embed>` |
+| `/sdlc wiki [sync\|audit\|map]` | `node .agent/scripts/sdlc-engine.mjs wiki <subcommand>` |
 | `/sdlc release [patch\|minor\|major]` | `node .agent/scripts/sdlc-engine.mjs release <bump>` |
 
 ## 2. Execution Protocol

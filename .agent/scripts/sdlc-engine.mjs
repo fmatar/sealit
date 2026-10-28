@@ -170,6 +170,15 @@ import {
   createWorkbenchServer
 } from './lib/workbench-server.mjs';
 
+import {
+  inspectSourceModule,
+  resolveArchlensRing,
+  buildWikiCodeMap,
+  auditWiki,
+  renderCodebaseMapMarkdown,
+  syncWiki
+} from './lib/wiki-sync.mjs';
+
 // --- Re-export complete public API for backward compatibility & modular tests ---
 export {
   loadEnv,
@@ -291,7 +300,13 @@ export {
   generateArchitectureWidget,
   ensureWorkbenchRunning,
   renderWorkbenchHTML,
-  createWorkbenchServer
+  createWorkbenchServer,
+  inspectSourceModule,
+  resolveArchlensRing,
+  buildWikiCodeMap,
+  auditWiki,
+  renderCodebaseMapMarkdown,
+  syncWiki
 };
 
 export function executeRelease({
@@ -598,6 +613,14 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         const auditRes = verifyAuditChain(repoRoot);
         result.audit = auditRes;
         if (!auditRes.valid) throw new Error(`Merkle Audit Chain Verification failed: ${auditRes.error}`);
+
+        const wikiRes = auditWiki(repoRoot, { strict: true });
+        result.wikiAudit = wikiRes;
+        if (wikiRes.enabled && !wikiRes.passed) {
+          throw new Error(`Wiki Audit failed: ${wikiRes.errorsCount} documentation drift / broken path issue(s) detected.`);
+        }
+      } else {
+        result.wikiAudit = auditWiki(repoRoot);
       }
 
       return result;
@@ -1063,6 +1086,42 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       const live = args.includes('--live');
       result.skillAudit = auditSkills(repoRoot, { live });
       result.success = result.skillAudit.success;
+      return result;
+    }
+
+    case 'wiki':
+    case 'docs': {
+      const sub = (args[1] || 'sync').toLowerCase();
+      result.subcommand = sub;
+      if (sub === 'map') {
+        result.codeMap = buildWikiCodeMap(repoRoot);
+        return result;
+      }
+      if (sub === 'audit' || sub === 'check' || sub === 'lint') {
+        const strict = args.includes('--strict');
+        const wikiAudit = auditWiki(repoRoot, { strict });
+        result.wikiAudit = wikiAudit;
+        result.success = wikiAudit.passed;
+        console.log(wikiAudit.summary);
+        for (const f of wikiAudit.findings) {
+          console.log(`  [${f.severity}] ${f.rule} (${f.file}:${f.line}): ${f.message}`);
+        }
+        return result;
+      }
+      if (sub === 'sync' || sub === 'generate' || sub === 'update') {
+        const generateMissing = args.includes('--init') || args.includes('--scaffold');
+        const wikiSync = syncWiki({ repoRoot, generateMissing });
+        result.wikiSync = wikiSync;
+        result.wikiAudit = wikiSync.audit;
+        result.success = wikiSync.success;
+        console.log(`📚 Synchronized Wiki Codebase Map -> ${wikiSync.codeMapPath} (${wikiSync.modulesCount} modules across ${wikiSync.ringsCount} Archlens rings)`);
+        console.log(wikiSync.audit.summary);
+        for (const f of wikiSync.audit.findings) {
+          console.log(`  [${f.severity}] ${f.rule} (${f.file}:${f.line}): ${f.message}`);
+        }
+        return result;
+      }
+      result.success = false;
       return result;
     }
 

@@ -26,12 +26,14 @@ flowchart TD
   SPEC_06["SPEC-06 (docs/specs/cap-06-dogfood-docs-tests.md)"]
   CAP_07["CAP-07: Native `npx` Multi-Agent Interactive Installer & Legacy Installer Removal (#75)"]
   SPEC_07["SPEC-07 (docs/specs/cap-07-npx-multi-agent-installer.md)"]
-  CAP_08["CAP-08: `/sdlc` Universal Command Router & 8 Verb-Driven Skills (#81)"]
+  CAP_08["CAP-08: `/sdlc` Universal Command Router & 9 Verb-Driven Skills (#81)"]
   SPEC_08["SPEC-08 (docs/specs/cap-08-command-verb-skills-router.md)"]
   CAP_09["CAP-09: Two-Tier PRD & IEEE 29148 SRS Specification Engine (#84)"]
   SPEC_09["SPEC-09 (docs/specs/cap-09-prd-srs-specification-engine.md)"]
   CAP_10["CAP-10: Unified Multi-Provider Ticket Engine & Issue Templates (#86)"]
   SPEC_10["SPEC-10 (docs/specs/cap-10-unified-multi-provider-ticket-engine-issue-templ.md)"]
+  CAP_11["CAP-11: Technical Writer Skill (`sdlc-wiki`) & Archlens AST-to-Wiki Sync (#90)"]
+  SPEC_11["SPEC-11 (docs/specs/cap-11-technical-writer-archlens-wiki-sync.md)"]
   ADR_001["ADR-001: Decompose sdlc-engine.mjs into Modular Domain Libraries with SHA-256 Gate Cache and SvelteKit 5 Decision Workbench"]
   _63["Ticket #63 (feature/issue-#63-product-autopilot-adr-workbench)"]
   ADR_002["ADR-002: Consolidate 14 Skills into 6 Schema-Valid Skills, Add Composite Stage CLI, and Enforce Real Dual-Gate Verification"]
@@ -43,6 +45,8 @@ flowchart TD
   ADR_005["ADR-005: Adopt Two-Tier PRD and IEEE 29148 SRS Specification Governance in sdlc-product"]
   _84["Ticket #84 (feature/issue-#84-two-tier-prd-srs-specification-engine)"]
   ADR_006["ADR-006: Unified Multi-Provider Ticket Engine and Canonical Issue Templates"]
+  ADR_007["ADR-007: Introduce sdlc-wiki Technical Writer Skill and Deterministic Archlens AST-to-Wiki Synchronization Engine"]
+  _90["Ticket #90"]
   __86["##86"]
   _SDLC_INIT["Ticket #SDLC-INIT (feature/arch-traceability-governance)"]
   _24["Ticket #24 (feature/issue-#24-api-contract-drift-sentinel)"]
@@ -52,6 +56,7 @@ flowchart TD
   _77["Ticket #77 (feature/issue-#77-readme-overhaul)"]
   _79["Ticket #79 (feature/issue-#79-readme-dx-redesign)"]
   _86["Ticket #86 (feature/issue-#86-multi-provider-ticket-engine-and-templat)"]
+  _88["Ticket #88 (feature/issue-#88-skillspector-zero-findings-and-skill-aud)"]
   CAP_01 -->|specified_by| SPEC_01
   CAP_02 -->|specified_by| SPEC_02
   CAP_03 -->|specified_by| SPEC_03
@@ -75,6 +80,10 @@ flowchart TD
   CAP_10 -->|specified_by| SPEC_10
   CAP_02 -->|depends_on| CAP_10
   CAP_09 -->|depends_on| CAP_10
+  CAP_11 -->|specified_by| SPEC_11
+  CAP_03 -->|depends_on| CAP_11
+  CAP_05 -->|depends_on| CAP_11
+  CAP_08 -->|depends_on| CAP_11
   _63 -->|triggered_drift_adr| ADR_001
   CAP_01 -.->|ADR Drift| ADR_001
   _68 -->|triggered_drift_adr| ADR_002
@@ -98,6 +107,11 @@ flowchart TD
   CAP_02 -.->|ADR Drift| ADR_006
   CAP_09 -.->|ADR Drift| ADR_006
   CAP_10 -.->|ADR Drift| ADR_006
+  _90 -->|triggered_drift_adr| ADR_007
+  CAP_05 -.->|ADR Drift| ADR_007
+  CAP_06 -.->|ADR Drift| ADR_007
+  CAP_08 -.->|ADR Drift| ADR_007
+  CAP_11 -.->|ADR Drift| ADR_007
   _63 -.->|ADR Drift| ADR_001
   CAP_05 -->|realized_by| CAP_09
   CAP_08 -->|realized_by| CAP_09
@@ -121,6 +135,7 @@ flowchart TD
 | **ADR-004** | Introduce /sdlc Universal Router and 8 Verb-Driven Command Skills | `architectural` | `accepted` | #81 | CAP-05, CAP-07, CAP-08 |
 | **ADR-005** | Adopt Two-Tier PRD and IEEE 29148 SRS Specification Governance in sdlc-product | `architectural` | `accepted` | #84 | CAP-05, CAP-08, CAP-09 |
 | **ADR-006** | Unified Multi-Provider Ticket Engine and Canonical Issue Templates | `technical` | `rejected` | N/A | CAP-02, CAP-09, CAP-10 |
+| **ADR-007** | Introduce sdlc-wiki Technical Writer Skill and Deterministic Archlens AST-to-Wiki Synchronization Engine | `architectural` | `accepted` | #90 | CAP-05, CAP-06, CAP-08, CAP-11 |
 
 ---
 
@@ -132,9 +147,10 @@ flowchart TD
 | **CAP-02** | Shell Injection Remediation & Polyglot Test Runners (#69) | `AMENDED (ADR-006)` |
 | **CAP-03** | Real Coverage/Mutation Parsers & Policy ArchDiff (#70) | `AMENDED (ADR-002)` |
 | **CAP-04** | Live Canary Watchdog, Real Proofs & Polyglot Reproduce (#71) | `AMENDED (ADR-002)` |
-| **CAP-05** | Consolidate 14 Skills into 6 Schema-Valid Core Skills (#72) | `AMENDED (ADR-004)` |
-| **CAP-06** | Dogfooding Configuration, Docs Sync & Full Test Suite (#73) | `AMENDED (ADR-002)` |
+| **CAP-05** | Consolidate 14 Skills into 6 Schema-Valid Core Skills (#72) | `AMENDED (ADR-007)` |
+| **CAP-06** | Dogfooding Configuration, Docs Sync & Full Test Suite (#73) | `AMENDED (ADR-007)` |
 | **CAP-07** | Native `npx` Multi-Agent Interactive Installer & Legacy Installer Removal (#75) | `AMENDED (ADR-004)` |
-| **CAP-08** | `/sdlc` Universal Command Router & 8 Verb-Driven Skills (#81) | `AMENDED (ADR-004)` |
+| **CAP-08** | `/sdlc` Universal Command Router & 9 Verb-Driven Skills (#81) | `AMENDED (ADR-007)` |
 | **CAP-09** | Two-Tier PRD & IEEE 29148 SRS Specification Engine (#84) | `PLANNED` |
 | **CAP-10** | Unified Multi-Provider Ticket Engine & Issue Templates (#86) | `PLANNED` |
+| **CAP-11** | Technical Writer Skill (`sdlc-wiki`) & Archlens AST-to-Wiki Sync (#90) | `AMENDED (ADR-007)` |

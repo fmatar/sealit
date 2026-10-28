@@ -1,41 +1,154 @@
-# 🧠 Agentic Skills Reference (`ADR-004`: 1 Router + 8 Verb Skills)
+# 🛠️ Skills & CLI Command Reference
 
-The **Agentic SDLC Framework** provides **1 Universal Command Router (`/sdlc`)** and **8 Verb-Driven Skills** in `.agent/skills/`. Each skill uses validated agent tools (`read_file`, `write_file`, `edit_file`, `run_command`, `invoke_subagent`) and delegates mechanical operations to `.agent/scripts/sdlc-engine.mjs`.
+This reference documents the **1 Universal Router (`/sdlc`) + 9 Verb-Driven Skills** (`ADR-004` & `ADR-007`) located in `.agent/skills/` and the complete CLI subcommand table for `.agent/scripts/sdlc-engine.mjs`.
+
+> **Historical Note (`ADR-002` & `ADR-004`)**: Earlier versions of this framework used 14 separate skills (such as `sdlc-init`, `sdlc-kanban`, `sdlc-feature-spec`, `sdlc-tdd-implement`, `sdlc-test-coverage`, `sdlc-docs-wiki`, `sdlc-peer-review`, `sdlc-quality-gate`, `sdlc-release-changelog`, and `sdlc-review-gate`). Those retired skills are automatically pruned by `pruneDeprecatedSkills` in `.agent/scripts/lib/installer.mjs` and replaced by the 10 canonical skills below.
 
 ---
 
-## 🗺️ Skills Topology
+## 1. Universal Command Router (`/sdlc`)
 
-```mermaid
-flowchart LR
-    classDef router fill:#312e81,stroke:#818cf8,stroke-width:2px,color:#eef2ff
-    classDef macro fill:#1e1b4b,stroke:#6366f1,stroke-width:2px,color:#eef2ff
-    classDef ops fill:#78350f,stroke:#f59e0b,stroke-width:2px,color:#fef3c7
-    classDef stage fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#ecfdf5
+- **Path**: `.agent/skills/sdlc/SKILL.md`
+- **Purpose**: Accepts any SDLC subcommand directly in chat (`/sdlc doctor`, `/sdlc begin 90`, `/sdlc status`, `/sdlc drift`, `/sdlc pre-pr`, `/sdlc gate`, `/sdlc wiki sync`, `/sdlc ui`) and maps it `1:1` to `.agent/scripts/sdlc-engine.mjs`.
 
-    Router["⚡ /sdlc {{args}}<br/>(1:1 CLI Router)"]:::router
-    Doctor["🩺 /sdlc-doctor<br/>(Detect, Doctor & Hooks)"]:::ops --> Product["🏛️ /sdlc-product<br/>(PRODUCT.md, Specs & DAG)"]:::macro
-    Product --> Flow["🚀 /sdlc-flow<br/>(End-to-End Ticket Autopilot)"]:::macro
-    Flow --> TDD["🧪 /sdlc-tdd<br/>(Red-Green-Refactor & Dual-Gate)"]:::stage
-    TDD --> ADR["📜 /sdlc-adr<br/>(Spec-Drift ADRs & Decision Map)"]:::stage
-    ADR --> Gate["🛡️ /sdlc-gate<br/>(Fork-Join PR Review & Receipt)"]:::stage
-    Gate --> Release["📦 /sdlc-release<br/>(Docs Sync, SemVer & Watchdog)"]:::ops
-    Status["📊 /sdlc-status<br/>(Session, Drift & Arch Diff UI)"]:::ops -.-> Flow
-    Router -.-> Doctor & Status & TDD & ADR & Gate & Release
+| Chat Invocation | Mapped Engine Command |
+| :--- | :--- |
+| `/sdlc install [flags]` | `node .agent/scripts/sdlc-engine.mjs install [flags]` |
+| `/sdlc doctor` | `node .agent/scripts/sdlc-engine.mjs doctor --fix` |
+| `/sdlc skill-audit` | `node .agent/scripts/sdlc-engine.mjs skill-audit` |
+| `/sdlc detect` | `node .agent/scripts/sdlc-engine.mjs detect` |
+| `/sdlc status` / `/sdlc ui` | `node .agent/scripts/sdlc-engine.mjs session dashboard` + `ui-snapshot` |
+| `/sdlc begin <title-or-#id>` | `node .agent/scripts/sdlc-engine.mjs stage begin --title "<title>" --checkout` |
+| `/sdlc pre-pr [#id]` | `node .agent/scripts/sdlc-engine.mjs stage pre-pr --issue <id>` |
+| `/sdlc complete [#id]` | `node .agent/scripts/sdlc-engine.mjs stage complete --issue <id>` |
+| `/sdlc test` / `/sdlc coverage` / `/sdlc mutation` | `node .agent/scripts/sdlc-engine.mjs <test\|coverage\|mutation>` |
+| `/sdlc adr <create\|list\|decide>` | `node .agent/scripts/sdlc-engine.mjs adr <subcommand>` |
+| `/sdlc drift` | `node .agent/scripts/sdlc-engine.mjs drift check` |
+| `/sdlc gate` | `node .agent/scripts/sdlc-engine.mjs gate --strict` |
+| `/sdlc ticket <create\|transition\|comment\|sync\|templates>` | `node .agent/scripts/sdlc-engine.mjs ticket <subcommand>` |
+| `/sdlc wiki <sync\|audit\|map>` | `node .agent/scripts/sdlc-engine.mjs wiki <subcommand>` |
+| `/sdlc release [patch\|minor\|major]` | `node .agent/scripts/sdlc-engine.mjs release <bump>` |
+
+---
+
+## 2. The 9 Verb-Driven Skills
+
+### 2.1 `sdlc-product` — Product Autopilot & IEEE 29148 SRS Architect
+- **Path**: `.agent/skills/sdlc-product/SKILL.md`
+- **Engine Modules**: `.agent/scripts/lib/product-dag.mjs`, `.agent/scripts/lib/pm-provider.mjs`
+- **Capabilities**:
+  - Initializes `PRODUCT.md`, `docs/PRD.md`, `docs/SRS.md`, and Genesis Ticket `#1` (`product init`).
+  - Scaffolds individual capability specifications in `docs/specs/cap-XX-*.md` (`product spec --cap CAP-XX`).
+  - Computes Kahn's algorithm topological DAG execution waves (`product plan`) and controls wave execution (`product control <pause|resume|status>`).
+  - Deconstructs raw epic descriptions into dependency-ordered tickets (`deconstruct`).
+
+### 2.2 `sdlc-adr` — ADR Lifecycle & Spec-Drift Sentinel
+- **Path**: `.agent/skills/sdlc-adr/SKILL.md`
+- **Engine Modules**: `.agent/scripts/lib/adr-drift.mjs`, `.agent/scripts/lib/decision-graph.mjs`
+- **Capabilities**:
+  - Mints sequential Architecture Decision Records in `docs/adr/ADR-00X-*.md` (`adr create`).
+  - Approves or rejects pending product/contract ADRs (`adr decide <ADR-ID> <approve|reject>`).
+  - Runs the Spec-Drift Sentinel (`drift check`) and OpenAPI/GraphQL contract drift auditor (`contract check`).
+  - Synchronizes `docs/DECISION_MAP.md` (`decision-graph sync`).
+
+### 2.3 `sdlc-flow` — Master 8-Stage Lifecycle Orchestrator
+- **Path**: `.agent/skills/sdlc-flow/SKILL.md`
+- **Engine Modules**: `.agent/scripts/lib/session.mjs`, `.agent/scripts/lib/dossier.mjs`
+- **Capabilities**:
+  - Drives end-to-end feature and bug delivery across Stages 1–8 using atomic composite stage transitions (`stage begin`, `stage pre-pr`, `stage complete`).
+  - Compiles context-compressed subagent dossiers in `.agent/dossiers/ticket-XX.md` (`dossier generate --issue <id>`).
+  - Manages multi-session concurrency (`session list`, `session switch`, `session resume`).
+
+### 2.4 `sdlc-tdd` — Robert C. Martin TDD & Polyglot Dual-Gate Runner
+- **Path**: `.agent/skills/sdlc-tdd/SKILL.md`
+- **Engine Modules**: `.agent/scripts/lib/quality-gate.mjs`, `.agent/scripts/lib/cache.mjs`
+- **Capabilities**:
+  - Enforces the Three Laws of TDD (*Red-Green-Refactor*), Transformation Priority Premise (TPP), and F.I.R.S.T. test isolation.
+  - Scaffolds automated bug reproduction tests from stack traces across JavaScript/TypeScript, Python, Java, Go, and Rust (`reproduce --error "<trace>"`).
+  - Executes affected-only unit tests (`test --affected-only`), diff coverage verification $\ge 85\%$ (`coverage`), mutation testing $\ge 80\%$ (`mutation`), and mutant strengthening (`strengthen`).
+
+### 2.5 `sdlc-gate` — Parallel Fork-Join Peer Reviewer & Quality Gatekeeper
+- **Path**: `.agent/skills/sdlc-gate/SKILL.md`
+- **Engine Modules**: `.agent/scripts/lib/quality-gate.mjs`, `.agent/scripts/lib/arch-trace.mjs`, `.agent/scripts/lib/audit-chain.mjs`
+- **Capabilities**:
+  - Generates parallel subagent review plans (`review plan`) for **PR Peer Reviewer** and **Quality Gatekeeper** subagents.
+  - Runs the strict 9-pillar gate (`gate --strict`): lint, build, coverage, risk audit (`risk-audit`), secret/CVE scan (`security-audit`), Archlens concentric ring diff (`archlens diff`), flaky test detection (`flake-check`), API contract check (`contract check`), Merkle audit verification (`audit verify`), and Wiki drift audit (`wiki audit --strict`).
+  - Issues cryptographic Stage 7 SHA-256 Merkle Gate Receipts (`guard receipt`).
+
+### 2.6 `sdlc-status` — Mission Control, Kanban & Telemetry Inspector
+- **Path**: `.agent/skills/sdlc-status/SKILL.md`
+- **Engine Modules**: `.agent/scripts/lib/session.mjs`, `.agent/scripts/lib/workbench-server.mjs`
+- **Capabilities**:
+  - Displays the 8-stage ASCII progress dashboard (`session dashboard`), session velocity/ROI metrics (`stats`), and Spec-Drift status.
+  - Generates `.agent/workbench/index.html` (`ui-snapshot`) and launches the live Clearinghouse Ledger Workbench server on `http://localhost:4120` (`serve`).
+
+### 2.7 `sdlc-doctor` — Stack Discovery, Auto-Healer & Multi-Agent Installer
+- **Path**: `.agent/skills/sdlc-doctor/SKILL.md`
+- **Engine Modules**: `.agent/scripts/lib/installer.mjs`, `.agent/scripts/lib/quality-gate.mjs`, `.agent/scripts/lib/git-guard.mjs`
+- **Capabilities**:
+  - Probes polyglot manifests (`package.json`, `pom.xml`, `build.gradle`, `pyproject.toml`, `go.mod`, `Cargo.toml`, `Makefile`) and generates `.agent/sdlc-config.json` (`detect`).
+  - Runs environment diagnostics and auto-heals missing framework assets (`doctor --fix`), including `.archlens/policy.json`, `docs/KANBAN.md`, `.github/ISSUE_TEMPLATE/`, `.git/hooks/`, and `.github/workflows/sdlc-quality-gate.yml`.
+  - Installs skills and rules across all 6 supported AI coding tools (`install --agents gemini,claude,cursor,grok,windsurf,copilot`) and audits skills with SkillSpector (`skill-audit`).
+
+### 2.8 `sdlc-release` — Documentation Sync, SemVer Release & Canary Watchdog
+- **Path**: `.agent/skills/sdlc-release/SKILL.md`
+- **Engine Modules**: `.agent/scripts/sdlc-engine.mjs`, `.agent/scripts/lib/quality-gate.mjs`
+- **Capabilities**:
+  - Generates SHA-256 delivery regression proofs in `docs/proofs/proof-*.md` (`proof generate --name <target>`).
+  - Bumps SemVer versions across `package.json`, `pom.xml`, `pyproject.toml`, or `Cargo.toml`, updates `CHANGELOG.md`, and creates annotated Git tags (`release <patch|minor|major>`).
+  - Monitors post-deployment canary health endpoints with automatic rollback on error-rate threshold breach (`watchdog monitor`).
+
+### 2.9 `sdlc-wiki` — Technical Writer & Archlens Wiki Architect
+- **Path**: `.agent/skills/sdlc-wiki/SKILL.md`
+- **Engine Modules**: `.agent/scripts/lib/wiki-sync.mjs`, `.agent/scripts/lib/arch-trace.mjs`
+- **Capabilities**:
+  - Inspects AST exports with line numbers and maps modules into `.archlens/policy.json` Concentric Clean Architecture rings with $Ca / Ce / I$ coupling telemetry (`wiki map`).
+  - Generates and updates `wiki/Codebase-Map.md` (`wiki sync`).
+  - Audits `wiki/*.md` for broken repo paths, retired skill references, unmapped modules, undocumented skills, and invalid Mermaid syntax (`wiki audit --strict`).
+
+---
+
+## 3. Complete `sdlc-engine.mjs` CLI Reference
+
+```bash
+# Stack Discovery, Installation & Diagnostics
+node .agent/scripts/sdlc-engine.mjs install [--agents gemini,claude,cursor,grok,windsurf,copilot] [--global] [--yes]
+node .agent/scripts/sdlc-engine.mjs detect
+node .agent/scripts/sdlc-engine.mjs doctor [--fix]
+node .agent/scripts/sdlc-engine.mjs skill-audit [--live]
+
+# Composite Lifecycle & Session Management
+node .agent/scripts/sdlc-engine.mjs stage <begin|pre-pr|complete> [--issue <id>] [--title "<title>"] [--checkout]
+node .agent/scripts/sdlc-engine.mjs session <status|dashboard|start|update|list|switch|resume|release>
+node .agent/scripts/sdlc-engine.mjs stats
+
+# Product Constitution, Specs, ADRs & Causal Graph
+node .agent/scripts/sdlc-engine.mjs product <init|status|spec|plan|control>
+node .agent/scripts/sdlc-engine.mjs adr <create|list|decide>
+node .agent/scripts/sdlc-engine.mjs drift check
+node .agent/scripts/sdlc-engine.mjs contract check
+node .agent/scripts/sdlc-engine.mjs decision-graph <build|sync>
+node .agent/scripts/sdlc-engine.mjs dossier generate --issue <id> [--cap CAP-XX]
+
+# Testing, Coverage, Mutation & Quality Gates
+node .agent/scripts/sdlc-engine.mjs test [--affected-only]
+node .agent/scripts/sdlc-engine.mjs coverage [--no-cache]
+node .agent/scripts/sdlc-engine.mjs mutation [--no-cache]
+node .agent/scripts/sdlc-engine.mjs gate [--strict] [--no-cache]
+node .agent/scripts/sdlc-engine.mjs reproduce --error "<stack-trace>" [--target <file>]
+node .agent/scripts/sdlc-engine.mjs cache <status|clear>
+
+# Architecture, Wiki Synchronization & Git Lockdown
+node .agent/scripts/sdlc-engine.mjs archlens <check|diff|trace|scaffold|update>
+node .agent/scripts/sdlc-engine.mjs wiki <sync|audit|map> [--strict] [--init]
+node .agent/scripts/sdlc-engine.mjs guard <pre-commit|pre-merge|pre-push|receipt>
+node .agent/scripts/sdlc-engine.mjs audit <verify|record>
+
+# Ticket Providers, Releases & Mission Control Workbench
+node .agent/scripts/sdlc-engine.mjs ticket <create|transition|comment|sync|templates>
+node .agent/scripts/sdlc-engine.mjs release <patch|minor|major> [--dry-run]
+node .agent/scripts/sdlc-engine.mjs proof generate --name <target>
+node .agent/scripts/sdlc-engine.mjs watchdog monitor [--url <url>] [--live]
+node .agent/scripts/sdlc-engine.mjs ui-snapshot
+node .agent/scripts/sdlc-engine.mjs serve [--port 4120]
 ```
-
----
-
-## 📋 Canonical 9-Skill Catalog (1 Router + 8 Verb Skills)
-
-| Skill | Category | Replaces (`ADR-004`) | Primary Responsibilities | Allowed Tools |
-| :--- | :--- | :--- | :--- | :--- |
-| **`sdlc`** | **Universal Router** | New (`/sdlc <cmd>`) | Routes `/sdlc doctor`, `/sdlc begin #id`, `/sdlc status`, `/sdlc drift`, `/sdlc pre-pr`, `/sdlc gate`, `/sdlc kanban`, `/sdlc ui` 1:1 to `sdlc-engine.mjs`. | `read_file`, `write_file`, `edit_file`, `run_command`, `invoke_subagent` |
-| **`sdlc-flow`** | **Macro Autopilot** | `sdlc-flow` | Drives end-to-end feature/bug delivery (`stage begin` → TDD → `stage pre-pr` → parallel review → `stage complete`). | `read_file`, `write_file`, `edit_file`, `run_command`, `invoke_subagent` |
-| **`sdlc-product`** | **Macro Autopilot** | `sdlc-product` | Synthesizes `PRODUCT.md` (`CAP-XX`, `INV-XX`), authors `docs/specs/*.md`, C4 diagrams, and schedules topological DAG waves. | `read_file`, `write_file`, `edit_file`, `run_command`, `invoke_subagent` |
-| **`sdlc-doctor`** | **Ops & Diagnostics** | `sdlc-init` | Stack discovery (`detect`), `doctor --fix`, 4-Layer Git hooks, `.archlens/policy.json`, and multi-agent installer (`install`). | `read_file`, `write_file`, `edit_file`, `run_command` |
-| **`sdlc-status`** | **Ops & Diagnostics** | New verb skill | Displays active session, 8-stage progress, `drift check`, `KANBAN.md`, ROI stats, and live Architecture Diff UI (`ui-snapshot`). | `read_file`, `write_file`, `edit_file`, `run_command` |
-| **`sdlc-tdd`** | **Stage Action** | `sdlc-tdd` | Enforces Robert Martin's 3 Laws of TDD, TPP, F.I.R.S.T. isolation, real coverage (≥ 85%), mutation kill score (≥ 80%), and `reproduce`. | `read_file`, `write_file`, `edit_file`, `run_command` |
-| **`sdlc-gate`** | **Stage Action** | `sdlc-review-gate` | Parallel Fork-Join PR diff review (`TypeName: "research"`), strict 9-pillar quality gate (`gate --strict`), and Stage 7 Merkle receipt. | `read_file`, `write_file`, `edit_file`, `run_command`, `invoke_subagent` |
-| **`sdlc-adr`** | **Stage Action** | New verb skill | Mints/lists/decides Spec-Drift ADRs (`docs/adr/ADR-00X.md`), runs `drift check`, and syncs `docs/DECISION_MAP.md`. | `read_file`, `write_file`, `edit_file`, `run_command` |
-| **`sdlc-release`** | **Stage Action** | `sdlc-release` | Synchronizes `README.md`, `docs/specs/`, `CHANGELOG.md`, and `/wiki`, and executes SemVer releases, regression proofs, and canary watchdogs. | `read_file`, `write_file`, `edit_file`, `run_command` |

@@ -68,6 +68,11 @@ import {
   pruneDeprecatedSkills,
   installFramework,
   parseInstallArgs,
+  inspectSourceModule,
+  resolveArchlensRing,
+  buildWikiCodeMap,
+  auditWiki,
+  syncWiki,
   runCLI
 } from '../.agent/scripts/sdlc-engine.mjs';
 
@@ -852,7 +857,7 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
       fs.writeFileSync(path.join(customSkillDir, 'SKILL.md'), 'custom', 'utf8');
 
       assert.equal(SUPPORTED_AGENTS.length, 6);
-      assert.equal(CANONICAL_SDLC_SKILLS.length, 9);
+      assert.equal(CANONICAL_SDLC_SKILLS.length, 10);
       assert.ok(DEPRECATED_SDLC_SKILLS.includes('sdlc-kanban'));
       assert.ok(DEPRECATED_SDLC_SKILLS.includes('sdlc-init'));
       assert.ok(DEPRECATED_SDLC_SKILLS.includes('sdlc-review-gate'));
@@ -871,7 +876,7 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
         ],
         process.cwd()
       );
-      assert.deepEqual(parsed.agents, ['gemini', 'claude', 'cursor', 'grok', 'windsurf', 'copilot']);
+      assert.deepEqual(parsed.agents, ['gemini', 'claude', 'cursor', 'grok', 'windsurf,copilot'.split(',')].flat());
       assert.equal(parsed.withArchlens, true);
       assert.equal(parsed.withHooks, true);
       assert.equal(parsed.withCi, true);
@@ -892,7 +897,7 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
         process.cwd()
       );
       assert.equal(cliRes.installed.success, true);
-      assert.equal(cliRes.installed.skillsCount, 9);
+      assert.equal(cliRes.installed.skillsCount, 10);
       assert.ok(cliRes.installed.prunedSkills.includes('sdlc-kanban'));
 
       // Deprecated skill removed, custom skill preserved, 6 canonical skills present
@@ -1071,6 +1076,66 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
       });
       assert.equal(jiraTrans.provider, 'jira');
       assert.equal(jiraTrans.transitionId, '41');
+    });
+
+    it('synchronizes AST-to-Wiki Codebase-Map.md, classifies Archlens rings, and audits wiki/*.md for drift or broken paths (CAP-11 / ADR-007)', () => {
+      initTempGitRepo(tmpDir);
+      initProductConstitution({
+        title: 'Wiki Sync App',
+        capabilities: [{ title: 'Domain Ledger', spec: 'docs/specs/ledger.md' }],
+        repoRoot: tmpDir
+      });
+
+      // Create sample source modules across rings
+      fs.mkdirSync(path.join(tmpDir, 'src/domain'), { recursive: true });
+      fs.mkdirSync(path.join(tmpDir, 'src/adapters'), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpDir, 'src/domain/ledger.mjs'),
+        'export class LedgerEntity {}\nexport function computeBalance(txs) { return txs.length; }\n',
+        'utf8'
+      );
+      fs.writeFileSync(
+        path.join(tmpDir, 'src/adapters/http.mjs'),
+        'import { computeBalance } from "../domain/ledger.mjs";\nexport function handleGetBalance() { return computeBalance([]); }\n',
+        'utf8'
+      );
+
+      // 1. Inspect source module exports & line numbers
+      const modInfo = inspectSourceModule('src/adapters/http.mjs', tmpDir);
+      assert.equal(modInfo.name, 'http.mjs');
+      assert.equal(modInfo.exports[0].name, 'handleGetBalance');
+      assert.equal(modInfo.exports[0].line, 2);
+      assert.ok(modInfo.imports.includes('src/domain/ledger.mjs'));
+
+      // 2. Sync wiki with --init to scaffold wiki pages and generate wiki/Codebase-Map.md
+      const syncRes = runCLI(['wiki', 'sync', '--init'], null, tmpDir);
+      assert.equal(syncRes.command, 'wiki');
+      assert.equal(syncRes.subcommand, 'sync');
+      assert.equal(syncRes.success, true);
+      assert.equal(fs.existsSync(path.join(tmpDir, 'wiki/Codebase-Map.md')), true);
+      const mapMd = fs.readFileSync(path.join(tmpDir, 'wiki/Codebase-Map.md'), 'utf8');
+      assert.ok(mapMd.includes('LedgerEntity'));
+      assert.ok(mapMd.includes('handleGetBalance'));
+      assert.ok(mapMd.includes('Ring 0: Domain Core & Primitives'));
+
+      // 3. Inject a broken code path and deprecated skill reference into wiki/Home.md -> auditWiki must catch both
+      fs.writeFileSync(
+        path.join(tmpDir, 'wiki/Home.md'),
+        '# Broken Wiki\nRun `.agent/skills/sdlc-kanban/scripts/nonexistent.sh` with `sdlc-kanban`.\n',
+        'utf8'
+      );
+      const brokenAudit = auditWiki(tmpDir, { strict: true });
+      assert.equal(brokenAudit.passed, false);
+      assert.ok(brokenAudit.findings.some((f) => f.rule === 'DEPRECATED_SKILL_REF' && f.target === 'sdlc-kanban'));
+      assert.ok(brokenAudit.findings.some((f) => f.rule === 'BROKEN_CODE_PATH'));
+
+      // 4. Verify live repository wiki passes strict audit with 100% module & skill coverage
+      const repoSync = syncWiki({ repoRoot: process.cwd() });
+      assert.equal(repoSync.success, true, JSON.stringify(repoSync.audit.findings));
+      const repoAudit = auditWiki(process.cwd(), { strict: true });
+      assert.equal(repoAudit.passed, true, JSON.stringify(repoAudit.findings));
+      assert.equal(repoAudit.errorsCount, 0);
+      assert.equal(repoAudit.coveragePct, 100);
     });
   });
 });

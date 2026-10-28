@@ -15,7 +15,7 @@ Before cutting a release or completing a feature ticket, synchronize documentati
    node .agent/scripts/sdlc-engine.mjs decision-graph sync
    ```
 3. **`CHANGELOG.md` (Keep a Changelog & SemVer)**: Categorize changes under `## [Unreleased]` (`Added`, `Changed`, `Fixed`, `Security`, `Removed`).
-4. **`wiki/` Synchronization**: When `wiki/` exists in the workspace, keep `wiki/Skills-Reference.md` and `wiki/Architecture.md` aligned with `README.md`.
+4. **`wiki/` Synchronization (`sdlc-wiki`)**: When `wiki/` exists in the workspace, run `node .agent/scripts/sdlc-engine.mjs wiki sync` and `node .agent/scripts/sdlc-engine.mjs wiki audit --strict` to keep `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Architecture.md`, `wiki/Traceability.md`, and `wiki/Home.md` 100% aligned with the codebase and `README.md`.
 
 ---
 

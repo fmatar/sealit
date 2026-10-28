@@ -43,7 +43,7 @@ describe('Kanban Scripts & Consolidated 6-Skill Schema Validation', () => {
     assert.ok(scriptCode.includes('Traceability Matrix'));
   });
 
-  it('verifies 1 Router + 8 Verb Skills (9 canonical skills) exist in .agent/skills/ with valid tool schemas (ADR-004)', () => {
+  it('verifies 1 Router + 9 Verb Skills (10 canonical skills) exist in .agent/skills/ with valid tool schemas (ADR-004 & ADR-007)', () => {
     const expectedSkills = [
       'sdlc',
       'sdlc-adr',
@@ -53,7 +53,8 @@ describe('Kanban Scripts & Consolidated 6-Skill Schema Validation', () => {
       'sdlc-product',
       'sdlc-release',
       'sdlc-status',
-      'sdlc-tdd'
+      'sdlc-tdd',
+      'sdlc-wiki'
     ];
     const skillsDir = path.resolve('.agent/skills');
     const actualSkills = fs

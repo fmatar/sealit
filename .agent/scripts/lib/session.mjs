@@ -9,6 +9,7 @@ import { recordArchTrace } from './arch-trace.mjs';
 import { issueGateReceipt } from './audit-chain.mjs';
 import { generatePRSummary } from './quality-gate.mjs';
 import { generateArchitectureWidget, ensureWorkbenchRunning } from './workbench-server.mjs';
+import { auditWiki } from './wiki-sync.mjs';
 
 const SESSION_FILE = '.sdlc-session.json';
 
@@ -530,6 +531,7 @@ export function executeCompositeStage({
     });
 
     const drift = checkSpecDrift({ repoRoot });
+    const wikiAudit = auditWiki(repoRoot);
     const decisionMap = syncDecisionMapMarkdown(repoRoot);
     const trace = recordArchTrace({
       reason: summary || `Pre-PR verification for ticket #${updated.session.issueId}`,
@@ -537,8 +539,9 @@ export function executeCompositeStage({
       repoRoot
     });
 
+    const prePrPassed = Boolean(drift.passed && wikiAudit.passed);
     let receipt = null;
-    if (drift.passed) {
+    if (prePrPassed) {
       receipt = issueGateReceipt({
         issueId: updated.session.issueId,
         branch: updated.session.branch || 'feature/branch',
@@ -553,11 +556,12 @@ export function executeCompositeStage({
     const uiWidget = generateArchitectureWidget({ repoRoot });
 
     return {
-      success: drift.passed,
+      success: prePrPassed,
       action: 'pre-pr',
       issueId: updated.session.issueId,
       stage: 6,
       drift,
+      wikiAudit,
       decisionMapPath: decisionMap.path || decisionMap.markdownPath || decisionMap.outputPath,
       traceEntry: trace.entry,
       receipt,

@@ -1,296 +1,137 @@
-# 🏛️ Agentic SDLC Architecture
+# 🏗️ System Architecture & Concentric Ring Design
 
-The **Agentic SDLC Framework** orchestrates an autonomous, multi-agent engineering lifecycle. Coding agents are structured into specialized roles governed by strict engineering contracts, Robert C. Martin TDD craftsmanship, continuous Dual-Gate test and mutation defense ($\ge 85\%$ diff coverage, $\ge 80\%$ mutation score), parallel subagent peer reviews, and automated release deployment.
+This document provides the deep architectural explanation of the **Agentic SDLC Framework**, detailing how `.agent/scripts/sdlc-engine.mjs` and its **12 modular domain libraries** (`.agent/scripts/lib/*.mjs`) are organized into **Archlens Concentric Clean Architecture Rings** (`.archlens/policy.json`), how the **4-Layer Git Lockdown** and **SHA-256 Gate Cache** operate, and how causal lineage flows from `PRODUCT.md` to `docs/DECISION_MAP.md`.
+
+> For the auto-generated AST symbol inventory and line-number mapping across all modules, see **[Codebase-Map.md](Codebase-Map.md)**.
 
 ---
 
-## ⚡ The 8-Stage Autonomous Lifecycle
+## 1. Archlens Concentric Clean Architecture Rings
+
+In accordance with Robert C. Martin's **Clean Architecture** and `ADR-001` / `ADR-007`, the engine is partitioned into four concentric rings where all source code dependencies point strictly inward toward **Ring 0**:
 
 ```mermaid
 flowchart TD
-    %% Styling and Theme Definitions
-    classDef trigger fill:#1e1e2f,stroke:#6366f1,stroke-width:2px,color:#f8fafc,rx:8,ry:8;
-    classDef decision fill:#312e81,stroke:#a855f7,stroke-width:2px,color:#f3e8ff,rx:6,ry:6;
-    classDef gate0 fill:#3b0764,stroke:#d946ef,stroke-width:2px,color:#fae8ff,rx:8,ry:8;
-    classDef stage fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#e0f2fe,rx:8,ry:8;
-    classDef stageHighlight fill:#1e293b,stroke:#06b6d4,stroke-width:2.5px,color:#ecfeff,rx:8,ry:8;
-    classDef subagent fill:#111827,stroke:#10b981,stroke-width:2px,color:#ecfdf5,rx:8,ry:8;
-    classDef failure fill:#450a0a,stroke:#ef4444,stroke-width:2px,color:#fee2e2,rx:8,ry:8;
-    classDef circuit fill:#701a75,stroke:#f43f5e,stroke-width:2.5px,color:#ffe4e6,rx:8,ry:8;
-    classDef success fill:#064e3b,stroke:#22c55e,stroke-width:2.5px,color:#dcfce7,rx:8,ry:8;
-    classDef fallback fill:#1c1917,stroke:#f59e0b,stroke-width:2px,color:#fef3c7,rx:8,ry:8;
+    classDef r0 fill:#fef3c7,stroke:#b45309,stroke-width:2px,color:#78350f
+    classDef r1 fill:#eff6ff,stroke:#1d4ed8,stroke-width:2px,color:#1e3a8a
+    classDef r2 fill:#f3e8ff,stroke:#6d28d9,stroke-width:2px,color:#4c1d95
+    classDef r3 fill:#dcfce7,stroke:#15803d,stroke-width:2px,color:#14532d
 
-    %% Entry Points
-    UserReq(["🎯 Incoming User Request\n(Feature • Bug Fix • Hotfix • Spike)"]):::trigger
-
-    %% Gate 0: Mandatory Ticket Invariant
-    subgraph Gate0 ["🛑 Gate 0: Mandatory Ticket Invariant & Classification"]
-        direction TB
-        HasTicket{"Ticket ID #ID\nProvided?"}:::decision
-        AutoClassify["🤖 Auto-Classifier\n• feat / fix / hotfix / spike\n• Problem scope analysis"]:::gate0
-        ProvTicket["🎫 Auto-Provision Tracking Ticket\n(node .agent/scripts/sdlc-engine.mjs ticket create)\n• GitHub Issues / Jira / Linear / KANBAN.md\n• Set status:ready"]:::gate0
+    subgraph Ring3 ["Ring 3: CLI Router & Agent Skill Entrypoints"]
+      CLI["sdlc-engine.mjs (Universal CLI Router & Barrel Export)"]:::r3
+      SKILLS[".agent/skills/sdlc*/SKILL.md (1 Router + 9 Verb Skills)"]:::r3
     end
 
-    UserReq --> HasTicket
-    HasTicket -->|No Ticket #| AutoClassify
-    AutoClassify --> ProvTicket
-    HasTicket -->|Ticket # Exists| PreFlightGuard
-    ProvTicket --> PreFlightGuard
-
-    %% Stage 0: Pre-Flight Concurrency & Intent Guard
-    subgraph Stage0 ["🚦 Stage 0: Concurrency & Intent Routing (sdlc-engine session status)"]
-        direction TB
-        PreFlightGuard{"Active Session\nStatus?"}:::decision
-        FastPath["⚡ Ad-Hoc Fast Path\n• Append Task to Ticket #<id>\n• Affected-only Test Runner\n• Direct TDD remediation"]:::stageHighlight
-        WorktreeFork["🌿 Worktree Isolation / Branch Subagent\n(git worktree add ../worktree-issue-<id>)\n• Concurrent flow without clobbering"]:::fallback
-        InitLock["🔒 Acquire Session Concurrency Lock\n(sdlc-engine session start --issue <id>)\n• Write .agent/.sdlc-session.json"]:::stageHighlight
+    subgraph Ring2 ["Ring 2: Adapters, Enforcement & Mission Control UI"]
+      GUARD["git-guard.mjs (4-Layer Git Lockdown)"]:::r2
+      PM["pm-provider.mjs (GitHub, Linear, Jira & Templates)"]:::r2
+      GATE["quality-gate.mjs (Polyglot Stack Probes, Coverage/Mutation & SkillSpector)"]:::r2
+      INST["installer.mjs (6-Agent Provisioner & Skill Pruner)"]:::r2
+      WB["workbench-server.mjs (Clearinghouse Ledger UI & API :4120)"]:::r2
     end
 
-    PreFlightGuard -->|Sub-task on Active Ticket| FastPath
-    PreFlightGuard -->|New Urgent Request while Active| WorktreeFork
-    PreFlightGuard -->|Clean / No Active Session| InitLock
-
-    %% Stage 1 to 6: Core Sequential Pipeline
-    subgraph Pipeline ["⚙️ Stages 1 - 6: Specification, TDD & Showcase Engine"]
-        direction TB
-
-        %% Stage 1
-        subgraph S1_Intake ["1️⃣ Stage 1: Intake & Architecture Contract"]
-            direction TB
-            DetectStack["Stack Auto-Detection\n(sdlc-engine detect)"]:::stage
-            ArchPrompt{"Archlens Policy\nPresent?"}:::decision
-            ScaffoldArch["Scaffold Concentric Policy\n(sdlc-engine archlens scaffold)"]:::fallback
-            FetchReqs["Formulate Contract & Spec\n• Gherkin Acceptance Criteria\n• RFC / ADR / C4 Architecture\n• Tag: status:ready"]:::stage
-        end
-
-        %% Stage 2
-        subgraph S2_Branch ["2️⃣ Stage 2: Branch & Kanban Sync"]
-            direction TB
-            CreateBranch["Git Checkout Branch\n(feature/issue-#<id>-<slug>)\n• Transition: status:in-progress\n• Update Session Stage 2"]:::stage
-        end
-
-        %% Stage 3
-        subgraph S3_TDD ["3️⃣ Stage 3: Clean-Room TDD Implementation"]
-            direction TB
-            BugReproCheck{"Is Bug / Fix?"}:::decision
-            ReproHarness[" author Failing Reproduction Test\n• Verify harness fails first"]:::failure
-            RobertMartinTDD["Robert Martin's 3 Laws of TDD & TPP\n• Degenerate failing tests first\n• Clean domain logic & port isolation\n• Fast loop: sdlc-engine test --affected-only"]:::stageHighlight
-        end
-
-        %% Stage 4
-        subgraph S4_Gate ["4️⃣ Stage 4: Dual-Gate & Mutation Testing"]
-            direction TB
-            RunDualGate["Universal Dual-Gate Audits\n• sdlc-engine coverage (>= 85% Line/Branch)\n• sdlc-engine mutation (>= 80% Kill Score)\n• sdlc-engine archlens diff (0 Inversions)"]:::stageHighlight
-            MutantCheck{"Surviving\nMutants?"}:::decision
-            StrengthenMutant["Auto-Strengthen Boundary Tests\n(sdlc-engine strengthen)"]:::stage
-            ExemptionLedger["Register Benign Exemption\n(.agent/sdlc-exemptions.json)"]:::fallback
-        end
-
-        %% Stage 5
-        subgraph S5_Showcase ["5️⃣ Stage 5: Documentation & Showcase Hygiene"]
-            direction TB
-            SyncDocs["Developer Showcase Sync\n• Root README.md 5-Min Quickstart\n• Architecture specs in docs/specs/\n• CHANGELOG.md under [Unreleased]"]:::stage
-        end
-
-        %% Stage 6
-        subgraph S6_PR ["6️⃣ Stage 6: Pull Request Opening"]
-            direction TB
-            OpenPR["Generate PR Summary & Push\n(sdlc-engine pr-summary --issue <id>)\n• Tag: status:in-review\n• UI Ephemeral screenshot previews"]:::stage
-        end
+    subgraph Ring1 ["Ring 1: Application & Governance Engines"]
+      DAG["product-dag.mjs (PRODUCT.md, PRD/SRS & Topological Waves)"]:::r1
+      ADR["adr-drift.mjs (ADR Lifecycle & Spec/Contract Drift Sentinel)"]:::r1
+      DG["decision-graph.mjs (Causal Lineage & DECISION_MAP.md)"]:::r1
+      DOSS["dossier.mjs (AST Signature Extractor & Context Dossiers)"]:::r1
+      SESS["session.mjs (Multi-Session Registry & Composite Stages)"]:::r1
+      ARCH["arch-trace.mjs (Archlens Policy Diff & Mermaid AST Diff)"]:::r1
+      WIKI["wiki-sync.mjs (AST-to-Wiki Mapper & Zero-Rot Auditor)"]:::r1
     end
 
-    InitLock --> DetectStack
-    DetectStack --> ArchPrompt
-    ArchPrompt -->|No Policy Found| ScaffoldArch
-    ArchPrompt -->|Policy Configured| FetchReqs
-    ScaffoldArch --> FetchReqs
-    FetchReqs --> CreateBranch
-    CreateBranch --> BugReproCheck
-    BugReproCheck -->|Yes| ReproHarness
-    BugReproCheck -->|No| RobertMartinTDD
-    ReproHarness --> RobertMartinTDD
-    RobertMartinTDD --> RunDualGate
-    RunDualGate --> MutantCheck
-    MutantCheck -->|Surviving Mutants| StrengthenMutant
-    StrengthenMutant --> RunDualGate
-    MutantCheck -->|Benign Compiler Quirk| ExemptionLedger
-    MutantCheck -->|Dual-Gate Met| SyncDocs
-    ExemptionLedger --> SyncDocs
-    SyncDocs --> OpenPR
-
-    %% Stage 7: Parallel Fork-Join Review
-    subgraph ForkJoinReview ["⚡ Stage 7: Supervisor Fork-Join Parallel Review (invoke_subagent)"]
-        direction TB
-        PlanReview["Review Dispatch Plan\n(sdlc-engine review plan)"]:::stageHighlight
-        
-        subgraph SubagentsPool ["Concurrently Dispatched Subagents"]
-            direction LR
-            SubReviewer["🕵️ PR Peer Reviewer\n• Robert Martin Test Smell Detection\n• Diff Audit & DIP Check\n• Formal PR Review Comments"]:::subagent
-            SubGatekeeper["🛡️ Quality Gatekeeper\n• Full sdlc-engine gate --strict\n• Flake stability check (3 runs)\n• Secret & package CVE audits"]:::subagent
-            SubArchAuditor["🏛️ Architectural Auditor\n(Triggered on HIGH/CRITICAL Risk)\n• Concentric boundary proof\n• ADR alignment"]:::subagent
-        end
-        
-        EvalResults{"Audit & Gate\nPassed?"}:::decision
+    subgraph Ring0 ["Ring 0: Domain Core & Cryptographic Primitives"]
+      CORE["core.mjs (Safe I/O, Async Pool, Frontmatter & Env Probes)"]:::r0
+      CACHE["cache.mjs (Content-Addressable SHA-256 Gate Cache)"]:::r0
+      AUDIT["audit-chain.mjs (Merkle Hash-Chained Ledger & Gate Receipts)"]:::r0
     end
 
-    OpenPR --> PlanReview
-    PlanReview --> SubReviewer
-    PlanReview --> SubGatekeeper
-    PlanReview --> SubArchAuditor
-    SubReviewer --> EvalResults
-    SubGatekeeper --> EvalResults
-    SubArchAuditor --> EvalResults
-
-    %% Circuit Breaker & Remediation
-    subgraph CircuitBreaker ["🔄 Circuit Breaker & Auto-Remediation Loop"]
-        direction TB
-        RemediationCount{"Remediation\nCount < 3?"}:::circuit
-        LoopBack["Rollback Session to Stage 3\n• Tag: status:in-progress\n• session update --stage 3 --remediate"]:::failure
-        InteractiveIntervention["⚠️ Circuit Breaker Tripped!\n(Interactive ask_question Modal)\n1. Grant Exemption & Record Ledger\n2. Extend Budget (+2 retries)\n3. Abort & Rollback to Main"]:::fallback
-    end
-
-    EvalResults -->|Changes Requested or Gate Failed| RemediationCount
-    RemediationCount -->|Budget Available| LoopBack
-    LoopBack --> RobertMartinTDD
-    RemediationCount -->|3 Consecutive Failures| InteractiveIntervention
-    InteractiveIntervention -->|Extend Budget| RobertMartinTDD
-
-    %% Stage 8: Done & Release
-    subgraph Stage8 ["🏁 Stage 8: Final Gate & Teardown (sdlc-release-changelog)"]
-        direction TB
-        PollRemoteCI["Remote CI/CD Polling\n(sdlc-engine check-ci <pr-id>)"]:::stage
-        MergePR["Squash & Merge PR\n• Tag SemVer Release\n• Deploy Containers / Artifacts"]:::stage
-        CloseTicket["Final Kanban State Sync\n• Tag status:done & close issue\n• kanban-sync.sh"]:::stage
-        ReleaseLock["🔓 Release Session Concurrency Lock\n(sdlc-engine session release)"]:::success
-    end
-
-    EvalResults -->|All Approved & Strict Green| PollRemoteCI
-    PollRemoteCI --> MergePR
-    MergePR --> CloseTicket
-    CloseTicket --> ReleaseLock
-
-    %% Worktree / FastPath convergence
-    FastPath -.-> RunDualGate
-    WorktreeFork -.-> DetectStack
+    SKILLS --> CLI
+    CLI --> GUARD & PM & GATE & INST & WB
+    CLI --> DAG & ADR & DG & DOSS & SESS & ARCH & WIKI
+    GUARD & PM & GATE & INST & WB --> DAG & ADR & DG & SESS & ARCH
+    DAG & ADR & DG & DOSS & SESS & ARCH & WIKI --> CORE & CACHE & AUDIT
 ```
+
+### Concentric Ring Responsibilities (`.agent/scripts/lib/*.mjs`)
+
+| Ring | Module Path | Core Architectural Responsibility | Key Exported Primitives |
+| :--- | :--- | :--- | :--- |
+| **Ring 0** | `.agent/scripts/lib/core.mjs` | Zero-dependency I/O, async worker pool, YAML frontmatter parser, Archlens/PM probes. | `fileExists`, `readFileSafe`, `execAsync`, `runParallelTasks`, `parseFrontmatter`, `inspectArchlens` |
+| **Ring 0** | `.agent/scripts/lib/cache.mjs` | Content-addressable SHA-256 workspace tree hashing and gate cache (`coverage`, `mutation`, `gate`). | `computeTreeHash`, `getGateCacheHit`, `recordGateCache`, `getGateCacheStats`, `clearGateCache` |
+| **Ring 0** | `.agent/scripts/lib/audit-chain.mjs` | Immutable SHA-256 Merkle hash-chained ledger (`docs/AUDIT_CHAIN.jsonl`) and Stage 7 Gate Receipts. | `calculateRecordHash`, `appendAuditRecord`, `verifyAuditChain`, `issueGateReceipt`, `verifyGateReceipt` |
+| **Ring 1** | `.agent/scripts/lib/product-dag.mjs` | Parses/synthesizes `PRODUCT.md`, `docs/PRD.md`, IEEE 29148 `docs/SRS.md`, and Kahn's algorithm DAG waves. | `initProductConstitution`, `scaffoldCapabilitySpec`, `parseProductMarkdown`, `planProductDAG`, `deconstructEpic` |
+| **Ring 1** | `.agent/scripts/lib/adr-drift.mjs` | Manages ADR lifecycle (`docs/adr/ADR-*.md`), detects undeclared spec drift, and audits OpenAPI/GraphQL contracts. | `createADR`, `listADRs`, `decideADR`, `checkSpecDrift`, `auditContractDrift` |
+| **Ring 1** | `.agent/scripts/lib/decision-graph.mjs` | Builds the causal graph (`INV-XX`, `CAP-XX`, `SPEC-XX`, `ADR-00X`, tickets) and renders `docs/DECISION_MAP.md`. | `appendDecisionEvent`, `buildDecisionGraph`, `syncDecisionMapMarkdown` |
+| **Ring 1** | `.agent/scripts/lib/dossier.mjs` | Extracts polyglot AST export signatures and compiles compact subagent context dossiers (`.agent/dossiers/`). | `extractExportSignatures`, `generateTicketDossier` |
+| **Ring 1** | `.agent/scripts/lib/session.mjs` | Multi-session registry (`.agent/.sdlc-session.json`), mutant exemptions, ROI telemetry, and Composite Stage CLI. | `startSession`, `updateSession`, `executeCompositeStage`, `recordExemption`, `calculateSessionStats` |
+| **Ring 1** | `.agent/scripts/lib/arch-trace.mjs` | Enforces `.archlens/policy.json` ring rules on Git diffs, diffs Mermaid ASTs, and appends `docs/ARCH_TRACE.md`. | `checkArchDiff`, `parseMermaidDiagram`, `diffMermaidGraphs`, `recordArchTrace`, `scaffoldArchlensPolicy` |
+| **Ring 1** | `.agent/scripts/lib/wiki-sync.mjs` | Maps AST exports and Archlens rings to `wiki/Codebase-Map.md` and audits `wiki/*.md` for drift or dead paths. | `inspectSourceModule`, `resolveArchlensRing`, `buildWikiCodeMap`, `auditWiki`, `syncWiki` |
+| **Ring 2** | `.agent/scripts/lib/git-guard.mjs` | Enforces the 4-Layer Git Lockdown (`pre-commit`, `pre-merge-commit`, `pre-push`) and branch protection. | `verifyCommitGuard`, `verifyMergeGuard`, `verifyPushGuard`, `installHooks`, `applyBranchProtection` |
+| **Ring 2** | `.agent/scripts/lib/pm-provider.mjs` | Unified 4-operation ticket adapter across **GitHub Issues**, **Linear GraphQL**, **Jira REST v3**, and `docs/KANBAN.md`. | `createTicket`, `transitionPMState`, `postPMComment`, `syncKanbanBoard`, `scaffoldIssueTemplates` |
+| **Ring 2** | `.agent/scripts/lib/quality-gate.mjs` | Polyglot stack discovery, real coverage/mutation report parsers, regression proofs, canary watchdog, and SkillSpector audit. | `detectStackInDir`, `parseCoverageReport`, `parseMutationReport`, `runDoctor`, `auditSkills` |
+| **Ring 2** | `.agent/scripts/lib/installer.mjs` | Provisions local/global skills and rules across Gemini, Claude Code, Cursor, Grok, Windsurf, and Copilot. | `installFramework`, `provisionAgentIntegrations`, `pruneDeprecatedSkills`, `runInstallerCLI` |
+| **Ring 2** | `.agent/scripts/lib/workbench-server.mjs` | Serves the Mission Control Clearinghouse Ledger UI (`http://localhost:4120`) and generates `.agent/workbench/index.html`. | `createWorkbenchServer`, `renderWorkbenchHTML`, `generateArchitectureWidget`, `buildArchDiffPayload` |
+| **Ring 3** | `.agent/scripts/sdlc-engine.mjs` | Universal CLI dispatcher and public ES module barrel export. | `runCLI`, `executeRelease` |
 
 ---
 
-## 🔄 5-Stage Kanban State Machine
+## 2. The 4-Layer Git Lockdown & Cryptographic Gate Receipts
 
-The lifecycle coordinates with GitHub Projects v2 and repository issue boards through deterministic label transitions:
-
-```mermaid
-stateDiagram-v2
-    [*] --> Backlog: New Issue Filed
-    Backlog --> Ready: Stage 1 (Contract & Acceptance Criteria Approved)
-    Ready --> InProgress: Stage 2 (Feature Branch Checked Out)
-    InProgress --> InProgress: Stage 3 & 4 (TDD & Coverage Loop < 85%)
-    InProgress --> InReview: Stage 6 (PR Opened & Linked)
-    InReview --> InProgress: Stage 7 (Changes Requested / Failing Gate)
-    InReview --> Done: Stage 8 (Quality Gate Clean & PR Merged)
-    Done --> [*]
-```
-
----
-
-## ⚡ Multi-Agent Fork-Join Execution
+To guarantee `INV-01` (*Zero direct commits, merges, or pushes to `main` or `develop`*) and `INV-02` (*100% session & Dual-Gate verification*), `.agent/scripts/lib/git-guard.mjs` and `.agent/scripts/lib/audit-chain.mjs` enforce four concentric defense layers:
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Dev as Developer / Issue
-    participant Flow as Master Orchestrator (sdlc-flow)
-    participant Board as Kanban Board (sdlc-kanban)
-    participant Spec as Architect (sdlc-feature-spec)
-    participant TDD as Full-Stack Engineer (sdlc-tdd-implement)
-    participant QA as QA Automation (sdlc-test-coverage)
-    participant Docs as Tech Writer (sdlc-docs-wiki)
-    participant Peer as Peer Review Subagent (sdlc-peer-review)
-    participant Gate as Quality Gate (sdlc-quality-gate)
+    actor Dev as Developer / AI Agent
+    participant Git as Git Hooks (.git/hooks/*)
+    participant Guard as git-guard.mjs
+    participant Session as .agent/.sdlc-session.json
+    participant Ledger as .agent/gate-receipts.jsonl
 
-    Dev->>Flow: Trigger workflow for Issue #<id>
-    Flow->>Spec: Ingest requirements & draft contract
-    Spec-->>Board: Tag ticket status:ready
-    Flow->>Board: Checkout branch & set status:in-progress
-    
-    loop Test-Driven Development & Mutation Defense Loop
-        Flow->>TDD: Write failing unit tests & implementation (3 Laws of TDD)
-        Flow->>QA: Audit diff test coverage & run PITest/Stryker mutation defense
-        alt Coverage < 85% or Mutation Score < 80%
-            QA-->>TDD: Feedback uncovered branches & surviving mutants
-        else Coverage >= 85% & Mutation Score >= 80%
-            QA-->>Flow: Dual-Gate verified (Cov >= 85%, Mut >= 80%)
-        end
-    end
+    Dev->>Git: git commit -m "feat: implement capability"
+    Git->>Guard: verifyCommitGuard()
+    Guard->>Session: Verify branch != main/develop (Layer 1) & active session matches branch (Layer 2)
+    Session-->>Guard: Session #90 Active (Stage >= 2)
+    Guard-->>Git: Commit Allowed
 
-    Flow->>Docs: Sync root README showcase, specs & CHANGELOG
-    Flow->>Board: Push branch, open PR & set status:in-review
+    Dev->>Guard: sdlc-engine stage pre-pr
+    Guard->>Ledger: Check Spec Drift + Wiki Audit + Issue SHA-256 Gate Receipt for HEAD SHA
 
-    par Parallel Peer Review & Quality Gate
-        Flow->>Peer: Dispatch subagent to audit PR diff
-        Peer-->>Flow: Submit review event (APPROVE)
-    and
-        Flow->>Gate: Run Spotless, type-check, build & SAST
-        Gate-->>Flow: Quality gate validation passed
-    end
-
-    Flow->>Board: Merge PR, close issue (status:done) & sync docs/KANBAN.md
+    Dev->>Git: git merge feature/issue-#90 into main
+    Git->>Guard: verifyMergeGuard()
+    Guard->>Ledger: verifyGateReceipt(sourceSha) (Layer 3)
+    Ledger-->>Guard: Valid HMAC/SHA-256 Receipt Verified
+    Guard-->>Git: Merge Allowed
 ```
+
+1. **Layer 1 (`LAYER_1_PROTECTED_BRANCH`)**: Blocks direct commits on `main`, `master`, or `develop`.
+2. **Layer 2 (`LAYER_2_SESSION_REQUIRED`)**: Blocks commits on feature branches unless `.agent/.sdlc-session.json` has an active ticket session bound to that branch.
+3. **Layer 3 (`MISSING_STAGE_7_GATE_RECEIPT`)**: Blocks merges into `main`/`develop` unless `.agent/gate-receipts.jsonl` contains a valid cryptographic receipt matching the source branch `HEAD` SHA-256 digest.
+4. **Layer 4 (`pre-push` & CI Gate Workflow)**: Blocks direct pushes to protected branches and verifies the Merkle audit chain (`docs/AUDIT_CHAIN.jsonl`) in `.github/workflows/sdlc-quality-gate.yml`.
 
 ---
 
-## 📋 Detailed Stage Breakdown
+## 3. Causal Decision Graph & Spec-Drift Sentinel
 
-### Stage 1: Intake & Contract Specification (`sdlc-feature-spec`)
-* **Gate 0 Invariant**: Guarantees ticket #ID exists or auto-provisions via `sdlc-engine ticket create` (`feat`, `bug`, `hotfix`, `spike`).
-* Reads user story and technical scope via `issue_read`.
-* **Archlens Inquiry**: Proactively prompts for Archlens Clean Architecture governance if `.archlens/policy.json` is missing.
-* Produces SVPG PRD, IEEE 29148 SRS, C4 architecture schemas, and Gherkin acceptance scenarios.
-* Labels ticket with `status:ready`.
+Every architectural evolution in the repository is tracked as a directed acyclic graph (`docs/DECISION_MAP.md` and `.agent/decision-graph.jsonl`) managed by `.agent/scripts/lib/decision-graph.mjs` and `.agent/scripts/lib/adr-drift.mjs`:
 
-### Stage 2: Branch & Kanban Automation (`sdlc-kanban`)
-* Creates feature branch: `feature/issue-#<id>-<kebab-title>`.
-* Updates ticket to `status:in-progress` and refreshes living [`docs/KANBAN.md`](../docs/KANBAN.md).
-* Enforces WIP limit (max 3–5 tickets in progress).
+- **Constitutional Nodes**: Hard Invariants (`INV-01..INV-04`) and Product Capabilities (`CAP-01..CAP-11`) in `PRODUCT.md`.
+- **Specification Nodes**: Two-tier PRD (`docs/PRD.md`), IEEE 29148 SRS (`docs/SRS.md`), and per-capability specs (`docs/specs/cap-*.md`).
+- **Spec-Drift Detection (`checkSpecDrift`)**: Whenever a branch modifies `package.json` dependencies, OpenAPI/GraphQL/Protobuf schemas, `docs/PRD.md`, `docs/SRS.md`, or Mermaid architecture diagrams without a linked `ADR-00X` for the active ticket, `checkSpecDrift` flags `UNDECLARED_SPEC_DRIFT` and blocks `stage pre-pr`.
+- **Two-Speed ADR Governance (`createADR` & `decideADR`)**:
+  - `scope: 'technical'` or `'architectural'` ADRs auto-accept and patch `PRODUCT.md` immediately.
+  - `scope: 'product'` or `'contract'` ADRs enter `pending_approval` until approved via `sdlc-engine.mjs adr decide <ADR-ID> approve` or the Mission Control UI (`POST /api/adr/decide`).
 
-### Stage 3: Clean-Room TDD Implementation (`sdlc-tdd-implement`)
-* Strictly enforces **Robert Martin's Three Laws of TDD** and the **Transformation Priority Premise (TPP)**.
-* **Mandatory Bug Reproduction Test**: For bug/fix tickets, authors failing reproduction tests *first* before modifying application code.
-* Writes failing unit tests for degenerate cases before writing production code.
-* Frontend: Modern Svelte 5 Runes (`$state`, `$derived`, `$props`).
-* Backend: Quarkus Java 25 reactive streams (Mutiny `Uni`/`Multi`, Hibernate Reactive Panache).
-* Eliminates test smells: no trivial getter tests, no testing third-party framework plumbing, no mock abuse.
-* Fast loop: `node .agent/scripts/sdlc-engine.mjs test --affected-only`.
+---
 
-### Stage 4: Dual-Gate Test & Mutation Enforcement (`sdlc-test-coverage`)
-* Executes unit and integration test suites:
-  * Backend: `./mvnw clean test jacoco:report` and `./mvnw test-compile org.pitest:pitest-maven:mutationCoverage`
-  * Frontend: `npm run test:coverage` and `npx stryker run`
-* Computes coverage strictly against the git diff (`git diff --name-only main`).
-* **Dual-Gate Threshold**: $\ge 85\%$ line and branch coverage on diff AND $\ge 80\%$ mutation kill score on modified classes. Automatically authors missing tests and kills surviving mutants until the gate passes.
-* **Clean Architecture Diff**: `sdlc-engine archlens diff` ensures zero concentric ring layer inversions.
-* **Benign Exemption Ledger**: Unkillable compiler bytecode quirks or shutdown hooks registered in `.agent/sdlc-exemptions.json`.
+## 4. Mission Control Clearinghouse Ledger UI (`workbench-server.mjs`)
 
-### Stage 5: Documentation, Showcase & Changelog Sync (`sdlc-docs-wiki`)
-* **Developer Showcase Invariant**: Updates the root `README.md` with a frictionless **5-Minute Developer Quickstart** (< 5 min time-to-first-run) and Bring Your Own App (BYOA) contract.
-* Synchronizes `docs/specs/`, `CHANGELOG.md` under `[Unreleased]`, and wiki deep-dives.
+Running `node .agent/scripts/sdlc-engine.mjs serve --port 4120` (or `/sdlc status` / `/sdlc ui`) launches a zero-dependency HTTP server and generates a standalone interactive widget (`.agent/workbench/index.html`):
 
-### Stage 6: Pull Request Publication (`sdlc-kanban`)
-* Generates structured markdown description via `node .agent/scripts/sdlc-engine.mjs pr-summary --issue <id>`.
-* Pushes branch to remote and calls `create_pull_request` linking `Fixes #<id>`.
-* Transitions issue to `status:in-review`.
-
-### Stage 7: Fork-Join Parallel Review & Quality Gate (`invoke_subagent`)
-* Generates review plan via `node .agent/scripts/sdlc-engine.mjs review plan`.
-* Concurrently dispatches read-only auditor subagents via `invoke_subagent`:
-  * **Peer Reviewer (`sdlc-peer-review`)**: Audits PR diff for reactive patterns, security hygiene, Dual-Gate metrics, and Robert Martin test smells. Posts structured review comments (`APPROVE` / `REQUEST_CHANGES`).
-  * **Quality Gatekeeper (`sdlc-quality-gate`)**: Executes universal strict quality gate (`sdlc-engine.mjs gate --strict`), Spotless formatting, svelte-check, test port isolation, WCAG a11y, flake stability check (3 runs), and secret/CVE security audits.
-  * **Architectural Auditor**: Dispatched conditionally for `HIGH`/`CRITICAL` risk changes.
-* **Circuit Breaker Protocol**: Auto-remediates up to 3 times. On 3rd failure, pauses and prompts human review via `ask_question` (exemption, budget extension, or rollback).
-
-### Stage 8: Quality Gate Passed, Release & Lock Release (`sdlc-release-changelog` & `sdlc-kanban`)
-* **Remote CI Polling**: Verifies GitHub Actions matrix is green (`sdlc-engine check-ci <pr-id>`).
-* Merges PR into base branch.
-* Increments Semantic Versioning (SemVer 2.0.0), builds Docker container images, and updates Kubernetes/Helm releases.
-* Marks ticket `status:done`, regenerates living [`docs/KANBAN.md`](../docs/KANBAN.md), and releases the session lock (`node .agent/scripts/sdlc-engine.mjs session release`).
+- **Aesthetic Direction (`DESIGN.md`)**: *THE ROLL — Double-Entry Clearinghouse Ledger* (`#F6F3EC` audit sheet ivory paper, `#141413` iron-gall ink, `#1E3A8A` cobalt ledger ink, tabular monospace telemetry).
+- **Live Bidirectional Endpoints**:
+  - `GET /api/state`: Full session status, 8-stage progress, ROI metrics, Archlens ring diff, and audit trail.
+  - `GET /api/decision-graph` & `GET /api/product`: Live causal lineage graph and `PRODUCT.md` capabilities.
+  - `POST /api/adr/decide`: Approve or reject pending ADRs directly from the browser.
+  - `POST /api/dag/control`: Pause, resume, or trigger topological DAG execution waves.

@@ -61,6 +61,8 @@
     "adr:list": "node .agent/scripts/sdlc-engine.mjs adr list",
     "drift:check": "node .agent/scripts/sdlc-engine.mjs drift check",
     "decision:sync": "node .agent/scripts/sdlc-engine.mjs decision-graph sync",
+    "wiki:sync": "node .agent/scripts/sdlc-engine.mjs wiki sync",
+    "wiki:audit": "node .agent/scripts/sdlc-engine.mjs wiki audit --strict",
     "cache:status": "node .agent/scripts/sdlc-engine.mjs cache status",
     "workbench:serve": "node .agent/scripts/sdlc-engine.mjs serve"
   },
