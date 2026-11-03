@@ -927,6 +927,15 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       });
       result.stage = stageRes;
       result.success = stageRes.success;
+      if (stageRes.action === 'pre-pr') {
+        if (stageRes.receipt) {
+          console.log(
+            `🧾 Signed gate receipt ${stageRes.receipt.receiptId}: coverage ${stageRes.receipt.coveragePct}%, mutation ${stageRes.receipt.mutationPct ?? stageRes.receipt.mutationStatus}, reviewer ${stageRes.receipt.reviewer || 'n/a'}`
+          );
+        } else {
+          console.error(`🛑 stage pre-pr: no gate receipt issued. ${stageRes.receiptError || ''}`);
+        }
+      }
       return result;
     }
 
