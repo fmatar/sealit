@@ -1076,7 +1076,7 @@ export function runFlakeCheck({ runs = 5, target = null, repoRoot = '.' } = {}) 
 
     results.push({
       testFile: tFile,
-      command: singleTestCmd,
+      command: [singleTest.file, ...singleTest.args].join(' '),
       iterations: iterationCount,
       passed: passedCount,
       failed: failedCount,
