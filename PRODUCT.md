@@ -55,4 +55,5 @@ End-to-end spec-driven autonomous software development lifecycle, Spec-Drift ADR
 | ADR-005 | Adopt Two-Tier PRD and IEEE 29148 SRS Specification Governance in sdlc-product | `architectural` | `accepted` | #84 | CAP-05, CAP-08, CAP-09 |
 | ADR-006 | Unified Multi-Provider Ticket Engine and Canonical Issue Templates | `technical` | `rejected` | #N/A | CAP-02, CAP-09, CAP-10 |
 | ADR-007 | Introduce sdlc-wiki Technical Writer Skill and Deterministic Archlens AST-to-Wiki Synchronization Engine | `architectural` | `accepted` | #90 | CAP-05, CAP-06, CAP-08, CAP-11 |
+| ADR-008 | Fail-closed enforcement: exit codes, signed measured receipts, authenticated workbench | `technical` | `accepted` | #91 | None |
 <!-- ADR_INDEX_END -->

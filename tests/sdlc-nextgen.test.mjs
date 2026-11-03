@@ -84,7 +84,7 @@ function initTempGitRepo(dir) {
   execSync('git add README.md && git commit -m "chore: initial commit"', { cwd: dir, stdio: 'pipe' });
 }
 
-function httpRequest(port, method, urlPath, bodyObj = null) {
+function httpRequest(port, method, urlPath, bodyObj = null, token = 'nextgen-test-token') {
   return new Promise((resolve, reject) => {
     const payload = bodyObj ? JSON.stringify(bodyObj) : null;
     const req = http.request(
@@ -93,9 +93,10 @@ function httpRequest(port, method, urlPath, bodyObj = null) {
         port,
         path: urlPath,
         method,
-        headers: payload
-          ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
-          : {}
+        headers: {
+          ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
+          ...(token ? { 'X-SDLC-Token': token } : {})
+        }
       },
       (res) => {
         let data = '';
@@ -566,7 +567,7 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
       });
       assert.equal(pendingAdr.adr.status, 'pending_approval');
 
-      const wb = createWorkbenchServer({ port: 0, repoRoot: tmpDir });
+      const wb = createWorkbenchServer({ port: 0, repoRoot: tmpDir, token: 'nextgen-test-token' });
       const srv = await wb.listen();
       const assignedPort = srv.address().port;
 

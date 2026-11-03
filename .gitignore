@@ -12,6 +12,7 @@ workbench/node_modules/
 !.env.example
 .agent/.cache/
 .agent/.sdlc-session.json
+.agent/.receipt-key
 *.lcov
 .impeccable/review/
 .impeccable/mocks/
@@ -21,3 +22,7 @@ workbench/node_modules/
 # OS & Editor
 .DS_Store
 Thumbs.db
+
+# Stryker mutation testing
+.stryker-tmp/
+reports/

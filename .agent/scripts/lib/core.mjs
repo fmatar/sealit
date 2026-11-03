@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { execSync, exec } from 'node:child_process';
+import { execSync, execFileSync, exec } from 'node:child_process';
 import { promisify } from 'node:util';
 
 const execPromise = promisify(exec);
@@ -224,20 +224,50 @@ export function diagnoseEnvironment(repoRoot = '.') {
   };
 }
 
-export function getModifiedFiles(baseBranch = 'main', repoRoot = '.') {
+/**
+ * Runs `git` with an argv array (never through a shell) and returns stdout,
+ * or null when git exits non-zero. Filenames and refs are passed verbatim,
+ * so values like `$(cmd).js` can never be interpreted by a shell.
+ */
+export function gitOutput(args, repoRoot = '.') {
   try {
-    const output = execSync(
-      `git diff --name-only origin/${baseBranch}...HEAD 2>/dev/null || git diff --name-only ${baseBranch}...HEAD 2>/dev/null || git diff --name-only HEAD~1 2>/dev/null`,
-      { cwd: repoRoot, encoding: 'utf8', stdio: 'pipe' }
-    );
-    const branchFiles = output.split('\n').map((s) => s.trim()).filter(Boolean);
-    const workingTreeOutput = execSync(
-      `git diff --name-only HEAD 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null`,
-      { cwd: repoRoot, encoding: 'utf8', stdio: 'pipe' }
-    );
-    const workingFiles = workingTreeOutput.split('\n').map((s) => s.trim()).filter(Boolean);
-    return Array.from(new Set([...branchFiles, ...workingFiles]));
+    return execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
   } catch {
-    return [];
+    return null;
   }
+}
+
+/**
+ * Returns a unified diff for one file: last commit first, then working tree,
+ * and for untracked files a synthetic all-added diff of its content.
+ */
+export function gitDiffForFile(file, repoRoot = '.') {
+  const lastCommit = gitOutput(['diff', 'HEAD~1', '--', file], repoRoot);
+  if (lastCommit) return lastCommit;
+  const working = gitOutput(['diff', '--', file], repoRoot);
+  if (working) return working;
+  const tracked = gitOutput(['ls-files', '--error-unmatch', '--', file], repoRoot);
+  if (tracked === null) {
+    try {
+      const abs = path.resolve(repoRoot, file);
+      if (fs.statSync(abs).isFile()) {
+        const body = fs.readFileSync(abs, 'utf8');
+        return `+++ b/${file}\n` + body.split('\n').map((l) => `+${l}`).join('\n');
+      }
+    } catch {}
+  }
+  return '';
+}
+
+export function getModifiedFiles(baseBranch = 'main', repoRoot = '.') {
+  const lines = (out) => (out || '').split('\n').map((s) => s.trim()).filter(Boolean);
+  const branchOut =
+    gitOutput(['diff', '--name-only', `origin/${baseBranch}...HEAD`], repoRoot) ??
+    gitOutput(['diff', '--name-only', `${baseBranch}...HEAD`], repoRoot) ??
+    gitOutput(['diff', '--name-only', 'HEAD~1'], repoRoot);
+  const workingFiles = [
+    ...lines(gitOutput(['diff', '--name-only', 'HEAD'], repoRoot)),
+    ...lines(gitOutput(['ls-files', '--others', '--exclude-standard'], repoRoot))
+  ];
+  return Array.from(new Set([...lines(branchOut), ...workingFiles]));
 }

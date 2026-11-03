@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execSync, execFileSync } from 'node:child_process';
-import { fileExists, readFileSafe, parseFrontmatter, inspectArchlens, detectPMProvider, getModifiedFiles } from './core.mjs';
+import { fileExists, readFileSafe, parseFrontmatter, inspectArchlens, detectPMProvider, getModifiedFiles, gitDiffForFile } from './core.mjs';
 import { getSessionStatus } from './session.mjs';
 import { createTicket, scaffoldIssueTemplates } from './pm-provider.mjs';
 import { appendAuditRecord } from './audit-chain.mjs';
@@ -775,6 +775,28 @@ export function findAffectedTests(diffFiles = [], repoRoot = '.') {
 
 export const findAffectededTests = findAffectedTests;
 
+/**
+ * Shell-free variant of buildSingleTestCommand: returns `{ file, args }`
+ * for execFileSync/spawnSync so test filenames are never shell-parsed.
+ */
+export function buildSingleTestArgv(testFile, repoRoot = '.') {
+  const ext = path.extname(testFile).toLowerCase();
+  const baseName = path.basename(testFile, ext);
+  const detected = detectStackInDir(repoRoot);
+  if (ext === '.java' || detected?.language === 'java') {
+    if (detected?.type === 'java-gradle') return { file: './gradlew', args: ['test', '--tests', baseName] };
+    return { file: './mvnw', args: ['test', `-Dtest=${baseName}`] };
+  }
+  if (ext === '.py' || detected?.language === 'python') return { file: 'pytest', args: [testFile] };
+  if (ext === '.go' || detected?.language === 'go') {
+    const pkgDir = path.dirname(testFile);
+    return { file: 'go', args: ['test', '-v', `./${pkgDir === '.' ? '...' : pkgDir}`] };
+  }
+  if (ext === '.rs' || detected?.language === 'rust') return { file: 'cargo', args: ['test', '--test', baseName] };
+  return { file: process.execPath, args: ['--test', testFile] };
+}
+
+/** Human-readable command string (display only; never pass to a shell). */
 export function buildSingleTestCommand(testFile, repoRoot = '.') {
   const ext = path.extname(testFile).toLowerCase();
   const baseName = path.basename(testFile, ext);
@@ -935,6 +957,7 @@ export function parseCoverageReport(repoRoot = '.', mod = null) {
     }
   }
 
+  // Fail closed: no report means nothing was measured.
   return {
     found: false,
     file: null,
@@ -942,7 +965,8 @@ export function parseCoverageReport(repoRoot = '.', mod = null) {
     branchCoverage: null,
     formatted: null,
     threshold,
-    passed: true
+    passed: false,
+    reason: `No coverage report found (looked for: ${candidates.join(', ')}).`
   };
 }
 
@@ -1006,13 +1030,15 @@ export function parseMutationReport(repoRoot = '.', mod = null) {
     }
   }
 
+  // Fail closed: no report means nothing was measured.
   return {
     found: false,
     file: null,
     mutationScore: null,
     formatted: null,
     threshold,
-    passed: true
+    passed: false,
+    reason: 'No mutation report found (looked for: reports/mutation/mutation.json, target/pit-reports/mutations.xml).'
   };
 }
 
@@ -1038,11 +1064,11 @@ export function runFlakeCheck({ runs = 5, target = null, repoRoot = '.' } = {}) 
   for (const tFile of testFiles) {
     let passedCount = 0;
     let failedCount = 0;
-    const singleTestCmd = buildSingleTestCommand(tFile, repoRoot);
+    const singleTest = buildSingleTestArgv(tFile, repoRoot);
 
     for (let i = 1; i <= iterationCount; i++) {
       try {
-        execSync(`${singleTestCmd} 2>/dev/null`, { cwd: repoRoot, stdio: 'pipe' });
+        execFileSync(singleTest.file, singleTest.args, { cwd: repoRoot, stdio: 'pipe' });
         passedCount++;
       } catch {
         failedCount++;
@@ -1054,7 +1080,7 @@ export function runFlakeCheck({ runs = 5, target = null, repoRoot = '.' } = {}) 
 
     results.push({
       testFile: tFile,
-      command: singleTestCmd,
+      command: [singleTest.file, ...singleTest.args].join(' '),
       iterations: iterationCount,
       passed: passedCount,
       failed: failedCount,
@@ -1088,10 +1114,7 @@ export function auditSecurity(repoRoot = '.') {
 
   for (const file of diffFiles) {
     try {
-      const diffOutput = execSync(`git diff HEAD~1 -- "${file}" 2>/dev/null || git diff -- "${file}" 2>/dev/null || true`, {
-        cwd: repoRoot,
-        encoding: 'utf8'
-      });
+      const diffOutput = gitDiffForFile(file, repoRoot);
 
       const lines = diffOutput.split('\n');
       for (const line of lines) {

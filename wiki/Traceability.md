@@ -24,7 +24,7 @@ flowchart LR
 | **Architecture Decision Records** | `docs/adr/ADR-001..ADR-007` | `.agent/scripts/lib/adr-drift.mjs` |
 | **Causal Decision Lineage Map** | `docs/DECISION_MAP.md` | `.agent/scripts/lib/decision-graph.mjs` |
 | **Living Markdown Kanban Board** | `docs/KANBAN.md` | `.agent/scripts/lib/pm-provider.mjs` & `.agent/scripts/kanban-sync.sh` |
-| **Canonical Issue & PR Templates** | `.github/ISSUE_TEMPLATE/*.md`, `.github/pull_request_template.md` | `.agent/scripts/lib/pm-provider.mjs` |
+| **Canonical Issue & PR Templates** | `.github/ISSUE_TEMPLATE/*.md`, `.github/PULL_REQUEST_TEMPLATE.md` | `.agent/scripts/lib/pm-provider.mjs` |
 | **Architectural Trace Ledger** | `docs/ARCH_TRACE.md`, `.agent/arch-trace.jsonl` | `.agent/scripts/lib/arch-trace.mjs` |
 | **Merkle Cryptographic Audit Chain** | `docs/AUDIT_CHAIN.jsonl` | `.agent/scripts/lib/audit-chain.mjs` |
 | **Stage 7 Merge Gate Receipts** | `.agent/gate-receipts.jsonl` | `.agent/scripts/lib/audit-chain.mjs` & `.agent/scripts/lib/git-guard.mjs` |

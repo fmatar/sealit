@@ -37,8 +37,8 @@
     "detect": "node .agent/scripts/sdlc-engine.mjs detect",
     "env": "node .agent/scripts/sdlc-engine.mjs env",
     "gate": "node .agent/scripts/sdlc-engine.mjs gate",
-    "test": "node --test tests/sdlc-engine.test.mjs tests/sdlc-nextgen.test.mjs tests/scripts.test.mjs",
-    "test:coverage": "node --test --experimental-test-coverage tests/sdlc-engine.test.mjs tests/sdlc-nextgen.test.mjs tests/scripts.test.mjs",
+    "test": "node --test tests/sdlc-engine.test.mjs tests/sdlc-nextgen.test.mjs tests/scripts.test.mjs tests/hardening.test.mjs",
+    "test:coverage": "node --test --experimental-test-coverage tests/sdlc-engine.test.mjs tests/sdlc-nextgen.test.mjs tests/scripts.test.mjs tests/hardening.test.mjs",
     "coverage": "node .agent/scripts/sdlc-engine.mjs coverage",
     "mutation": "node .agent/scripts/sdlc-engine.mjs mutation",
     "stage:begin": "node .agent/scripts/sdlc-engine.mjs stage begin",
@@ -64,9 +64,13 @@
     "wiki:sync": "node .agent/scripts/sdlc-engine.mjs wiki sync",
     "wiki:audit": "node .agent/scripts/sdlc-engine.mjs wiki audit --strict",
     "cache:status": "node .agent/scripts/sdlc-engine.mjs cache status",
-    "workbench:serve": "node .agent/scripts/sdlc-engine.mjs serve"
+    "workbench:serve": "node .agent/scripts/sdlc-engine.mjs serve",
+    "test:mutation": "stryker run"
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@stryker-mutator/core": "9.6.1"
   }
 }

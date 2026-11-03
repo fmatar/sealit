@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
-import { fileExists, readFileSafe, inspectArchlens, getModifiedFiles } from './core.mjs';
+import { fileExists, readFileSafe, inspectArchlens, getModifiedFiles, gitOutput, gitDiffForFile } from './core.mjs';
 import { getSessionStatus } from './session.mjs';
 
 export function checkArchDiff(repoRoot = '.') {
@@ -83,10 +83,7 @@ export function checkArchDiff(repoRoot = '.') {
 
   for (const file of diffFiles) {
     try {
-      const diffOutput = execSync(`git diff HEAD~1 -- "${file}" 2>/dev/null || git diff -- "${file}" 2>/dev/null || true`, {
-        cwd: repoRoot,
-        encoding: 'utf8'
-      });
+      const diffOutput = gitDiffForFile(file, repoRoot);
 
       const sourceLayer = matchPolicyLayer(file);
       const lines = diffOutput.split('\n');
@@ -300,7 +297,7 @@ export function recordArchTrace({
 
     let prevContent = '';
     try {
-      prevContent = execSync(`git show HEAD~1:"${relDiagPath}" 2>/dev/null`, { cwd: repoRoot, encoding: 'utf8' });
+      prevContent = gitOutput(['show', `HEAD~1:${relDiagPath}`], repoRoot) || '';
     } catch {
       prevContent = '';
     }

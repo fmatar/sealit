@@ -19,7 +19,7 @@ node .agent/scripts/sdlc-engine.mjs session dashboard
 node .agent/scripts/sdlc-engine.mjs drift check
 node .agent/scripts/sdlc-engine.mjs arch diff
 
-# 3. Engineering velocity, ROI & Merkle audit ledger status
+# 3. Engineering velocity, ROI & hash-chained audit ledger status
 node .agent/scripts/sdlc-engine.mjs stats
 node .agent/scripts/sdlc-engine.mjs audit verify
 

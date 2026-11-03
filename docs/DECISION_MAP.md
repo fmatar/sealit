@@ -47,6 +47,9 @@ flowchart TD
   ADR_006["ADR-006: Unified Multi-Provider Ticket Engine and Canonical Issue Templates"]
   ADR_007["ADR-007: Introduce sdlc-wiki Technical Writer Skill and Deterministic Archlens AST-to-Wiki Synchronization Engine"]
   _90["Ticket #90"]
+  ADR_008["ADR-008: Fail-closed enforcement: exit codes, signed measured receipts, authenticated workbench"]
+  _91["Ticket #91"]
+  createdAt__2026_11_03T18_52_42_656Z["createdAt: 2026-11-03T18:52:42.656Z"]
   __86["##86"]
   _SDLC_INIT["Ticket #SDLC-INIT (feature/arch-traceability-governance)"]
   _24["Ticket #24 (feature/issue-#24-api-contract-drift-sentinel)"]
@@ -112,6 +115,8 @@ flowchart TD
   CAP_06 -.->|ADR Drift| ADR_007
   CAP_08 -.->|ADR Drift| ADR_007
   CAP_11 -.->|ADR Drift| ADR_007
+  _91 -->|triggered_drift_adr| ADR_008
+  createdAt__2026_11_03T18_52_42_656Z -.->|ADR Drift| ADR_008
   _63 -.->|ADR Drift| ADR_001
   CAP_05 -->|realized_by| CAP_09
   CAP_08 -->|realized_by| CAP_09
@@ -121,6 +126,7 @@ flowchart TD
   CAP_02 -->|realized_by| ADR_006
   CAP_09 -->|realized_by| ADR_006
   CAP_10 -->|realized_by| ADR_006
+  _91 -.->|ADR Drift| ADR_008
 ```
 
 ---
@@ -136,6 +142,7 @@ flowchart TD
 | **ADR-005** | Adopt Two-Tier PRD and IEEE 29148 SRS Specification Governance in sdlc-product | `architectural` | `accepted` | #84 | CAP-05, CAP-08, CAP-09 |
 | **ADR-006** | Unified Multi-Provider Ticket Engine and Canonical Issue Templates | `technical` | `rejected` | N/A | CAP-02, CAP-09, CAP-10 |
 | **ADR-007** | Introduce sdlc-wiki Technical Writer Skill and Deterministic Archlens AST-to-Wiki Synchronization Engine | `architectural` | `accepted` | #90 | CAP-05, CAP-06, CAP-08, CAP-11 |
+| **ADR-008** | Fail-closed enforcement: exit codes, signed measured receipts, authenticated workbench | `technical` | `accepted` | #91 | createdAt: 2026-11-03T18:52:42.656Z |
 
 ---
 
