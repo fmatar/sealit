@@ -1154,7 +1154,7 @@ jobs:
 
       const res = installHooks({ repoRoot: tmpDir });
       assert.equal(res.success, true);
-      assert.deepEqual(res.installed, ['pre-commit', 'pre-push']);
+      assert.deepEqual(res.installed, ['pre-commit', 'pre-merge-commit', 'pre-push']);
 
       const preCommit = fs.readFileSync(path.join(gitDir, 'hooks/pre-commit'), 'utf8');
       const prePush = fs.readFileSync(path.join(gitDir, 'hooks/pre-push'), 'utf8');

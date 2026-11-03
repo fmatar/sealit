@@ -6,7 +6,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 
 import {
   loadEnv,
@@ -778,7 +778,17 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         return result;
       }
       if (sub === 'pre-merge') {
-        result.guard = verifyMergeGuard({ repoRoot });
+        // Inside a pre-merge-commit hook MERGE_HEAD is the commit being merged in;
+        // bind the receipt to that exact SHA rather than "any receipt".
+        let sourceSha = null;
+        try {
+          sourceSha = execFileSync('git', ['rev-parse', '--verify', '-q', 'MERGE_HEAD'], {
+            cwd: repoRoot,
+            encoding: 'utf8',
+            stdio: 'pipe'
+          }).trim() || null;
+        } catch {}
+        result.guard = verifyMergeGuard({ repoRoot, sourceSha });
         result.success = result.guard.allowed;
         if (!result.guard.allowed) console.error(result.guard.message);
         return result;
@@ -1023,7 +1033,8 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         return result;
       }
       if (sub === 'diff') {
-        return { ...result, ...checkArchDiff(repoRoot) };
+        const diffRes = checkArchDiff(repoRoot);
+        return { ...result, ...diffRes, success: !(diffRes.enabled && diffRes.passed === false) };
       }
       if (sub === 'trace') {
         let reason = 'Architectural refinement',
@@ -1079,6 +1090,8 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
 
     case 'security-audit': {
       result.security = auditSecurity(repoRoot);
+      result.success = result.security.passed !== false;
+      if (!result.success) console.error('🛑 Security audit failed.');
       return result;
     }
 
@@ -1543,8 +1556,16 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
     }
 
     case 'help':
+    case '--help':
+    case '-h':
     default: {
-      console.log(`
+      const isHelp = ['help', '--help', '-h'].includes(command);
+      if (!isHelp) {
+        console.error(`❌ Unknown command '${command}'. Run 'sdlc-engine.mjs help' for usage.`);
+        result.success = false;
+        result.exitCode = 2;
+      }
+      (isHelp ? console.log : console.error)(`
 Agentic SDLC Universal Engine (sdlc-engine.mjs)
 
 Usage:
@@ -1577,10 +1598,30 @@ function invokeMainCLI() {
       fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2));
     };
     const onInstallCi = ({ repoRoot: dir }) => installCIWorkflow({ repoRoot: dir, force: true });
-    runInstallerCLI(cliArgs, { repoRoot, onDetect, onInstallCi });
+    const installRes = runInstallerCLI(cliArgs, { repoRoot, onDetect, onInstallCi });
+    if (installRes && installRes.success === false) process.exitCode = 1;
     return;
   }
-  runCLI();
+  let res;
+  try {
+    res = runCLI();
+  } catch (err) {
+    console.error(`❌ ${err?.message || err}`);
+    process.exitCode = 1;
+    return;
+  }
+  process.exitCode = cliExitCode(res);
+}
+
+/**
+ * Maps a runCLI() result onto a process exit code.
+ * Any command reporting `success: false` exits non-zero so git hooks,
+ * CI and agents can rely on the exit status.
+ */
+export function cliExitCode(res) {
+  if (!res || typeof res !== 'object') return 0;
+  if (Number.isInteger(res.exitCode)) return res.exitCode;
+  return res.success === false ? 1 : 0;
 }
 
 if (process.argv[1]) {
