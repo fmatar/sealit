@@ -424,11 +424,44 @@ export function calculateSessionStats(repoRoot = '.') {
   };
 }
 
+function parsePct(value) {
+  if (value === null || value === undefined || value === '') return undefined;
+  const n = Number.parseFloat(String(value).replace('%', ''));
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/**
+ * Builds gate-receipt inputs strictly from what was measured and recorded in
+ * the session manifest by `coverage`, `mutation` and `review record`.
+ * Anything not measured is left undefined so issueGateReceipt refuses.
+ * Mutation is reported as `null` (not configured) only when every module's
+ * `thresholds.mutationScore` is explicitly null in .agent/sdlc-config.json.
+ */
+export function receiptInputsFromSession(session, { driftCheckPassed, repoRoot = '.' } = {}) {
+  const manifest = session?.manifest || {};
+  let mutationPct = parsePct(manifest.mutationScore);
+  if (mutationPct === undefined) {
+    try {
+      const cfg = JSON.parse(readFileSafe(path.resolve(repoRoot, '.agent/sdlc-config.json')) || '{}');
+      const mods = Array.isArray(cfg.modules) ? cfg.modules : [];
+      if (mods.length > 0 && mods.every((m) => m?.thresholds && m.thresholds.mutationScore === null)) mutationPct = null;
+    } catch {}
+  }
+  const review = manifest.peerReview;
+  return {
+    coveragePct: parsePct(manifest.coverageReport),
+    mutationPct,
+    peerReviewApproved: review && review.verdict ? review.verdict === 'approve' : undefined,
+    reviewer: review?.reviewer || null,
+    driftCheckPassed
+  };
+}
+
 /**
  * Composite Stage Orchestrator (CAP-01)
  * Collapses ~15 granular bookkeeping calls into 3 deterministic lifecycle transitions:
  * - begin: provisions/links ticket, starts Stage 2 session, checks out feature branch, transitions PM -> in-progress
- * - pre-pr: advances to Stage 6, runs Spec-Drift check, syncs DECISION_MAP.md, records ArchTrace, issues Merkle Gate Receipt, builds PR summary
+ * - pre-pr: advances to Stage 6, runs Spec-Drift check, syncs DECISION_MAP.md, records ArchTrace, issues signed gate receipt from measured values, builds PR summary
  * - complete: advances to Stage 8, transitions PM -> done, syncs KANBAN.md, and releases session lock
  */
 export function executeCompositeStage({
@@ -543,14 +576,19 @@ export function executeCompositeStage({
 
     const prePrPassed = Boolean(drift.passed && wikiAudit.passed);
     let receipt = null;
+    let receiptError = null;
     if (prePrPassed) {
-      receipt = issueGateReceipt({
+      const inputs = receiptInputsFromSession(updated.session, { driftCheckPassed: drift.passed, repoRoot });
+      const issued = issueGateReceipt({
         issueId: updated.session.issueId,
         branch: updated.session.branch || 'feature/branch',
-        coverage: updated.session.manifest?.coverageReport || null,
-        mutationScore: updated.session.manifest?.mutationScore || null,
+        ...inputs,
         repoRoot
       });
+      if (issued.success) receipt = issued.receipt;
+      else receiptError = issued.reason;
+    } else {
+      receiptError = 'Spec-drift or wiki audit failed; no receipt issued.';
     }
 
     const prSummary = generatePRSummary({ issueId: updated.session.issueId, repoRoot });
@@ -558,8 +596,9 @@ export function executeCompositeStage({
     const uiWidget = generateArchitectureWidget({ repoRoot });
 
     return {
-      success: prePrPassed,
+      success: Boolean(prePrPassed && receipt),
       action: 'pre-pr',
+      receiptError,
       issueId: updated.session.issueId,
       stage: 6,
       drift,

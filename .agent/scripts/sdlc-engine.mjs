@@ -38,7 +38,9 @@ import {
   appendAuditRecord,
   verifyAuditChain,
   issueGateReceipt,
-  verifyGateReceipt
+  verifyGateReceipt,
+  loadReceiptKey,
+  verifyReceiptSignature
 } from './lib/audit-chain.mjs';
 
 import {
@@ -114,6 +116,7 @@ import {
   getSessionStatus,
   startSession,
   updateSession,
+  receiptInputsFromSession,
   switchSession,
   listSessions,
   renderDashboard,
@@ -206,6 +209,8 @@ export {
   verifyAuditChain,
   issueGateReceipt,
   verifyGateReceipt,
+  loadReceiptKey,
+  verifyReceiptSignature,
   DECISION_GRAPH_FILE,
   DECISION_MAP_MD,
   appendDecisionEvent,
@@ -257,6 +262,7 @@ export {
   getSessionStatus,
   startSession,
   updateSession,
+  receiptInputsFromSession,
   switchSession,
   listSessions,
   renderDashboard,
@@ -803,11 +809,20 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       }
       if (sub === 'receipt') {
         const sess = getSessionStatus(repoRoot);
+        if (!sess.session) {
+          console.error('🛑 No active SDLC session; cannot issue a gate receipt.');
+          result.success = false;
+          return result;
+        }
+        const drift = checkSpecDrift({ ticketId: sess.session.issueId, repoRoot });
         result.receipt = issueGateReceipt({
-          issueId: sess.session?.issueId || 1,
-          branch: sess.session?.branch || 'feature/branch',
+          issueId: sess.session.issueId,
+          branch: sess.session.branch,
+          ...receiptInputsFromSession(sess.session, { driftCheckPassed: Boolean(drift.passed), repoRoot }),
           repoRoot
         });
+        result.success = result.receipt.success;
+        if (!result.success) console.error(`🛑 ${result.receipt.reason}`);
         return result;
       }
       return result;
@@ -1338,6 +1353,27 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       result.subcommand = sub;
       if (sub === 'plan') {
         result.reviewPlan = generateReviewPlan({ repoRoot });
+        return result;
+      }
+      if (sub === 'record') {
+        // Records a reviewer verdict in the session manifest; this is what
+        // `guard receipt` / `stage pre-pr` attest as peerReviewApproved.
+        let verdict = null,
+          reviewer = null;
+        for (let i = 2; i < args.length; i++) {
+          if (args[i] === '--verdict' && args[i + 1]) verdict = args[++i];
+          else if (args[i] === '--reviewer' && args[i + 1]) reviewer = args[++i];
+        }
+        if (!['approve', 'request-changes'].includes(verdict) || !reviewer) {
+          console.error("Usage: review record --verdict <approve|request-changes> --reviewer <name>");
+          result.success = false;
+          return result;
+        }
+        updateSession({
+          manifestUpdate: { peerReview: { verdict, reviewer, recordedAt: new Date().toISOString() } },
+          repoRoot
+        });
+        result.review = { verdict, reviewer };
         return result;
       }
       result.success = false;

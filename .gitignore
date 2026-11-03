@@ -12,6 +12,7 @@ workbench/node_modules/
 !.env.example
 .agent/.cache/
 .agent/.sdlc-session.json
+.agent/.receipt-key
 *.lcov
 .impeccable/review/
 .impeccable/mocks/

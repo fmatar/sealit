@@ -492,11 +492,12 @@ jobs:
       assert.equal(result.success, true);
     });
 
-    it('falls back to help when an unknown subcommand is passed', () => {
+    it('reports failure (exit code 2) when an unknown subcommand is passed', () => {
       const configPath = path.join(tmpDir, '.agent/sdlc-config.json');
       const result = runCLI(['unknown_command_xyz'], configPath, tmpDir);
       assert.equal(result.command, 'unknown_command_xyz');
-      assert.equal(result.success, true);
+      assert.equal(result.success, false);
+      assert.equal(result.exitCode, 2);
     });
 
     it('executes test subcommand and runs commands in module working directory', () => {
