@@ -25,11 +25,12 @@
         "coverage": "mkdir -p coverage && node --test --experimental-test-coverage --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info tests/sdlc-engine.test.mjs tests/sdlc-nextgen.test.mjs tests/scripts.test.mjs tests/hardening.test.mjs",
         "coverageFile": "coverage/lcov.info",
         "lint": "node --check .agent/scripts/sdlc-engine.mjs",
-        "build": "node .agent/scripts/sdlc-engine.mjs drift check"
+        "build": "node .agent/scripts/sdlc-engine.mjs drift check",
+        "mutation": "npx stryker run"
       },
       "thresholds": {
         "diffCoverage": 85,
-        "mutationScore": null
+        "mutationScore": 52
       }
     }
   ]

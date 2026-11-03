@@ -64,9 +64,13 @@
     "wiki:sync": "node .agent/scripts/sdlc-engine.mjs wiki sync",
     "wiki:audit": "node .agent/scripts/sdlc-engine.mjs wiki audit --strict",
     "cache:status": "node .agent/scripts/sdlc-engine.mjs cache status",
-    "workbench:serve": "node .agent/scripts/sdlc-engine.mjs serve"
+    "workbench:serve": "node .agent/scripts/sdlc-engine.mjs serve",
+    "test:mutation": "stryker run"
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@stryker-mutator/core": "9.6.1"
   }
 }

@@ -1,0 +1,17 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "_comment": "Mutation gate for the receipt/audit-chain core (issue #91). The command runner re-runs the node:test cases that exercise audit-chain.mjs for every mutant. Widen 'mutate' as fast, focused tests are added for other lib modules.",
+  "testRunner": "command",
+  "commandRunner": {
+    "command": "node --test --test-name-pattern=\"Fix 3|[Aa]udit [Cc]hain|[Rr]eceipt|Merkle|hash chain\" tests/hardening.test.mjs tests/sdlc-nextgen.test.mjs tests/sdlc-engine.test.mjs"
+  },
+  "mutate": [".agent/scripts/lib/audit-chain.mjs"],
+  "reporters": ["clear-text", "json", "progress"],
+  "jsonReporter": { "fileName": "reports/mutation/mutation.json" },
+  "incremental": true,
+  "incrementalFile": "reports/stryker-incremental.json",
+  "concurrency": 6,
+  "timeoutMS": 60000,
+  "tempDirName": ".stryker-tmp",
+  "ignorePatterns": ["reports", "coverage", "workbench/node_modules", ".impeccable"]
+}
