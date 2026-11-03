@@ -957,6 +957,7 @@ export function parseCoverageReport(repoRoot = '.', mod = null) {
     }
   }
 
+  // Fail closed: no report means nothing was measured.
   return {
     found: false,
     file: null,
@@ -964,7 +965,8 @@ export function parseCoverageReport(repoRoot = '.', mod = null) {
     branchCoverage: null,
     formatted: null,
     threshold,
-    passed: true
+    passed: false,
+    reason: `No coverage report found (looked for: ${candidates.join(', ')}).`
   };
 }
 
@@ -1028,13 +1030,15 @@ export function parseMutationReport(repoRoot = '.', mod = null) {
     }
   }
 
+  // Fail closed: no report means nothing was measured.
   return {
     found: false,
     file: null,
     mutationScore: null,
     formatted: null,
     threshold,
-    passed: true
+    passed: false,
+    reason: 'No mutation report found (looked for: reports/mutation/mutation.json, target/pit-reports/mutations.xml).'
   };
 }
 

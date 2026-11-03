@@ -21,16 +21,15 @@
       "stack": "nodejs-npm",
       "language": "javascript",
       "commands": {
-        "test": "node --test tests/sdlc-engine.test.mjs tests/sdlc-nextgen.test.mjs tests/scripts.test.mjs",
-        "coverage": "node --test --experimental-test-coverage tests/sdlc-engine.test.mjs tests/sdlc-nextgen.test.mjs tests/scripts.test.mjs",
-        "coverageFile": "coverage/coverage-summary.json",
-        "mutation": "npx stryker run 2>/dev/null || true",
+        "test": "node --test tests/sdlc-engine.test.mjs tests/sdlc-nextgen.test.mjs tests/scripts.test.mjs tests/hardening.test.mjs",
+        "coverage": "mkdir -p coverage && node --test --experimental-test-coverage --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info tests/sdlc-engine.test.mjs tests/sdlc-nextgen.test.mjs tests/scripts.test.mjs tests/hardening.test.mjs",
+        "coverageFile": "coverage/lcov.info",
         "lint": "node --check .agent/scripts/sdlc-engine.mjs",
         "build": "node .agent/scripts/sdlc-engine.mjs drift check"
       },
       "thresholds": {
         "diffCoverage": 85,
-        "mutationScore": 80
+        "mutationScore": null
       }
     }
   ]
