@@ -15,7 +15,7 @@
 
 AI coding agents are fast—until they push untested code directly to `main`, violate your architecture layers, silently break API contracts, or forget what they were building mid-session.
 
-**Agentic SDLC Framework** gives your AI agent (**Gemini / Antigravity**, **Claude Code**, **Cursor**, **Grok**, **Windsurf**, or **GitHub Copilot**) a deterministic engineering workflow backed by a zero-dependency Node.js engine (`sdlc-engine.mjs`) and physical Git hooks:
+**Agentic SDLC Framework** gives your AI agent (**Gemini / Antigravity**, **Claude Code**, **Cursor**, **Grok**, **Windsurf**, or **GitHub Copilot**) a deterministic engineering workflow backed by a zero-dependency Node.js engine (`sdlc-engine.mjs`) and client-side Git hooks (pair them with server-side branch protection; `--no-verify` bypasses any client hook):
 
 | Without Agentic SDLC ❌ | With Agentic SDLC Framework ✅ |
 | :--- | :--- |
@@ -110,7 +110,7 @@ Once installed, drive the entire engineering lifecycle directly from your AI cha
 * **Under the hood**:
   1. **`stage begin`**: Creates & checks out `feature/issue-#1-jwt-rotation`, locks `.agent/.sdlc-session.json`, and marks the ticket `in-progress`.
   2. **`/sdlc-tdd`**: Writes a failing Red test first, implements minimal Green domain code, and verifies **≥ 85% coverage** and zero inner-to-outer ring imports against `.archlens/policy.json`.
-  3. **`stage pre-pr`**: Verifies zero undeclared spec drift, updates `docs/DECISION_MAP.md` and `docs/ARCH_TRACE.md`, signs the cryptographic **SHA-256 Merkle Gate Receipt**, and launches the live **Architecture Diff UI**.
+  3. **`stage pre-pr`**: Verifies zero undeclared spec drift, updates `docs/DECISION_MAP.md` and `docs/ARCH_TRACE.md`, issues an **HMAC-SHA256-signed gate receipt** built only from measured coverage/mutation and a recorded review verdict (it refuses if anything is unmeasured), and refreshes the **Architecture Diff UI** snapshot.
 
 ### Step 3: Parallel Peer Review & Merge (`/sdlc-gate`)
 > **Prompt**: `"/sdlc-gate Audit the diff and merge to main."` (or `/sdlc gate`)
@@ -152,7 +152,7 @@ Every command is available either through the **`/sdlc <subcommand>` router** or
 | **`/sdlc-doctor`** | **Ops & Diagnostics** | Stack detection, `doctor --fix`, 4-Layer Git hooks, `.archlens/policy.json`, and multi-agent installer | `sdlc-engine doctor --fix` / `install` |
 | **`/sdlc-status`** | **Ops & Diagnostics** | Active session, 8-stage progress, drift check, `KANBAN.md` state, and live Architecture Diff UI | `sdlc-engine session dashboard` / `ui-snapshot` |
 | **`/sdlc-tdd`** | **Stage Action** | Robert Martin Red-Green-Refactor loop + Dual-Gate (`coverage`, `mutation`, `reproduce`) | `sdlc-engine test` / `coverage` / `mutation` |
-| **`/sdlc-gate`** | **Stage Action** | Parallel Fork-Join PR review subagents + `gate --strict` + Stage 7 SHA-256 Merkle receipt | `sdlc-engine gate --strict` / `guard receipt` |
+| **`/sdlc-gate`** | **Stage Action** | Parallel Fork-Join PR review subagents + `gate --strict` + signed Stage 7 gate receipt | `sdlc-engine gate --strict` / `guard receipt` |
 | **`/sdlc-adr`** | **Stage Action** | Mint or approve Spec-Drift ADRs (`docs/adr/ADR-00X.md`) and sync `docs/DECISION_MAP.md` | `sdlc-engine adr <create\|list\|decide>` |
 | **`/sdlc-release`** | **Stage Action** | Sync `README.md`/`CHANGELOG.md`/`wiki/`, generate regression proofs, cut SemVer release, and probe canaries | `sdlc-engine release <patch\|minor\|major>` |
 
@@ -160,9 +160,9 @@ Every command is available either through the **`/sdlc <subcommand>` router** or
 
 ## 🖥️ Visual Architecture Diff & Decision Workbench UI
 
-Every `stage begin`, `stage pre-pr`, and `ui-snapshot` automatically updates the interactive **Architecture Diff & Decision Lineage Workbench**:
+Every `stage begin`, `stage pre-pr`, and `ui-snapshot` regenerates the snapshot of the interactive **Architecture Diff & Decision Lineage Workbench**:
 - **Inline in Antigravity Chat**: Renders directly inside your conversation via `<agent-embed>`.
-- **Full-Screen Browser UI (`http://localhost:4120`)**:
+- **Full-Screen Browser UI (`http://127.0.0.1:4120/?token=…`)**: loopback-only, and every request needs the random token printed at start (cross-origin requests are rejected):
   ```bash
   node .agent/scripts/sdlc-engine.mjs serve --port 4120
   ```
@@ -210,7 +210,7 @@ Every `stage begin`, `stage pre-pr`, and `ui-snapshot` automatically updates the
 - **Flaky Test & Race Condition Elimination**:
   > `"Run a 20-iteration flake check on OrderProcessor.test.mjs and fix the race condition."` (`sdlc-engine flake-check --runs 20`)
 - **Cryptographic Audit Trail Verification**:
-  > `"Verify that our SHA-256 Merkle delivery ledger in docs/AUDIT_CHAIN.jsonl has zero tampering."` (`sdlc-engine audit verify`)
+  > `"Verify that our SHA-256 hash-chained delivery ledger in docs/AUDIT_CHAIN.jsonl has not been tampered with."` (`sdlc-engine audit verify`)
 - **Production Canary Rollback Watchdog**:
   > `"Probe https://api.example.com/health and trigger rollback if the error rate exceeds 2%."` (`sdlc-engine watchdog --live`)
 
@@ -240,7 +240,7 @@ your-project/
     ├── KANBAN.md                      # Living Kanban board & 7-layer Traceability Matrix
     ├── DECISION_MAP.md                # Auto-synced Causal Decision Lineage graph
     ├── ARCH_TRACE.md                  # Immutable Mermaid AST diff & architecture mutation log
-    └── AUDIT_CHAIN.jsonl              # Tamper-evident SHA-256 Merkle audit ledger
+    └── AUDIT_CHAIN.jsonl              # Tamper-evident SHA-256 hash-chained audit ledger (receipts HMAC-signed)
 ```
 
 ---
@@ -254,7 +254,7 @@ your-project/
 | | `node .agent/scripts/sdlc-engine.mjs doctor --fix` | Verify toolchain and auto-heal hooks, policy, and Kanban |
 | | `node .agent/scripts/sdlc-engine.mjs interop export --agent all` | Regenerate rules for Gemini, Claude, Cursor, Grok, Windsurf, Copilot |
 | **Lifecycle Stages** | `node .agent/scripts/sdlc-engine.mjs stage begin --title "<t>" --checkout` | Create ticket, checkout feature branch, start session lock |
-| | `node .agent/scripts/sdlc-engine.mjs stage pre-pr --issue <id>` | Run drift check, sync docs, sign Stage 7 Merkle receipt, build UI |
+| | `node .agent/scripts/sdlc-engine.mjs stage pre-pr --issue <id>` | Run drift check, sync docs, issue signed Stage 7 receipt from measured values, build UI |
 | | `node .agent/scripts/sdlc-engine.mjs stage complete --issue <id>` | Mark ticket `done`, sync `docs/KANBAN.md`, release session lock |
 | **Product & ADRs** | `node .agent/scripts/sdlc-engine.mjs product <init\|spec\|plan\|status>` | Generate `PRODUCT.md`, `docs/PRD.md`, `docs/SRS.md`, `CAP-XX` specs & DAG waves |
 | | `node .agent/scripts/sdlc-engine.mjs adr <create\|list\|decide>` | Create or approve/reject Architecture Decision Records |
@@ -262,8 +262,8 @@ your-project/
 | **TDD & Quality Gate** | `node .agent/scripts/sdlc-engine.mjs test [--affected-only]` | Run full or diff-affected unit tests |
 | | `node .agent/scripts/sdlc-engine.mjs coverage` / `mutation` | Parse coverage (**≥ 85%**) and mutation (**≥ 80%**) reports |
 | | `node .agent/scripts/sdlc-engine.mjs reproduce --error "<trace>"` | Scaffold failing Red reproduction test from stack trace |
-| | `node .agent/scripts/sdlc-engine.mjs gate --strict` | Run all 9 quality, architecture, security, and Merkle gates |
-| **Workbench & Release** | `node .agent/scripts/sdlc-engine.mjs serve [--port 4120]` | Start live Architecture Diff & Decision Workbench server |
+| | `node .agent/scripts/sdlc-engine.mjs gate --strict` | Run all 9 quality, architecture, security, and audit-chain gates |
+| **Workbench & Release** | `node .agent/scripts/sdlc-engine.mjs serve [--port 4120]` | Start the loopback-only, token-protected Architecture Diff & Decision Workbench |
 | | `node .agent/scripts/sdlc-engine.mjs ui-snapshot` | Generate standalone HTML widget for inline `<agent-embed>` |
 | | `node .agent/scripts/sdlc-engine.mjs release <patch\|minor\|major>` | Bump SemVer manifest, update `CHANGELOG.md`, and tag release |
 

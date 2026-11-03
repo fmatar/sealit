@@ -20,7 +20,7 @@ tools: read_file, write_file, edit_file, run_command, invoke_subagent
 ```mermaid
 flowchart LR
     B["1. stage begin\n(Ticket + Branch + Session + PM In-Progress)"] --> T["2. TDD Loop\n(sdlc-tdd: Red -> Green -> Refactor)"]
-    T --> P["3. stage pre-pr\n(Drift + DecisionMap + ArchTrace + Merkle Receipt)"]
+    T --> P["3. stage pre-pr\n(Drift + DecisionMap + ArchTrace + Signed Receipt)"]
     P --> R["4. Review Gate\n(sdlc-gate: Parallel Subagents + Strict Gate)"]
     R --> C["5. stage complete\n(PR Merge + PM Done + Kanban Sync + Release Lock)"]
 ```
@@ -58,8 +58,8 @@ This single command atomically:
 - Evaluates `drift check` (`PRODUCT.md` & `docs/specs/` vs `docs/adr/`).
 - Synchronizes `docs/DECISION_MAP.md` (`decision-graph sync`).
 - Appends architectural traceability to `docs/ARCH_TRACE.md` (`arch trace`).
-- Issues the cryptographic Stage 7 SHA-256 Merkle Gate Receipt (`guard receipt`).
-- Auto-starts the live Architecture & Decision Workbench on `http://localhost:4120` and builds `.agent/workbench/index.html`.
+- Issues the HMAC-SHA256-signed Stage 7 gate receipt from measured values in the session (`coverage`, `mutation`, `review record`); it refuses, and the command exits non-zero, when any value is unmeasured.
+- Builds `.agent/workbench/index.html` (start the live, token-protected workbench yourself with `sdlc-engine serve`).
 - Generates the standardized PR summary.
 
 **Mandatory Antigravity Inline Architecture UI Presentation**:

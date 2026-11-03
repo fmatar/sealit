@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Security
+- **Shell injection via filenames fixed (#91, `ADR-008`)**: `security-audit`, `arch diff`, contract drift, gate cache hashing, receipt verification, flake/affected test runs, worktree pruning, release tagging and branch protection now call `git`/test runners with `execFileSync` argv arrays. A file named `$(cmd).js` can no longer execute. A regression test bans interpolated `execSync` template literals in engine sources.
+- **Workbench locked down (#91, `ADR-008`)**: `serve` binds `127.0.0.1` only, requires a random per-run token (printed at start) on every request including SSE, rejects foreign `Origin`/`Host` headers (no more `Access-Control-Allow-Origin: *`), so human-only ADR approval via `POST /api/adr/decide` needs the token. `stage begin`/`pre-pr` no longer spawn a detached workbench daemon.
+
+### Fixed
+- **Exit codes honoured (#91)**: the CLI exits non-zero when a command reports `success: false`; unknown commands exit 2. Git hooks no longer end with an unconditional `exit 0`, so `pre-commit` really blocks commits on `main`/`develop` or without an active session, and `pre-merge-commit` really requires a receipt bound to `MERGE_HEAD`.
+- **Gate receipts attest measured values (#91)**: removed the `85`/`80`/`approved` defaults and fixed the `coverage`/`mutationScore` key mismatch in `stage pre-pr`; receipts are built from the session manifest and refused when anything is unmeasured. Added `review record --verdict --reviewer`. Receipts are HMAC-SHA256 signed with `.agent/.receipt-key` (gitignored) or `SDLC_RECEIPT_KEY`. The ledger is now described as a hash chain, not a Merkle tree (`chainHead`; `merkleRoot` kept as a deprecated alias).
+- **Coverage/mutation gates fail closed (#91)**: a missing or stale report fails the gate and is never cached as a pass; `gate` now checks coverage against `thresholds.diffCoverage`. `thresholds.mutationScore: null` explicitly opts out of mutation testing (recorded as `not-configured`).
+- **Linux test failure**: `wiki/Traceability.md` now references `.github/PULL_REQUEST_TEMPLATE.md` with the correct case.
+- **Hermetic tests**: the `kanban-sync.sh` test runs in a temp dir with a stub `gh`, so it no longer calls the GitHub API or rewrites `docs/KANBAN.md`.
+
 ### Added
 - **Two-Tier PRD & IEEE 29148 SRS Specification Engine (`CAP-09`, #84, `ADR-005`)**: Upgraded `sdlc-engine product init` and added `sdlc-engine product spec` (`/sdlc spec`) to generate macro `docs/PRD.md` and `docs/SRS.md` specifications alongside rich per-capability `docs/specs/cap-XX-<slug>.md` specs (PRD Slice + IEEE 29148 SRS I/O + C4 diagram), enforced `PRD_SRS_CONTRACT_MUTATION` in `checkSpecDrift`, and embedded SRS excerpts into `.agent/dossiers/issue-<id>.md`.
 - **Universal `/sdlc` Command Router & 8 Verb Skills (`CAP-08`, #81, `ADR-004`)**: Replaced abstract skill names (`sdlc-init`, `sdlc-review-gate`) with 1 Universal Router (`sdlc`) + 8 Verb Skills (`sdlc-flow`, `sdlc-product`, `sdlc-doctor`, `sdlc-status`, `sdlc-tdd`, `sdlc-gate`, `sdlc-adr`, `sdlc-release`) and added `sdlc-init`/`sdlc-review-gate` to automatic upgrade pruning.

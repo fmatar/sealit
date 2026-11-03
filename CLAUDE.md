@@ -5,7 +5,7 @@
 ## 1. Zero Direct Pushes (4-Layer Git Guard)
 - Direct git commits, merges, or pushes to `develop` or `main` are STRICTLY FORBIDDEN.
 - Every commit requires an active session in `.agent/.sdlc-session.json` matching the current branch.
-- Every merge into `main` requires a signed Stage 7 SHA-256 Merkle Gate Receipt in `docs/AUDIT_CHAIN.jsonl`.
+- Every merge into `main` requires an HMAC-signed Stage 7 gate receipt (built from measured values) in `docs/AUDIT_CHAIN.jsonl`.
 
 ## 2. PRODUCT.md Constitution & Spec Drift ADR Protocol
 - Full-spec project handovers synthesize `PRODUCT.md` (`CAP-XX`, `INV-XX`, `SPEC-XX`) starting at Genesis Ticket `#1`.

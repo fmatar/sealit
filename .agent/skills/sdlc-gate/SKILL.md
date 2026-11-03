@@ -1,6 +1,6 @@
 ---
 name: sdlc-gate
-description: Parallel Fork-Join PR peer reviewer, strict 9-pillar quality gatekeeper, Archlens concentric ring auditor, security/CVE scanner, and Stage 7 SHA-256 Merkle Gate Receipt signer.
+description: Parallel Fork-Join PR peer reviewer, strict 9-pillar quality gatekeeper, Archlens concentric ring auditor, security/CVE scanner, and Stage 7 signed gate receipt issuer.
 tools: read_file, write_file, edit_file, run_command, invoke_subagent
 ---
 
@@ -23,14 +23,16 @@ Dispatch two independent read-only subagents in parallel using `invoke_subagent`
 
 ## 2. Strict 9-Pillar Quality Gate & Cryptographic Receipt
 
-Execute the deterministic engine checks and sign the Stage 7 Merkle Gate Receipt required by the `pre-merge-commit` hook:
+Execute the deterministic engine checks and issue the signed Stage 7 gate receipt required by the `pre-merge-commit` hook:
 
 ```bash
 # 1. Run strict quality gate (Tests, Coverage, Archlens rings, Spec Drift, Contract Drift, Security, Flake, Audit Chain)
 node .agent/scripts/sdlc-engine.mjs gate --strict
 
-# 2. Sign the cryptographic Stage 7 SHA-256 Merkle Gate Receipt (.agent/.gate-receipt.json)
-node .agent/scripts/sdlc-engine.mjs guard receipt --issue <id>
+# 2. Record the reviewer verdict, then issue the HMAC-signed receipt into docs/AUDIT_CHAIN.jsonl
+#    (refuses unless coverage, mutation (or mutationScore: null), review and drift were measured)
+node .agent/scripts/sdlc-engine.mjs review record --verdict approve --reviewer "<reviewer>"
+node .agent/scripts/sdlc-engine.mjs guard receipt
 
 # 3. Post the consolidated review verdict to GitHub PR/Issue or docs/KANBAN.md
 node .agent/scripts/sdlc-engine.mjs pm comment <id> --pr <prNumber> --body "<verdict>"
