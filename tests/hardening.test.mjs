@@ -294,6 +294,18 @@ describe('Fix 4: fail-closed coverage & mutation gates', () => {
     assert.notEqual(engine(dir, 'mutation').status, 0);
   });
 
+  it('`mutation` parses a real Stryker JSON report (schema from this repo\'s own run) against the threshold', () => {
+    // Fixture trimmed from reports/mutation/mutation.json produced by `npm run test:mutation`: 3 Killed + 1 Survived = 75%.
+    const fixture = path.join(REPO_ROOT, 'tests/fixtures/stryker-mutation.json');
+    const copy = `node -e "require('fs').mkdirSync('reports/mutation',{recursive:true});require('fs').copyFileSync(${JSON.stringify(fixture).replace(/"/g, "'")},'reports/mutation/mutation.json')"`;
+    writeConfig({ test: 'node -e 0', coverage: 'node -e 0', mutation: copy }, { diffCoverage: 85, mutationScore: 70 });
+    const ok = engine(dir, 'mutation', '--no-cache');
+    assert.equal(ok.status, 0, ok.stdout + ok.stderr);
+    assert.equal(parseMutationReport(dir, { path: '.', thresholds: { mutationScore: 70 } }).mutationScore, 75);
+    writeConfig({ test: 'node -e 0', coverage: 'node -e 0', mutation: copy }, { diffCoverage: 85, mutationScore: 80 });
+    assert.notEqual(engine(dir, 'mutation', '--no-cache').status, 0, '75% must fail an 80% threshold');
+  });
+
   it('`gate` fails when coverage is below threshold and passes when above', () => {
     const write = (pct) =>
       `node -e "require('fs').mkdirSync('coverage',{recursive:true});require('fs').writeFileSync('coverage/coverage-summary.json',JSON.stringify({total:{lines:{pct:${pct}},branches:{pct:${pct}}}}))"`;
