@@ -5,7 +5,7 @@
 > To refresh this board: `.agent/scripts/kanban-sync.sh`
 
 > **Repository**: `fmatar/agentic-sdlc-framework`  
-> **Last Synced**: `2026-10-28 06:27:01 UTC`
+> **Last Synced**: `2026-11-03 21:38:52 UTC`
 
 ---
 
@@ -13,6 +13,8 @@
 
 | 📥 Backlog | 📋 Ready | ⚡ In Progress | 🔍 In Review | ✅ Done |
 | :--- | :--- | :--- | :--- | :--- |
+|  |  |  |  | [#91 fix: Harden gates: exit codes, injection, receipts, fail-closed gates, workbench auth](https://github.com/fmatar/agentic-sdlc-framework/issues/91) |
+|  |  |  |  | [#90 feat: skillspector-security-audit](https://github.com/fmatar/agentic-sdlc-framework/issues/90) |
 |  |  |  |  | [#88 fix: skillspector-zero-findings-and-skill-audit](https://github.com/fmatar/agentic-sdlc-framework/issues/88) |
 |  |  |  |  | [#86 feat: multi-provider-ticket-engine-and-templates](https://github.com/fmatar/agentic-sdlc-framework/issues/86) |
 |  |  |  |  | [#84 feat: two-tier-prd-srs-specification-engine](https://github.com/fmatar/agentic-sdlc-framework/issues/84) |
@@ -48,6 +50,8 @@
 
 | Issue | Status | Priority | Component | Milestone | Spec / Contract |
 | :--- | :--- | :--- | :--- | :--- | :--- |
+| [#91 fix: Harden gates: exit codes, injection, receipts, fail-closed gates, workbench auth](https://github.com/fmatar/agentic-sdlc-framework/issues/91) | `status:done` | P2 - Medium | General | — | — |
+| [#90 feat: skillspector-security-audit](https://github.com/fmatar/agentic-sdlc-framework/issues/90) | `status:done` | P2 - Medium | General | — | — |
 | [#88 fix: skillspector-zero-findings-and-skill-audit](https://github.com/fmatar/agentic-sdlc-framework/issues/88) | `status:done` | P2 - Medium | General | — | — |
 | [#86 feat: multi-provider-ticket-engine-and-templates](https://github.com/fmatar/agentic-sdlc-framework/issues/86) | `status:done` | P2 - Medium | General | — | — |
 | [#84 feat: two-tier-prd-srs-specification-engine](https://github.com/fmatar/agentic-sdlc-framework/issues/84) | `status:done` | P2 - Medium | General | — | — |

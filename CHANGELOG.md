@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [0.2.0] - 2026-11-03
 ### Security
 - **Shell injection via filenames fixed (#91, `ADR-008`)**: `security-audit`, `arch diff`, contract drift, gate cache hashing, receipt verification, flake/affected test runs, worktree pruning, release tagging and branch protection now call `git`/test runners with `execFileSync` argv arrays. A file named `$(cmd).js` can no longer execute. A regression test bans interpolated `execSync` template literals in engine sources.
 - **Workbench locked down (#91, `ADR-008`)**: `serve` binds `127.0.0.1` only, requires a random per-run token (printed at start) on every request including SSE, rejects foreign `Origin`/`Host` headers (no more `Access-Control-Allow-Origin: *`), so human-only ADR approval via `POST /api/adr/decide` needs the token. `stage begin`/`pre-pr` no longer spawn a detached workbench daemon.
@@ -17,12 +19,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Real mutation gate (#91)**: added pinned `@stryker-mutator/core@9.6.1` (devDependency; Stryker needs Node >= 20), `stryker.config.json` (command runner over the node:test receipt/audit-chain cases, JSON report at `reports/mutation/mutation.json`, incremental, concurrency 6) and `npm run test:mutation`. The repo's mutation gate is re-enabled at the measured baseline of **52%** (first full run: 52.45% on `audit-chain.mjs`, 182 killed / 165 survived, 7m14s on 8 cores), not the aspirational 80%.
 - **Linux test failure**: `wiki/Traceability.md` now references `.github/PULL_REQUEST_TEMPLATE.md` with the correct case.
 - **Hermetic tests**: the `kanban-sync.sh` test runs in a temp dir with a stub `gh`, so it no longer calls the GitHub API or rewrites `docs/KANBAN.md`.
+- **Inline `<agent-embed>` Artifact URI Scheme**: Updated `sdlc/SKILL.md` and `sdlc-status/SKILL.md` to use `file:///<artifactDir>/sdlc-architecture-diff.html` instead of a bare relative filename, resolving `unknown uri scheme` parse errors in Antigravity chat.
 
 ### Added
+- **Technical Writer & Archlens AST-to-Wiki Sync Engine (`CAP-11`, `ADR-007`)**: Added `.agent/scripts/lib/wiki-sync.mjs` and `.agent/skills/sdlc-wiki/SKILL.md` providing deterministic AST-to-Wiki mapping (`wiki/Codebase-Map.md`), Archlens Concentric Ring classification, and zero-rot documentation auditing (`sdlc-engine wiki <sync|audit|map>`).
+- **Unified Multi-Provider Ticket Engine & Canonical Issue Templates (`CAP-10`, #86, `ADR-006`)**: Upgraded `pm-provider.mjs` with full 4-operation parity (`createTicket`, `transitionPMState`, `postPMComment`, `syncKanbanBoard`) across GitHub Issues, Linear GraphQL, and Jira REST v3, plus canonical 4-template scaffolding (`.github/ISSUE_TEMPLATE/*.md`).
+- **NVIDIA SkillSpector Security Auditor (`#88`, `#90`)**: Added `auditSkills` in `quality-gate.mjs` (`node .agent/scripts/sdlc-engine.mjs skill-audit`) enforcing frontmatter, pinned `npx` (RP1), and cross-skill isolation (AS3) rules with `0/100` risk scores across all SDLC skills.
+- **`ub-mode` Reduced Principles Skill (`/sdlc ub`)**: Added `.agent/skills/ub-mode/SKILL.md` encoding Robert C. Martin reduced engineering principles (*First Make it Work*, *Then Make it Right*, *Follow Practice*) wired into `/sdlc ub`, `sdlc-flow`, and `sdlc-tdd`.
 - **Two-Tier PRD & IEEE 29148 SRS Specification Engine (`CAP-09`, #84, `ADR-005`)**: Upgraded `sdlc-engine product init` and added `sdlc-engine product spec` (`/sdlc spec`) to generate macro `docs/PRD.md` and `docs/SRS.md` specifications alongside rich per-capability `docs/specs/cap-XX-<slug>.md` specs (PRD Slice + IEEE 29148 SRS I/O + C4 diagram), enforced `PRD_SRS_CONTRACT_MUTATION` in `checkSpecDrift`, and embedded SRS excerpts into `.agent/dossiers/issue-<id>.md`.
-- **Universal `/sdlc` Command Router & 8 Verb Skills (`CAP-08`, #81, `ADR-004`)**: Replaced abstract skill names (`sdlc-init`, `sdlc-review-gate`) with 1 Universal Router (`sdlc`) + 8 Verb Skills (`sdlc-flow`, `sdlc-product`, `sdlc-doctor`, `sdlc-status`, `sdlc-tdd`, `sdlc-gate`, `sdlc-adr`, `sdlc-release`) and added `sdlc-init`/`sdlc-review-gate` to automatic upgrade pruning.
+- **Universal `/sdlc` Command Router & Verb Skills (`CAP-08`, #81, `ADR-004`)**: Replaced abstract skill names (`sdlc-init`, `sdlc-review-gate`) with 1 Universal Router (`sdlc`) + Verb Skills (`sdlc-flow`, `sdlc-product`, `sdlc-doctor`, `sdlc-status`, `sdlc-tdd`, `sdlc-gate`, `sdlc-adr`, `sdlc-release`, `sdlc-wiki`) and added `sdlc-init`/`sdlc-review-gate` to automatic upgrade pruning.
 - **NPX Multi-Agent Installer Wizard (`CAP-07`, #75, `ADR-003`)**: Added `npx github:fmatar/agentic-sdlc-framework install` (`.agent/scripts/lib/installer.mjs`) featuring a zero-dependency interactive ANSI TUI wizard to select AI coding tools (`gemini`, `claude`, `cursor`, `grok`, `windsurf`, `copilot`), scope (`local` vs `global`), and governance add-ons (`--with-archlens`, `--with-hooks`, `--with-ci`), plus automatic pruning of deprecated pre-`ADR-002` skills.
 - **Hybrid Architecture Diff & Decision Lineage UI (`CAP-05`, #72)**: Added `sdlc-engine ui-snapshot` and `/api/arch-diff` in `workbench-server.mjs` rendering live Clean Architecture ring changes and `CAP -> SPEC -> Ticket -> ADR` lineage inline via `<agent-embed>`.
+
+### Changed
+- **Double-Entry Clearinghouse Ledger Workbench UI**: Redesigned Mission Control (`workbench/`) and standalone Architecture Diff snapshot (`.agent/workbench/index.html`) into a Double-Entry Clearinghouse Ledger aesthetic.
 
 ### Removed
 - **Legacy Installers (`ADR-003`, #75)**: Removed `install.sh` and `install.java` in favor of the unified `npx github:fmatar/agentic-sdlc-framework install` CLI.

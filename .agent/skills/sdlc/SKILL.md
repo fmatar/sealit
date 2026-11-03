@@ -29,6 +29,7 @@ When the user invokes `/sdlc <subcommand> [arguments]`, map the request directly
 | `/sdlc gate` | `node .agent/scripts/sdlc-engine.mjs gate --strict` |
 | `/sdlc ticket <create\|transition\|comment\|sync\|templates>` | `node .agent/scripts/sdlc-engine.mjs ticket <subcommand> [args]` |
 | `/sdlc kanban` | `.agent/scripts/kanban-sync.sh` |
+| `/sdlc ub` | Activate `ub-mode` (Robert C. Martin reduced principles) for the active session |
 | `/sdlc ui` / `/sdlc serve` | `node .agent/scripts/sdlc-engine.mjs ui-snapshot` + embed `<agent-embed>` |
 | `/sdlc wiki [sync\|audit\|map]` | `node .agent/scripts/sdlc-engine.mjs wiki <subcommand>` |
 | `/sdlc release [patch\|minor\|major]` | `node .agent/scripts/sdlc-engine.mjs release <bump>` |
@@ -36,4 +37,4 @@ When the user invokes `/sdlc <subcommand> [arguments]`, map the request directly
 ## 2. Execution Protocol
 1. Parse the user's subcommand and flags after `/sdlc`.
 2. Execute the mapped `node .agent/scripts/sdlc-engine.mjs ...` command via `run_command`.
-3. If the subcommand is `begin`, `pre-pr`, `ui`, or `status`, also refresh `<artifactDir>/sdlc-architecture-diff.html` from `.agent/workbench/index.html` using `write_file` (`UserFacing: true`) and embed `<agent-embed src="sdlc-architecture-diff.html" />`.
+3. If the subcommand is `begin`, `pre-pr`, `ui`, or `status`, also refresh `<artifactDir>/sdlc-architecture-diff.html` from `.agent/workbench/index.html` using `write_file` (`UserFacing: true`) and embed `<agent-embed src="file:///<artifactDir>/sdlc-architecture-diff.html"></agent-embed>`.

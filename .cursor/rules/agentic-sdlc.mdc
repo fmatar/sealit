@@ -22,3 +22,10 @@ alwaysApply: true
 - Mutation kill score: >= 80% using PITest or Stryker.
 - Concentric ring Clean Architecture compliance: zero outer-layer imports into domain entities.
 
+## 4. Execution Discipline: ub-mode
+- For all active coding, feature implementation, and bug fixing (Stages 3 & 4), the assistant must execute using `ub-mode` (.agent/skills/ub-mode/SKILL.md):
+  1. First Make it Work: Domain modeling (illegal states unrepresentable), strict Red->Green TDD, Attack the Premise, Subtract Before Adding.
+  2. Then Make it Right: CRAP score < 10, DRY duplication < 0.8, Mutation testing >= 80%.
+  3. Follow Practice: Clean worktree, atomic commits with rationale and proof.
+
+

@@ -30,5 +30,5 @@ node .agent/scripts/sdlc-engine.mjs ui-snapshot
 ## 2. Inline Architecture UI Presentation
 Copy `.agent/workbench/index.html` to `<artifactDir>/sdlc-architecture-diff.html` via `write_file` (`UserFacing: true`) and render it inline in your response:
 ```markdown
-<agent-embed src="sdlc-architecture-diff.html" />
+<agent-embed src="file:///<artifactDir>/sdlc-architecture-diff.html"></agent-embed>
 ```
