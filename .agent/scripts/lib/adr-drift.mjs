@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { execSync } from 'node:child_process';
-import { fileExists, readFileSafe, getModifiedFiles } from './core.mjs';
+import { fileExists, readFileSafe, getModifiedFiles, gitOutput } from './core.mjs';
 import { appendDecisionEvent, syncDecisionMapMarkdown } from './decision-graph.mjs';
 import { appendAuditRecord } from './audit-chain.mjs';
 
@@ -335,13 +334,10 @@ export function auditContractDrift({ diffFiles = [], baseBranch = 'main', repoRo
     const fullPath = path.resolve(repoRoot, relPath);
     let oldContent = '';
     try {
-      oldContent = execSync(
-        `git show origin/${baseBranch}:${relPath} 2>/dev/null || git show HEAD~1:${relPath} 2>/dev/null || true`,
-        {
-          cwd: repoRoot,
-          encoding: 'utf8',
-          stdio: 'pipe'
-        }
+      oldContent = (
+        gitOutput(['show', `origin/${baseBranch}:${relPath}`], repoRoot) ??
+        gitOutput(['show', `HEAD~1:${relPath}`], repoRoot) ??
+        ''
       ).trim();
     } catch {}
 

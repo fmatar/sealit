@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 
 export const AUDIT_LEDGER_FILE = 'docs/AUDIT_CHAIN.jsonl';
 export const GENESIS_HASH = '0000000000000000000000000000000000000000000000000000000000000000';
@@ -217,7 +217,7 @@ export function verifyGateReceipt({ headSha = null, branch = null, repoRoot = '.
   let targetSha = headSha;
   if (!targetSha && branch) {
     try {
-      targetSha = execSync(`git rev-parse "${branch}" 2>/dev/null`, {
+      targetSha = execFileSync('git', ['rev-parse', '--verify', '-q', '--end-of-options', branch], {
         cwd: repoRoot,
         encoding: 'utf8',
         stdio: 'pipe'

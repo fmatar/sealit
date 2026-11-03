@@ -313,7 +313,9 @@ export function releaseSession(repoRoot = '.', issueId = null) {
     if (targetSession.worktree && fileExists(path.resolve(repoRoot, targetSession.worktree))) {
       try {
         console.log(`🌲 Pruning Git worktree: ${targetSession.worktree}...`);
-        execSync(`git worktree remove --force "${targetSession.worktree}" 2>/dev/null || true`, { cwd: repoRoot });
+        try {
+          execFileSync('git', ['worktree', 'remove', '--force', '--', targetSession.worktree], { cwd: repoRoot, stdio: 'pipe' });
+        } catch {}
       } catch {}
     }
 

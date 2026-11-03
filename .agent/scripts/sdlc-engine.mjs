@@ -146,6 +146,7 @@ import {
   findAffectedTests,
   findAffectededTests,
   buildSingleTestCommand,
+  buildSingleTestArgv,
   parseCoverageReport,
   parseMutationReport,
   runFlakeCheck,
@@ -282,6 +283,7 @@ export {
   findAffectedTests,
   findAffectededTests,
   buildSingleTestCommand,
+  buildSingleTestArgv,
   parseCoverageReport,
   parseMutationReport,
   runFlakeCheck,
@@ -414,9 +416,9 @@ export function executeRelease({
   }
 
   try {
-    execSync(`git add ${updatedFiles.join(' ')}`, { cwd: repoRoot, stdio: 'pipe' });
-    execSync(`git commit -m "chore(release): ${releaseTag}"`, { cwd: repoRoot, stdio: 'pipe' });
-    execSync(`git tag -a ${releaseTag} -m "Release ${releaseTag}"`, { cwd: repoRoot, stdio: 'pipe' });
+    execFileSync('git', ['add', '--', ...updatedFiles], { cwd: repoRoot, stdio: 'pipe' });
+    execFileSync('git', ['commit', '-m', `chore(release): ${releaseTag}`], { cwd: repoRoot, stdio: 'pipe' });
+    execFileSync('git', ['tag', '-a', releaseTag, '-m', `Release ${releaseTag}`], { cwd: repoRoot, stdio: 'pipe' });
   } catch {}
 
   return {
@@ -479,8 +481,8 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         const affectedTests = findAffectedTests(files, repoRoot);
         if (affectedTests.length > 0) {
           for (const testFile of affectedTests) {
-            const singleCmd = buildSingleTestCommand(testFile, repoRoot);
-            execSync(singleCmd, { stdio: 'inherit', cwd: repoRoot });
+            const single = buildSingleTestArgv(testFile, repoRoot);
+            execFileSync(single.file, single.args, { stdio: 'inherit', cwd: repoRoot });
           }
           result.affectedTests = affectedTests;
           return result;
