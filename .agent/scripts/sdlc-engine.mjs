@@ -1550,7 +1550,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       }
       const workbench = createWorkbenchServer({ port, repoRoot });
       workbench.listen();
-      result.workbench = { port, url: `http://localhost:${port}` };
+      result.workbench = { port, url: `http://127.0.0.1:${port}/?token=${workbench.token}` };
       return result;
     }
 

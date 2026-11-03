@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
-import { spawn } from 'node:child_process';
+import crypto from 'node:crypto';
 import { fileExists, readFileSafe, getModifiedFiles } from './core.mjs';
 import { getSessionStatus } from './session.mjs';
 import { buildDecisionGraph } from './decision-graph.mjs';
@@ -1945,6 +1945,10 @@ export function renderWorkbenchHTML(repoRoot = '.', getSessionStatusFn = getSess
   </div>
 
   <script>
+    // Workbench API token: passed once in the URL printed by \`sdlc-engine serve\`.
+    const SDLC_TOKEN = new URLSearchParams(location.search).get('token') || '';
+    const authFetch = (url, opts = {}) =>
+      fetch(url, { ...opts, headers: { ...(opts.headers || {}), 'X-SDLC-Token': SDLC_TOKEN } });
     let STATE = ${initialBootstrap};
     let activeCategory = 'ALL';
     let selectedNodeId = null;
@@ -2159,7 +2163,7 @@ export function renderWorkbenchHTML(repoRoot = '.', getSessionStatusFn = getSess
       const toast = document.getElementById('adr-toast');
       if (!adrId) return;
       try {
-        const res = await fetch('/api/adr/decide', {
+        const res = await authFetch('/api/adr/decide', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ adrId, action, reviewer: '@mission-control', reason })
@@ -2246,7 +2250,7 @@ export function renderWorkbenchHTML(repoRoot = '.', getSessionStatusFn = getSess
       const toast = document.getElementById('dag-toast');
       const badge = document.getElementById('dag-status-badge');
       try {
-        const res = await fetch('/api/dag/control', {
+        const res = await authFetch('/api/dag/control', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action, reason })
@@ -2376,10 +2380,10 @@ export function renderWorkbenchHTML(repoRoot = '.', getSessionStatusFn = getSess
     async function bootWorkbench() {
       try {
         const [arch, graph, prod, statusRes] = await Promise.all([
-          fetch('/api/arch-diff').then(r => r.json()),
-          fetch('/api/decision-graph').then(r => r.json()),
-          fetch('/api/product').then(r => r.json()),
-          fetch('/api/status').then(r => r.json())
+          authFetch('/api/arch-diff').then(r => r.json()),
+          authFetch('/api/decision-graph').then(r => r.json()),
+          authFetch('/api/product').then(r => r.json()),
+          authFetch('/api/status').then(r => r.json())
         ]);
         STATE.arch = arch;
         STATE.graph = graph;
@@ -2397,7 +2401,7 @@ export function renderWorkbenchHTML(repoRoot = '.', getSessionStatusFn = getSess
 
     bootWorkbench();
     try {
-      const es = new EventSource('/api/events');
+      const es = new EventSource('/api/events?token=' + encodeURIComponent(SDLC_TOKEN));
       es.addEventListener('connected', () => {
         const el = document.getElementById('sse-indicator');
         if (el) el.textContent = 'SSE Stream Connected';
@@ -2411,28 +2415,31 @@ export function renderWorkbenchHTML(repoRoot = '.', getSessionStatusFn = getSess
 </html>`;
 }
 
-export function ensureWorkbenchRunning({ port = 4120, repoRoot = '.' } = {}) {
-  // Never spawn background daemons inside automated unit tests
-  if (process.env.NODE_TEST_CONTEXT || repoRoot !== '.') {
-    return { started: false, port, url: `http://localhost:${port}`, reason: 'test-or-isolated-repo' };
-  }
-  try {
-    const engineScript = path.resolve(repoRoot, '.agent/scripts/sdlc-engine.mjs');
-    if (fileExists(engineScript)) {
-      const child = spawn(process.execPath, [engineScript, 'serve', '--port', String(port)], {
-        cwd: path.resolve(repoRoot),
-        detached: true,
-        stdio: 'ignore'
-      });
-      child.unref();
-      return { started: true, port, url: `http://localhost:${port}` };
-    }
-  } catch {}
-  return { started: false, port, url: `http://localhost:${port}` };
+/**
+ * The workbench is no longer auto-spawned as a detached daemon: a background
+ * process would print its access token nowhere and outlive the session.
+ * Callers get the command to run instead.
+ */
+export function ensureWorkbenchRunning({ port = 4120 } = {}) {
+  return {
+    started: false,
+    port,
+    url: `http://127.0.0.1:${port}`,
+    command: `node .agent/scripts/sdlc-engine.mjs serve --port ${port}`,
+    reason: 'auto-spawn-disabled'
+  };
 }
 
-export function createWorkbenchServer({ port = 4120, repoRoot = '.', getSessionStatusFn = getSessionStatus } = {}) {
+export function createWorkbenchServer({
+  port = 4120,
+  host = '127.0.0.1',
+  token = null,
+  repoRoot = '.',
+  getSessionStatusFn = getSessionStatus
+} = {}) {
   const sseClients = new Set();
+  const accessToken = token || crypto.randomBytes(24).toString('hex');
+  const tokenBuf = Buffer.from(accessToken, 'utf8');
 
   const broadcast = (eventType, payload) => {
     const msg = `event: ${eventType}\ndata: ${JSON.stringify(payload)}\n\n`;
@@ -2445,14 +2452,41 @@ export function createWorkbenchServer({ port = 4120, repoRoot = '.', getSessionS
     }
   };
 
+  const tokenMatches = (candidate) => {
+    if (typeof candidate !== 'string' || candidate.length === 0) return false;
+    const buf = Buffer.from(candidate, 'utf8');
+    return buf.length === tokenBuf.length && crypto.timingSafeEqual(buf, tokenBuf);
+  };
+
   const server = http.createServer(async (req, res) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    const actualPort = server.address()?.port || port;
+    const allowedOrigins = new Set([`http://127.0.0.1:${actualPort}`, `http://localhost:${actualPort}`]);
+    const allowedHosts = new Set([`127.0.0.1:${actualPort}`, `localhost:${actualPort}`]);
+    res.setHeader('Vary', 'Origin');
+
+    // Reject DNS-rebinding (foreign Host) and cross-origin browser requests.
+    const origin = req.headers.origin;
+    if (!allowedHosts.has(String(req.headers.host || '')) || (origin && !allowedOrigins.has(origin))) {
+      res.writeHead(403, { 'Content-Type': 'text/plain' });
+      res.end('Forbidden: workbench only accepts same-origin requests on loopback.');
+      return;
+    }
+    if (origin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-SDLC-Token');
+    }
 
     if (req.method === 'OPTIONS') {
       res.writeHead(204);
       res.end();
+      return;
+    }
+
+    const queryToken = new URL(req.url || '/', 'http://127.0.0.1').searchParams.get('token');
+    if (!tokenMatches(req.headers['x-sdlc-token']) && !tokenMatches(queryToken)) {
+      res.writeHead(401, { 'Content-Type': 'text/plain' });
+      res.end('Unauthorized: open the URL printed by `sdlc-engine serve` (it carries ?token=...).');
       return;
     }
 
@@ -2572,12 +2606,15 @@ export function createWorkbenchServer({ port = 4120, repoRoot = '.', getSessionS
   return {
     server,
     port,
+    host,
+    token: accessToken,
     broadcast,
+    url: () => `http://127.0.0.1:${server.address()?.port || port}/?token=${accessToken}`,
     listen: () => {
       return new Promise((resolve, reject) => {
-        server.listen(port, () => {
+        server.listen(port, host, () => {
           const actualPort = server.address()?.port || port;
-          console.log(`Agentic SDLC SvelteKit Workbench live at: http://localhost:${actualPort}`);
+          console.log(`Agentic SDLC Workbench (loopback only) live at: http://127.0.0.1:${actualPort}/?token=${accessToken}`);
           resolve(server);
         });
         server.on('error', reject);
