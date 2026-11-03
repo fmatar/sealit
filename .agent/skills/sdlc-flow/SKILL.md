@@ -39,14 +39,19 @@ node .agent/scripts/sdlc-engine.mjs stage begin --title "<title>" --type <feat|f
   node .agent/scripts/sdlc-engine.mjs reproduce --error "<stack_trace>" --target "<file>"
   ```
 
-### Phase 2: Robert Martin TDD Implementation (`sdlc-tdd`)
-Execute the **Robert C. Martin TDD** loop (`sdlc-tdd`):
-1. Write a failing unit test (**Red**), make it pass with minimal code (**Green**), and decouple (**Refactor**).
-2. Run affected tests and coverage verification:
-   ```bash
-   node .agent/scripts/sdlc-engine.mjs test --affected-only
-   node .agent/scripts/sdlc-engine.mjs coverage
-   ```
+### Phase 2: Robert Martin TDD & Clean Code Implementation (`ub-mode` / `sdlc-tdd`)
+Execute the coding cycle adhering strictly to **`ub-mode`** (invoking `/ub-mode`):
+1. **First Make it Work:**
+   - **Model the Domain**: Define pure domain types making illegal states impossible.
+   - **TDD (Red -> Green)**: Write the failing test before changing code; write only minimal code to pass.
+   - **Attack the Premise**: If two fixes sharing a premise fail a gate, isolate and discard the premise.
+   - **Subtract Before You Add**: Simplify or remove complexity before adding new logic.
+2. **Then Make it Right:**
+   - Run affected tests: `node .agent/scripts/sdlc-engine.mjs test --affected-only`
+   - Verify coverage (CRAP < 10, Line Coverage >= 85%): `node .agent/scripts/sdlc-engine.mjs coverage`
+   - Eliminate duplication (Dryer similarity < 0.8) and run mutation tests to kill surviving mutants: `node .agent/scripts/sdlc-engine.mjs mutation`
+3. **Follow Practice:**
+   - Deliver small, ordered, atomic commits explaining *why*, *what changed*, and *how proven*.
 
 ### Phase 3: Pre-PR Verification, Cryptographic Receipt & Live Architecture UI (`stage pre-pr`)
 Once implementation and docs are updated, execute the composite `stage pre-pr` command:

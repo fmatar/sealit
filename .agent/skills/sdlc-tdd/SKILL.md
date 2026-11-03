@@ -21,6 +21,7 @@ tools: read_file, write_file, edit_file, run_command
 - **No Trivial Accessor Tests**: Do not write tests solely for plain getters/setters or framework boilerplate.
 - **No Mock Abuse**: Prefer lightweight in-memory fakes or real domain objects over deeply nested mocks that test mock wiring instead of business rules.
 - **F.I.R.S.T. Isolation**: Tests must be Fast, Independent, Repeatable (ephemeral ports/temp dirs), Self-Validating, and Timely.
+- **ub-mode Alignment**: Adhere to Robert C. Martin's reduced principles (`ub-mode`): First Make it Work (Laziness Protocol, Subtract Before You Add, Attack the Premise), Then Make it Right (CRAP < 10, DRY < 0.8, Mutation kill >= 80%), and Follow Practice.
 
 ---
 
