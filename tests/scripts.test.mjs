@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
 import { auditSkills } from '../.agent/scripts/sdlc-engine.mjs';
@@ -21,15 +22,25 @@ describe('Kanban Scripts & Consolidated 6-Skill Schema Validation', () => {
   });
 
   it('verifies kanban-sync.sh output format contains Board and Traceability Matrix', () => {
+    // Hermetic: run in a temp dir with a stub `gh` so the test never calls the
+    // live GitHub API or rewrites this repository's tracked docs/KANBAN.md.
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'kanban-sync-'));
     try {
-      execSync('.agent/scripts/kanban-sync.sh', { stdio: 'pipe' });
-      const kanbanContent = fs.readFileSync('docs/KANBAN.md', 'utf8');
+      const bin = path.join(tmp, 'bin');
+      fs.mkdirSync(bin);
+      fs.mkdirSync(path.join(tmp, 'docs'));
+      fs.writeFileSync(path.join(bin, 'gh'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+      execSync(path.resolve('.agent/scripts/kanban-sync.sh'), {
+        cwd: tmp,
+        stdio: 'pipe',
+        env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` }
+      });
+      const kanbanContent = fs.readFileSync(path.join(tmp, 'docs/KANBAN.md'), 'utf8');
       assert.ok(kanbanContent.includes('## 📊 Board Overview'));
       assert.ok(kanbanContent.includes('## 🎯 End-to-End Traceability Matrix'));
       assert.ok(kanbanContent.includes('| 📥 Backlog | 📋 Ready | ⚡ In Progress | 🔍 In Review | ✅ Done |'));
-    } catch {
-      const scriptCode = fs.readFileSync('.agent/scripts/kanban-sync.sh', 'utf8');
-      assert.ok(scriptCode.includes('End-to-End Traceability Matrix'));
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
     }
   });
 
