@@ -34,99 +34,65 @@ flowchart TD
   SPEC_10["SPEC-10 (docs/specs/cap-10-unified-multi-provider-ticket-engine-issue-templ.md)"]
   CAP_11["CAP-11: Technical Writer Skill (`sdlc-wiki`) & Archlens AST-to-Wiki Sync (#90)"]
   SPEC_11["SPEC-11 (docs/specs/cap-11-technical-writer-archlens-wiki-sync.md)"]
-  ADR_001["ADR-001: Decompose sdlc-engine.mjs into Modular Domain Libraries with SHA-256 Gate Cache and SvelteKit 5 Decision Workbench"]
-  _63["Ticket #63 (feature/issue-#63-product-autopilot-adr-workbench)"]
-  ADR_002["ADR-002: Consolidate 14 Skills into 6 Schema-Valid Skills, Add Composite Stage CLI, and Enforce Real Dual-Gate Verification"]
-  _68["Ticket #68 (feature/issue-#68-framework-hardening-v0-1)"]
-  ADR_003["ADR-003: Replace Legacy Shell/Java Installers with Native npx Interactive Multi-Agent Installer Wizard"]
-  _75["Ticket #75 (feature/issue-#75-npx-multi-agent-installer)"]
-  ADR_004["ADR-004: Introduce /sdlc Universal Router and 8 Verb-Driven Command Skills"]
-  _81["Ticket #81 (feature/issue-#81-command-verb-skills-router)"]
-  ADR_005["ADR-005: Adopt Two-Tier PRD and IEEE 29148 SRS Specification Governance in sdlc-product"]
-  _84["Ticket #84 (feature/issue-#84-two-tier-prd-srs-specification-engine)"]
-  ADR_006["ADR-006: Unified Multi-Provider Ticket Engine and Canonical Issue Templates"]
-  ADR_007["ADR-007: Introduce sdlc-wiki Technical Writer Skill and Deterministic Archlens AST-to-Wiki Synchronization Engine"]
-  _90["Ticket #90 (feature/issue-#90-skillspector-security-audit)"]
-  ADR_008["ADR-008: Fail-closed enforcement: exit codes, signed measured receipts, authenticated workbench"]
-  _91["Ticket #91 (feature/issue-91-harden-gates)"]
+  ADR_COMPACT_v0_3_0["Compacted 8 ADR(s) into SRS.md (v0.3.0)"]
   createdAt__2026_11_03T18_52_42_656Z["createdAt: 2026-11-03T18:52:42.656Z"]
-  __86["##86"]
   _SDLC_INIT["Ticket #SDLC-INIT (feature/arch-traceability-governance)"]
   _24["Ticket #24 (feature/issue-#24-api-contract-drift-sentinel)"]
   _25["Ticket #25 (feature/issue-#25-bug-reproduce-generator)"]
   _26["Ticket #26 (feature/issue-#26-session-telemetry-roi)"]
   _43["Ticket #43 (feature/issue-#43-multi-branch-protection)"]
+  _63["Ticket #63 (feature/issue-#63-product-autopilot-adr-workbench)"]
+  _68["Ticket #68 (feature/issue-#68-framework-hardening-v0-1)"]
+  _75["Ticket #75 (feature/issue-#75-npx-multi-agent-installer)"]
   _77["Ticket #77 (feature/issue-#77-readme-overhaul)"]
   _79["Ticket #79 (feature/issue-#79-readme-dx-redesign)"]
+  _81["Ticket #81 (feature/issue-#81-command-verb-skills-router)"]
+  _84["Ticket #84 (feature/issue-#84-two-tier-prd-srs-specification-engine)"]
   _86["Ticket #86 (feature/issue-#86-multi-provider-ticket-engine-and-templat)"]
   _88["Ticket #88 (feature/issue-#88-skillspector-zero-findings-and-skill-aud)"]
+  _90["Ticket #90 (feature/issue-#90-skillspector-security-audit)"]
+  _91["Ticket #91 (feature/issue-91-harden-gates)"]
+  _94["Ticket #94 (feature/issue-#94-fix-claude-cowork-skill-provisioning-non)"]
+  _95["Ticket #95 (feature/issue-#95-implement-adr-lifecycle-compaction-and-f)"]
   CAP_01 -->|specified_by| SPEC_01
   CAP_02 -->|specified_by| SPEC_02
   CAP_03 -->|specified_by| SPEC_03
-  CAP_01 -->|depends_on| CAP_03
-  CAP_02 -->|depends_on| CAP_03
+  CAP_03 -->|depends_on| CAP_01
+  CAP_03 -->|depends_on| CAP_02
   CAP_04 -->|specified_by| SPEC_04
-  CAP_02 -->|depends_on| CAP_04
+  CAP_04 -->|depends_on| CAP_02
   CAP_05 -->|specified_by| SPEC_05
-  CAP_03 -->|depends_on| CAP_05
-  CAP_04 -->|depends_on| CAP_05
+  CAP_05 -->|depends_on| CAP_03
+  CAP_05 -->|depends_on| CAP_04
   CAP_06 -->|specified_by| SPEC_06
-  CAP_05 -->|depends_on| CAP_06
+  CAP_06 -->|depends_on| CAP_05
   CAP_07 -->|specified_by| SPEC_07
-  CAP_06 -->|depends_on| CAP_07
+  CAP_07 -->|depends_on| CAP_06
   CAP_08 -->|specified_by| SPEC_08
-  CAP_05 -->|depends_on| CAP_08
-  CAP_07 -->|depends_on| CAP_08
+  CAP_08 -->|depends_on| CAP_05
+  CAP_08 -->|depends_on| CAP_07
   CAP_09 -->|specified_by| SPEC_09
-  CAP_05 -->|depends_on| CAP_09
-  CAP_08 -->|depends_on| CAP_09
+  CAP_09 -->|depends_on| CAP_05
+  CAP_09 -->|depends_on| CAP_08
   CAP_10 -->|specified_by| SPEC_10
-  CAP_02 -->|depends_on| CAP_10
-  CAP_09 -->|depends_on| CAP_10
+  CAP_10 -->|depends_on| CAP_02
+  CAP_10 -->|depends_on| CAP_09
   CAP_11 -->|specified_by| SPEC_11
-  CAP_03 -->|depends_on| CAP_11
-  CAP_05 -->|depends_on| CAP_11
-  CAP_08 -->|depends_on| CAP_11
-  _63 -->|triggered_drift_adr| ADR_001
-  CAP_01 -.->|ADR Drift| ADR_001
-  _68 -->|triggered_drift_adr| ADR_002
-  CAP_01 -.->|ADR Drift| ADR_002
-  CAP_02 -.->|ADR Drift| ADR_002
-  CAP_03 -.->|ADR Drift| ADR_002
-  CAP_04 -.->|ADR Drift| ADR_002
-  CAP_05 -.->|ADR Drift| ADR_002
-  CAP_06 -.->|ADR Drift| ADR_002
-  _75 -->|triggered_drift_adr| ADR_003
-  CAP_06 -.->|ADR Drift| ADR_003
-  CAP_07 -.->|ADR Drift| ADR_003
-  _81 -->|triggered_drift_adr| ADR_004
-  CAP_05 -.->|ADR Drift| ADR_004
-  CAP_07 -.->|ADR Drift| ADR_004
-  CAP_08 -.->|ADR Drift| ADR_004
-  _84 -->|triggered_drift_adr| ADR_005
-  CAP_05 -.->|ADR Drift| ADR_005
-  CAP_08 -.->|ADR Drift| ADR_005
-  CAP_09 -.->|ADR Drift| ADR_005
-  CAP_02 -.->|ADR Drift| ADR_006
-  CAP_09 -.->|ADR Drift| ADR_006
-  CAP_10 -.->|ADR Drift| ADR_006
-  _90 -->|triggered_drift_adr| ADR_007
-  CAP_05 -.->|ADR Drift| ADR_007
-  CAP_06 -.->|ADR Drift| ADR_007
-  CAP_08 -.->|ADR Drift| ADR_007
-  CAP_11 -.->|ADR Drift| ADR_007
-  _91 -->|triggered_drift_adr| ADR_008
-  createdAt__2026_11_03T18_52_42_656Z -.->|ADR Drift| ADR_008
-  _63 -.->|ADR Drift| ADR_001
-  CAP_05 -->|realized_by| CAP_09
-  CAP_08 -->|realized_by| CAP_09
-  CAP_02 -->|realized_by| CAP_10
-  CAP_09 -->|realized_by| CAP_10
-  __86 -.->|ADR Drift| ADR_006
-  CAP_02 -->|realized_by| ADR_006
-  CAP_09 -->|realized_by| ADR_006
-  CAP_10 -->|realized_by| ADR_006
-  _91 -.->|ADR Drift| ADR_008
+  CAP_11 -->|depends_on| CAP_03
+  CAP_11 -->|depends_on| CAP_05
+  CAP_11 -->|depends_on| CAP_08
+  CAP_01 -->|realized_by| ADR_COMPACT_v0_3_0
+  CAP_02 -->|realized_by| ADR_COMPACT_v0_3_0
+  CAP_03 -->|realized_by| ADR_COMPACT_v0_3_0
+  CAP_04 -->|realized_by| ADR_COMPACT_v0_3_0
+  CAP_05 -->|realized_by| ADR_COMPACT_v0_3_0
+  CAP_06 -->|realized_by| ADR_COMPACT_v0_3_0
+  CAP_07 -->|realized_by| ADR_COMPACT_v0_3_0
+  CAP_08 -->|realized_by| ADR_COMPACT_v0_3_0
+  CAP_09 -->|realized_by| ADR_COMPACT_v0_3_0
+  CAP_10 -->|realized_by| ADR_COMPACT_v0_3_0
+  CAP_11 -->|realized_by| ADR_COMPACT_v0_3_0
+  createdAt__2026_11_03T18_52_42_656Z -->|realized_by| ADR_COMPACT_v0_3_0
 ```
 
 ---
@@ -135,14 +101,7 @@ flowchart TD
 
 | ADR ID | Decision Title | Scope | Status | Triggered By | Supersedes / Amends |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **ADR-001** | Decompose sdlc-engine.mjs into Modular Domain Libraries with SHA-256 Gate Cache and SvelteKit 5 Decision Workbench | `technical` | `accepted` | #63 | CAP-01 |
-| **ADR-002** | Consolidate 14 Skills into 6 Schema-Valid Skills, Add Composite Stage CLI, and Enforce Real Dual-Gate Verification | `architectural` | `accepted` | #68 | CAP-01, CAP-02, CAP-03, CAP-04, CAP-05, CAP-06 |
-| **ADR-003** | Replace Legacy Shell/Java Installers with Native npx Interactive Multi-Agent Installer Wizard | `architectural` | `accepted` | #75 | CAP-06, CAP-07 |
-| **ADR-004** | Introduce /sdlc Universal Router and 8 Verb-Driven Command Skills | `architectural` | `accepted` | #81 | CAP-05, CAP-07, CAP-08 |
-| **ADR-005** | Adopt Two-Tier PRD and IEEE 29148 SRS Specification Governance in sdlc-product | `architectural` | `accepted` | #84 | CAP-05, CAP-08, CAP-09 |
-| **ADR-006** | Unified Multi-Provider Ticket Engine and Canonical Issue Templates | `technical` | `rejected` | N/A | CAP-02, CAP-09, CAP-10 |
-| **ADR-007** | Introduce sdlc-wiki Technical Writer Skill and Deterministic Archlens AST-to-Wiki Synchronization Engine | `architectural` | `accepted` | #90 | CAP-05, CAP-06, CAP-08, CAP-11 |
-| **ADR-008** | Fail-closed enforcement: exit codes, signed measured receipts, authenticated workbench | `technical` | `accepted` | #91 | createdAt: 2026-11-03T18:52:42.656Z |
+| *None* | No architectural drift ADRs recorded yet | - | - | - | - |
 
 ---
 

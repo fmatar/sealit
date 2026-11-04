@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import http from 'node:http';
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 
 import {
   // Core & Async Pool
@@ -28,6 +28,7 @@ import {
   createADR,
   listADRs,
   decideADR,
+  compactADRs,
   checkSpecDrift,
   // Causal Decision Graph
   appendDecisionEvent,
@@ -60,14 +61,17 @@ import {
   detectPMProvider,
   installHooks,
   createWorkbenchServer,
+  ensureWorkbenchRunning,
   buildArchDiffPayload,
   generateArchitectureWidget,
+  executeRelease,
   SUPPORTED_AGENTS,
   CANONICAL_SDLC_SKILLS,
   DEPRECATED_SDLC_SKILLS,
   pruneDeprecatedSkills,
   installFramework,
   parseInstallArgs,
+  formatCLIResult,
   inspectSourceModule,
   resolveArchlensRing,
   buildWikiCodeMap,
@@ -1137,6 +1141,443 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
       assert.equal(repoAudit.passed, true, JSON.stringify(repoAudit.findings));
       assert.equal(repoAudit.errorsCount, 0);
       assert.equal(repoAudit.coveragePct, 100);
+    });
+
+    it('provisions Claude Code & Cowork skills without foreign runtime tool names, preserves existing CLAUDE.md/settings.json, builds Cowork account skill zip bundles, and prints CLI output across subcommands', () => {
+      initTempGitRepo(tmpDir);
+
+      // Seed existing custom CLAUDE.md and .claude/settings.json with user keys + legacy invalid keys
+      const customClaudeMd = '# My Custom Project Instructions\nAlways run `npm run verify` before opening a PR.\n';
+      fs.writeFileSync(path.join(tmpDir, 'CLAUDE.md'), customClaudeMd, 'utf8');
+      fs.mkdirSync(path.join(tmpDir, '.claude'), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpDir, '.claude/settings.json'),
+        JSON.stringify(
+          {
+            model: 'claude-sonnet-4-20250514',
+            rules: ['CLAUDE.md'],
+            skillsDir: '.claude/skills',
+            commands: { 'sdlc-flow': 'bad' },
+            permissions: { allow: ['Bash(npm test)'] }
+          },
+          null,
+          2
+        ),
+        'utf8'
+      );
+
+      // Run installer twice to verify non-destructive preservation AND idempotency
+      installFramework({
+        targetDir: tmpDir,
+        repoRoot: tmpDir,
+        agents: ['claude', 'cursor', 'grok'],
+        skipDetect: true,
+        packageRoot: process.cwd()
+      });
+      const res = installFramework({
+        targetDir: tmpDir,
+        repoRoot: tmpDir,
+        agents: ['claude', 'cursor', 'grok'],
+        skipDetect: true,
+        packageRoot: process.cwd()
+      });
+      assert.equal(res.success, true);
+
+      // 1. CLAUDE.md preserved existing user instructions and appended SDLC block once
+      const updatedClaudeMd = fs.readFileSync(path.join(tmpDir, 'CLAUDE.md'), 'utf8');
+      assert.ok(updatedClaudeMd.includes('My Custom Project Instructions'), 'Must preserve existing CLAUDE.md content');
+      assert.ok(updatedClaudeMd.includes('Always run `npm run verify`'), 'Must preserve user lines in CLAUDE.md');
+      assert.ok(updatedClaudeMd.includes('Zero Direct Pushes'), 'Must include SDLC constitutional rules');
+      const markerMatches = updatedClaudeMd.match(/<!-- AGENTIC-SDLC-RULES:START -->/g) || [];
+      assert.equal(markerMatches.length, 1, 'Running install twice must remain idempotent');
+
+      // 2. .claude/settings.json uses valid Claude Code keys, removes legacy invalid keys, preserves user keys
+      const settings = JSON.parse(fs.readFileSync(path.join(tmpDir, '.claude/settings.json'), 'utf8'));
+      assert.equal(settings.rules, undefined, 'rules is not a valid Claude Code settings key');
+      assert.equal(settings.skillsDir, undefined, 'skillsDir is not a valid Claude Code settings key');
+      assert.equal(settings.commands, undefined, 'commands is not a valid Claude Code settings key');
+      assert.equal(settings.model, 'claude-sonnet-4-20250514', 'Must preserve existing user settings');
+      assert.ok(Array.isArray(settings.permissions?.allow), 'Must configure permissions.allow');
+      assert.ok(settings.permissions.allow.includes('Bash(npm test)'), 'Must preserve existing permissions.allow');
+      assert.ok(
+        settings.permissions.allow.some((p) => p.includes('sdlc-engine.mjs')),
+        'Must allow sdlc-engine.mjs execution'
+      );
+
+      // 3. All 10 Claude skills, commands, and Cowork .zip bundles have clean frontmatter and zero Antigravity tool names
+      for (const skillId of CANONICAL_SDLC_SKILLS) {
+        const claudeSkill = fs.readFileSync(path.join(tmpDir, '.claude/skills', skillId, 'SKILL.md'), 'utf8');
+        const claudeCmd = fs.readFileSync(path.join(tmpDir, '.claude/commands', `${skillId}.md`), 'utf8');
+        const grokSkill = fs.readFileSync(path.join(tmpDir, '.grok/skills', skillId, 'SKILL.md'), 'utf8');
+
+        for (const content of [claudeSkill, claudeCmd, grokSkill]) {
+          assert.equal(/^tools:/m.test(content), false, `${skillId} must not include Antigravity tools: frontmatter`);
+          assert.equal(content.includes('<agent-embed'), false, `${skillId} must not include <agent-embed>`);
+          assert.equal(content.includes('<artifactDir>'), false, `${skillId} must not include <artifactDir>`);
+          assert.equal(/\b(read_file|write_file|edit_file|run_command|invoke_subagent)\b/.test(content), false, `${skillId} must not reference Antigravity tool names`);
+        }
+
+        // Cowork account-level skill .zip bundle exists and starts with PK\x03\x04 ZIP signature containing <skillId>/SKILL.md
+        const zipPath = path.join(tmpDir, '.claude/cowork', `${skillId}.zip`);
+        assert.equal(fs.existsSync(zipPath), true, `Cowork zip bundle missing for ${skillId}`);
+        const zipBuf = fs.readFileSync(zipPath);
+        assert.equal(zipBuf[0], 0x50); // 'P'
+        assert.equal(zipBuf[1], 0x4b); // 'K'
+        assert.equal(zipBuf[2], 0x03);
+        assert.equal(zipBuf[3], 0x04);
+        assert.ok(zipBuf.toString('utf8').includes(`${skillId}/SKILL.md`));
+      }
+
+      // 4. .claude-plugin/plugin.json exists so Cowork / Claude Code can also load the repo as a plugin
+      const pluginJsonPath = path.join(tmpDir, '.claude-plugin/plugin.json');
+      assert.equal(fs.existsSync(pluginJsonPath), true);
+      const pluginManifest = JSON.parse(fs.readFileSync(pluginJsonPath, 'utf8'));
+      assert.equal(pluginManifest.name, 'agentic-sdlc');
+
+      // 5. CLI subcommands produce non-empty stdout when invoked as a subprocess
+      const statusOut = execFileSync('node', [path.resolve('.agent/scripts/sdlc-engine.mjs'), 'session', 'status'], {
+        cwd: tmpDir,
+        encoding: 'utf8'
+      });
+      assert.ok(statusOut.trim().length > 0, 'session status must print human-readable output');
+
+      const driftOut = execFileSync('node', [path.resolve('.agent/scripts/sdlc-engine.mjs'), 'drift', 'check'], {
+        cwd: tmpDir,
+        encoding: 'utf8'
+      });
+      assert.ok(driftOut.trim().length > 0, 'drift check must print human-readable output');
+
+      const uiOut = execFileSync('node', [path.resolve('.agent/scripts/sdlc-engine.mjs'), 'ui-snapshot'], {
+        cwd: tmpDir,
+        encoding: 'utf8'
+      });
+      assert.ok(uiOut.includes('index.html'), 'ui-snapshot must print snapshot path');
+
+      // 6. Verify serve --snapshot-only & formatCLIResult across all subcommand branches
+      const serveSnap = runCLI(['serve', '--snapshot-only'], null, tmpDir);
+      assert.equal(serveSnap.workbench.snapshotOnly, true);
+      assert.ok(formatCLIResult(serveSnap).includes('snapshot generated'));
+      assert.ok(formatCLIResult(serveSnap, ['--json']).includes('"snapshotOnly": true'));
+      assert.equal(formatCLIResult({ command: 'detect' }), '');
+      assert.ok(formatCLIResult({ command: 'session', subcommand: 'dashboard', dashboard: 'STAGE 2/8' }).includes('STAGE 2/8'));
+      assert.ok(formatCLIResult({ command: 'session', subcommand: 'dashboard' }).includes('No active SDLC session'));
+      assert.ok(
+        formatCLIResult({
+          command: 'session',
+          subcommand: 'status',
+          status: { active: true, session: { issueId: 42, branch: 'feature/42', stage: 2, stageName: 'Branch' } }
+        }).includes('#42')
+      );
+      assert.ok(formatCLIResult({ command: 'session', subcommand: 'list', sessions: { 42: {} }, activeSessionId: 42 }).includes('#42'));
+      assert.ok(formatCLIResult({ command: 'session', subcommand: 'release', released: true }).includes('Released'));
+      assert.ok(formatCLIResult({ command: 'stage', stage: { action: 'begin', issueId: 42, branch: 'feat/42', stage: 2 } }).includes('#42'));
+      assert.ok(formatCLIResult({ command: 'stage', stage: { action: 'pre-pr', issueId: 42, drift: { passed: true }, wikiAudit: { passed: true } } }).includes('Pre-PR'));
+      assert.ok(formatCLIResult({ command: 'stage', stage: { action: 'complete', issueId: 42, stage: 8, released: true } }).includes('Stage Complete'));
+      assert.ok(formatCLIResult({ command: 'drift', drift: { passed: false, reason: 'Missing ADR' } }).includes('Missing ADR'));
+      assert.ok(formatCLIResult({ command: 'adr', adrs: [{ id: 'ADR-001', title: 'Test', scope: 'technical', status: 'accepted', file: 'docs/adr/ADR-001.md' }] }).includes('ADR-001'));
+      assert.ok(formatCLIResult({ command: 'adr', adr: { id: 'ADR-002', title: 'Created', file: 'docs/adr/ADR-002.md' } }).includes('ADR-002'));
+      assert.ok(formatCLIResult({ command: 'decision-graph', subcommand: 'sync', decisionGraph: { nodesCount: 3, edgesCount: 2, markdownPath: 'docs/DECISION_MAP.md' } }).includes('DECISION_MAP.md'));
+      assert.ok(formatCLIResult({ command: 'skill-audit', skillAudit: { skillsAudited: 10, totalFindings: 0, success: true } }).includes('PASSED'));
+      assert.ok(formatCLIResult({ command: 'audit', audit: { valid: true, entriesCount: 5 } }).includes('VALID'));
+      assert.ok(formatCLIResult({ command: 'stats', stats: { currentStage: '2/8', activeBranch: 'feat', completedSessions: 1, totalSessions: 2, velocityScore: 50, estimatedHoursSaved: 5, totalDollarSavingsUSD: 600 } }).includes('$600'));
+      assert.ok(formatCLIResult({ command: 'cache', cache: { entriesCount: 2 } }).includes('2 cached'));
+      assert.ok(formatCLIResult({ command: 'ticket', issueId: 99, provider: 'local', title: 'Test' }).includes('#99'));
+      assert.ok(formatCLIResult({ command: 'product', spec: { capId: 'CAP-01', specPath: 'docs/specs/cap-01.md' } }).includes('CAP-01'));
+      assert.ok(formatCLIResult({ command: 'review', review: { verdict: 'approve', reviewer: 'bot' } }).includes('approve'));
+      assert.ok(formatCLIResult({ command: 'interop', interop: { selectedAgents: ['claude'], filesCreated: ['CLAUDE.md'] } }).includes('claude'));
+    });
+
+    it('implements ADR lifecycle compaction (compactADRs + release compaction) and resolves all 6 field-tested engine bugs', () => {
+      initTempGitRepo(tmpDir);
+
+      // --- 1. Initialize Product Constitution & Test Bug A (non-destructive product spec) ---
+      initProductConstitution({
+        title: 'Quantum Ledger',
+        vision: 'Deterministic clearinghouse.',
+        capabilities: [{ id: 'CAP-01', title: 'Core Clearing', spec: 'docs/specs/cap-01-clearing.md' }],
+        repoRoot: tmpDir
+      });
+
+      // Hand-write custom domain sections in docs/PRD.md, docs/SRS.md, and docs/specs/cap-01-clearing.md
+      const prdPath = path.join(tmpDir, 'docs/PRD.md');
+      const srsPath = path.join(tmpDir, 'docs/SRS.md');
+      const cap1SpecPath = path.join(tmpDir, 'docs/specs/cap-01-clearing.md');
+      fs.writeFileSync(
+        prdPath,
+        fs.readFileSync(prdPath, 'utf8') + '\n## Custom Domain PRD Section\nBespoke regulatory rules for ISO-20022.\n',
+        'utf8'
+      );
+      fs.writeFileSync(
+        srsPath,
+        fs.readFileSync(srsPath, 'utf8') + '\n## Custom Domain SRS Section\nSub-millisecond settlement SLA.\n',
+        'utf8'
+      );
+      fs.writeFileSync(cap1SpecPath, '# Custom Hand-Crafted CAP-01 Spec\nDo not overwrite me.\n', 'utf8');
+
+      // Scaffold CAP-02 without --force -> must preserve custom sections in PRD.md & SRS.md and insert CAP-02
+      const spec2 = scaffoldCapabilitySpec({
+        capId: 'CAP-02',
+        title: 'FX Netting Engine',
+        dependsOn: ['CAP-01'],
+        repoRoot: tmpDir
+      });
+      assert.equal(spec2.success, true);
+      const prdAfter = fs.readFileSync(prdPath, 'utf8');
+      const srsAfter = fs.readFileSync(srsPath, 'utf8');
+      assert.ok(prdAfter.includes('Custom Domain PRD Section'), 'Bug A: PRD.md custom content must be preserved');
+      assert.ok(prdAfter.includes('CAP-02 (FX Netting Engine)'), 'Bug A: CAP-02 must be surgical-inserted into PRD.md');
+      assert.ok(srsAfter.includes('Custom Domain SRS Section'), 'Bug A: SRS.md custom content must be preserved');
+      assert.ok(srsAfter.includes('`CAP-02`') && srsAfter.includes('FX Netting Engine'), 'Bug A: CAP-02 must be surgical-inserted into SRS.md');
+
+      // Re-running scaffoldCapabilitySpec on CAP-01 without force must NOT overwrite existing docs/specs/cap-01-clearing.md
+      scaffoldCapabilitySpec({
+        capId: 'CAP-01',
+        title: 'Core Clearing',
+        repoRoot: tmpDir
+      });
+      assert.ok(
+        fs.readFileSync(cap1SpecPath, 'utf8').includes('Do not overwrite me.'),
+        'Bug A: existing capability spec file must not be overwritten unless force is true'
+      );
+
+      // --- 2. Test Bug C (buildDecisionGraph depends_on direction & linksTo deduplication) ---
+      const adr1 = createADR({
+        title: 'Use LMAX Disruptor RingBuffer',
+        scope: 'technical',
+        ticketId: 10,
+        supersedes: ['CAP-01'],
+        decision: 'Adopt single-writer ring buffer for clearing.',
+        repoRoot: tmpDir
+      });
+      const adr2 = createADR({
+        title: 'Add T+0 Instant Settlement Window',
+        scope: 'product',
+        ticketId: 11,
+        supersedes: ['CAP-02'],
+        decision: 'Support real-time T+0 settlement cutoff.',
+        repoRoot: tmpDir
+      });
+      assert.equal(adr1.adr.status, 'accepted');
+      assert.equal(adr2.adr.status, 'pending_approval');
+
+      const graphBefore = buildDecisionGraph(tmpDir);
+      // CAP-02 depends on CAP-01: edge must be CAP-02 -> CAP-01 (depends_on), NOT CAP-01 -> CAP-02
+      assert.ok(
+        graphBefore.edges.some((e) => e.from === 'CAP-02' && e.to === 'CAP-01' && e.relation === 'depends_on'),
+        'Bug C: CAP-02 -->|depends_on| CAP-01 must exist'
+      );
+      assert.equal(
+        graphBefore.edges.some((e) => e.from === 'CAP-01' && e.to === 'CAP-02' && e.relation === 'depends_on'),
+        false,
+        'Bug C: backwards CAP-01 -->|depends_on| CAP-02 must not exist'
+      );
+      assert.equal(
+        graphBefore.edges.some((e) => e.from === 'CAP-01' && e.to === 'CAP-02' && e.relation === 'realized_by'),
+        false,
+        'Bug C: bogus CAP-01 -->|realized_by| CAP-02 must not exist'
+      );
+      assert.equal(
+        graphBefore.edges.some((e) => e.from === '#10' && e.to === 'ADR-001' && e.relation === 'amended_by_adr'),
+        false,
+        'Bug C: duplicate #ticket -> ADR amended_by_adr edge must be skipped'
+      );
+
+      // --- 3. Test ADR Lifecycle Compaction (compactADRs, checkSpecDrift, CLI & Release) ---
+      // Attempting to compact while ADR-002 is pending_approval MUST throw
+      assert.throws(
+        () => compactADRs({ releaseVersion: 'v1.0.0', repoRoot: tmpDir }),
+        /ADR-002/,
+        'compactADRs must abort when any ADR is pending_approval'
+      );
+
+      // Approve ADR-002 via CLI decide command
+      runCLI(['adr', 'decide', 'ADR-002', 'approve'], null, tmpDir);
+
+      // Dry-run compaction leaves ADR files on disk
+      const dryCompact = compactADRs({ releaseVersion: 'v1.0.0', dryRun: true, repoRoot: tmpDir });
+      assert.equal(dryCompact.dryRun, true);
+      assert.equal(dryCompact.compactedCount, 2);
+      assert.equal(listADRs(tmpDir).length, 2);
+
+      // Execute compaction via CLI: `adr compact --release v1.0.0`
+      const compactCliRes = runCLI(['adr', 'compact', '--release', 'v1.0.0'], null, tmpDir);
+      assert.equal(compactCliRes.success, true);
+      assert.equal(compactCliRes.compact.compactedCount, 2);
+      assert.deepEqual(compactCliRes.compact.compactedAdrIds, ['ADR-001', 'ADR-002']);
+      assert.ok(formatCLIResult(compactCliRes).includes('v1.0.0'));
+
+      // Individual ADR files deleted
+      assert.equal(listADRs(tmpDir).length, 0);
+
+      // docs/SRS.md has ## Compacted Architectural Decisions table with ADR-001 and ADR-002
+      const srsCompacted = fs.readFileSync(srsPath, 'utf8');
+      assert.ok(srsCompacted.includes('## Compacted Architectural Decisions'));
+      assert.ok(srsCompacted.includes('ADR-001') && srsCompacted.includes('Adopt single-writer ring buffer'));
+      assert.ok(srsCompacted.includes('ADR-002') && srsCompacted.includes('v1.0.0'));
+
+      // PRODUCT.md ADR index block reset
+      const productCompacted = fs.readFileSync(path.join(tmpDir, 'PRODUCT.md'), 'utf8');
+      assert.ok(productCompacted.includes('Compacted into SRS.md (v1.0.0)'));
+      assert.equal(productCompacted.includes('| ADR-001 |'), false);
+
+      // .agent/decision-graph.jsonl pruned of ADR_CREATED/ADR_DECIDED and has ADR_BATCH_COMPACTED
+      const dgRaw = fs.readFileSync(path.join(tmpDir, '.agent/decision-graph.jsonl'), 'utf8');
+      assert.equal(dgRaw.includes('"type":"ADR_CREATED"'), false);
+      assert.equal(dgRaw.includes('"type":"ADR_DECIDED"'), false);
+      assert.ok(dgRaw.includes('"type":"ADR_BATCH_COMPACTED"'));
+
+      // docs/AUDIT_CHAIN.jsonl has ADR_BATCH_COMPACTED
+      const auditRaw = fs.readFileSync(path.join(tmpDir, 'docs/AUDIT_CHAIN.jsonl'), 'utf8');
+      assert.ok(auditRaw.includes('"event":"ADR_BATCH_COMPACTED"'));
+
+      // checkSpecDrift passes on ADR compaction diff
+      const driftOnCompact = checkSpecDrift({
+        diffFiles: ['PRODUCT.md', 'docs/SRS.md', 'docs/adr/ADR-001-use-lmax.md'],
+        ticketId: 11,
+        repoRoot: tmpDir
+      });
+      assert.equal(driftOnCompact.passed, true, 'checkSpecDrift must allow ADR compaction diffs');
+
+      // --- 4. Test Bug B (issueGateReceipt parameter aliases, null defaults, docsOnly, guard receipt flags) ---
+      const aliasReceipt = issueGateReceipt({
+        issueId: 20,
+        branch: 'feature/issue-#20-alias',
+        coverage: 88.6,
+        mutationScore: 81.4,
+        peerReviewApproved: true,
+        reviewer: '@qa',
+        driftCheckPassed: true,
+        repoRoot: tmpDir
+      });
+      assert.equal(aliasReceipt.success, true);
+      assert.equal(aliasReceipt.receipt.coveragePct, 88.6);
+      assert.equal(aliasReceipt.receipt.mutationPct, 81.4);
+      assert.equal(aliasReceipt.receipt.docsOnly, false);
+
+      const docsOnlyReceipt = issueGateReceipt({
+        issueId: 21,
+        branch: 'feature/issue-#21-docs',
+        docsOnly: true,
+        peerReviewApproved: true,
+        reviewer: '@writer',
+        driftCheckPassed: true,
+        repoRoot: tmpDir
+      });
+      assert.equal(docsOnlyReceipt.success, true);
+      assert.equal(docsOnlyReceipt.receipt.coveragePct, null);
+      assert.equal(docsOnlyReceipt.receipt.mutationPct, null);
+      assert.equal(docsOnlyReceipt.receipt.docsOnly, true);
+
+      startSession({ issueId: 22, branch: 'feature/issue-#22-cli', stage: 6, repoRoot: tmpDir, force: true });
+      updateSession({
+        manifestUpdate: { peerReview: { verdict: 'approve', reviewer: '@cli-reviewer' } },
+        repoRoot: tmpDir
+      });
+      const cliGuardReceipt = runCLI(['guard', 'receipt', '--docs-only'], null, tmpDir);
+      assert.equal(cliGuardReceipt.success, true);
+      assert.equal(cliGuardReceipt.receipt.receipt.coveragePct, null);
+      assert.equal(cliGuardReceipt.receipt.receipt.mutationPct, null);
+      assert.equal(cliGuardReceipt.receipt.receipt.docsOnly, true);
+
+      // --- 5. Test Bug D (updateLocalKanbanState preserves 6-column Traceability Matrix rows) ---
+      createTicket({
+        title: 'Preserve 6-column matrix row',
+        type: 'feat',
+        repoRoot: tmpDir,
+        execFn: () => {
+          throw new Error('offline');
+        }
+      });
+      const kanbanBefore = fs.readFileSync(path.join(tmpDir, 'docs/KANBAN.md'), 'utf8');
+      const idMatch = kanbanBefore.match(/\*\*(#\d+)\*\*/);
+      assert.ok(idMatch, 'Kanban must have a ticket in the Traceability Matrix');
+      const createdId = idMatch[1].replace('#', '');
+
+      transitionPMState({
+        issueId: createdId,
+        state: 'in-review',
+        repoRoot: tmpDir,
+        execFn: () => {
+          throw new Error('offline');
+        }
+      });
+      const kanbanAfter = fs.readFileSync(path.join(tmpDir, 'docs/KANBAN.md'), 'utf8');
+      const matrixLine = kanbanAfter
+        .split('\n')
+        .find((l) => l.includes(`**#${createdId}**`));
+      assert.ok(matrixLine, 'Bug D: 6-column Traceability Matrix row must still exist with **#<id>**');
+      const matrixCells = matrixLine.split('|').map((c) => c.trim());
+      assert.equal(matrixCells.length, 8, 'Bug D: Traceability Matrix row must remain a 6-column row (8 split elements)');
+      assert.equal(matrixCells[2], '`status:in-review`');
+      assert.equal(matrixCells[4], 'Core');
+
+      // --- 6. Test Bug E (First-time wiki sync without --init scaffolds Skills-Reference.md & passes strict audit) ---
+      const freshWikiRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-fresh-wiki-'));
+      try {
+        initTempGitRepo(freshWikiRepo);
+        installFramework({
+          targetDir: freshWikiRepo,
+          repoRoot: freshWikiRepo,
+          agents: ['gemini'],
+          skipDetect: true,
+          packageRoot: process.cwd()
+        });
+        const firstWikiSync = runCLI(['wiki', 'sync'], null, freshWikiRepo);
+        assert.equal(firstWikiSync.success, true, JSON.stringify(firstWikiSync.wikiAudit?.findings));
+        assert.equal(fs.existsSync(path.join(freshWikiRepo, 'wiki/Home.md')), true);
+        assert.equal(fs.existsSync(path.join(freshWikiRepo, 'wiki/Skills-Reference.md')), true);
+        const strictWiki = auditWiki(freshWikiRepo, { strict: true });
+        assert.equal(strictWiki.passed, true, JSON.stringify(strictWiki.findings));
+
+        const gitignoreContent = fs.readFileSync(path.join(freshWikiRepo, '.gitignore'), 'utf8');
+        assert.ok(gitignoreContent.includes('.agent/skills/*/scripts/bin/'));
+        assert.ok(gitignoreContent.includes('.agent/workbench/index.html'));
+        assert.ok(gitignoreContent.includes('.agent/arch-trace.jsonl'));
+        assert.ok(gitignoreContent.includes('docs/ARCH_TRACE.md'));
+      } finally {
+        fs.rmSync(freshWikiRepo, { recursive: true, force: true });
+      }
+
+      // Also verify executeRelease automatically compacts in-flight ADRs when cutting a release
+      fs.writeFileSync(path.join(tmpDir, 'package.json'), JSON.stringify({ name: 'quantum', version: '1.0.0' }, null, 2));
+      createADR({
+        title: 'Release Auto-Compacted Decision',
+        scope: 'technical',
+        ticketId: 30,
+        supersedes: ['CAP-01'],
+        decision: 'Compact me automatically on release.',
+        repoRoot: tmpDir
+      });
+      assert.equal(listADRs(tmpDir).length, 1);
+      const relRes = executeRelease({ bump: 'minor', skipGate: true, repoRoot: tmpDir });
+      assert.equal(relRes.success, true);
+      assert.equal(relRes.newVersion, '1.1.0');
+      assert.equal(relRes.compactedAdrs.compactedCount, 1);
+      assert.equal(listADRs(tmpDir).length, 0);
+
+      // --- 7. Test Bug F (ensureWorkbenchRunning stdio:'ignore' + unref, pinned @fmatar/archlens-skill, .gitignore) ---
+      let spawnedOpts = null;
+      let unrefCalled = false;
+      const wbSpawn = ensureWorkbenchRunning({
+        port: 4120,
+        repoRoot: process.cwd(),
+        spawn: true,
+        spawnFn: (_cmd, _args, opts) => {
+          spawnedOpts = opts;
+          return {
+            unref() {
+              unrefCalled = true;
+            }
+          };
+        }
+      });
+      assert.equal(wbSpawn.started, true);
+      assert.equal(spawnedOpts.stdio, 'ignore');
+      assert.equal(spawnedOpts.detached, true);
+      assert.equal(unrefCalled, true);
+
+      const mcpJson = fs.readFileSync(path.resolve('.mcp.json'), 'utf8');
+      assert.ok(mcpJson.includes('@fmatar/archlens-skill@'), '.mcp.json must pin @fmatar/archlens-skill version');
     });
   });
 });

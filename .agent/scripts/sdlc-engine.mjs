@@ -67,6 +67,7 @@ import {
   listADRs,
   createADR,
   decideADR,
+  compactADRs,
   checkSpecDrift,
   auditContractDrift
 } from './lib/adr-drift.mjs';
@@ -89,6 +90,7 @@ import {
   scaffoldIssueTemplates,
   loadIssueTemplate,
   formatTemplatedIssue,
+  updateLocalKanbanState,
   createTicket,
   createPMIssue,
   syncKanbanBoard,
@@ -100,10 +102,18 @@ import {
 } from './lib/pm-provider.mjs';
 
 import {
+  ARCHLENS_SKILL_PACKAGE,
+  DEFAULT_GITIGNORE_ENTRIES,
+  upsertGitignore,
+  pinArchlensMcpConfigs,
   SUPPORTED_AGENTS,
   CANONICAL_SDLC_SKILLS,
   DEPRECATED_SDLC_SKILLS,
   pruneDeprecatedSkills,
+  upsertConstitutionalRulesFile,
+  upsertClaudeSettingsJson,
+  adaptSkillForAgent,
+  createSkillZipBuffer,
   provisionAgentIntegrations,
   installFramework,
   parseInstallArgs,
@@ -228,6 +238,7 @@ export {
   listADRs,
   createADR,
   decideADR,
+  compactADRs,
   checkSpecDrift,
   auditContractDrift,
   extractExportSignatures,
@@ -241,15 +252,24 @@ export {
   scaffoldIssueTemplates,
   loadIssueTemplate,
   formatTemplatedIssue,
+  updateLocalKanbanState,
   createTicket,
   createPMIssue,
   syncKanbanBoard,
   transitionPMState,
   postPMComment,
+  ARCHLENS_SKILL_PACKAGE,
+  DEFAULT_GITIGNORE_ENTRIES,
+  upsertGitignore,
+  pinArchlensMcpConfigs,
   SUPPORTED_AGENTS,
   CANONICAL_SDLC_SKILLS,
   DEPRECATED_SDLC_SKILLS,
   pruneDeprecatedSkills,
+  upsertConstitutionalRulesFile,
+  upsertClaudeSettingsJson,
+  adaptSkillForAgent,
+  createSkillZipBuffer,
   provisionAgentIntegrations,
   installFramework,
   parseInstallArgs,
@@ -321,6 +341,7 @@ export function executeRelease({
   bump = 'patch',
   dryRun = false,
   skipGate = false,
+  noCompact = false,
   repoRoot = '.'
 } = {}) {
   console.log(`🚀 Preparing ${bump.toUpperCase()} Release (dryRun: ${dryRun})...`);
@@ -387,6 +408,16 @@ export function executeRelease({
   }
 
   const updatedFiles = [];
+  let compactedAdrs = null;
+  if (!noCompact && listADRs(repoRoot).length > 0) {
+    compactedAdrs = compactADRs({ releaseVersion: releaseTag, repoRoot });
+    for (const rel of ['PRODUCT.md', 'docs/SRS.md', 'docs/DECISION_MAP.md', 'docs/AUDIT_CHAIN.jsonl', '.agent/decision-graph.jsonl']) {
+      if (fileExists(path.resolve(repoRoot, rel)) && !updatedFiles.includes(rel)) {
+        updatedFiles.push(rel);
+      }
+    }
+  }
+
   if (manifestType === 'package.json') {
     const pkg = JSON.parse(readFileSafe(pkgPath));
     pkg.version = newVersion;
@@ -423,6 +454,9 @@ export function executeRelease({
 
   try {
     execFileSync('git', ['add', '--', ...updatedFiles], { cwd: repoRoot, stdio: 'pipe' });
+    if (compactedAdrs && compactedAdrs.compactedCount > 0) {
+      execFileSync('git', ['add', '-A', '--', 'docs/adr'], { cwd: repoRoot, stdio: 'pipe' });
+    }
     execFileSync('git', ['commit', '-m', `chore(release): ${releaseTag}`], { cwd: repoRoot, stdio: 'pipe' });
     execFileSync('git', ['tag', '-a', releaseTag, '-m', `Release ${releaseTag}`], { cwd: repoRoot, stdio: 'pipe' });
   } catch {}
@@ -433,7 +467,8 @@ export function executeRelease({
     currentVersion,
     newVersion,
     releaseTag,
-    updatedFiles
+    updatedFiles,
+    compactedAdrs
   };
 }
 
@@ -642,7 +677,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       const archInfo = inspectArchlens(repoRoot);
       if (archInfo.installed || config.archlens?.enabled) {
         try {
-          execSync('npx -y @fmatar/archlens-skill prompt --path . 2>/dev/null || true', { cwd: repoRoot, stdio: 'inherit' });
+          execSync('npx -y @fmatar/archlens-skill@1.2.0 prompt --path . 2>/dev/null || true', { cwd: repoRoot, stdio: 'inherit' });
         } catch {}
       }
 
@@ -718,6 +753,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
           processing = '',
           outputs = '',
           dependsOn = [];
+        const force = args.includes('--force');
         for (let i = 2; i < args.length; i++) {
           if ((args[i] === '--cap' || args[i] === '--id') && args[i + 1]) capId = args[++i];
           else if (args[i] === '--title' && args[i + 1]) title = args[++i];
@@ -729,7 +765,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
             dependsOn = args[++i].split(',').map((s) => s.trim()).filter(Boolean);
           }
         }
-        result.spec = scaffoldCapabilitySpec({ capId, title, problem, inputs, processing, outputs, dependsOn, repoRoot });
+        result.spec = scaffoldCapabilitySpec({ capId, title, problem, inputs, processing, outputs, dependsOn, force, repoRoot });
         return result;
       }
       result.product = parseProductMarkdown(repoRoot);
@@ -744,6 +780,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         processing = '',
         outputs = '',
         dependsOn = [];
+      const force = args.includes('--force');
       for (let i = 1; i < args.length; i++) {
         if ((args[i] === '--cap' || args[i] === '--id') && args[i + 1]) capId = args[++i];
         else if (args[i] === '--title' && args[i + 1]) title = args[++i];
@@ -755,7 +792,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
           dependsOn = args[++i].split(',').map((s) => s.trim()).filter(Boolean);
         }
       }
-      result.spec = scaffoldCapabilitySpec({ capId, title, problem, inputs, processing, outputs, dependsOn, repoRoot });
+      result.spec = scaffoldCapabilitySpec({ capId, title, problem, inputs, processing, outputs, dependsOn, force, repoRoot });
       return result;
     }
 
@@ -785,9 +822,30 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         return result;
       }
       if (sub === 'decide') {
-        const adrId = args[2];
-        const action = args[3] || 'approve';
-        result.adr = decideADR({ adrId, action, repoRoot });
+        let adrId = args[2] && !args[2].startsWith('-') ? args[2] : null;
+        let action = args[3] && !args[3].startsWith('-') ? args[3] : 'approve';
+        let reviewer = '@human-operator';
+        let reason = 'Reviewed via SDLC Governance Gate';
+        for (let i = 2; i < args.length; i++) {
+          if (args[i] === '--id' && args[i + 1]) adrId = args[++i];
+          else if ((args[i] === '--status' || args[i] === '--action') && args[i + 1]) action = args[++i];
+          else if ((args[i] === '--by' || args[i] === '--reviewer') && args[i + 1]) reviewer = args[++i];
+          else if (args[i] === '--reason' && args[i + 1]) reason = args[++i];
+        }
+        result.adr = decideADR({ adrId, action, reviewer, reason, repoRoot });
+        return result;
+      }
+      if (sub === 'compact') {
+        let releaseVersion = 'baseline';
+        const dryRun = args.includes('--dry-run');
+        for (let i = 2; i < args.length; i++) {
+          if ((args[i] === '--release' || args[i] === '--version') && args[i + 1]) {
+            releaseVersion = args[++i];
+          } else if (args[i].startsWith('--release=')) {
+            releaseVersion = args[i].split('=')[1];
+          }
+        }
+        result.compact = compactADRs({ releaseVersion, dryRun, repoRoot });
         return result;
       }
       result.adrs = listADRs(repoRoot);
@@ -865,11 +923,31 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
           result.success = false;
           return result;
         }
+        let cliCoverage = undefined;
+        let cliMutation = undefined;
+        const docsOnly = args.includes('--docs-only') ? true : undefined;
+        let cliReviewer = undefined;
+        for (let i = 2; i < args.length; i++) {
+          if ((args[i] === '--coverage' || args[i] === '--coverage-pct') && args[i + 1]) {
+            const v = args[++i];
+            cliCoverage = v === 'null' ? null : Number.parseFloat(String(v).replace('%', ''));
+          } else if ((args[i] === '--mutation' || args[i] === '--mutation-pct') && args[i + 1]) {
+            const v = args[++i];
+            cliMutation = v === 'null' ? null : Number.parseFloat(String(v).replace('%', ''));
+          } else if (args[i] === '--reviewer' && args[i + 1]) {
+            cliReviewer = args[++i];
+          }
+        }
         const drift = checkSpecDrift({ ticketId: sess.session.issueId, repoRoot });
+        const sessionInputs = receiptInputsFromSession(sess.session, { driftCheckPassed: Boolean(drift.passed), repoRoot });
         result.receipt = issueGateReceipt({
           issueId: sess.session.issueId,
           branch: sess.session.branch,
-          ...receiptInputsFromSession(sess.session, { driftCheckPassed: Boolean(drift.passed), repoRoot }),
+          ...sessionInputs,
+          ...(cliCoverage !== undefined ? { coveragePct: cliCoverage } : {}),
+          ...(cliMutation !== undefined ? { mutationPct: cliMutation } : {}),
+          ...(docsOnly ? { docsOnly: true, coveragePct: null, mutationPct: null } : {}),
+          ...(cliReviewer ? { reviewer: cliReviewer } : {}),
           repoRoot
         });
         result.success = result.receipt.success;
@@ -1092,7 +1170,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
           return result;
         }
         try {
-          execSync('npx -y @fmatar/archlens-skill prompt --path . 2>/dev/null || true', { cwd: repoRoot, stdio: 'inherit' });
+          execSync('npx -y @fmatar/archlens-skill@1.2.0 prompt --path . 2>/dev/null || true', { cwd: repoRoot, stdio: 'inherit' });
           result.passed = true;
         } catch (err) {
           result.passed = false;
@@ -1102,7 +1180,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       }
       if (sub === 'update') {
         try {
-          execSync('npx -y @fmatar/archlens-skill update --path .', { cwd: repoRoot, stdio: 'inherit' });
+          execSync('npx -y @fmatar/archlens-skill@1.2.0 update --path .', { cwd: repoRoot, stdio: 'inherit' });
           result.passed = true;
         } catch {
           result.passed = false;
@@ -1199,7 +1277,11 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         return result;
       }
       if (sub === 'sync' || sub === 'generate' || sub === 'update') {
-        const generateMissing = args.includes('--init') || args.includes('--scaffold');
+        const generateMissing =
+          args.includes('--init') ||
+          args.includes('--scaffold') ||
+          args.includes('--generate-missing') ||
+          !fs.existsSync(path.resolve(repoRoot, 'wiki/Home.md'));
         const wikiSync = syncWiki({ repoRoot, generateMissing });
         result.wikiSync = wikiSync;
         result.wikiAudit = wikiSync.audit;
@@ -1392,7 +1474,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       const archInfo = inspectArchlens(repoRoot);
       if (archInfo.installed) {
         try {
-          execSync('npx -y @fmatar/archlens-skill update --path .', { cwd: repoRoot, stdio: 'inherit' });
+          execSync('npx -y @fmatar/archlens-skill@1.2.0 update --path .', { cwd: repoRoot, stdio: 'inherit' });
         } catch {}
       }
       const freshConfig = generateConfig(repoRoot);
@@ -1443,13 +1525,15 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
     case 'release': {
       let bump = 'patch',
         dryRun = false,
-        skipGate = false;
+        skipGate = false,
+        noCompact = false;
       for (let i = 1; i < args.length; i++) {
         if (args[i] === '--dry-run') dryRun = true;
         else if (args[i] === '--skip-gate') skipGate = true;
+        else if (args[i] === '--no-compact') noCompact = true;
         else if (['patch', 'minor', 'major'].includes(args[i].toLowerCase())) bump = args[i].toLowerCase();
       }
-      result.release = executeRelease({ bump, dryRun, skipGate, repoRoot });
+      result.release = executeRelease({ bump, dryRun, skipGate, noCompact, repoRoot });
       return result;
     }
 
@@ -1557,9 +1641,23 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       for (let i = 1; i < args.length; i++) {
         if (args[i] === '--port' && args[i + 1]) port = Number(args[++i]) || 4120;
       }
+      const widget = generateArchitectureWidget({ repoRoot });
+      result.uiWidget = widget;
+      if (args.includes('--snapshot-only') || process.env.COWORK || process.env.CLAUDE_COWORK) {
+        result.workbench = {
+          port,
+          snapshotOnly: true,
+          widgetPath: widget.widgetPath || widget.outputPath
+        };
+        return result;
+      }
       const workbench = createWorkbenchServer({ port, repoRoot });
       workbench.listen();
-      result.workbench = { port, url: `http://127.0.0.1:${port}/?token=${workbench.token}` };
+      result.workbench = {
+        port,
+        url: `http://127.0.0.1:${port}/?token=${workbench.token}`,
+        widgetPath: widget.widgetPath || widget.outputPath
+      };
       return result;
     }
 
@@ -1684,6 +1782,156 @@ Usage:
   }
 }
 
+/**
+ * Formats a `runCLI()` result into deterministic stdout text so CLI subcommands
+ * never finish silently when invoked from a terminal or agent device shell.
+ */
+export function formatCLIResult(res, args = []) {
+  if (!res || typeof res !== 'object') return '';
+  if (args.includes('--json')) {
+    return JSON.stringify(res, null, 2);
+  }
+
+  const cmd = res.command;
+  if (!cmd || ['detect', 'doctor', 'help', '--help', '-h'].includes(cmd)) {
+    return '';
+  }
+
+  if (cmd === 'session') {
+    const sub = res.subcommand || 'status';
+    if (sub === 'dashboard') {
+      if (res.dashboard) return res.dashboard;
+      return 'ℹ️ No active SDLC session. Start one with `node .agent/scripts/sdlc-engine.mjs stage begin --title "<title>" --checkout`.';
+    }
+    if (sub === 'status') {
+      const s = res.status?.session;
+      if (!res.status?.active || !s) {
+        return 'ℹ️ SDLC Session Status: IDLE (no active session).';
+      }
+      return `📍 Active SDLC Session #${s.issueId} | Branch: ${s.branch} | Stage: ${s.stage}/8 (${s.stageName}) | Remediations: ${s.remediationCount || 0}/${s.maxRemediations || 3}`;
+    }
+    if (sub === 'list') {
+      const ids = Object.keys(res.sessions || {});
+      return `📋 Sessions (${ids.length}): ${ids.length > 0 ? ids.map((id) => `#${id}`).join(', ') : 'none'} (active: ${res.activeSessionId ? `#${res.activeSessionId}` : 'none'})`;
+    }
+    if (res.session) {
+      return `✅ Session #${res.session.issueId} -> Stage ${res.session.stage}/8 (${res.session.stageName}) on ${res.session.branch}`;
+    }
+    if (res.released) {
+      return `🔓 Released active SDLC session lock.`;
+    }
+  }
+
+  if (cmd === 'stage' && res.stage) {
+    const st = res.stage;
+    if (st.action === 'begin') {
+      return `🚀 Stage Begin (#${st.issueId}): branch '${st.branch}' | Stage ${st.stage}/8 | UI Snapshot: ${st.widgetPath || '.agent/workbench/index.html'}`;
+    }
+    if (st.action === 'pre-pr') {
+      const driftStatus = st.drift?.passed ? 'PASS' : 'FAIL';
+      const wikiStatus = st.wikiAudit?.passed ? 'PASS' : 'FAIL';
+      return `📦 Stage Pre-PR (#${st.issueId}): Drift=${driftStatus} | Wiki=${wikiStatus} | Receipt=${st.receipt?.receiptId || 'NONE'} | UI Snapshot: ${st.widgetPath || '.agent/workbench/index.html'}`;
+    }
+    if (st.action === 'complete') {
+      return `🏁 Stage Complete (#${st.issueId}): Stage ${st.stage}/8 | Kanban synchronized | Session released: ${Boolean(st.released)}`;
+    }
+  }
+
+  if (cmd === 'drift' && res.drift) {
+    const d = res.drift;
+    if (d.passed) {
+      return `✅ Spec-Drift Check Passed (${(d.modifiedSpecs || []).length} spec/contract touchpoint(s) verified).`;
+    }
+    return `🛑 Spec-Drift Check Failed: ${d.reason || 'Undeclared spec or contract drift requires an accepted ADR.'}`;
+  }
+
+  if (cmd === 'adr') {
+    if (res.compact) {
+      return `📦 Compacted ${res.compact.compactedCount} ADR(s) into ${res.compact.srsPath || 'docs/SRS.md'} (release: ${res.compact.releaseVersion})`;
+    }
+    if (Array.isArray(res.adrs)) {
+      if (res.adrs.length === 0) return '📜 ADRs: none recorded in docs/adr/.';
+      return ['📜 Architecture Decision Records:', ...res.adrs.map((a) => `  • ${a.id}: ${a.title} [${a.scope} | ${a.status}] (${a.file})`)].join('\n');
+    }
+    if (res.adr) {
+      return `📜 ADR ${res.adr.id || res.adr.adrId || ''}: ${res.adr.title || res.adr.status || 'updated'} (${res.adr.file || 'docs/adr'})`;
+    }
+  }
+
+  if (cmd === 'decision-graph' && res.decisionGraph) {
+    const dg = res.decisionGraph;
+    return `🗺️ Decision Graph (${res.subcommand}): ${dg.nodes?.length ?? dg.nodesCount ?? 0} node(s), ${dg.edges?.length ?? dg.edgesCount ?? 0} edge(s)${dg.markdownPath ? ` -> ${dg.markdownPath}` : ''}`;
+  }
+
+  if (cmd === 'ui-snapshot' && res.uiWidget) {
+    const p = res.uiWidget.widgetPath || res.uiWidget.outputPath || '.agent/workbench/index.html';
+    return `📸 Architecture & Decision Workbench snapshot generated: ${p}`;
+  }
+
+  if (cmd === 'serve' && res.workbench?.snapshotOnly) {
+    return `📸 Architecture & Decision Workbench snapshot generated: ${res.workbench.widgetPath || '.agent/workbench/index.html'} (loopback server skipped in Cowork/snapshot mode)`;
+  }
+
+  if (cmd === 'skill-audit' && res.skillAudit) {
+    const sa = res.skillAudit;
+    return `🛡️ Skill Audit: ${sa.skillsAudited || sa.results?.length || 0} skill(s) checked, ${sa.totalFindings || 0} finding(s) (${sa.success ? 'PASSED' : 'FAILED'})`;
+  }
+
+  if (cmd === 'audit' && res.audit) {
+    if (res.audit.valid !== undefined) {
+      return `${res.audit.valid ? '✅' : '🛑'} Merkle Audit Chain: ${res.audit.valid ? 'VALID' : 'INVALID'} (${res.audit.entriesCount ?? 0} record(s))`;
+    }
+    return `📝 Audit record appended: ${res.audit.event || 'OK'} (${res.audit.hash || ''})`;
+  }
+
+  if (cmd === 'stats' && res.stats) {
+    const st = res.stats;
+    return `📊 SDLC Telemetry: Stage=${st.currentStage} | Branch=${st.activeBranch} | Sessions=${st.completedSessions}/${st.totalSessions} | Velocity=${st.velocityScore}% | Saved=${st.estimatedHoursSaved}h ($${st.totalDollarSavingsUSD})`;
+  }
+
+  if (cmd === 'cache' && res.cache) {
+    if (res.cache.cleared !== undefined) return `🧹 Gate cache cleared.`;
+    return `⚡ Gate Cache: ${res.cache.entriesCount ?? Object.keys(res.cache.entries || {}).length} cached module entry(s).`;
+  }
+
+  if ((cmd === 'ticket' || cmd === 'pm')) {
+    if (res.issueId) return `🎫 Ticket #${res.issueId} created via ${res.provider || 'local'} (${res.title || ''})`;
+    if (res.transitioned) return `🔄 Ticket #${res.transitioned.issueId || ''} transitioned to '${res.transitioned.state || ''}'`;
+    if (res.commented) return `💬 Comment recorded on ticket #${res.commented.issueId || ''}`;
+    if (res.synced) return `📋 Synchronized living Kanban board -> docs/KANBAN.md`;
+    if (res.templates) return `📄 Issue & PR templates ready (${(res.templates.created || []).length} created).`;
+    if (res.pm) return `🔌 PM Provider: ${res.pm.provider} (${res.pm.key || 'local'})`;
+  }
+
+  if (cmd === 'product' || cmd === 'spec') {
+    if (res.spec) return `📐 Capability Spec scaffolded: ${res.spec.capId || ''} -> ${res.spec.specPath || 'docs/specs/'}`;
+    if (res.product) {
+      const p = res.product;
+      if (p.waves) return `🌊 Product DAG Plan: ${p.waves.length} wave(s) across ${(p.capabilities || []).length} capability(s).`;
+      if (p.capabilities) return `🏛️ Product Constitution: ${(p.capabilities || []).length} capability(s), ${(p.invariants || []).length} invariant(s).`;
+    }
+  }
+
+  if (cmd === 'pr-summary' && res.prSummary) {
+    return typeof res.prSummary === 'string' ? res.prSummary : res.prSummary.markdown || JSON.stringify(res.prSummary, null, 2);
+  }
+
+  if (cmd === 'dossier' && res.dossier) {
+    return `📦 Context Dossier (#${res.dossier.issueId}): ${res.dossier.outputPath || 'generated'}`;
+  }
+
+  if (cmd === 'review') {
+    if (res.review) return `✅ Recorded peer review verdict '${res.review.verdict}' by ${res.review.reviewer}`;
+    if (res.reviewPlan) return `🔍 Review Plan generated (${(res.reviewPlan.files || []).length} modified file(s)).`;
+  }
+
+  if (cmd === 'interop' && res.interop) {
+    return `✅ Exported rules & skills for [${(res.interop.selectedAgents || []).join(', ')}] (${(res.interop.filesCreated || []).length} file(s) updated).`;
+  }
+
+  return '';
+}
+
 function invokeMainCLI() {
   const cliArgs = process.argv.slice(2);
   const cmd = (cliArgs[0] || '').toLowerCase();
@@ -1707,6 +1955,10 @@ function invokeMainCLI() {
     console.error(`❌ ${err?.message || err}`);
     process.exitCode = 1;
     return;
+  }
+  const formatted = formatCLIResult(res, cliArgs);
+  if (formatted) {
+    console.log(formatted);
   }
   process.exitCode = cliExitCode(res);
 }

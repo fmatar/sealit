@@ -25,7 +25,7 @@ When the user invokes `/sdlc <subcommand> [arguments]`, map the request directly
 | `/sdlc reproduce "<trace>"` | `node .agent/scripts/sdlc-engine.mjs reproduce --error "<trace>"` |
 | `/sdlc spec --cap CAP-XX --title "<title>"` | `node .agent/scripts/sdlc-engine.mjs product spec --cap CAP-XX --title "<title>"` |
 | `/sdlc drift` | `node .agent/scripts/sdlc-engine.mjs drift check` |
-| `/sdlc adr <create\|list\|decide>` | `node .agent/scripts/sdlc-engine.mjs adr <subcommand>` |
+| `/sdlc adr <create\|list\|decide\|compact>` | `node .agent/scripts/sdlc-engine.mjs adr <subcommand> [--release <ver>]` |
 | `/sdlc gate` | `node .agent/scripts/sdlc-engine.mjs gate --strict` |
 | `/sdlc ticket <create\|transition\|comment\|sync\|templates>` | `node .agent/scripts/sdlc-engine.mjs ticket <subcommand> [args]` |
 | `/sdlc kanban` | `.agent/scripts/kanban-sync.sh` |

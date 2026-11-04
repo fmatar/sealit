@@ -246,7 +246,7 @@ export function formatTemplatedIssue({
   };
 }
 
-function updateLocalKanbanState(repoRoot, targetId, normalizedState) {
+export function updateLocalKanbanState(repoRoot, targetId, normalizedState) {
   const kanbanPath = path.resolve(repoRoot, 'docs/KANBAN.md');
   if (!fs.existsSync(kanbanPath)) return false;
   try {
@@ -260,7 +260,7 @@ function updateLocalKanbanState(repoRoot, targetId, normalizedState) {
     for (const line of lines) {
       if ((line.includes(ticketMarker) || line.includes(`${rawMarker}:`)) && line.startsWith('|')) {
         const cells = line.split('|').map((c) => c.trim());
-        if (cells.length >= 7) {
+        if (cells.length === 7) {
           const itemContent =
             cells.slice(1, 6).find((c) => c.includes(ticketMarker) || c.includes(`${rawMarker}:`)) || ticketMarker;
           let c1 = '',
@@ -276,6 +276,11 @@ function updateLocalKanbanState(repoRoot, targetId, normalizedState) {
             c4 = itemContent;
           else if (normalizedState === 'done' || normalizedState === 'closed') c5 = itemContent;
           updatedLines.push(`| ${c1} | ${c2} | ${c3} | ${c4} | ${c5} |`);
+          continue;
+        } else if (cells.length === 8 && cells[1].includes(ticketMarker)) {
+          updatedLines.push(
+            `| ${cells[1]} | \`status:${normalizedState}\` | ${cells[3]} | ${cells[4]} | ${cells[5]} | ${cells[6]} |`
+          );
           continue;
         }
       }

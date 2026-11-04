@@ -26,7 +26,7 @@
         "coverageFile": "coverage/lcov.info",
         "lint": "node --check .agent/scripts/sdlc-engine.mjs",
         "build": "node .agent/scripts/sdlc-engine.mjs drift check",
-        "mutation": "npx stryker run"
+        "mutation": "npx -y -p @stryker-mutator/core@9.6.1 stryker run"
       },
       "thresholds": {
         "diffCoverage": 85,

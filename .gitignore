@@ -13,6 +13,10 @@ workbench/node_modules/
 .agent/.cache/
 .agent/.sdlc-session.json
 .agent/.receipt-key
+.agent/skills/*/scripts/bin/
+.agent/workbench/index.html
+.agent/arch-trace.jsonl
+docs/ARCH_TRACE.md
 *.lcov
 .impeccable/review/
 .impeccable/mocks/

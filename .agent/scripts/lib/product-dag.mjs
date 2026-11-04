@@ -393,6 +393,7 @@ export function scaffoldCapabilitySpec({
   outputs = '',
   dependsOn = [],
   status = 'PLANNED',
+  force = false,
   repoRoot = '.'
 } = {}) {
   const parsed = parseProductMarkdown(repoRoot);
@@ -401,6 +402,7 @@ export function scaffoldCapabilitySpec({
   const resolvedCapId =
     capId ||
     `CAP-${String(existingCaps.length + 1).padStart(2, '0')}`;
+  const upperCapId = resolvedCapId.toUpperCase();
 
   const slug = title
     .toLowerCase()
@@ -408,28 +410,31 @@ export function scaffoldCapabilitySpec({
     .replace(/^-|-$/g, '')
     .slice(0, 48);
 
-  const existingMatch = existingCaps.find((c) => c.id.toUpperCase() === resolvedCapId.toUpperCase());
+  const existingMatch = existingCaps.find((c) => c.id.toUpperCase() === upperCapId);
   const relSpecPath = existingMatch?.spec || `docs/specs/${resolvedCapId.toLowerCase()}-${slug || 'spec'}.md`;
   const absSpecPath = path.resolve(repoRoot, relSpecPath);
 
   fs.mkdirSync(path.dirname(absSpecPath), { recursive: true });
-  const specMarkdown = renderCapabilitySpecMarkdown({
-    capId: resolvedCapId.toUpperCase(),
-    title,
-    problem,
-    inputs,
-    processing,
-    outputs,
-    dependsOn
-  });
-  fs.writeFileSync(absSpecPath, specMarkdown, 'utf8');
+  if (!fileExists(absSpecPath) || force) {
+    const specMarkdown = renderCapabilitySpecMarkdown({
+      capId: upperCapId,
+      title,
+      problem,
+      inputs,
+      processing,
+      outputs,
+      dependsOn
+    });
+    fs.writeFileSync(absSpecPath, specMarkdown, 'utf8');
+  }
+
+  const depCol = dependsOn.length > 0 ? dependsOn.join(', ') : 'None';
 
   // Register capability in PRODUCT.md if PRODUCT.md exists and doesn't yet list resolvedCapId
   const productPath = path.resolve(repoRoot, 'PRODUCT.md');
   if (fileExists(productPath) && !existingMatch) {
     const rawProduct = readFileSafe(productPath) || '';
-    const depCol = dependsOn.length > 0 ? dependsOn.join(', ') : 'None';
-    const newRow = `| ${resolvedCapId.toUpperCase()} | ${title} | \`${relSpecPath}\` | ${depCol} | \`${status}\` |`;
+    const newRow = `| ${upperCapId} | ${title} | \`${relSpecPath}\` | ${depCol} | \`${status}\` |`;
     const lines = rawProduct.split('\n');
     let lastCapRowIdx = -1;
     for (let i = 0; i < lines.length; i++) {
@@ -443,38 +448,97 @@ export function scaffoldCapabilitySpec({
     }
   }
 
-  // Re-sync docs/PRD.md and docs/SRS.md whenever PRODUCT.md exists
+  // Non-destructively sync docs/PRD.md and docs/SRS.md whenever PRODUCT.md exists
   const refreshed = parseProductMarkdown(repoRoot);
   if (refreshed.exists) {
     const prdPath = path.resolve(repoRoot, 'docs/PRD.md');
     const srsPath = path.resolve(repoRoot, 'docs/SRS.md');
     fs.mkdirSync(path.dirname(prdPath), { recursive: true });
-    fs.writeFileSync(
-      prdPath,
-      renderProductPrdMarkdown({
-        title: refreshed.title,
-        vision: refreshed.vision || `Constitutional specification for ${refreshed.title}.`,
-        capabilities: refreshed.capabilities,
-        invariants: refreshed.invariants
-      }),
-      'utf8'
-    );
-    fs.writeFileSync(
-      srsPath,
-      renderProductSrsMarkdown({
-        title: refreshed.title,
-        vision: refreshed.vision || `Constitutional specification for ${refreshed.title}.`,
-        capabilities: refreshed.capabilities,
-        invariants: refreshed.invariants
-      }),
-      'utf8'
-    );
+
+    if (!fileExists(prdPath) || force) {
+      fs.writeFileSync(
+        prdPath,
+        renderProductPrdMarkdown({
+          title: refreshed.title,
+          vision: refreshed.vision || `Constitutional specification for ${refreshed.title}.`,
+          capabilities: refreshed.capabilities,
+          invariants: refreshed.invariants
+        }),
+        'utf8'
+      );
+    } else {
+      const prdContent = readFileSafe(prdPath) || '';
+      const prdBullet = `- **${upperCapId} (${title})**: Governed by [\`${relSpecPath}\`](../${relSpecPath}) (Depends on: ${depCol})`;
+      if (!new RegExp(`\\*\\*${upperCapId}\\b`).test(prdContent)) {
+        const prdLines = prdContent.split('\n');
+        let lastCapBulletIdx = -1;
+        for (let i = 0; i < prdLines.length; i++) {
+          if (/^-\s*\*\*CAP-\d+/.test(prdLines[i].trim())) {
+            lastCapBulletIdx = i;
+          }
+        }
+        if (lastCapBulletIdx !== -1) {
+          prdLines.splice(lastCapBulletIdx + 1, 0, prdBullet);
+          fs.writeFileSync(prdPath, prdLines.join('\n'), 'utf8');
+        } else {
+          fs.writeFileSync(prdPath, `${prdContent.trimEnd()}\n${prdBullet}\n`, 'utf8');
+        }
+      }
+    }
+
+    if (!fileExists(srsPath) || force) {
+      fs.writeFileSync(
+        srsPath,
+        renderProductSrsMarkdown({
+          title: refreshed.title,
+          vision: refreshed.vision || `Constitutional specification for ${refreshed.title}.`,
+          capabilities: refreshed.capabilities,
+          invariants: refreshed.invariants
+        }),
+        'utf8'
+      );
+    } else {
+      let srsContent = readFileSafe(srsPath) || '';
+      const srsRow = `| \`${upperCapId}\` | ${title} | [\`${relSpecPath}\`](../${relSpecPath}) | \`${depCol}\` | \`${status}\` |`;
+      if (!new RegExp(`^\\|\\s*\`?${upperCapId}\`?\\s*\\|`, 'm').test(srsContent)) {
+        const srsLines = srsContent.split('\n');
+        let lastSrsCapRowIdx = -1;
+        for (let i = 0; i < srsLines.length; i++) {
+          if (/^\|\s*`?CAP-\d+`?\s*\|/.test(srsLines[i].trim())) {
+            lastSrsCapRowIdx = i;
+          }
+        }
+        if (lastSrsCapRowIdx !== -1) {
+          srsLines.splice(lastSrsCapRowIdx + 1, 0, srsRow);
+          srsContent = srsLines.join('\n');
+        } else {
+          srsContent = `${srsContent.trimEnd()}\n${srsRow}\n`;
+        }
+      }
+
+      if (!new RegExp(`^####\\s+${upperCapId}:`, 'm').test(srsContent)) {
+        const funcBlock = [
+          `#### ${upperCapId}: ${title}`,
+          `- **Specification Contract**: [\`${relSpecPath}\`](../${relSpecPath})`,
+          `- **Inputs**: ${inputs || `Validated CLI/API parameters and repository state for \`${upperCapId}\`.`}`,
+          `- **Processing**: ${processing || 'Deterministic domain execution enforcing Clean Architecture rings and `INV-XX` invariants.'}`,
+          `- **Outputs**: ${outputs || 'Verifiable state transitions, updated artifacts, and SHA-256 audit chain records.'}`
+        ].join('\n');
+
+        const nfrHeadingIdx = srsContent.indexOf('### 3.3 ');
+        if (nfrHeadingIdx !== -1) {
+          srsContent = `${srsContent.slice(0, nfrHeadingIdx).trimEnd()}\n\n${funcBlock}\n\n${srsContent.slice(nfrHeadingIdx)}`;
+        }
+      }
+
+      fs.writeFileSync(srsPath, srsContent, 'utf8');
+    }
   }
 
   appendDecisionEvent({
     type: 'CAPABILITY_SPEC_SCAFFOLDED',
-    id: resolvedCapId.toUpperCase(),
-    label: `${resolvedCapId.toUpperCase()}: ${title}`,
+    id: upperCapId,
+    label: `${upperCapId}: ${title}`,
     category: 'CAPABILITY',
     status,
     ticketId: null,
@@ -487,7 +551,7 @@ export function scaffoldCapabilitySpec({
 
   return {
     success: true,
-    capId: resolvedCapId.toUpperCase(),
+    capId: upperCapId,
     title,
     specPath: relSpecPath,
     absSpecPath,

@@ -663,8 +663,22 @@ export function syncWiki({ repoRoot = '.', generateMissing = false } = {}) {
   fs.mkdirSync(wikiDir, { recursive: true });
 
   const updatedFiles = [];
+  const shouldScaffold =
+    generateMissing ||
+    !fileExists(path.join(wikiDir, 'Home.md')) ||
+    !fileExists(path.join(wikiDir, 'Skills-Reference.md'));
 
-  if (generateMissing) {
+  if (shouldScaffold) {
+    const preMap = buildWikiCodeMap(absRoot);
+    const existingModuleRefs = preMap.modules.map((m) => `\`${m.path}\``);
+    const skillsTable = [
+      '# 🛠️ Skills & CLI Reference',
+      '',
+      'Canonical skills: ' + CANONICAL_SDLC_SKILLS.map((s) => `\`${s}\``).join(', ') + '.',
+      ...(existingModuleRefs.length > 0 ? ['', '## Source & Engine Modules', existingModuleRefs.join(', ')] : []),
+      ''
+    ].join('\n');
+
     const defaults = [
       {
         name: 'Home.md',
@@ -676,7 +690,7 @@ export function syncWiki({ repoRoot = '.', generateMissing = false } = {}) {
       },
       {
         name: 'Skills-Reference.md',
-        title: '# 🛠️ Skills & CLI Reference\n\nCanonical skills: ' + CANONICAL_SDLC_SKILLS.join(', ') + '.\n'
+        title: skillsTable
       },
       {
         name: 'Traceability.md',

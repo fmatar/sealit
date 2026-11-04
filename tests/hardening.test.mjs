@@ -210,7 +210,73 @@ describe('Fix 3: measured, HMAC-signed gate receipts', () => {
     const r = issueGateReceipt({ issueId: 1, branch: 'feature/x', repoRoot: dir });
     assert.equal(r.success, false);
     assert.ok(r.missing.includes('coveragePct'));
+    assert.ok(r.missing.includes('mutationPct'));
+    assert.ok(r.missing.includes('peerReviewApproved'));
+    assert.ok(r.missing.includes('driftCheckPassed'));
     assert.equal(fs.existsSync(path.join(dir, 'docs/AUDIT_CHAIN.jsonl')), false);
+  });
+
+  it('accepts coverage/mutationScore aliases, null mutation (not-configured), and docsOnly receipts', () => {
+    const alias = issueGateReceipt({
+      issueId: 10,
+      branch: 'feature/alias',
+      coverage: 89.2,
+      mutationScore: 81.5,
+      peerReviewApproved: true,
+      reviewer: '@alice',
+      driftCheckPassed: true,
+      repoRoot: dir
+    });
+    assert.equal(alias.success, true);
+    assert.equal(alias.receipt.coveragePct, 89.2);
+    assert.equal(alias.receipt.mutationPct, 81.5);
+    assert.equal(alias.receipt.docsOnly, false);
+    assert.equal(alias.receipt.mutationStatus, 'measured');
+
+    const noMut = issueGateReceipt({
+      issueId: 11,
+      branch: 'feature/no-mut',
+      coveragePct: 90,
+      mutationPct: null,
+      peerReviewApproved: true,
+      reviewer: '@alice',
+      driftCheckPassed: true,
+      repoRoot: dir
+    });
+    assert.equal(noMut.success, true);
+    assert.equal(noMut.receipt.coveragePct, 90);
+    assert.equal(noMut.receipt.mutationPct, null);
+    assert.equal(noMut.receipt.docsOnly, false);
+    assert.equal(noMut.receipt.mutationStatus, 'not-configured');
+
+    const docsExplicit = issueGateReceipt({
+      issueId: 12,
+      branch: 'feature/docs',
+      docsOnly: true,
+      peerReviewApproved: true,
+      reviewer: '@alice',
+      driftCheckPassed: true,
+      repoRoot: dir
+    });
+    assert.equal(docsExplicit.success, true);
+    assert.equal(docsExplicit.receipt.coveragePct, null);
+    assert.equal(docsExplicit.receipt.mutationPct, null);
+    assert.equal(docsExplicit.receipt.docsOnly, true);
+    assert.equal(docsExplicit.receipt.mutationStatus, 'docs-only');
+
+    const docsImplicit = issueGateReceipt({
+      issueId: 13,
+      branch: 'feature/docs-null',
+      coveragePct: null,
+      mutationPct: null,
+      peerReviewApproved: true,
+      reviewer: '@alice',
+      driftCheckPassed: true,
+      repoRoot: dir
+    });
+    assert.equal(docsImplicit.success, true);
+    assert.equal(docsImplicit.receipt.docsOnly, true);
+    assert.equal(docsImplicit.receipt.mutationStatus, 'docs-only');
   });
 
   it('`guard receipt` exits non-zero when the session has no measurements', () => {

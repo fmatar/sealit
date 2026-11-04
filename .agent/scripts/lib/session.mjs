@@ -439,8 +439,14 @@ function parsePct(value) {
  */
 export function receiptInputsFromSession(session, { driftCheckPassed, repoRoot = '.' } = {}) {
   const manifest = session?.manifest || {};
-  let mutationPct = parsePct(manifest.mutationScore);
-  if (mutationPct === undefined) {
+  const isDocsOnly = Boolean(manifest.docsOnly);
+  const coveragePct = isDocsOnly
+    ? null
+    : parsePct(manifest.coverageReport ?? manifest.coveragePct ?? manifest.coverage);
+  let mutationPct = isDocsOnly
+    ? null
+    : parsePct(manifest.mutationScore ?? manifest.mutationPct ?? manifest.mutation);
+  if (mutationPct === undefined && !isDocsOnly) {
     try {
       const cfg = JSON.parse(readFileSafe(path.resolve(repoRoot, '.agent/sdlc-config.json')) || '{}');
       const mods = Array.isArray(cfg.modules) ? cfg.modules : [];
@@ -449,8 +455,9 @@ export function receiptInputsFromSession(session, { driftCheckPassed, repoRoot =
   }
   const review = manifest.peerReview;
   return {
-    coveragePct: parsePct(manifest.coverageReport),
+    coveragePct,
     mutationPct,
+    docsOnly: isDocsOnly ? true : undefined,
     peerReviewApproved: review && review.verdict ? review.verdict === 'approve' : undefined,
     reviewer: review?.reviewer || null,
     driftCheckPassed

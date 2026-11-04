@@ -194,29 +194,29 @@ export function verifyReceiptSignature(receipt, key) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
-/**
- * Issues a Stage 7 gate receipt into the hash-chained audit ledger.
- *
- * Every attested value must be supplied by the caller from a real measurement:
- * there are no defaults. `mutationPct: null` is accepted only to state
- * explicitly that mutation testing is not configured (recorded as such).
- * The receipt is HMAC-SHA256 signed with a local key (see loadReceiptKey);
- * this proves it was issued by a holder of that key, not that CI ran.
- */
 export function issueGateReceipt({
   issueId,
   branch,
   headSha = null,
   coveragePct,
+  coverage,
   mutationPct,
+  mutationScore,
+  docsOnly,
   peerReviewApproved,
   reviewer = null,
   driftCheckPassed,
   repoRoot = '.'
 } = {}) {
+  const rawCov = coveragePct !== undefined ? coveragePct : coverage;
+  const rawMut = mutationPct !== undefined ? mutationPct : mutationScore;
+  const resolvedDocsOnly = docsOnly !== undefined ? Boolean(docsOnly) : rawCov === null && rawMut === null;
+  const resolvedCoverage = resolvedDocsOnly && rawCov === undefined ? null : rawCov;
+  const resolvedMutation = resolvedDocsOnly && rawMut === undefined ? null : rawMut;
+
   const missing = [];
-  if (!Number.isFinite(coveragePct)) missing.push('coveragePct');
-  if (mutationPct === undefined || (mutationPct !== null && !Number.isFinite(mutationPct))) missing.push('mutationPct');
+  if (!resolvedDocsOnly && !Number.isFinite(resolvedCoverage)) missing.push('coveragePct');
+  if (!resolvedDocsOnly && resolvedMutation !== null && !Number.isFinite(resolvedMutation)) missing.push('mutationPct');
   if (typeof peerReviewApproved !== 'boolean') missing.push('peerReviewApproved');
   if (typeof driftCheckPassed !== 'boolean') missing.push('driftCheckPassed');
   if (missing.length > 0) {
@@ -249,9 +249,10 @@ export function issueGateReceipt({
     headSha: resolvedSha,
     productMdHash,
     stage: 7,
-    coveragePct,
-    mutationPct,
-    mutationStatus: mutationPct === null ? 'not-configured' : 'measured',
+    coveragePct: resolvedCoverage,
+    mutationPct: resolvedMutation,
+    docsOnly: resolvedDocsOnly,
+    mutationStatus: resolvedDocsOnly ? 'docs-only' : resolvedMutation === null ? 'not-configured' : 'measured',
     peerReviewApproved,
     reviewer,
     driftCheckPassed,
