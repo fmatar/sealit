@@ -88,7 +88,7 @@ This reference documents the **1 Universal Router (`/sdlc`) + 9 Verb-Driven Skil
 - **Capabilities**:
   - Probes polyglot manifests (`package.json`, `pom.xml`, `build.gradle`, `pyproject.toml`, `go.mod`, `Cargo.toml`, `Makefile`) and generates `.agent/sdlc-config.json` (`detect`).
   - Runs environment diagnostics and auto-heals missing framework assets (`doctor --fix`), including `.archlens/policy.json`, `docs/KANBAN.md`, `.github/ISSUE_TEMPLATE/`, `.git/hooks/`, and `.github/workflows/sdlc-quality-gate.yml`.
-  - Installs skills and rules across all 6 supported AI coding tools (`install --agents gemini,claude,cursor,grok,windsurf,copilot`) and audits skills with SkillSpector (`skill-audit`).
+  - Installs runtime-adapted skills (`adaptSkillForAgent`), Cowork account-level `.zip` upload bundles (`createSkillZipBuffer` -> `.claude/cowork/<skill>.zip`), `.claude-plugin/plugin.json`, non-destructive `CLAUDE.md`/`AGENTS.md` (`upsertConstitutionalRulesFile`), and valid `.claude/settings.json` (`upsertClaudeSettingsJson`) across all 6 supported AI coding tools (`install --agents gemini,claude,cursor,grok,windsurf,copilot`), and audits skills with SkillSpector (`skill-audit`).
 
 ### 2.8 `sdlc-release` — Documentation Sync, SemVer Release & Canary Watchdog
 - **Path**: `.agent/skills/sdlc-release/SKILL.md`
@@ -124,7 +124,7 @@ node .agent/scripts/sdlc-engine.mjs stats
 
 # Product Constitution, Specs, ADRs & Causal Graph
 node .agent/scripts/sdlc-engine.mjs product <init|status|spec|plan|control>
-node .agent/scripts/sdlc-engine.mjs adr <create|list|decide>
+node .agent/scripts/sdlc-engine.mjs adr <create|list|decide|compact> [--release <version>] [--dry-run]
 node .agent/scripts/sdlc-engine.mjs drift check
 node .agent/scripts/sdlc-engine.mjs contract check
 node .agent/scripts/sdlc-engine.mjs decision-graph <build|sync>

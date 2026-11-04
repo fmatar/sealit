@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
 import crypto from 'node:crypto';
+import { spawn } from 'node:child_process';
 import { fileExists, readFileSafe, getModifiedFiles } from './core.mjs';
 import { getSessionStatus } from './session.mjs';
 import { buildDecisionGraph } from './decision-graph.mjs';
@@ -193,13 +194,17 @@ export function buildArchDiffPayload(repoRoot = '.') {
       lower.includes('audit-chain.mjs') ||
       lower.includes('adr-drift.mjs') ||
       lower.includes('product-dag.mjs') ||
-      lower.includes('product.md')
+      path.basename(lower) === 'product.md'
     ) {
       rings['Domain & Core Rules'].push(file);
     } else if (lower.includes('.agent/scripts/lib/')) {
       rings['Application & Engine Libs'].push(file);
     } else if (
       lower.includes('.agent/skills/') ||
+      lower.includes('.claude/skills/') ||
+      lower.includes('.claude/commands/') ||
+      lower.includes('.claude/cowork/') ||
+      lower.includes('.claude-plugin/') ||
       lower.includes('sdlc-engine.mjs') ||
       lower.includes('workbench') ||
       lower.endsWith('.sh')
@@ -2420,12 +2425,40 @@ export function renderWorkbenchHTML(repoRoot = '.', getSessionStatusFn = getSess
  * process would print its access token nowhere and outlive the session.
  * Callers get the command to run instead.
  */
-export function ensureWorkbenchRunning({ port = 4120 } = {}) {
+export function ensureWorkbenchRunning({
+  port = 4120,
+  repoRoot = '.',
+  spawn: shouldSpawn = false,
+  spawnFn = spawn
+} = {}) {
+  const scriptPath = path.resolve(repoRoot, '.agent/scripts/sdlc-engine.mjs');
+  if (shouldSpawn && fileExists(scriptPath)) {
+    try {
+      const child = spawnFn(process.execPath, [scriptPath, 'serve', '--port', String(port)], {
+        cwd: repoRoot,
+        detached: true,
+        stdio: 'ignore'
+      });
+      if (child && typeof child.unref === 'function') {
+        child.unref();
+      }
+      return {
+        started: true,
+        port,
+        url: `http://127.0.0.1:${port}`,
+        command: `node .agent/scripts/sdlc-engine.mjs serve --port ${port}`,
+        stdio: 'ignore',
+        unrefed: true
+      };
+    } catch {}
+  }
   return {
     started: false,
     port,
     url: `http://127.0.0.1:${port}`,
     command: `node .agent/scripts/sdlc-engine.mjs serve --port ${port}`,
+    stdio: 'ignore',
+    unrefed: true,
     reason: 'auto-spawn-disabled'
   };
 }

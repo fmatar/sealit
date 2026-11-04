@@ -34,7 +34,10 @@ node .agent/scripts/sdlc-engine.mjs adr list
 # 4. Approve or reject a pending product/contract ADR
 node .agent/scripts/sdlc-engine.mjs adr decide --id ADR-00X --status <accepted|rejected> --by "@lead"
 
-# 5. Synchronize the Causal Decision Graph (docs/DECISION_MAP.md) & Architecture UI
+# 5. Compact accepted ADRs into docs/SRS.md and reset PRODUCT.md ADR index (baseline or release cut)
+node .agent/scripts/sdlc-engine.mjs adr compact --release <version> [--dry-run]
+
+# 6. Synchronize the Causal Decision Graph (docs/DECISION_MAP.md) & Architecture UI
 node .agent/scripts/sdlc-engine.mjs decision-graph sync
 node .agent/scripts/sdlc-engine.mjs ui-snapshot
 ```

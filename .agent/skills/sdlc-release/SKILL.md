@@ -16,6 +16,11 @@ Before cutting a release or completing a feature ticket, synchronize documentati
    ```
 3. **`CHANGELOG.md` (Keep a Changelog & SemVer)**: Categorize changes under `## [Unreleased]` (`Added`, `Changed`, `Fixed`, `Security`, `Removed`).
 4. **`wiki/` Synchronization (`sdlc-wiki`)**: When `wiki/` exists in the workspace, run `node .agent/scripts/sdlc-engine.mjs wiki sync` and `node .agent/scripts/sdlc-engine.mjs wiki audit --strict` to keep `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Architecture.md`, `wiki/Traceability.md`, and `wiki/Home.md` 100% aligned with the codebase and `README.md`.
+5. **ADR Lifecycle Compaction (`adr compact`)**: Before or during release cut, consolidate in-flight accepted `docs/adr/ADR-*.md` files into `docs/SRS.md` (`## Compacted Architectural Decisions`) and reset the `PRODUCT.md` ADR index table:
+   ```bash
+   node .agent/scripts/sdlc-engine.mjs adr compact --release vX.Y.Z
+   ```
+   *(Note: `release <patch|minor|major>` automatically runs `adr compact` unless `--no-compact` is passed.)*
 
 ---
 
