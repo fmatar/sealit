@@ -1,6 +1,6 @@
 ---
-description: "Displays active SDLC session, 8-stage lifecycle progress, spec-drift check, living KANBAN.md board state, engineering ROI telemetry, and live Architecture Diff UI in one unified view."
-argument-hint: "[args]"
+description: Displays active SDLC session, 8-stage lifecycle progress, spec-drift check, living KANBAN.md board state, engineering ROI telemetry, and live Architecture Diff UI in one unified view.
+allowed-tools: Read, Write, Edit, Bash
 ---
 
 # 📊 Live Session Status, Drift & Architecture Inspector (`sdlc-status`)
@@ -26,5 +26,5 @@ node .agent/scripts/sdlc-engine.mjs audit verify
 node .agent/scripts/sdlc-engine.mjs ui-snapshot
 ```
 
-## 2. Architecture UI Snapshot Presentation
-After running `node .agent/scripts/sdlc-engine.mjs ui-snapshot`, publish or share `.agent/workbench/index.html` so the user can inspect the 8-stage dashboard, Kanban state, and Archlens concentric ring diff (in Cowork, publish `.agent/workbench/index.html` directly instead of starting `serve`).
+## 2. Inline Architecture UI Presentation
+Regenerate `.agent/workbench/index.html` with `node .agent/scripts/sdlc-engine.mjs ui-snapshot`. Claude Code cannot embed HTML inline: tell the user the path of `.agent/workbench/index.html` so they can open it in a browser.

@@ -5,7 +5,7 @@
 > To refresh this board: `.agent/scripts/kanban-sync.sh`
 
 > **Repository**: `fmatar/agentic-sdlc-framework`  
-> **Last Synced**: `2026-11-04 04:54:18 UTC`
+> **Last Synced**: `2026-11-06 19:14:07 UTC`
 
 ---
 
@@ -13,6 +13,7 @@
 
 | 📥 Backlog | 📋 Ready | ⚡ In Progress | 🔍 In Review | ✅ Done |
 | :--- | :--- | :--- | :--- | :--- |
+|  |  |  |  | #97: [FIX] fix: fix-claude-desktop-skills |
 |  |  |  |  | #95: [FEAT] feat: Implement ADR lifecycle compaction and fix 6 field-tested engine bugs |
 |  |  |  |  | #94: [FIX] fix: Fix Claude Cowork skill provisioning, non-destructive CLAUDE.md/settings.json, and CLI output |
 |  |  |  |  | [#91 fix: Harden gates: exit codes, injection, receipts, fail-closed gates, workbench auth](https://github.com/fmatar/agentic-sdlc-framework/issues/91) |

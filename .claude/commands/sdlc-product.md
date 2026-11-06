@@ -1,6 +1,6 @@
 ---
-description: "End-to-end spec-driven Product Autopilot and Feature Specification architect. Synthesizes raw specs into PRODUCT.md (CAP-XX, INV-XX, SPEC-XX), authors PRDs/SRS/C4/ADRs in docs/specs/, provisions templated tickets, and orchestrates topological DAG execution waves."
-argument-hint: "[args]"
+description: End-to-end spec-driven Product Autopilot and Feature Specification architect. Synthesizes raw specs into PRODUCT.md (CAP-XX, INV-XX, SPEC-XX), authors PRDs/SRS/C4/ADRs in docs/specs/, provisions templated tickets, and orchestrates topological DAG execution waves.
+allowed-tools: Read, Write, Edit, Bash, Agent
 ---
 
 # 🏛️ Spec-Driven Product Autopilot & Feature Architect (`sdlc-product`)
@@ -81,5 +81,5 @@ Whenever `PRODUCT.md`, `docs/specs/*.md`, dependency manifests, or API contracts
    node .agent/scripts/sdlc-engine.mjs decision-graph sync
    node .agent/scripts/sdlc-engine.mjs ui-snapshot
    ```
-3. **Architecture & Decision Lineage UI Snapshot**:
-   Publish or present the generated `.agent/workbench/index.html` snapshot from `ui-snapshot` so the user can inspect the interactive C4, DAG, and ADR lineage view.
+3. **Inline UI Presentation**:
+   Regenerate `.agent/workbench/index.html` with `node .agent/scripts/sdlc-engine.mjs ui-snapshot`. Claude Code cannot embed HTML inline: tell the user the path of `.agent/workbench/index.html` so they can open it in a browser.

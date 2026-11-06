@@ -3,7 +3,9 @@
   "permissions": {
     "allow": [
       "Bash(node .agent/scripts/sdlc-engine.mjs *)",
-      "Bash(.agent/scripts/kanban-sync.sh *)"
+      "Bash(.agent/scripts/kanban-sync.sh *)",
+      "Bash(node .agent/scripts/sdlc-engine.mjs:*)",
+      "Bash(.agent/scripts/kanban-sync.sh:*)"
     ]
   },
   "env": {

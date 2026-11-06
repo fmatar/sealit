@@ -1,6 +1,6 @@
 ---
-description: "Architecture Decision Record (ADR) lifecycle manager and Spec-Drift Sentinel. Mints, lists, and approves/rejects ADRs in docs/adr/, verifies PRODUCT.md drift, and syncs docs/DECISION_MAP.md."
-argument-hint: "[args]"
+description: Architecture Decision Record (ADR) lifecycle manager and Spec-Drift Sentinel. Mints, lists, and approves/rejects ADRs in docs/adr/, verifies PRODUCT.md drift, and syncs docs/DECISION_MAP.md.
+allowed-tools: Read, Write, Edit, Bash
 ---
 
 # 📜 Architecture Decision Records & Spec-Drift Sentinel (`sdlc-adr`)

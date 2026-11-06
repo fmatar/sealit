@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-06
+
+### Fixed
+- **Claude Desktop & Claude Code Skill Discovery (`#97`)**: Resolved skill discovery rejection in Claude Desktop and Claude Code by mapping Antigravity tool primitives to Claude-native tools via `CLAUDE_TOOL_MAP` (`Read`, `Write`, `Edit`, `Bash`, `Agent`, `Glob`, `Grep`), stripping non-standard attributes (`user-invocable`), translating inline markup, and generating clean `allowed-tools` frontmatter in `.claude/skills/*/SKILL.md` and `.claude/commands/*.md`.
+- **Non-Destructive Rules File Merging (`#97`)**: Added `mergeRulesFile` in `.agent/scripts/lib/installer.mjs` to preserve existing `CLAUDE.md` and `.cursorrules` content while maintaining constitutional SDLC governance invariants within a bounded block.
+- **Claude Code Engine Permissions (`#97`)**: Added both wildcard and colon permission patterns (`Bash(node .agent/scripts/sdlc-engine.mjs *)` and `Bash(node .agent/scripts/sdlc-engine.mjs:*)`) to `.claude/settings.json`.
+
 ## [0.3.0] - 2026-11-04
 ### Added
 - **First-Class ADR Lifecycle Compaction (`adr compact` & Release Auto-Compaction, `#95`)**: Added `compactADRs({ releaseVersion, dryRun, repoRoot })` in `.agent/scripts/lib/adr-drift.mjs` and `node .agent/scripts/sdlc-engine.mjs adr compact [--release <version>] [--dry-run]`. Consolidates accepted in-flight `docs/adr/ADR-*.md` patch files into `docs/SRS.md` (`## Compacted Architectural Decisions`), resets the `PRODUCT.md` ADR index block, deletes compacted ADR files, prunes `.agent/decision-graph.jsonl`, appends an immutable `ADR_BATCH_COMPACTED` record to `docs/AUDIT_CHAIN.jsonl`, and refreshes `docs/DECISION_MAP.md`. `executeRelease` now runs `compactADRs` automatically before cutting a release unless `--no-compact` is passed, and `checkSpecDrift` recognizes valid ADR compaction diffs.

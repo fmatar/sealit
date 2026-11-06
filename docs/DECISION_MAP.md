@@ -54,6 +54,7 @@ flowchart TD
   _91["Ticket #91 (feature/issue-91-harden-gates)"]
   _94["Ticket #94 (feature/issue-#94-fix-claude-cowork-skill-provisioning-non)"]
   _95["Ticket #95 (feature/issue-#95-implement-adr-lifecycle-compaction-and-f)"]
+  _97["Ticket #97 (feature/issue-#97-fix-claude-desktop-skills)"]
   CAP_01 -->|specified_by| SPEC_01
   CAP_02 -->|specified_by| SPEC_02
   CAP_03 -->|specified_by| SPEC_03

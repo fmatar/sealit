@@ -1,6 +1,6 @@
 ---
-description: "Stack detection, doctor --fix auto-healing, 4-Layer Git Guard hooks, .archlens/policy.json scaffolding, and multi-agent installer (Gemini, Claude Code, Cursor, Grok, Windsurf, Copilot)."
-argument-hint: "[args]"
+description: Stack detection, doctor --fix auto-healing, 4-Layer Git Guard hooks, .archlens/policy.json scaffolding, and multi-agent installer (Gemini, Claude Code, Cursor, Grok, Windsurf, Copilot).
+allowed-tools: Read, Write, Edit, Bash
 ---
 
 # 🩺 Environment Doctor, Stack Discovery & Multi-Agent Setup (`sdlc-doctor`)

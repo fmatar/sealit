@@ -7,6 +7,13 @@ import http from 'node:http';
 import { execSync, execFileSync } from 'node:child_process';
 
 import {
+  CLAUDE_TOOL_MAP,
+  toClaudeDialect,
+  toClaudeSkill,
+  mergeRulesFile
+} from '../.agent/scripts/lib/installer.mjs';
+
+import {
   // Core & Async Pool
   execAsync,
   runParallelTasks,
@@ -1217,6 +1224,13 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
           assert.equal(/\b(read_file|write_file|edit_file|run_command|invoke_subagent)\b/.test(content), false, `${skillId} must not reference Antigravity tool names`);
         }
 
+        assert.ok(claudeSkill.includes('allowed-tools:'), `${skillId} must include allowed-tools in SKILL.md frontmatter`);
+        assert.equal(claudeSkill.includes('user-invocable:'), false, `${skillId} must not have non-standard user-invocable in SKILL.md`);
+        assert.ok(claudeCmd.includes('allowed-tools:'), `${skillId} command must include allowed-tools in frontmatter`);
+        if (skillId === 'sdlc') {
+          assert.ok(claudeCmd.includes('argument-hint: <subcommand> [args]'), 'sdlc command must have argument-hint');
+        }
+
         // Cowork account-level skill .zip bundle exists and starts with PK\x03\x04 ZIP signature containing <skillId>/SKILL.md
         const zipPath = path.join(tmpDir, '.claude/cowork', `${skillId}.zip`);
         assert.equal(fs.existsSync(zipPath), true, `Cowork zip bundle missing for ${skillId}`);
@@ -1285,6 +1299,43 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
       assert.ok(formatCLIResult({ command: 'product', spec: { capId: 'CAP-01', specPath: 'docs/specs/cap-01.md' } }).includes('CAP-01'));
       assert.ok(formatCLIResult({ command: 'review', review: { verdict: 'approve', reviewer: 'bot' } }).includes('approve'));
       assert.ok(formatCLIResult({ command: 'interop', interop: { selectedAgents: ['claude'], filesCreated: ['CLAUDE.md'] } }).includes('claude'));
+    });
+
+    it('translates canonical skills to Claude dialect with CLAUDE_TOOL_MAP and mergeRulesFile', () => {
+      assert.equal(CLAUDE_TOOL_MAP.read_file, 'Read');
+      assert.equal(CLAUDE_TOOL_MAP.write_file, 'Write');
+      assert.equal(CLAUDE_TOOL_MAP.edit_file, 'Edit');
+      assert.equal(CLAUDE_TOOL_MAP.run_command, 'Bash');
+      assert.equal(CLAUDE_TOOL_MAP.invoke_subagent, 'Agent');
+
+      const dialectOut = toClaudeDialect('Use `read_file` and <agent-embed src="foo"></agent-embed>');
+      assert.ok(dialectOut.includes('Read'));
+      assert.equal(dialectOut.includes('<agent-embed'), false);
+      assert.ok(dialectOut.includes('.agent/workbench/index.html'));
+
+      const dummySkill = {
+        id: 'sdlc-sample',
+        raw: '---\nname: sdlc-sample\ndescription: Test sample {{args}}\ntools: read_file, run_command, invoke_subagent\n---\n\nRun `run_command` and `read_file`.\n'
+      };
+      const cs = toClaudeSkill(dummySkill);
+      assert.equal(cs.id, 'sdlc-sample');
+      assert.ok(cs.allowedTools.includes('Read'));
+      assert.ok(cs.allowedTools.includes('Bash'));
+      assert.ok(cs.allowedTools.includes('Agent'));
+      assert.ok(cs.markdown.includes('allowed-tools: Read, Bash, Agent'));
+      assert.ok(cs.markdown.includes('description: Test sample $ARGUMENTS'));
+
+      const rulesPath = path.join(tmpDir, 'TEST_RULES.md');
+      const r1 = mergeRulesFile(rulesPath, '# Rules\n');
+      assert.equal(r1.mode, 'created');
+      const r2 = mergeRulesFile(rulesPath, '# Rules\n');
+      assert.equal(r2.mode, 'replaced');
+      const customPath = path.join(tmpDir, 'CUSTOM_RULES.md');
+      fs.writeFileSync(customPath, '# Custom Project\n', 'utf8');
+      const r3 = mergeRulesFile(customPath, '# Rules\n');
+      assert.equal(r3.mode, 'appended');
+      const r4 = mergeRulesFile(customPath, '# Rules v2\n');
+      assert.equal(r4.mode, 'updated');
     });
 
     it('implements ADR lifecycle compaction (compactADRs + release compaction) and resolves all 6 field-tested engine bugs', () => {

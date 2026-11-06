@@ -1,8 +1,7 @@
 ---
 name: sdlc
-description: "Universal /sdlc $ARGUMENTS command router. Accepts any subcommand directly in chat (/sdlc doctor, /sdlc begin 4912, /sdlc status, /sdlc drift, /sdlc pre-pr, /sdlc gate, /sdlc kanban, /sdlc ui) and maps it 1:1 to sdlc-engine.mjs."
-user-invocable: true
-argument-hint: "<subcommand> [flags]"
+description: Universal /sdlc $ARGUMENTS command router. Accepts any subcommand directly in chat (/sdlc doctor, /sdlc begin 4912, /sdlc status, /sdlc drift, /sdlc pre-pr, /sdlc gate, /sdlc kanban, /sdlc ui) and maps it 1:1 to sdlc-engine.mjs.
+allowed-tools: Read, Write, Edit, Bash, Agent
 ---
 
 # ⚡ Universal Command Router (`/sdlc $ARGUMENTS`)
@@ -31,12 +30,11 @@ When the user invokes `/sdlc <subcommand> [arguments]`, map the request directly
 | `/sdlc ticket <create\|transition\|comment\|sync\|templates>` | `node .agent/scripts/sdlc-engine.mjs ticket <subcommand> [args]` |
 | `/sdlc kanban` | `.agent/scripts/kanban-sync.sh` |
 | `/sdlc ub` | Activate `ub-mode` (Robert C. Martin reduced principles) for the active session |
-| `/sdlc ui` / `/sdlc serve` | `node .agent/scripts/sdlc-engine.mjs ui-snapshot` (generates `.agent/workbench/index.html`; publish or open the snapshot instead of blocking on `serve`) |
+| `/sdlc ui` / `/sdlc serve` | `node .agent/scripts/sdlc-engine.mjs ui-snapshot` (then hand the user the path of `.agent/workbench/index.html`) |
 | `/sdlc wiki [sync\|audit\|map]` | `node .agent/scripts/sdlc-engine.mjs wiki <subcommand>` |
 | `/sdlc release [patch\|minor\|major]` | `node .agent/scripts/sdlc-engine.mjs release <bump>` |
 
 ## 2. Execution Protocol
 1. Parse the user's subcommand and flags after `/sdlc`.
-2. Execute the mapped `node .agent/scripts/sdlc-engine.mjs ...` command in the device shell / Bash tool against the connected project folder root (pass `--json` if structured JSON is needed).
-3. If the subcommand is `begin`, `pre-pr`, `ui`, `serve`, or `status`, run `node .agent/scripts/sdlc-engine.mjs ui-snapshot` to build `.agent/workbench/index.html` and publish or share `.agent/workbench/index.html` with the user (in Cowork, `serve` loopback ports are unreachable from the remote viewer, so always publish the self-contained `ui-snapshot` HTML artifact instead).
-4. Note: `install` and `interop export` update `CLAUDE.md` and `.claude/settings.json` non-destructively, preserving existing project instructions and valid settings.
+2. Execute the mapped `node .agent/scripts/sdlc-engine.mjs ...` command via `Bash`.
+3. If the subcommand is `begin`, `pre-pr`, `ui`, or `status`, also regenerate `.agent/workbench/index.html` with `node .agent/scripts/sdlc-engine.mjs ui-snapshot`. Claude Code cannot embed HTML inline: tell the user the path of `.agent/workbench/index.html` so they can open it in a browser.
