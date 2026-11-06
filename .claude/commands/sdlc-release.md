@@ -1,6 +1,6 @@
 ---
-description: "Synchronizes project documentation (README.md, docs/specs/, CHANGELOG.md, wiki/) and automates Semantic Versioning (SemVer) releases, Git tagging, regression proofs, and canary health watchdog verification."
-argument-hint: "[args]"
+description: Synchronizes project documentation (README.md, docs/specs/, CHANGELOG.md, wiki/) and automates Semantic Versioning (SemVer) releases, Git tagging, regression proofs, and canary health watchdog verification.
+allowed-tools: Read, Write, Edit, Bash
 ---
 
 # 📦 Documentation Sync & Release Manager (`sdlc-release`)

@@ -1,6 +1,6 @@
 ---
-description: "Master SDLC orchestrator driving end-to-end feature implementation, bug fixes, and releases using composite stage transitions (stage begin, stage pre-pr, stage complete), Kanban synchronization, architectural traceability, Robert Martin TDD, and parallel fork-join subagent peer reviews."
-argument-hint: "[args]"
+description: Master SDLC orchestrator driving end-to-end feature implementation, bug fixes, and releases using composite stage transitions (stage begin, stage pre-pr, stage complete), Kanban synchronization, architectural traceability, Robert Martin TDD, and parallel fork-join subagent peer reviews.
+allowed-tools: Read, Write, Edit, Bash, Agent
 ---
 
 # 🚀 Agentic SDLC Master Orchestrator (`sdlc-flow`)
@@ -63,18 +63,20 @@ This single command atomically:
 - Synchronizes `docs/DECISION_MAP.md` (`decision-graph sync`).
 - Appends architectural traceability to `docs/ARCH_TRACE.md` (`arch trace`).
 - Issues the HMAC-SHA256-signed Stage 7 gate receipt from measured values in the session (`coverage`, `mutation`, `review record`); it refuses, and the command exits non-zero, when any value is unmeasured.
-- Builds `.agent/workbench/index.html` (publish or open `.agent/workbench/index.html` directly; in Cowork, use `ui-snapshot` instead of `serve`).
+- Builds `.agent/workbench/index.html` (start the live, token-protected workbench yourself with `sdlc-engine serve`).
 - Generates the standardized PR summary.
 
-**Architecture UI Snapshot Presentation**:
-After running `stage begin` or `stage pre-pr`, `.agent/workbench/index.html` is generated automatically (or refresh it via `node .agent/scripts/sdlc-engine.mjs ui-snapshot`). Publish or present `.agent/workbench/index.html` to the user (in Cowork, publish the static HTML snapshot rather than running `serve`).
+**Mandatory Inline Architecture UI Presentation**:
+After running `stage begin` or `stage pre-pr`, regenerate `.agent/workbench/index.html` with `node .agent/scripts/sdlc-engine.mjs ui-snapshot`. Claude Code cannot embed HTML inline: tell the user the path of `.agent/workbench/index.html` so they can open it in a browser.
 
 ### Phase 4: Parallel Fork-Join Review & Quality Gate (`sdlc-gate`)
-Dispatch two independent review tasks in parallel using your subagent / Task tool (or execute both structured review passes sequentially if subagents are unavailable):
+Dispatch two `Agent` calls in parallel using valid tool arguments:
 - **Call 1 (`PR Peer Reviewer`)**:
+  - `TypeName`: `"research"`
   - `Role`: `"PR Peer Reviewer"`
   - `Prompt`: `"Audit git diff against main for Robert Martin test smells, Dual-Gate coverage (>=85%), and clean architecture boundaries. Return a structured review verdict."`
 - **Call 2 (`Quality Gate Auditor`)**:
+  - `TypeName`: `"research"`
   - `Role`: `"Quality Gate Auditor"`
   - `Prompt`: `"Inspect modified files for security leaks, concentric layer inversions (.archlens/policy.json), and documentation completeness. Return a structured gate report."`
 

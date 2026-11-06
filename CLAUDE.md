@@ -1,7 +1,7 @@
 <!-- AGENTIC-SDLC-RULES:START -->
 # Agentic SDLC Framework Invariants & Autonomous Rules
-# Generated automatically by @fmatar/agentic-sdlc (Universal Engine v0.1.0)
-# Adheres strictly to Robert C. Martin Clean Code & Clean Architecture
+_Generated automatically by @fmatar/agentic-sdlc (Universal Engine v0.1.0)_
+_Adheres strictly to Robert C. Martin Clean Code & Clean Architecture_
 
 ## 1. Zero Direct Pushes (4-Layer Git Guard — INV-01)
 - Direct git commits, merges, or pushes to `develop` or `main` are STRICTLY FORBIDDEN.

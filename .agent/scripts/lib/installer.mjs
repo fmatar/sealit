@@ -142,8 +142,8 @@ export const SUPPORTED_AGENTS = [
 ];
 
 export const CONSTITUTIONAL_RULES_SUMMARY = `# Agentic SDLC Framework Invariants & Autonomous Rules
-# Generated automatically by @fmatar/agentic-sdlc (Universal Engine v0.1.0)
-# Adheres strictly to Robert C. Martin Clean Code & Clean Architecture
+_Generated automatically by @fmatar/agentic-sdlc (Universal Engine v0.1.0)_
+_Adheres strictly to Robert C. Martin Clean Code & Clean Architecture_
 
 ## 1. Zero Direct Pushes (4-Layer Git Guard — INV-01)
 - Direct git commits, merges, or pushes to \`develop\` or \`main\` are STRICTLY FORBIDDEN.
@@ -175,6 +175,110 @@ export const CONSTITUTIONAL_RULES_SUMMARY = `# Agentic SDLC Framework Invariants
  * Resolves the root directory of the bundled Agentic SDLC Framework package
  * (whether invoked via `npx github:fmatar/agentic-sdlc-framework` or locally).
  */
+// --- Claude Code dialect (canonical skills are written in the Antigravity/Gemini tool vocabulary) ---
+
+export const CLAUDE_TOOL_MAP = {
+  read_file: 'Read',
+  write_file: 'Write',
+  edit_file: 'Edit',
+  run_command: 'Bash',
+  invoke_subagent: 'Agent',
+  list_directory: 'Glob',
+  grep_search: 'Grep',
+  search_files: 'Grep'
+};
+
+const WORKBENCH_HTML = '.agent/workbench/index.html';
+const WORKBENCH_NOTE =
+  'Claude Code cannot embed HTML inline: tell the user the path of `' + WORKBENCH_HTML + '` so they can open it in a browser.';
+const REGENERATE_WORKBENCH = 'regenerate `' + WORKBENCH_HTML + '` with `node .agent/scripts/sdlc-engine.mjs ui-snapshot`';
+const EMBED_TAG = '<agent-embed[^>]*>(?:<\\/agent-embed>)?';
+
+/**
+ * Rewrites Antigravity tool names, `{{args}}` and `<agent-embed>` instructions into
+ * Claude Code conventions (Read/Write/Edit/Bash/Agent, $ARGUMENTS, file path hand-off).
+ */
+export function toClaudeDialect(text = '') {
+  let out = String(text);
+  out = out.replace(/\{\{args\}\}/g, '$ARGUMENTS');
+  out = out.replace(/\bAntigravity Inline\b/g, 'Inline');
+  // Artifact-directory copies + inline embeds have no Claude Code equivalent.
+  out = out.replace(/\s*\(with `ArtifactMetadata:[^\n]*?\}`\)/g, '');
+  out = out.replace(/\s*\(`UserFacing: true`\)/g, '');
+  out = out.replace(/`?<artifactDir>\/sdlc-architecture-diff\.html`?/g, '`' + WORKBENCH_HTML + '`');
+  out = out.replace(/`?file:\/\/\/`?/g, '');
+  out = out.replace(new RegExp('```[a-z]*\\n\\s*(' + EMBED_TAG + ')\\s*\\n```', 'g'), '$1');
+  out = out.replace(
+    /(?:copy|write|refresh)\s+`\.agent\/workbench\/index\.html`\s+(?:into|to|from)\s+[^\n`]*?`\.agent\/workbench\/index\.html`\)?(?:\s*(?:using|via)\s+`write_file`)?/gi,
+    (m) => (m[0] === m[0].toUpperCase() ? 'R' : 'r') + REGENERATE_WORKBENCH.slice(1)
+  );
+  out = out.replace(new RegExp('\\s*\\+\\s*embed\\s*`' + EMBED_TAG + '`', 'g'), ' (then hand the user the path of `' + WORKBENCH_HTML + '`)');
+  out = out.replace(
+    new RegExp('\\s*(?:and\\s+)?(?:render it inline in your (?:chat )?response(?: via)?|embed it directly in your response|embed)\\s*:?\\s*`?' + EMBED_TAG + '`?\\.?', 'g'),
+    '. ' + WORKBENCH_NOTE
+  );
+  out = out.replace(new RegExp(EMBED_TAG, 'g'), WORKBENCH_NOTE);
+  for (const [from, to] of Object.entries(CLAUDE_TOOL_MAP)) {
+    out = out.replace(new RegExp('\\b' + from + '\\b', 'g'), to);
+  }
+  return out.replace(/`\.\s*\.\s/g, '`. ').replace(/:\s*\.\s/g, '. ');
+}
+
+/** Renders a canonical skill as a Claude Code SKILL.md (allowed-tools frontmatter, translated body). */
+export function toClaudeSkill(sk) {
+  const parsed = parseFrontmatter(sk.raw || '');
+  const fm = parsed.frontmatter || {};
+  const allowedTools = Array.from(
+    new Set(
+      String(fm.tools || fm['allowed-tools'] || sk.tools || '')
+        .split(',')
+        .map((t) => t.trim())
+        .filter(Boolean)
+        .map((t) => CLAUDE_TOOL_MAP[t] || t)
+    )
+  );
+  const description = toClaudeDialect(fm.description || sk.description || sk.id);
+  const body = toClaudeDialect(parsed.body || sk.body || '');
+  const lines = ['---', `name: ${fm.name || sk.id}`, `description: ${description}`];
+  if (allowedTools.length) lines.push(`allowed-tools: ${allowedTools.join(', ')}`);
+  lines.push('---', '', body, '');
+  return { id: sk.id, description, body, allowedTools, markdown: lines.join('\n') };
+}
+
+const SDLC_BLOCK_BEGIN = '<!-- agentic-sdlc:begin -->';
+const SDLC_BLOCK_END = '<!-- agentic-sdlc:end -->';
+
+/**
+ * Writes the constitutional summary into a rules file (CLAUDE.md, .cursorrules) WITHOUT
+ * discarding project content: a missing/empty file gets the summary; an existing file gets a
+ * marked block appended once (headings demoted one level) and updated in place on re-install.
+ */
+export function mergeRulesFile(filePath, summary = CONSTITUTIONAL_RULES_SUMMARY) {
+  const existing = fileExists(filePath) ? readFileSafe(filePath) || '' : '';
+  if (!existing.trim()) {
+    fs.writeFileSync(filePath, summary, 'utf8');
+    return { path: filePath, mode: 'created' };
+  }
+  const demoted = summary.replace(/^(#{1,5}) /gm, '#$1 ').trimEnd();
+  const block = `${SDLC_BLOCK_BEGIN}\n${demoted}\n${SDLC_BLOCK_END}`;
+  const b = existing.indexOf(SDLC_BLOCK_BEGIN);
+  const e = existing.indexOf(SDLC_BLOCK_END);
+  let next;
+  let mode;
+  if (b !== -1 && e > b) {
+    next = existing.slice(0, b) + block + existing.slice(e + SDLC_BLOCK_END.length);
+    mode = 'updated';
+  } else if (existing.trimStart().startsWith(summary.split('\n')[0])) {
+    next = summary;
+    mode = 'replaced';
+  } else {
+    next = `${existing.trimEnd()}\n\n---\n\n${block}\n`;
+    mode = 'appended';
+  }
+  if (next !== existing) fs.writeFileSync(filePath, next, 'utf8');
+  return { path: filePath, mode };
+}
+
 export function resolvePackageRoot() {
   return path.resolve(import.meta.dirname, '../../..');
 }
@@ -361,7 +465,9 @@ export function upsertClaudeSettingsJson(settingsPath) {
       : {};
   const allowSet = new Set(Array.isArray(currentPermissions.allow) ? currentPermissions.allow : []);
   allowSet.add('Bash(node .agent/scripts/sdlc-engine.mjs *)');
+  allowSet.add('Bash(node .agent/scripts/sdlc-engine.mjs:*)');
   allowSet.add('Bash(.agent/scripts/kanban-sync.sh *)');
+  allowSet.add('Bash(.agent/scripts/kanban-sync.sh:*)');
   currentPermissions.allow = Array.from(allowSet);
 
   const currentEnv =
@@ -395,6 +501,22 @@ export function adaptSkillForAgent(skill, agentId = 'claude') {
       coworkSkillMarkdown: skill.raw,
       commandMarkdown: `---\ndescription: ${skill.description}\n---\n\n${skill.body}\n`,
       body: skill.body
+    };
+  }
+
+  if (agentId === 'claude') {
+    const claudeSkill = toClaudeSkill(skill);
+    const cmdFrontmatter = [`description: ${claudeSkill.description}`];
+    if (claudeSkill.allowedTools.length) cmdFrontmatter.push(`allowed-tools: ${claudeSkill.allowedTools.join(', ')}`);
+    if (skill.id === 'sdlc') cmdFrontmatter.push('argument-hint: <subcommand> [args]');
+    const commandMarkdown = `---\n${cmdFrontmatter.join('\n')}\n---\n\n${claudeSkill.body}\n`;
+
+    return {
+      skillMarkdown: claudeSkill.markdown,
+      coworkSkillMarkdown: claudeSkill.markdown,
+      commandMarkdown,
+      body: claudeSkill.body,
+      allowedTools: claudeSkill.allowedTools
     };
   }
 

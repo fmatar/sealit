@@ -1,6 +1,6 @@
 ---
-description: "Guides Robert C. Martin Test-Driven Development (Red-Green-Refactor, Transformation Priority Premise, F.I.R.S.T. isolation) and executes real Dual-Gate test coverage (>= 85%) and mutation testing (>= 80%) across polyglot stacks."
-argument-hint: "[args]"
+description: Guides Robert C. Martin Test-Driven Development (Red-Green-Refactor, Transformation Priority Premise, F.I.R.S.T. isolation) and executes real Dual-Gate test coverage (>= 85%) and mutation testing (>= 80%) across polyglot stacks.
+allowed-tools: Read, Write, Edit, Bash
 ---
 
 # 🧪 Robert Martin TDD & Dual-Gate Verification (`sdlc-tdd`)
