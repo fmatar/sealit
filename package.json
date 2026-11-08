@@ -1,6 +1,6 @@
 {
   "name": "@fmatar/agentic-sdlc",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Autonomous Agentic Software Development Lifecycle (SDLC) Framework for AI Coding Agents",
   "keywords": [
     "agentic-sdlc",

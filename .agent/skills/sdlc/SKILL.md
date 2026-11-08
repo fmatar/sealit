@@ -27,6 +27,7 @@ When the user invokes `/sdlc <subcommand> [arguments]`, map the request directly
 | `/sdlc drift` | `node .agent/scripts/sdlc-engine.mjs drift check` |
 | `/sdlc adr <create\|list\|decide\|compact>` | `node .agent/scripts/sdlc-engine.mjs adr <subcommand> [--release <ver>]` |
 | `/sdlc gate` | `node .agent/scripts/sdlc-engine.mjs gate --strict` |
+| `/sdlc review` | `node .agent/scripts/sdlc-engine.mjs review record --verdict approve --reviewer "@sdlc-gate" --peer-review "<tdd>" --arch-review "<arch>"` |
 | `/sdlc ticket <create\|transition\|comment\|sync\|templates>` | `node .agent/scripts/sdlc-engine.mjs ticket <subcommand> [args]` |
 | `/sdlc kanban` | `.agent/scripts/kanban-sync.sh` |
 | `/sdlc ub` | Activate `ub-mode` (Robert C. Martin reduced principles) for the active session |

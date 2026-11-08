@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execSync, execFileSync } from 'node:child_process';
 import { fileExists, readFileSafe } from './core.mjs';
-import { createPMIssue, transitionPMState, syncKanbanBoard } from './pm-provider.mjs';
+import { createPMIssue, transitionPMState, syncKanbanBoard, ensurePullRequest } from './pm-provider.mjs';
 import { checkSpecDrift } from './adr-drift.mjs';
 import { syncDecisionMapMarkdown } from './decision-graph.mjs';
 import { recordArchTrace } from './arch-trace.mjs';
@@ -599,14 +599,26 @@ export function executeCompositeStage({
     }
 
     const prSummary = generatePRSummary({ issueId: updated.session.issueId, repoRoot });
+    const prRes = ensurePullRequest({
+      issueId: updated.session.issueId,
+      branch: updated.session.branch,
+      title: summary
+        ? `${updated.session.type || 'feat'}(#${updated.session.issueId}): ${summary}`
+        : `${updated.session.type || 'feat'}(#${updated.session.issueId}): ${updated.session.branch || 'SDLC Delivery'}`,
+      body: prSummary.markdown,
+      repoRoot
+    });
     const wb = ensureWorkbenchRunning({ repoRoot });
     const uiWidget = generateArchitectureWidget({ repoRoot });
 
     return {
-      success: Boolean(prePrPassed && receipt),
+      success: Boolean(prePrPassed),
       action: 'pre-pr',
       receiptError,
       issueId: updated.session.issueId,
+      prNumber: prRes.prNumber || updated.session.manifest?.prNumber || null,
+      prUrl: prRes.prUrl || updated.session.manifest?.prUrl || null,
+      prCreated: Boolean(prRes.created),
       stage: 6,
       drift,
       wikiAudit,

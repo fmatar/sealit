@@ -63,7 +63,8 @@ This single command atomically:
 - Evaluates `drift check` (`PRODUCT.md` & `docs/specs/` vs `docs/adr/`).
 - Synchronizes `docs/DECISION_MAP.md` (`decision-graph sync`).
 - Appends architectural traceability to `docs/ARCH_TRACE.md` (`arch trace`).
-- Issues the HMAC-SHA256-signed Stage 7 gate receipt from measured values in the session (`coverage`, `mutation`, `review record`); it refuses, and the command exits non-zero, when any value is unmeasured.
+- Pushes the feature branch and resolves or creates the GitHub Pull Request (`gh pr view` / `gh pr create`), saving `prNumber` in `.agent/.sdlc-session.json`.
+- Issues the HMAC-SHA256-signed Stage 7 gate receipt if `peerReview` is already recorded in the session (otherwise deferred to Phase 4 `review record`).
 - Builds `.agent/workbench/index.html` (start the live, token-protected workbench yourself with `sdlc-engine serve`).
 - Generates the standardized PR summary.
 
@@ -76,15 +77,19 @@ Dispatch two `Agent` calls in parallel using valid tool arguments:
   - `TypeName`: `"research"`
   - `Role`: `"PR Peer Reviewer"`
   - `Prompt`: `"Audit git diff against main for Robert Martin test smells, Dual-Gate coverage (>=85%), and clean architecture boundaries. Return a structured review verdict."`
-- **Call 2 (`Quality Gate Auditor`)**:
+- **Call 2 (`Architecture & Security Gatekeeper`)**:
   - `TypeName`: `"research"`
-  - `Role`: `"Quality Gate Auditor"`
+  - `Role`: `"Architecture & Security Gatekeeper"`
   - `Prompt`: `"Inspect modified files for security leaks, concentric layer inversions (.archlens/policy.json), and documentation completeness. Return a structured gate report."`
 
-Then run the strict quality gate and post the consolidated review comment:
+Then run the strict quality gate, sign the Stage 7 receipt, and publish the consolidated 4-section review comment directly onto the GitHub Pull Request:
 ```bash
 node .agent/scripts/sdlc-engine.mjs gate --strict
-node .agent/scripts/sdlc-engine.mjs pm comment <id> --body "<review_verdict>"
+node .agent/scripts/sdlc-engine.mjs review record \
+  --verdict approve \
+  --reviewer "@sdlc-gate" \
+  --peer-review "<subagent_1_verdict>" \
+  --arch-review "<subagent_2_verdict>"
 ```
 
 ### Phase 5: Completion & Kanban Synchronization (`stage complete`)

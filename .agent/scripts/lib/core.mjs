@@ -159,11 +159,16 @@ export function detectPMProvider(repoRoot = '.') {
     try {
       const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
       const cfgProvider = (cfg?.projectManagement?.provider || '').toLowerCase().trim();
-      const cfgKey = cfg?.projectManagement?.projectKey || 'SDLC';
+      const cfgKey = cfg?.projectManagement?.projectKey || cfg?.projectManagement?.key || 'SDLC';
       if (cfgProvider === 'jira') return { provider: 'jira', configured: true, key: process.env.JIRA_PROJECT_KEY || cfgKey };
       if (cfgProvider === 'linear') return { provider: 'linear', configured: true, key: process.env.LINEAR_TEAM_KEY || cfgKey };
+      if (cfgProvider === 'github') return { provider: 'github', configured: true, key: cfgKey };
       if (cfgProvider === 'local') return { provider: 'local', configured: true, file: 'docs/KANBAN.md' };
     } catch {}
+  }
+
+  if (hasGitHubRemote(repoRoot)) {
+    return { provider: 'github', configured: true };
   }
 
   let hasGhCliAuth = false;
@@ -235,6 +240,12 @@ export function gitOutput(args, repoRoot = '.') {
   } catch {
     return null;
   }
+}
+
+export function hasGitHubRemote(repoRoot = '.') {
+  if (process.env.GH_HOST === 'invalid.localhost') return false;
+  const originUrl = gitOutput(['config', '--get', 'remote.origin.url'], repoRoot) || '';
+  return /github\.com/i.test(originUrl.trim());
 }
 
 /**

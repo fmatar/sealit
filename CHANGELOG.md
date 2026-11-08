@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-11-08
+
+### Added
+- **Automatic GitHub Pull Request Discovery & Creation in `stage pre-pr` (`#99`)**: Added `resolveOpenPRNumber` and `ensurePullRequest` in `.agent/scripts/lib/pm-provider.mjs` and wired them into `executeCompositeStage({ action: 'pre-pr' })` in `.agent/scripts/lib/session.mjs`. Running `stage pre-pr` now pushes the active feature branch to `origin`, discovers or creates the GitHub Pull Request (`gh pr view` / `gh pr create`), and persists `prNumber` and `prUrl` in `.agent/.sdlc-session.json`.
+- **Consolidated 4-Section PR Review Comment Formatter (`#99`)**: Added `formatConsolidatedReviewComment` in `.agent/scripts/lib/pm-provider.mjs` and upgraded `review record` in `.agent/scripts/sdlc-engine.mjs` to accept `--peer-review`, `--arch-review`, `--body`, and `--pr`, sign the Stage 7 cryptographic receipt (`GATE-RECEIPT-#...`), and publish a 4-section Markdown review comment (Verdict Header, Subagent 1 TDD & Clean Code Review, Subagent 2 Architecture & Security Gatekeeper, and Strict 9-Pillar Quality Gate Table) directly to the open GitHub Pull Request.
+
+### Fixed
+- **PR-Only Comment Routing & Fail-Loud GitHub Publishing (`#99`)**: Updated `postPMComment` in `.agent/scripts/lib/pm-provider.mjs` and `hasGitHubRemote` in `.agent/scripts/lib/core.mjs` so review comments post exclusively to `gh pr comment <prNumber>` when an open PR exists (eliminating duplicate issue comments) and fail loudly (`success: false` / exit non-zero) when a GitHub remote is configured and `gh` fails, instead of silently swallowing errors into `docs/KANBAN.md`.
+
 ## [0.3.1] - 2026-11-06
 
 ### Fixed
