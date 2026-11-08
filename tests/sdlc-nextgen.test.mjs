@@ -65,6 +65,10 @@ import {
   createTicket,
   transitionPMState,
   postPMComment,
+  resolveOpenPRNumber,
+  ensurePullRequest,
+  formatConsolidatedReviewComment,
+  hasGitHubRemote,
   detectPMProvider,
   installHooks,
   createWorkbenchServer,
@@ -1629,6 +1633,161 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
 
       const mcpJson = fs.readFileSync(path.resolve('.mcp.json'), 'utf8');
       assert.ok(mcpJson.includes('@fmatar/archlens-skill@'), '.mcp.json must pin @fmatar/archlens-skill version');
+    });
+
+    it('discovers/creates GitHub PRs in stage pre-pr, formats 4-section consolidated reviews, posts strictly to the PR via review record/pm comment, and fails loudly when GitHub remote comment fails (#99)', () => {
+      initTempGitRepo(tmpDir);
+
+      // 1. Without a GitHub remote, hasGitHubRemote is false; once a github.com remote is added, it is true
+      assert.equal(hasGitHubRemote(tmpDir), false);
+      execSync('git remote add origin https://github.com/fmatar/agentic-sdlc-framework.git', { cwd: tmpDir, stdio: 'pipe' });
+      assert.equal(hasGitHubRemote(tmpDir), true);
+
+      // 2. detectPMProvider honors projectManagement.provider === "github" in .agent/sdlc-config.json
+      fs.mkdirSync(path.join(tmpDir, '.agent'), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpDir, '.agent/sdlc-config.json'),
+        JSON.stringify({
+          version: '2.1.0',
+          projectManagement: { provider: 'github', key: 'SDLC' },
+          modules: [{ name: 'root', path: '.', commands: { test: 'node -e 0' }, thresholds: { diffCoverage: 85, mutationScore: null } }]
+        }),
+        'utf8'
+      );
+      assert.equal(detectPMProvider(tmpDir).provider, 'github');
+
+      // 3. Start session on feature branch and verify ensurePullRequest creates a PR when none is open
+      execSync('git checkout -b feature/issue-#99-pr-review', { cwd: tmpDir, stdio: 'pipe' });
+      startSession({
+        issueId: 99,
+        branch: 'feature/issue-#99-pr-review',
+        stage: 5,
+        repoRoot: tmpDir,
+        force: true
+      });
+      updateSession({
+        manifestUpdate: { coverageReport: '92.4%', mutationScore: '84.1%' },
+        repoRoot: tmpDir
+      });
+
+      const ghCalls = [];
+      let prCreated = false;
+      const mockGhExec = (bin, args) => {
+        ghCalls.push({ bin, args });
+        if (bin === 'git' && args[0] === 'push') {
+          return 'Everything up-to-date';
+        }
+        if (bin === 'gh' && args[0] === 'pr' && args[1] === 'view') {
+          if (!prCreated) throw new Error('no pull requests found for branch');
+          return JSON.stringify({ number: 104, url: 'https://github.com/fmatar/agentic-sdlc-framework/pull/104' });
+        }
+        if (bin === 'gh' && args[0] === 'pr' && args[1] === 'create') {
+          prCreated = true;
+          return 'https://github.com/fmatar/agentic-sdlc-framework/pull/104\n';
+        }
+        if (bin === 'gh' && args[0] === 'pr' && args[1] === 'comment') {
+          return 'https://github.com/fmatar/agentic-sdlc-framework/pull/104#issuecomment-1\n';
+        }
+        if (bin === 'gh' && args[0] === 'issue' && args[1] === 'comment') {
+          return 'https://github.com/fmatar/agentic-sdlc-framework/issues/99#issuecomment-2\n';
+        }
+        return '';
+      };
+
+      const ensured = ensurePullRequest({
+        issueId: 99,
+        branch: 'feature/issue-#99-pr-review',
+        title: 'fix: publish consolidated peer review to PR',
+        body: '## Summary\nCloses #99',
+        repoRoot: tmpDir,
+        execFn: mockGhExec
+      });
+      assert.equal(ensured.success, true);
+      assert.equal(ensured.created, true);
+      assert.equal(ensured.prNumber, 104);
+      assert.equal(ensured.prUrl, 'https://github.com/fmatar/agentic-sdlc-framework/pull/104');
+
+      // Calling resolveOpenPRNumber now finds 104 from the session manifest without needing a new PR
+      const resolvedPr = resolveOpenPRNumber({ repoRoot: tmpDir, execFn: mockGhExec });
+      assert.equal(resolvedPr, 104);
+
+      // 4. formatConsolidatedReviewComment produces all 4 required sections
+      const formattedMd = formatConsolidatedReviewComment({
+        issueId: 99,
+        prNumber: 104,
+        branch: 'feature/issue-#99-pr-review',
+        headSha: 'abcdef1234567890',
+        verdict: 'approve',
+        reviewer: '@sdlc-gate',
+        peerReviewSummary: 'Zero test smells; F.I.R.S.T. isolation verified.',
+        archSecuritySummary: 'Zero Concentric Clean Architecture ring inversions.',
+        coveragePct: '92.4%',
+        mutationPct: '84.1%',
+        receiptId: 'GATE-RECEIPT-#99-abcdef12'
+      });
+      assert.ok(formattedMd.includes('APPROVED'), 'Section 1: Verdict header must be present');
+      assert.ok(formattedMd.includes('abcdef12'), 'Section 1: Commit SHA must be present');
+      assert.ok(formattedMd.includes('Subagent 1: PR Peer Reviewer'), 'Section 2: Subagent 1 section must be present');
+      assert.ok(formattedMd.includes('Zero test smells; F.I.R.S.T. isolation verified.'), 'Section 2 body must be included');
+      assert.ok(formattedMd.includes('Subagent 2: Architecture & Security Gatekeeper'), 'Section 3: Subagent 2 section must be present');
+      assert.ok(formattedMd.includes('Zero Concentric Clean Architecture ring inversions.'), 'Section 3 body must be included');
+      assert.ok(formattedMd.includes('9-Pillar Quality Gate'), 'Section 4: 9-Pillar table must be present');
+      assert.ok(formattedMd.includes('GATE-RECEIPT-#99-abcdef12'), 'Section 4: Stage 7 Receipt ID must be present');
+
+      // 5. postPMComment auto-detects prNumber (104) from session and posts ONLY to the PR (not duplicate on the Issue)
+      ghCalls.length = 0;
+      const commentRes = postPMComment({
+        issueId: 99,
+        comment: formattedMd,
+        repoRoot: tmpDir,
+        execFn: mockGhExec
+      });
+      assert.equal(commentRes.success, true);
+      assert.equal(commentRes.provider, 'github');
+      assert.equal(commentRes.prNumber, 104);
+      const prCommentCalls = ghCalls.filter((c) => c.bin === 'gh' && c.args[0] === 'pr' && c.args[1] === 'comment');
+      const issueCommentCalls = ghCalls.filter((c) => c.bin === 'gh' && c.args[0] === 'issue' && c.args[1] === 'comment');
+      assert.equal(prCommentCalls.length, 1, 'Must post comment to the PR via gh pr comment');
+      assert.equal(prCommentCalls[0].args[2], '104');
+      assert.equal(issueCommentCalls.length, 0, 'Must NOT post a duplicate comment to the Issue when an open PR exists');
+
+      // 6. When a GitHub remote is configured and gh pr comment fails, postPMComment fails loudly (success: false)
+      const failingGhExec = () => {
+        throw new Error('HTTP 401: Bad credentials or sandbox network blocked');
+      };
+      const failedComment = postPMComment({
+        issueId: 99,
+        prNumber: 104,
+        comment: 'Should fail loudly on GitHub remote error',
+        repoRoot: tmpDir,
+        execFn: failingGhExec
+      });
+      assert.equal(failedComment.success, false, 'Must fail loudly when GitHub remote exists and gh fails');
+      assert.ok(failedComment.error.includes('401') || failedComment.error.includes('GitHub'));
+
+      // 7. Unified `review record` records verdict, signs receipt when measurements exist, and publishes 4-section comment
+      const reviewCliRes = runCLI(
+        [
+          'review',
+          'record',
+          '--verdict',
+          'approve',
+          '--reviewer',
+          '@sdlc-gate',
+          '--peer-review',
+          'TDD Red-Green-Refactor verified.',
+          '--arch-review',
+          'Archlens concentric rings verified.',
+          '--no-comment'
+        ],
+        null,
+        tmpDir
+      );
+      assert.equal(reviewCliRes.success, true);
+      assert.equal(reviewCliRes.review.verdict, 'approve');
+      assert.equal(reviewCliRes.review.reviewer, '@sdlc-gate');
+      assert.ok(reviewCliRes.review.formattedComment.includes('TDD Red-Green-Refactor verified.'));
+      assert.ok(reviewCliRes.review.formattedComment.includes('Archlens concentric rings verified.'));
     });
   });
 });

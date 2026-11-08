@@ -13,6 +13,7 @@
 
 | 📥 Backlog | 📋 Ready | ⚡ In Progress | 🔍 In Review | ✅ Done |
 | :--- | :--- | :--- | :--- | :--- |
+|  |  | #99: [FIX] fix: Publish consolidated peer review & quality gate comments to GitHub PRs |  |  |
 |  |  |  |  | #97: [FIX] fix: fix-claude-desktop-skills |
 |  |  |  |  | #95: [FEAT] feat: Implement ADR lifecycle compaction and fix 6 field-tested engine bugs |
 |  |  |  |  | #94: [FIX] fix: Fix Claude Cowork skill provisioning, non-destructive CLAUDE.md/settings.json, and CLI output |

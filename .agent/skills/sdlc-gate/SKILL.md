@@ -21,19 +21,30 @@ Dispatch two independent read-only subagents in parallel using `invoke_subagent`
 
 ---
 
-## 2. Strict 9-Pillar Quality Gate & Cryptographic Receipt
+## 2. Strict 9-Pillar Quality Gate, Cryptographic Receipt & GitHub PR Review Comment
 
-Execute the deterministic engine checks and issue the signed Stage 7 gate receipt required by the `pre-merge-commit` hook:
+Execute the deterministic engine checks, sign the Stage 7 gate receipt required by the `pre-merge-commit` hook, and publish the consolidated 4-section Markdown review comment directly onto the GitHub Pull Request:
 
 ```bash
 # 1. Run strict quality gate (Tests, Coverage, Archlens rings, Spec Drift, Contract Drift, Security, Flake, Audit Chain)
 node .agent/scripts/sdlc-engine.mjs gate --strict
 
-# 2. Record the reviewer verdict, then issue the HMAC-signed receipt into docs/AUDIT_CHAIN.jsonl
-#    (refuses unless coverage, mutation (or mutationScore: null), review and drift were measured)
-node .agent/scripts/sdlc-engine.mjs review record --verdict approve --reviewer "<reviewer>"
-node .agent/scripts/sdlc-engine.mjs guard receipt
+# 2. Record the reviewer verdict, issue the HMAC-signed Stage 7 receipt into docs/AUDIT_CHAIN.jsonl,
+#    and publish the 4-section consolidated review comment to the GitHub PR (auto-detects PR # from session or gh pr view)
+node .agent/scripts/sdlc-engine.mjs review record \
+  --verdict approve \
+  --reviewer "@sdlc-gate" \
+  --peer-review "<subagent_1_tdd_and_clean_code_verdict>" \
+  --arch-review "<subagent_2_archlens_and_security_verdict>"
 
-# 3. Post the consolidated review verdict to GitHub PR/Issue or docs/KANBAN.md
+# 3. (Optional) Explicitly refresh the receipt or post an additional PR comment
+node .agent/scripts/sdlc-engine.mjs guard receipt
 node .agent/scripts/sdlc-engine.mjs pm comment <id> --pr <prNumber> --body "<verdict>"
 ```
+
+- **Consolidated PR Review Format**: `review record` automatically formats and posts a single PR comment via `gh pr comment <prNumber>` containing:
+  1. **Verdict Header & Commit SHA** (`APPROVED` / `CHANGES REQUESTED`, Reviewer, Ticket `#id`, PR `#prNumber`, Branch & `HEAD` SHA).
+  2. **Subagent 1 (`PR Peer Reviewer`)** — Robert C. Martin TDD & Clean Code findings.
+  3. **Subagent 2 (`Architecture & Security Gatekeeper`)** — `.archlens/policy.json` concentric ring & security findings.
+  4. **Strict 9-Pillar Quality Gate Table & Stage 7 Cryptographic Receipt ID** (`GATE-RECEIPT-#...`).
+- **Fail-Loud GitHub Publishing**: When a GitHub remote is configured and `gh pr comment` fails (e.g., sandbox network restriction), the command exits non-zero; re-run with network access enabled (`BypassSandbox: true`) so the review comment is published live on the GitHub PR.

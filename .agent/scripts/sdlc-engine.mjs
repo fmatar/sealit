@@ -18,6 +18,7 @@ import {
   parseFrontmatter,
   inspectArchlens,
   detectPMProvider,
+  hasGitHubRemote,
   diagnoseEnvironment,
   getModifiedFiles
 } from './lib/core.mjs';
@@ -96,6 +97,9 @@ import {
   syncKanbanBoard,
   transitionPMState,
   postPMComment,
+  resolveOpenPRNumber,
+  ensurePullRequest,
+  formatConsolidatedReviewComment,
   pollCIPRChecks,
   parseSemVer,
   bumpSemVer
@@ -204,6 +208,7 @@ export {
   parseFrontmatter,
   inspectArchlens,
   detectPMProvider,
+  hasGitHubRemote,
   diagnoseEnvironment,
   getModifiedFiles,
   getGateCachePath,
@@ -258,6 +263,9 @@ export {
   syncKanbanBoard,
   transitionPMState,
   postPMComment,
+  resolveOpenPRNumber,
+  ensurePullRequest,
+  formatConsolidatedReviewComment,
   ARCHLENS_SKILL_PACKAGE,
   DEFAULT_GITIGNORE_ENTRIES,
   upsertGitignore,
@@ -1010,8 +1018,12 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
           console.log(
             `🧾 Signed gate receipt ${stageRes.receipt.receiptId}: coverage ${stageRes.receipt.coveragePct}%, mutation ${stageRes.receipt.mutationPct ?? stageRes.receipt.mutationStatus}, reviewer ${stageRes.receipt.reviewer || 'n/a'}`
           );
-        } else {
+        } else if (!stageRes.success) {
           console.error(`🛑 stage pre-pr: no gate receipt issued. ${stageRes.receiptError || ''}`);
+        } else {
+          console.log(
+            `ℹ️ stage pre-pr: Stage 6 verified${stageRes.prNumber ? ` (PR #${stageRes.prNumber})` : ''}. Run Stage 7 ('review record') next to publish the PR review comment and sign the Stage 7 receipt.`
+          );
         }
       }
       return result;
@@ -1337,19 +1349,33 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         return result;
       }
       if (sub === 'comment') {
-        const issueId = args[2];
+        let issueId = args[2] && !args[2].startsWith('-') ? args[2] : null;
         let commentText = '',
           prNumber = null;
-        for (let i = 3; i < args.length; i++) {
+        const allowLocalFallback = args.includes('--allow-local-fallback');
+        const startIdx = issueId ? 3 : 2;
+        for (let i = startIdx; i < args.length; i++) {
           if (args[i] === '--pr' && args[i + 1]) prNumber = args[++i];
+          else if (args[i].startsWith('--pr=')) prNumber = args[i].split('=')[1];
+          else if (args[i] === '--issue' && args[i + 1]) issueId = args[++i];
+          else if (args[i].startsWith('--issue=')) issueId = args[i].split('=')[1];
           else if (args[i] === '--body' && args[i + 1]) commentText = args[++i];
         }
-        if (!commentText) commentText = args.slice(3).filter((a) => !a.startsWith('--')).join(' ');
-        if (!issueId || !commentText) {
+        if (!commentText) commentText = args.slice(startIdx).filter((a) => !a.startsWith('--')).join(' ');
+        const sess = getSessionStatus(repoRoot);
+        const resolvedIssue = issueId || sess.session?.issueId || prNumber;
+        if (!resolvedIssue || !commentText) {
           result.success = false;
           return result;
         }
-        result.commented = postPMComment({ issueId, prNumber, comment: commentText, repoRoot });
+        result.commented = postPMComment({
+          issueId: resolvedIssue,
+          prNumber,
+          comment: commentText,
+          allowLocalFallback,
+          repoRoot
+        });
+        result.success = result.commented.success !== false;
         return result;
       }
       result.success = false;
@@ -1386,19 +1412,33 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       }
 
       if (sub === 'comment') {
-        const issueId = args[2];
+        let issueId = args[2] && !args[2].startsWith('-') ? args[2] : null;
         let commentText = '',
           prNumber = null;
-        for (let i = 3; i < args.length; i++) {
+        const allowLocalFallback = args.includes('--allow-local-fallback');
+        const startIdx = issueId ? 3 : 2;
+        for (let i = startIdx; i < args.length; i++) {
           if (args[i] === '--pr' && args[i + 1]) prNumber = args[++i];
+          else if (args[i].startsWith('--pr=')) prNumber = args[i].split('=')[1];
+          else if (args[i] === '--issue' && args[i + 1]) issueId = args[++i];
+          else if (args[i].startsWith('--issue=')) issueId = args[i].split('=')[1];
           else if (args[i] === '--body' && args[i + 1]) commentText = args[++i];
         }
-        if (!commentText) commentText = args.slice(3).filter((a) => !a.startsWith('--')).join(' ');
-        if (!issueId || !commentText) {
+        if (!commentText) commentText = args.slice(startIdx).filter((a) => !a.startsWith('--')).join(' ');
+        const sess = getSessionStatus(repoRoot);
+        const resolvedIssue = issueId || sess.session?.issueId || prNumber;
+        if (!resolvedIssue || !commentText) {
           result.success = false;
           return result;
         }
-        result.commented = postPMComment({ issueId, prNumber, comment: commentText, repoRoot });
+        result.commented = postPMComment({
+          issueId: resolvedIssue,
+          prNumber,
+          comment: commentText,
+          allowLocalFallback,
+          repoRoot
+        });
+        result.success = result.commented.success !== false;
         return result;
       }
 
@@ -1498,24 +1538,113 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         return result;
       }
       if (sub === 'record') {
-        // Records a reviewer verdict in the session manifest; this is what
-        // `guard receipt` / `stage pre-pr` attest as peerReviewApproved.
+        // Records a reviewer verdict in the session manifest, signs the Stage 7 receipt
+        // when measurements are ready, formats the 4-section consolidated review comment,
+        // and publishes it directly to the GitHub PR (unless --no-comment is passed).
         let verdict = null,
-          reviewer = null;
+          reviewer = null,
+          bodyText = '',
+          peerReviewSummary = '',
+          archSecuritySummary = '',
+          prNumber = null,
+          issueId = null;
+        const noComment = args.includes('--no-comment');
+        const allowLocalFallback = args.includes('--allow-local-fallback');
         for (let i = 2; i < args.length; i++) {
           if (args[i] === '--verdict' && args[i + 1]) verdict = args[++i];
+          else if (args[i].startsWith('--verdict=')) verdict = args[i].split('=')[1];
           else if (args[i] === '--reviewer' && args[i + 1]) reviewer = args[++i];
+          else if (args[i].startsWith('--reviewer=')) reviewer = args[i].split('=')[1];
+          else if (args[i] === '--body' && args[i + 1]) bodyText = args[++i];
+          else if (args[i] === '--peer-review' && args[i + 1]) peerReviewSummary = args[++i];
+          else if (args[i] === '--arch-review' && args[i + 1]) archSecuritySummary = args[++i];
+          else if (args[i] === '--pr' && args[i + 1]) prNumber = args[++i];
+          else if (args[i].startsWith('--pr=')) prNumber = args[i].split('=')[1];
+          else if (args[i] === '--issue' && args[i + 1]) issueId = args[++i];
+          else if (args[i].startsWith('--issue=')) issueId = args[i].split('=')[1];
+        }
+        if (!reviewer && (bodyText || peerReviewSummary || archSecuritySummary)) {
+          reviewer = '@sdlc-gate';
         }
         if (!['approve', 'request-changes'].includes(verdict) || !reviewer) {
-          console.error("Usage: review record --verdict <approve|request-changes> --reviewer <name>");
+          console.error(
+            'Usage: review record --verdict <approve|request-changes> --reviewer <name> [--peer-review <md>] [--arch-review <md>] [--body <md>] [--pr <number>]'
+          );
           result.success = false;
           return result;
         }
-        updateSession({
-          manifestUpdate: { peerReview: { verdict, reviewer, recordedAt: new Date().toISOString() } },
+        const sessRes = updateSession({
+          stage: 7,
+          stageName: 'Subagent Review & Quality Gate',
+          manifestUpdate: {
+            ...(prNumber ? { prNumber: Number(String(prNumber).replace(/^#/, '')) || prNumber } : {}),
+            peerReview: {
+              verdict,
+              reviewer,
+              peerReviewSummary: peerReviewSummary || null,
+              archSecuritySummary: archSecuritySummary || null,
+              body: bodyText || null,
+              recordedAt: new Date().toISOString()
+            }
+          },
           repoRoot
         });
-        result.review = { verdict, reviewer };
+
+        let issuedReceipt = null;
+        if (verdict === 'approve' && sessRes?.session) {
+          try {
+            const drift = checkSpecDrift({ ticketId: sessRes.session.issueId, repoRoot });
+            const sessionInputs = receiptInputsFromSession(sessRes.session, {
+              driftCheckPassed: Boolean(drift.passed),
+              repoRoot
+            });
+            const recRes = issueGateReceipt({
+              issueId: sessRes.session.issueId,
+              branch: sessRes.session.branch,
+              ...sessionInputs,
+              reviewer,
+              repoRoot
+            });
+            if (recRes.success) {
+              issuedReceipt = recRes.receipt;
+            }
+          } catch {}
+        }
+
+        const formattedComment = formatConsolidatedReviewComment({
+          issueId: issueId || sessRes?.session?.issueId || null,
+          prNumber: prNumber || sessRes?.session?.manifest?.prNumber || null,
+          branch: sessRes?.session?.branch || null,
+          verdict,
+          reviewer,
+          peerReviewSummary,
+          archSecuritySummary,
+          body: bodyText,
+          receiptId: issuedReceipt?.receiptId || null,
+          repoRoot
+        });
+
+        let commented = null;
+        if (!noComment) {
+          commented = postPMComment({
+            issueId: issueId || sessRes?.session?.issueId || null,
+            prNumber: prNumber || sessRes?.session?.manifest?.prNumber || null,
+            comment: formattedComment,
+            allowLocalFallback,
+            repoRoot
+          });
+          if (commented && commented.success === false) {
+            result.success = false;
+          }
+        }
+
+        result.review = {
+          verdict,
+          reviewer,
+          receipt: issuedReceipt,
+          formattedComment,
+          commented
+        };
         return result;
       }
       result.success = false;
@@ -1830,7 +1959,8 @@ export function formatCLIResult(res, args = []) {
     if (st.action === 'pre-pr') {
       const driftStatus = st.drift?.passed ? 'PASS' : 'FAIL';
       const wikiStatus = st.wikiAudit?.passed ? 'PASS' : 'FAIL';
-      return `📦 Stage Pre-PR (#${st.issueId}): Drift=${driftStatus} | Wiki=${wikiStatus} | Receipt=${st.receipt?.receiptId || 'NONE'} | UI Snapshot: ${st.widgetPath || '.agent/workbench/index.html'}`;
+      const prLabel = st.prNumber ? ` | PR=#${st.prNumber}` : '';
+      return `📦 Stage Pre-PR (#${st.issueId})${prLabel}: Drift=${driftStatus} | Wiki=${wikiStatus} | Receipt=${st.receipt?.receiptId || 'PENDING_REVIEW'} | UI Snapshot: ${st.widgetPath || '.agent/workbench/index.html'}`;
     }
     if (st.action === 'complete') {
       return `🏁 Stage Complete (#${st.issueId}): Stage ${st.stage}/8 | Kanban synchronized | Session released: ${Boolean(st.released)}`;
@@ -1897,7 +2027,12 @@ export function formatCLIResult(res, args = []) {
   if ((cmd === 'ticket' || cmd === 'pm')) {
     if (res.issueId) return `🎫 Ticket #${res.issueId} created via ${res.provider || 'local'} (${res.title || ''})`;
     if (res.transitioned) return `🔄 Ticket #${res.transitioned.issueId || ''} transitioned to '${res.transitioned.state || ''}'`;
-    if (res.commented) return `💬 Comment recorded on ticket #${res.commented.issueId || ''}`;
+    if (res.commented) {
+      const targetStr = res.commented.prNumber
+        ? `PR #${res.commented.prNumber} (ticket #${res.commented.targetId || ''})`
+        : `ticket #${res.commented.targetId || res.commented.issueId || ''}`;
+      return `💬 Comment recorded on ${targetStr} via ${res.commented.provider || 'local'}`;
+    }
     if (res.synced) return `📋 Synchronized living Kanban board -> docs/KANBAN.md`;
     if (res.templates) return `📄 Issue & PR templates ready (${(res.templates.created || []).length} created).`;
     if (res.pm) return `🔌 PM Provider: ${res.pm.provider} (${res.pm.key || 'local'})`;
@@ -1921,7 +2056,11 @@ export function formatCLIResult(res, args = []) {
   }
 
   if (cmd === 'review') {
-    if (res.review) return `✅ Recorded peer review verdict '${res.review.verdict}' by ${res.review.reviewer}`;
+    if (res.review) {
+      const prPart = res.review.commented?.prNumber ? ` -> Published to PR #${res.review.commented.prNumber}` : '';
+      const recPart = res.review.receipt?.receiptId ? ` | Receipt: ${res.review.receipt.receiptId}` : '';
+      return `✅ Recorded peer review verdict '${res.review.verdict}' by ${res.review.reviewer}${recPart}${prPart}`;
+    }
     if (res.reviewPlan) return `🔍 Review Plan generated (${(res.reviewPlan.files || []).length} modified file(s)).`;
   }
 
