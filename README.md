@@ -1,282 +1,130 @@
 <div align="center">
-  <h1>⚡ Agentic SDLC Framework</h1>
-  <p><b>Turn AI Coding Assistants into a Disciplined Software Engineering Team</b></p>
 
-  [![Version](https://img.shields.io/badge/Version-0.1.0-4f46e5.svg)](./CHANGELOG.md)
-  [![Skills](https://img.shields.io/badge/Skills-1_Router_%2B_8_Verbs-0d9488.svg)](./wiki/Skills-Reference.md)
-  [![Agents](https://img.shields.io/badge/Works_With-Gemini_%7C_Claude_%7C_Cursor_%7C_Grok_%7C_Windsurf_%7C_Copilot-2563eb.svg)](#-quick-install-npx)
-  [![Coverage](https://img.shields.io/badge/TDD_Gate-%E2%89%A585%25_Cov_%7C_%E2%89%A580%25_Mut-16a34a.svg)](#-polyglot-stack-support)
-  [![License](https://img.shields.io/badge/License-Apache_2.0-64748b.svg)](./LICENSE)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.svg">
+  <img alt="Agentic SDLC Framework Logo" src="docs/logo-light.svg" width="380">
+</picture>
+
+# Agentic SDLC Framework
+
+**Deterministic engineering governance for AI coding agents that enforces Robert Martin TDD, Clean Architecture rings, and cryptographic PR merge gates.**
+
+[![Quality Gate](https://img.shields.io/badge/Gate-%E2%89%A585%25_Cov_%7C_0_Drift-16a34a.svg)](#how-it-works)
+[![Version](https://img.shields.io/badge/Version-0.3.2-4f46e5.svg)](./CHANGELOG.md)
+[![License](https://img.shields.io/badge/License-Apache_2.0-64748b.svg)](./LICENSE)
+[![Docs](https://img.shields.io/badge/Docs-Wiki_%26_CLI-0d9488.svg)](./wiki/Skills-Reference.md)
+
+[Quickstart](#quickstart) · [Why Agentic SDLC?](#why-agentic-sdlc) · [How It Works](#how-it-works) · [Docs](#documentation--roadmap) · [Contributing](#contributing--license)
+
 </div>
 
----
+```text
+$ npx github:fmatar/agentic-sdlc-framework install --agents gemini,claude,cursor --with-archlens --with-hooks --yes
+✔ Provisioned 1 Router (/sdlc) + 9 Verb Skills across Gemini, Claude Code & Cursor
+✔ Installed 4-Layer Git Guard hooks (.git/hooks/pre-commit, pre-merge-commit, pre-push)
+✔ Scaffolded Concentric Clean Architecture ring policy (.archlens/policy.json)
+✔ Auto-detected polyglot test, coverage (>=85%) & mutation (>=80%) runners
+```
 
-## 💡 Why Agentic SDLC?
+## Why Agentic SDLC?
 
-AI coding agents are fast—until they push untested code directly to `main`, violate your architecture layers, silently break API contracts, or forget what they were building mid-session.
+AI coding assistants ship code fast—until they commit directly to `main`, import database adapters inside pure domain models, or silently drift from your product spec mid-session. **Agentic SDLC Framework** equips **Gemini / Antigravity**, **Claude Code**, **Cursor**, **Grok**, **Windsurf**, and **GitHub Copilot** with a zero-dependency Node.js governance engine (`sdlc-engine.mjs`) and enforceable Git gates.
 
-**Agentic SDLC Framework** gives your AI agent (**Gemini / Antigravity**, **Claude Code**, **Cursor**, **Grok**, **Windsurf**, or **GitHub Copilot**) a deterministic engineering workflow backed by a zero-dependency Node.js engine (`sdlc-engine.mjs`) and client-side Git hooks (pair them with server-side branch protection; `--no-verify` bypasses any client hook):
+- ⚡ **Verified Robert Martin TDD** — Enforces failing Red tests first plus real report parsing (`>= 85%` diff coverage, `>= 80%` mutation score) across Node/TS, Java, Python, Go, and Rust.
+- 🔒 **4-Layer Git Guard & Clean Architecture** — Blocks direct commits to `main`, validates concentric ring imports against `.archlens/policy.json` on every diff, and requires HMAC-SHA256-signed Stage 7 merge receipts.
+- 🧩 **Drop-In Multi-Agent & Spec-Drift Sync** — Provisions native skills, slash commands, and Cowork bundles across 6 AI IDEs while requiring an accepted ADR (`docs/adr/`) for any contract or `PRODUCT.md` drift.
 
-| Without Agentic SDLC ❌ | With Agentic SDLC Framework ✅ |
-| :--- | :--- |
-| Edits code directly on `main` or `develop` | **4-Layer Git Guard** blocks commits on `main` and requires an active feature branch & ticket session |
-| Writes implementation first and skips tests (or fakes passing tests) | **Robert Martin TDD** enforces a failing Red test first + real report parsing (**≥ 85%** coverage, **≥ 80%** mutation) |
-| Imports database/HTTP adapters directly inside domain core | **Concentric Clean Architecture** validates imports against `.archlens/policy.json` on every diff |
-| Changes dependencies, DB schemas, or APIs without documentation | **Spec-Drift Sentinel** blocks undeclared drift unless linked to an accepted `docs/adr/ADR-00X.md` |
-| Single agent grades its own homework | **Parallel Fork-Join Review** spawns independent read-only subagents to audit diffs before PR merge |
+## Quickstart
 
----
+> [!TIP]
+> Zero external runtime dependencies—runs in any repository with **Node.js >= 18**.
 
-## 🚀 Quick Install (`npx`)
-
-Run inside any repository (requires **Node.js ≥ 18**):
+### 1. Install in One Command
 
 ```bash
 npx github:fmatar/agentic-sdlc-framework install
 ```
 
-This launches the interactive **Multi-Agent Setup Wizard**:
-
-```text
-╔══════════════════════════════════════════════════════════════════════╗
-║  ⚡ AGENTIC SDLC FRAMEWORK — MULTI-AGENT INSTALLER WIZARD (v0.1.0)   ║
-╚══════════════════════════════════════════════════════════════════════╝
-
-? Select AI Coding Agents & IDEs to configure: (Use ↑/↓, Space to toggle, 'a' for all, Enter)
-  ❯ ◉ Gemini / Google Antigravity (.agent/skills/, .agent/scripts/, AGENTS.md)
-    ◉ Claude Code (CLAUDE.md, .claude/skills/, .claude/commands/)
-    ◉ Cursor (.cursor/rules/*.mdc, .cursorrules)
-    ◉ Grok (xAI) (GROK.md, .grok/skills/, .grok/rules/)
-    ◯ Windsurf (.windsurf/rules/, .windsurf/workflows/)
-    ◯ GitHub Copilot / Codex (.github/copilot-instructions.md, .github/prompts/)
-
-? Select Installation Scope:
-  ❯ ● Local Project Workspace (Installs into ./ current repository)
-    ○ Global User Configuration (Installs into ~/.gemini, ~/.claude, ~/.grok, ~/.cursor)
-
-? Select SDLC Governance & Automation Add-ons:
-  ❯ ◉ Auto-Detect Project Stack (Generates .agent/sdlc-config.json)
-    ◉ 4-Layer Git Guard Hooks (Installs pre-commit, pre-merge-commit, pre-push)
-    ◉ Archlens Concentric Ring Policy (Scaffolds .archlens/policy.json)
-    ◯ GitHub Actions Quality Gate CI (Scaffolds .github/workflows/sdlc-quality-gate.yml)
-```
-
-### Non-Interactive & Global Install Flags
+### 2. Run Your First Governed Feature Flow
 
 ```bash
-# Non-interactive install for specific AI tools + Archlens + Git hooks:
-npx github:fmatar/agentic-sdlc-framework install --agents gemini,claude,cursor,grok --with-archlens --with-hooks --yes
+# Start an atomic ticket session, checkout feature/issue-#1-jwt-auth, and lock .sdlc-session.json
+node .agent/scripts/sdlc-engine.mjs stage begin --issue 1 --title "jwt-auth" --type feat --checkout
 
-# Configure ALL 6 supported AI tools + GitHub Actions CI:
-npx github:fmatar/agentic-sdlc-framework install --agents all --with-archlens --with-hooks --with-ci --yes
+# Run affected tests, Concentric Ring diff, Spec-Drift sentinel & README/Wiki audits
+node .agent/scripts/sdlc-engine.mjs gate --strict
+```
 
-# Install globally across your machine (~/.gemini, ~/.claude, ~/.grok, ~/.cursor):
-npx github:fmatar/agentic-sdlc-framework install --global --agents gemini,claude,grok,cursor --yes
+Expected output:
 
-# Alternative: Skills-only install via Vercel Labs skills.sh CLI:
-npx skills add fmatar/agentic-sdlc-framework -y
+```text
+🚀 Stage Begin (#1): branch 'feature/issue-#1-jwt-auth' | Stage 2/8 | UI Snapshot: .agent/workbench/index.html
+✅ Archlens Diff Check: Zero architectural layer inversions introduced in diff.
+✅ Spec-Drift Check Passed (0 undeclared contract mutations).
+✅ README & Wiki Audits Passed (0 broken paths, 0 anti-patterns).
+```
+
+Or drive the entire 8-stage lifecycle directly from your AI chat prompt:
+> `"/sdlc-flow Implement ticket #1: Add multi-tenant JWT rotation with rate limiting."`
+
+## How It Works
+
+```mermaid
+%%{init: {'theme': 'neutral'}}%%
+flowchart LR
+    P["/sdlc-product\nPRODUCT.md & DAG"] --> B["1. stage begin\nBranch & Session Lock"]
+    B --> T["2. /sdlc-tdd\nRed -> Green -> >=85% Cov"]
+    T --> PR["3. stage pre-pr\nDrift, ArchTrace & UI"]
+    PR --> G["4. /sdlc-gate\nParallel Review & Receipt"]
+    G --> C["5. stage complete\nSquash Merge & Kanban"]
 ```
 
 <details>
-<summary><b>📂 Click to view exact files created per AI Coding Tool (Local vs. Global)</b></summary>
-
-<br/>
+<summary><strong>Supported AI Coding Tools & Provisioned Paths (Local vs. Global)</strong></summary>
 
 | AI Coding Tool | `--agents` ID | Local Project Files | Global Config (`--global`) |
 | :--- | :--- | :--- | :--- |
-| **Gemini / Antigravity** | `gemini` | `.agent/skills/<skill>/SKILL.md`, `.agent/scripts/`, `AGENTS.md` | `~/.gemini/config/skills/<skill>/SKILL.md` |
-| **Claude Code** | `claude` | `CLAUDE.md`, `.claude/skills/<skill>/SKILL.md`, `.claude/commands/<skill>.md` | `~/.claude/CLAUDE.md`, `~/.claude/skills/`, `~/.claude/commands/` |
-| **Cursor** | `cursor` | `.cursor/rules/agentic-sdlc.mdc`, `.cursor/rules/<skill>.mdc`, `.cursorrules` | `~/.cursor/rules/agentic-sdlc.mdc`, `~/.cursor/rules/<skill>.mdc` |
-| **Grok (xAI)** | `grok` | `GROK.md`, `.grok/skills/<skill>/SKILL.md`, `.grok/rules/agentic-sdlc.md` | `~/.grok/GROK.md`, `~/.grok/skills/<skill>/SKILL.md` |
-| **Windsurf** | `windsurf` | `.windsurf/rules/agentic-sdlc.md`, `.windsurf/workflows/<skill>.md`, `.windsurfrules` | `~/.codeium/windsurf/memories/global_rules.md` |
-| **GitHub Copilot** | `copilot` | `.github/copilot-instructions.md`, `.github/prompts/<skill>.prompt.md` | `~/.github/copilot-instructions.md`, `~/.github/prompts/` |
+| **Gemini / Antigravity** | `gemini` | `.agent/skills/<skill>/SKILL.md`, `.agent/scripts/`, `AGENTS.md` | `~/.gemini/config/skills/` |
+| **Claude Code & Cowork** | `claude` | `CLAUDE.md`, `.claude/skills/`, `.claude/commands/`, `.claude/cowork/*.zip` | `~/.claude/skills/`, `~/.claude/commands/` |
+| **Cursor** | `cursor` | `.cursor/rules/agentic-sdlc.mdc`, `.cursor/rules/<skill>.mdc` | `~/.cursor/rules/` |
+| **Grok (xAI)** | `grok` | `GROK.md`, `.grok/skills/<skill>/SKILL.md` | `~/.grok/skills/` |
+| **Windsurf** | `windsurf` | `.windsurf/rules/agentic-sdlc.md`, `.windsurf/workflows/<skill>.md` | `~/.codeium/windsurf/memories/` |
+| **GitHub Copilot** | `copilot` | `.github/copilot-instructions.md`, `.github/prompts/*.prompt.md` | `~/.github/copilot-instructions.md` |
 
-*(Upgrading an older installation automatically prunes deprecated pre-`v0.1.0` `sdlc-*` skill folders while preserving your custom skills).*
+Non-interactive & global examples:
 
-</details>
+```bash
+# Configure all 6 AI coding tools + GitHub Actions CI + Git hooks:
+npx github:fmatar/agentic-sdlc-framework install --agents all --with-archlens --with-hooks --with-ci --yes
 
----
-
-## ⏱️ Your First 5 Minutes (Day-1 Workflow)
-
-Once installed, drive the entire engineering lifecycle directly from your AI chat prompt:
-
-### Step 1: Define Your Product or Feature (`/sdlc-product`)
-> **Prompt**: `"/sdlc-product Create a PRODUCT.md constitution and functional specs for a multi-tenant JWT authentication service, and plan the execution waves."`
-* Creates `PRODUCT.md` (`CAP-XX` capabilities, `INV-XX` invariants), writes `docs/specs/*.md`, computes the topological execution DAG, and provisions tracked tickets.
-
-### Step 2: Implement with TDD & Clean Architecture (`/sdlc-flow`)
-> **Prompt**: `"/sdlc-flow Implement ticket #1: Add multi-tenant JWT token rotation with rate limiting."`
-* **Under the hood**:
-  1. **`stage begin`**: Creates & checks out `feature/issue-#1-jwt-rotation`, locks `.agent/.sdlc-session.json`, and marks the ticket `in-progress`.
-  2. **`/sdlc-tdd`**: Writes a failing Red test first, implements minimal Green domain code, and verifies **≥ 85% coverage** and zero inner-to-outer ring imports against `.archlens/policy.json`.
-  3. **`stage pre-pr`**: Verifies zero undeclared spec drift, updates `docs/DECISION_MAP.md` and `docs/ARCH_TRACE.md`, issues an **HMAC-SHA256-signed gate receipt** built only from measured coverage/mutation and a recorded review verdict (it refuses if anything is unmeasured), and refreshes the **Architecture Diff UI** snapshot.
-
-### Step 3: Parallel Peer Review & Merge (`/sdlc-gate`)
-> **Prompt**: `"/sdlc-gate Audit the diff and merge to main."` (or `/sdlc gate`)
-* Spawns two parallel read-only subagents (`PR Peer Reviewer` + `Architecture & Security Gatekeeper`) to inspect the diff for Robert Martin test smells, security leaks, and layer violations, posts the review verdict, merges the PR, and runs `stage complete`.
-
----
-
-## 🗺️ How the Lifecycle Pipeline Works
-
-```mermaid
-flowchart LR
-    classDef spec fill:#1e1b4b,stroke:#6366f1,stroke-width:2px,color:#eef2ff;
-    classDef stage fill:#0284c7,stroke:#0369a1,stroke-width:1.5px,color:#ffffff;
-    classDef tdd fill:#0d9488,stroke:#0f766e,stroke-width:1.5px,color:#ffffff;
-    classDef gate fill:#7c3aed,stroke:#6d28d9,stroke-width:1.5px,color:#ffffff;
-    classDef done fill:#16a34a,stroke:#15803d,stroke-width:2px,color:#ffffff,font-weight:bold;
-
-    P["🏛️ /sdlc-product<br/>• PRODUCT.md & Specs<br/>• ADR & DAG Waves"]:::spec
-    B["1. /sdlc begin<br/>• Provision Ticket #id<br/>• Checkout feature/issue-#id<br/>• Lock .sdlc-session.json"]:::stage
-    T["2. /sdlc-tdd<br/>• Failing Red Test First<br/>• Minimal Green Code<br/>• ≥85% Cov / ≥80% Mut"]:::tdd
-    PR["3. /sdlc pre-pr<br/>• Drift & Archlens Check<br/>• Sync DECISION_MAP.md<br/>• Sign SHA-256 Gate Receipt"]:::stage
-    RG["4. /sdlc-gate<br/>• Parallel Subagent Audit<br/>• Security & Contract Gate<br/>• Post Verdict to PM"]:::gate
-    C["5. /sdlc complete<br/>• Squash Merge PR<br/>• Transition status:done<br/>• Release Session Lock"]:::done
-
-    P --> B --> T --> PR --> RG --> C
+# Install globally across your machine:
+npx github:fmatar/agentic-sdlc-framework install --global --agents gemini,claude,cursor,grok --yes
 ```
 
----
-
-## 🧠 1 Router + 8 Verb Skills (`ADR-004`)
-
-Every command is available either through the **`/sdlc <subcommand>` router** or via **8 dedicated verb skills**:
-
-| Skill / Command | Category | What It Does | Primary CLI Mapping |
-| :--- | :--- | :--- | :--- |
-| **`/sdlc <cmd>`** | **Universal Router** | Accepts any subcommand in chat (`/sdlc doctor`, `/sdlc begin #12`, `/sdlc drift`, `/sdlc pre-pr`, `/sdlc kanban`, `/sdlc ui`) | `sdlc-engine <subcommand>` |
-| **`/sdlc-flow`** | **Macro Autopilot** | End-to-end ticket autopilot (`stage begin` → TDD → `stage pre-pr` → parallel review → `stage complete`) | `sdlc-engine stage <begin\|pre-pr\|complete>` |
-| **`/sdlc-product`** | **Macro Autopilot** | Spec/PRD-to-DAG autopilot (`PRODUCT.md`, `docs/specs/*.md`, topological waves) | `sdlc-engine product <init\|plan>` |
-| **`/sdlc-doctor`** | **Ops & Diagnostics** | Stack detection, `doctor --fix`, 4-Layer Git hooks, `.archlens/policy.json`, and multi-agent installer | `sdlc-engine doctor --fix` / `install` |
-| **`/sdlc-status`** | **Ops & Diagnostics** | Active session, 8-stage progress, drift check, `KANBAN.md` state, and live Architecture Diff UI | `sdlc-engine session dashboard` / `ui-snapshot` |
-| **`/sdlc-tdd`** | **Stage Action** | Robert Martin Red-Green-Refactor loop + Dual-Gate (`coverage`, `mutation`, `reproduce`) | `sdlc-engine test` / `coverage` / `mutation` |
-| **`/sdlc-gate`** | **Stage Action** | Parallel Fork-Join PR review subagents + `gate --strict` + signed Stage 7 gate receipt | `sdlc-engine gate --strict` / `guard receipt` |
-| **`/sdlc-adr`** | **Stage Action** | Mint or approve Spec-Drift ADRs (`docs/adr/ADR-00X.md`) and sync `docs/DECISION_MAP.md` | `sdlc-engine adr <create\|list\|decide>` |
-| **`/sdlc-release`** | **Stage Action** | Sync `README.md`/`CHANGELOG.md`/`wiki/`, generate regression proofs, cut SemVer release, and probe canaries | `sdlc-engine release <patch\|minor\|major>` |
-
----
-
-## 🖥️ Visual Architecture Diff & Decision Workbench UI
-
-Every `stage begin`, `stage pre-pr`, and `ui-snapshot` regenerates the snapshot of the interactive **Architecture Diff & Decision Lineage Workbench**:
-- **Inline in Antigravity Chat**: Renders directly inside your conversation via `<agent-embed>`.
-- **Full-Screen Browser UI (`http://127.0.0.1:4120/?token=…`)**: loopback-only, and every request needs the random token printed at start (cross-origin requests are rejected):
-  ```bash
-  node .agent/scripts/sdlc-engine.mjs serve --port 4120
-  ```
-  Inspect **Concentric Ring Boundaries (`Core → UseCase → Adapter`)**, **Mermaid AST Graph Diffs**, **Causal Decision Lineage (`CAP-XX → SPEC-XX → Ticket → ADR`)**, and the **Architecture Time-Machine Slider**.
-
----
-
-## 🌐 Polyglot Stack Support
-
-`sdlc-engine detect` inspects your repository manifests and configures native test, coverage, and mutation runners automatically:
-
-| Language / Ecosystem | Detected Manifest | Single-Test & Suite Runner | Real Coverage Parser | Mutation Engine |
-| :--- | :--- | :--- | :--- | :--- |
-| **Node.js / TypeScript** | `package.json` | `node --test` / Vitest / Jest | `coverage-summary.json`, `lcov.info` | Stryker (`mutation.json`) |
-| **Java / Kotlin** | `pom.xml`, `build.gradle` | `mvn test -Dtest=Class` / `./gradlew test` | JaCoCo (`jacoco.csv`, `jacoco.xml`) | PITest (`mutations.xml`) |
-| **Python** | `pyproject.toml`, `pytest.ini` | `pytest path/to/test.py` | Cobertura (`coverage.xml`), `lcov.info` | `mutmut` / Cosmic Ray |
-| **Go** | `go.mod` | `go test ./pkg/... -run TestName` | Go Coverprofile (`coverage.out`) | `go-mutesting` |
-| **Rust** | `Cargo.toml` | `cargo test test_name` | `cargo-tarpaulin` / `lcov.info` | `cargo-mutants` |
-
----
-
-## 💬 Copy-Paste Prompt Playbook
-
-### Bug Fix with Mandatory Failing Reproduction Test
-> `"/sdlc-flow Fix bug #205: Checkout throws NullPointerException when user billing address is null."`
-* Runs `sdlc-engine reproduce --error "NullPointerException..."` to generate a failing test in `.java`, `.py`, `.go`, `.rs`, or `.mjs` **before** any production code is modified.
-
-### Architecture Refactoring & Ring Audit
-> `"Extract payment tax calculation into Domain Core and verify zero inner-to-outer ring imports."`
-* Enforces Dependency Inversion (DIP) and verifies 0 violations via `sdlc-engine arch diff`.
-
-### Architecture Decision Record (ADR) for Stack / API Changes
-> `"/sdlc-product Create an ADR to migrate session storage from Postgres to Redis and update PRODUCT.md."`
-* Mints `docs/adr/ADR-00X-*.md`, links it to `PRODUCT.md`, and satisfies `sdlc-engine drift check`.
+</details>
 
 <details>
-<summary><b>⚡ Click to expand more prompts (Hotfix Worktrees, Flake Audits, Contract Drift, Canary Watchdog)</b></summary>
+<summary><strong>Polyglot Stack Auto-Detection & Dual-Gate Parsers</strong></summary>
 
-<br/>
-
-- **Urgent Hotfix in Isolated Git Worktree**:
-  > `"Urgent hotfix: Stripe webhook payload breaks checkout. Isolate in a git worktree so my current branch stays untouched."`
-- **API Breaking Contract Drift Check**:
-  > `"Check our OpenAPI and GraphQL schemas for breaking changes before opening the PR."` (`sdlc-engine contract check`)
-- **Flaky Test & Race Condition Elimination**:
-  > `"Run a 20-iteration flake check on OrderProcessor.test.mjs and fix the race condition."` (`sdlc-engine flake-check --runs 20`)
-- **Cryptographic Audit Trail Verification**:
-  > `"Verify that our SHA-256 hash-chained delivery ledger in docs/AUDIT_CHAIN.jsonl has not been tampered with."` (`sdlc-engine audit verify`)
-- **Production Canary Rollback Watchdog**:
-  > `"Probe https://api.example.com/health and trigger rollback if the error rate exceeds 2%."` (`sdlc-engine watchdog --live`)
+| Ecosystem | Manifest | Test Runner | Coverage Parser (`>= 85%`) | Mutation Engine (`>= 80%`) |
+| :--- | :--- | :--- | :--- | :--- |
+| **Node.js / TS** | `package.json` | `node --test` / Vitest / Jest | `lcov.info`, `coverage-summary.json` | Stryker (`mutation.json`) |
+| **Java / Kotlin** | `pom.xml`, `build.gradle` | `mvn test` / `./gradlew test` | JaCoCo (`jacoco.csv`, `jacoco.xml`) | PITest (`mutations.xml`) |
+| **Python** | `pyproject.toml`, `pytest.ini` | `pytest` | Cobertura (`coverage.xml`), `lcov.info` | `mutmut` / Cosmic Ray |
+| **Go** | `go.mod` | `go test ./...` | `coverage.out` | `go-mutesting` |
+| **Rust** | `Cargo.toml` | `cargo test` | `cargo-tarpaulin` / `lcov.info` | `cargo-mutants` |
 
 </details>
 
----
+## Documentation & Roadmap
 
-## 📁 Repository Anatomy
+- **Skills & Full CLI Reference**: [`wiki/Skills-Reference.md`](./wiki/Skills-Reference.md) (`1 Router + 9 Verb Skills` & every `sdlc-engine.mjs` subcommand)
+- **Architecture & Concentric Rings**: [`wiki/Architecture.md`](./wiki/Architecture.md) & [`wiki/Codebase-Map.md`](./wiki/Codebase-Map.md)
+- **Product Constitution & Specs**: [`PRODUCT.md`](./PRODUCT.md), [`docs/PRD.md`](./docs/PRD.md), and [`docs/SRS.md`](./docs/SRS.md)
+- **AI Coding Agent Context**: [`llms.txt`](./llms.txt)
+- **Open Milestones & Traceability**: [`docs/KANBAN.md`](./docs/KANBAN.md) & [`docs/DECISION_MAP.md`](./docs/DECISION_MAP.md)
 
-```text
-your-project/
-├── PRODUCT.md                         # Constitutional capabilities (CAP-XX), invariants (INV-XX) & ADR index
-├── AGENTS.md / CLAUDE.md / GROK.md    # Synchronized multi-agent governance instructions
-├── .archlens/
-│   └── policy.json                    # Concentric Clean Architecture ring definitions (Core → UseCase → Adapter)
-├── .agent/
-│   ├── sdlc-config.json               # Auto-detected polyglot stack & test/coverage/mutation commands
-│   ├── skills/                        # 1 Router (sdlc) + 8 Verb Skills (sdlc-flow, sdlc-product, sdlc-doctor, sdlc-status, sdlc-tdd, sdlc-gate, sdlc-adr, sdlc-release)
-│   └── scripts/
-│       ├── sdlc-engine.mjs            # Universal zero-dependency CLI engine
-│       └── lib/                       # Modular domain libraries (installer, session, git-guard, adr-drift, product-dag, workbench-server, ...)
-└── docs/
-    ├── PRD.md                         # Macro Product Requirements Document (Problem, Scope, UX, KPIs)
-    ├── SRS.md                         # IEEE 29148 Software Requirements Specification & C4 System Model
-    ├── specs/                         # Rich per-capability specs (cap-XX-*.md: PRD + SRS I/O + C4)
-    ├── adr/                           # Architecture Decision Records (ADR-00X-*.md)
-    ├── KANBAN.md                      # Living Kanban board & 7-layer Traceability Matrix
-    ├── DECISION_MAP.md                # Auto-synced Causal Decision Lineage graph
-    ├── ARCH_TRACE.md                  # Immutable Mermaid AST diff & architecture mutation log
-    └── AUDIT_CHAIN.jsonl              # Tamper-evident SHA-256 hash-chained audit ledger (receipts HMAC-signed)
-```
+## Contributing & License
 
----
-
-## 🛠️ CLI Quick Reference (`sdlc-engine.mjs`)
-
-| Category | Command | Purpose |
-| :--- | :--- | :--- |
-| **Setup & Interop** | `npx github:fmatar/agentic-sdlc-framework install` | Launch interactive multi-agent installer wizard |
-| | `node .agent/scripts/sdlc-engine.mjs detect` | Auto-detect stack and write `.agent/sdlc-config.json` |
-| | `node .agent/scripts/sdlc-engine.mjs doctor --fix` | Verify toolchain and auto-heal hooks, policy, and Kanban |
-| | `node .agent/scripts/sdlc-engine.mjs interop export --agent all` | Regenerate rules for Gemini, Claude, Cursor, Grok, Windsurf, Copilot |
-| **Lifecycle Stages** | `node .agent/scripts/sdlc-engine.mjs stage begin --title "<t>" --checkout` | Create ticket, checkout feature branch, start session lock |
-| | `node .agent/scripts/sdlc-engine.mjs stage pre-pr --issue <id>` | Run drift check, sync docs, issue signed Stage 7 receipt from measured values, build UI |
-| | `node .agent/scripts/sdlc-engine.mjs stage complete --issue <id>` | Mark ticket `done`, sync `docs/KANBAN.md`, release session lock |
-| **Product & ADRs** | `node .agent/scripts/sdlc-engine.mjs product <init\|spec\|plan\|status>` | Generate `PRODUCT.md`, `docs/PRD.md`, `docs/SRS.md`, `CAP-XX` specs & DAG waves |
-| | `node .agent/scripts/sdlc-engine.mjs adr <create\|list\|decide>` | Create or approve/reject Architecture Decision Records |
-| | `node .agent/scripts/sdlc-engine.mjs drift check` | Block undeclared dependency, schema, C4, or API contract drift |
-| **TDD & Quality Gate** | `node .agent/scripts/sdlc-engine.mjs test [--affected-only]` | Run full or diff-affected unit tests |
-| | `node .agent/scripts/sdlc-engine.mjs coverage` / `mutation` | Parse coverage (**≥ 85%**) and mutation (**≥ 80%**) reports |
-| | `node .agent/scripts/sdlc-engine.mjs reproduce --error "<trace>"` | Scaffold failing Red reproduction test from stack trace |
-| | `node .agent/scripts/sdlc-engine.mjs gate --strict` | Run all 9 quality, architecture, security, and audit-chain gates |
-| **Workbench & Release** | `node .agent/scripts/sdlc-engine.mjs serve [--port 4120]` | Start the loopback-only, token-protected Architecture Diff & Decision Workbench |
-| | `node .agent/scripts/sdlc-engine.mjs ui-snapshot` | Generate standalone HTML widget for inline `<agent-embed>` |
-| | `node .agent/scripts/sdlc-engine.mjs release <patch\|minor\|major>` | Bump SemVer manifest, update `CHANGELOG.md`, and tag release |
-
----
-
-## 📖 Further Reading
-
-- **[Product Constitution (`PRODUCT.md`)](./PRODUCT.md)**
-- **[Canonical Skills Reference (`wiki/Skills-Reference.md`)](./wiki/Skills-Reference.md)**
-- **[Operations & Robert Martin TDD Guide (`docs/SDLC_AGENTIC_OPERATIONS_GUIDE.md`)](./docs/SDLC_AGENTIC_OPERATIONS_GUIDE.md)**
-- **[Architecture Decision Records (`docs/adr/`)](./docs/adr/)**
-- **[Changelog (`CHANGELOG.md`)](./CHANGELOG.md)**
-
-## 📄 License
-
+Source builds, F.I.R.S.T. test execution, and pull request guidelines live in [CONTRIBUTING.md](./CONTRIBUTING.md).
 Licensed under the [Apache 2.0 License](./LICENSE).

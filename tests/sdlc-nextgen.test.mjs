@@ -88,6 +88,12 @@ import {
   buildWikiCodeMap,
   auditWiki,
   syncWiki,
+  detectReadmeArchetype,
+  stripArchetypeBlocks,
+  renderThemeWordmarkSvg,
+  renderVhsDemoTape,
+  scaffoldReadme,
+  auditReadme,
   runCLI
 } from '../.agent/scripts/sdlc-engine.mjs';
 
@@ -1788,6 +1794,252 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
       assert.equal(reviewCliRes.review.reviewer, '@sdlc-gate');
       assert.ok(reviewCliRes.review.formattedComment.includes('TDD Red-Green-Refactor verified.'));
       assert.ok(reviewCliRes.review.formattedComment.includes('Archlens concentric rings verified.'));
+    });
+  });
+
+  describe('8. 10-30-90 Developer Landing Page README Engine (#100)', () => {
+    it('detects CLI, SDK, and Platform archetypes across Node, Rust, Python, Go, and Compose manifests', () => {
+      const cliDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-readme-cli-'));
+      const sdkDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-readme-sdk-'));
+      const platDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-readme-plat-'));
+      const goCliDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-readme-gocli-'));
+      const rustBinDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-readme-rbin-'));
+      try {
+        fs.writeFileSync(path.join(cliDir, 'package.json'), JSON.stringify({ name: '@acme/forge-cli', version: '1.4.0', bin: { forge: './bin/forge.js' } }));
+        assert.equal(detectReadmeArchetype(cliDir), 'cli');
+
+        fs.writeFileSync(path.join(sdkDir, 'package.json'), JSON.stringify({ name: '@acme/forge-sdk', version: '2.0.0', main: './dist/index.js' }));
+        assert.equal(detectReadmeArchetype(sdkDir), 'sdk');
+
+        fs.writeFileSync(path.join(platDir, 'docker-compose.yml'), 'services:\n  web:\n    image: nginx:alpine\n');
+        assert.equal(detectReadmeArchetype(platDir), 'platform');
+
+        fs.writeFileSync(path.join(goCliDir, 'go.mod'), 'module github.com/acme/gocli\n');
+        fs.mkdirSync(path.join(goCliDir, 'cmd'), { recursive: true });
+        assert.equal(detectReadmeArchetype(goCliDir), 'cli');
+
+        fs.writeFileSync(path.join(rustBinDir, 'Cargo.toml'), '[package]\nname = "zap"\nversion = "0.1.0"\n[[bin]]\nname = "zap"\n');
+        assert.equal(detectReadmeArchetype(rustBinDir), 'cli');
+
+        const sampleTemplate = [
+          '<!-- TEMPLATE_GUIDE_START -->',
+          'Internal authoring guide',
+          '<!-- TEMPLATE_GUIDE_END -->',
+          '# Demo',
+          '<!-- ARCHETYPE:cli -->',
+          'CLI_HERO_BLOCK',
+          '<!-- /ARCHETYPE:cli -->',
+          '<!-- ARCHETYPE:sdk -->',
+          'SDK_HERO_BLOCK',
+          '<!-- /ARCHETYPE:sdk -->',
+          '<!-- ARCHETYPE:platform -->',
+          'PLATFORM_HERO_BLOCK',
+          '<!-- /ARCHETYPE:platform -->'
+        ].join('\n');
+        const strippedSdk = stripArchetypeBlocks(sampleTemplate, 'sdk');
+        assert.ok(strippedSdk.includes('SDK_HERO_BLOCK'));
+        assert.equal(strippedSdk.includes('CLI_HERO_BLOCK'), false);
+        assert.equal(strippedSdk.includes('PLATFORM_HERO_BLOCK'), false);
+        assert.equal(strippedSdk.includes('ARCHETYPE:'), false);
+        assert.equal(strippedSdk.includes('Internal authoring guide'), false);
+
+        const nullTitleSvg = renderThemeWordmarkSvg({ title: null, mode: 'dark' });
+        assert.ok(nullTitleSvg.includes('aria-label="Project"'));
+        const escapedSvg = renderThemeWordmarkSvg({ title: 'A&B <Core>', mode: 'light' });
+        assert.ok(escapedSvg.includes('A&amp;B &lt;Core&gt;'));
+
+        const safeTape = renderVhsDemoTape({
+          title: 'CLI\nInjected',
+          demoCmd: 'forge "hello\\world"\nExec evil',
+          outputPath: 'docs/demo.gif\nExec evil'
+        });
+        assert.equal(safeTape.includes('\nExec evil'), false);
+        assert.ok(safeTape.includes('Type "forge \\"hello\\\\world\\" Exec evil"'));
+      } finally {
+        fs.rmSync(cliDir, { recursive: true, force: true });
+        fs.rmSync(sdkDir, { recursive: true, force: true });
+        fs.rmSync(platDir, { recursive: true, force: true });
+        fs.rmSync(goCliDir, { recursive: true, force: true });
+        fs.rmSync(rustBinDir, { recursive: true, force: true });
+      }
+    });
+
+    it('scaffolds 10-30-90 READMEs + companion assets idempotently across archetypes, honors --no-assets cleanly, and rejects unknown archetypes', () => {
+      const cliDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-readme-init-cli-'));
+      const platDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-readme-init-plat-'));
+      const pySdkDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-readme-init-pysdk-'));
+      const rustLibDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-readme-init-rlib-'));
+      const pyCliDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-readme-init-pycli-'));
+      try {
+        fs.writeFileSync(path.join(cliDir, 'package.json'), JSON.stringify({ name: '@acme/forge-cli', version: '1.4.0', license: 'MIT', bin: { forge: './bin/forge.js' } }));
+        fs.writeFileSync(path.join(cliDir, 'LICENSE'), 'MIT\n');
+        fs.writeFileSync(path.join(cliDir, 'CONTRIBUTING.md'), '# Contributing\n');
+
+        const initCliRes = runCLI(['readme', 'init', '--hook', 'Deterministic build accelerator for monorepos that cuts CI times by 70%.'], null, cliDir);
+        assert.equal(initCliRes.success, true);
+        assert.equal(initCliRes.readme.written, true);
+        assert.equal(initCliRes.readme.archetype, 'cli');
+        assert.equal(fs.existsSync(path.join(cliDir, 'docs/logo-light.svg')), true);
+        assert.equal(fs.existsSync(path.join(cliDir, 'docs/logo-dark.svg')), true);
+        assert.equal(fs.existsSync(path.join(cliDir, 'llms.txt')), true);
+        assert.equal(fs.existsSync(path.join(cliDir, 'docs/demo.tape')), true);
+
+        const cliReadme = fs.readFileSync(path.join(cliDir, 'README.md'), 'utf8');
+        assert.ok(cliReadme.includes('<picture>'));
+        assert.ok(cliReadme.includes("%%{init: {'theme': 'neutral'}}%%"));
+        assert.equal(cliReadme.includes('docs/demo.gif'), false);
+        assert.equal(auditReadme(cliDir, { strict: true }).warningsCount, 0);
+
+        // Idempotent default preserves existing README.md; --force + docs/demo.gif switches to GIF hero
+        fs.appendFileSync(path.join(cliDir, 'README.md'), '\n<!-- custom-marker -->\n');
+        assert.equal(scaffoldReadme({ repoRoot: cliDir }).written, false);
+        assert.ok(fs.readFileSync(path.join(cliDir, 'README.md'), 'utf8').includes('<!-- custom-marker -->'));
+
+        fs.writeFileSync(path.join(cliDir, 'docs/demo.gif'), 'GIF89a');
+        assert.equal(runCLI(['readme', 'init', '--force'], null, cliDir).readme.written, true);
+        assert.ok(fs.readFileSync(path.join(cliDir, 'README.md'), 'utf8').includes('docs/demo.gif'));
+
+        // Platform, Rust SDK & Python CLI scaffolds pass strict audit cleanly
+        fs.writeFileSync(path.join(platDir, 'compose.yaml'), 'services:\n  api:\n    image: node:22\n');
+        assert.equal(scaffoldReadme({ repoRoot: platDir }).archetype, 'platform');
+        assert.ok(fs.readFileSync(path.join(platDir, 'README.md'), 'utf8').includes('docker compose up'));
+        assert.equal(auditReadme(platDir, { strict: true }).passed, true);
+
+        fs.writeFileSync(path.join(rustLibDir, 'Cargo.toml'), '[package]\nname = "hyper-ledger"\nversion = "0.4.2"\n[lib]\npath = "src/lib.rs"\n');
+        scaffoldReadme({ repoRoot: rustLibDir });
+        assert.ok(fs.readFileSync(path.join(rustLibDir, 'README.md'), 'utf8').includes('cargo add hyper-ledger'));
+        assert.equal(auditReadme(rustLibDir, { strict: true }).passed, true);
+
+        fs.writeFileSync(path.join(pyCliDir, 'pyproject.toml'), '[project]\nname = "pulse-cli"\nversion = "1.2.0"\n[project.scripts]\npulse = "pulse.cli:main"\n');
+        scaffoldReadme({ repoRoot: pyCliDir });
+        assert.ok(fs.readFileSync(path.join(pyCliDir, 'README.md'), 'utf8').includes('pip install pulse-cli'));
+        assert.equal(auditReadme(pyCliDir, { strict: true }).passed, true);
+
+        // --no-assets omits missing logo/llms.txt links so post-init strict audit passes (success === true)
+        fs.writeFileSync(path.join(pySdkDir, 'pyproject.toml'), '[project]\nname = "vector-kit"\nversion = "0.9.0"\n');
+        const pySdkRes = runCLI(['readme', 'init', '--title', 'Vector Kit SDK', '--archetype', 'sdk', '--no-assets'], null, pySdkDir);
+        assert.equal(pySdkRes.readme.written, true);
+        assert.equal(pySdkRes.success, true, `Expected --no-assets init to pass strict audit: ${JSON.stringify(pySdkRes.readmeAudit?.findings)}`);
+        assert.equal(fs.existsSync(path.join(pySdkDir, 'llms.txt')), false);
+        assert.ok(fs.readFileSync(path.join(pySdkDir, 'README.md'), 'utf8').includes('from vector_kit import Client'));
+
+        // Unknown --archetype throws descriptive boundary error
+        assert.throws(() => scaffoldReadme({ repoRoot: pySdkDir, archetype: 'unknown-type', force: true }), /Unsupported README archetype/);
+      } finally {
+        fs.rmSync(cliDir, { recursive: true, force: true });
+        fs.rmSync(platDir, { recursive: true, force: true });
+        fs.rmSync(pySdkDir, { recursive: true, force: true });
+        fs.rmSync(rustLibDir, { recursive: true, force: true });
+        fs.rmSync(pyCliDir, { recursive: true, force: true });
+      }
+    });
+
+    it('enforces tiered 10-30-90 blueprint audit rules, boundary security, gate --strict integration, and dogfoods root README', () => {
+      const badDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-readme-bad-'));
+      try {
+        // Missing README returns MISSING_README
+        assert.equal(auditReadme(badDir, { strict: true }).findings[0].rule, 'MISSING_README');
+
+        const badReadme = [
+          '# Bloated Project {{UNRESOLVED_TOKEN}}',
+          '',
+          '![b1](https://img.shields.io/badge/a-1-blue)',
+          '![b2](https://img.shields.io/badge/b-2-blue)',
+          '![b3](https://img.shields.io/badge/c-3-blue)',
+          '![b4](https://img.shields.io/badge/d-4-blue)',
+          '![b5](https://img.shields.io/badge/e-5-blue)',
+          '',
+          'See [Missing Spec](./docs/does-not-exist.md), [Escape](/etc/hosts), and inline `[Example](ignored/inline.md)`.',
+          '<img srcset="docs/missing-1x.svg 1x, docs/missing-2x.svg 2x">',
+          '',
+          '## Why Bloated?',
+          'Pain description.',
+          '',
+          '## Quickstart',
+          '```bash',
+          '## shell comment inside fence must not truncate Quickstart',
+          'git clone https://example.com/app.git',
+          '```',
+          '',
+          '## How It Works',
+          '```mermaid',
+          'flowchart LR',
+          '  A["In"] --> B["Out"]',
+          '```'
+        ].join('\n');
+        fs.writeFileSync(path.join(badDir, 'README.md'), badReadme, 'utf8');
+
+        const strictBad = runCLI(['readme', 'audit', '--strict'], null, badDir);
+        assert.equal(strictBad.success, false);
+        const findings = strictBad.readmeAudit.findings;
+        assert.ok(findings.some((f) => f.rule === 'LEFTOVER_TEMPLATE_TOKEN'));
+        assert.ok(findings.some((f) => f.rule === 'BADGE_CHRISTMAS_TREE'));
+        assert.ok(findings.some((f) => f.rule === 'GIT_CLONE_FIRST_QUICKSTART'));
+        assert.ok(findings.some((f) => f.rule === 'BROKEN_README_LINK' && f.target === './docs/does-not-exist.md'));
+        assert.ok(findings.some((f) => f.rule === 'BROKEN_README_LINK' && f.target === '/etc/hosts'));
+        assert.ok(findings.some((f) => f.rule === 'BROKEN_README_LINK' && f.target === 'docs/missing-2x.svg'));
+        assert.equal(findings.some((f) => f.target === 'ignored/inline.md'), false, 'Inline backtick code spans must not trigger broken link errors');
+        assert.equal(findings.find((f) => f.rule === 'NON_NEUTRAL_MERMAID')?.severity, 'WARN');
+        assert.equal(findings.find((f) => f.rule === 'MISSING_THEME_AWARE_LOGO')?.severity, 'WARN');
+
+        // Final H2 Quickstart without letter 'z' or unresolved tokens still fails strictly on GIT_CLONE_FIRST_QUICKSTART alone
+        fs.writeFileSync(
+          path.join(badDir, 'README.md'),
+          '# App\n\n## Why App?\nPain.\n\n## Quickstart\n```bash\n## setup step\ngit clone https://example.com/app.git\n```\n'
+        );
+        const cloneOnlyAudit = auditReadme(badDir, { strict: true });
+        assert.equal(cloneOnlyAudit.passed, false);
+        assert.deepEqual(
+          cloneOnlyAudit.findings.filter((f) => f.severity === 'ERROR').map((f) => f.rule),
+          ['GIT_CLONE_FIRST_QUICKSTART']
+        );
+
+        // gate --strict blocks when README.md has hard errors
+        const gateCfgPath = path.join(badDir, '.agent/sdlc-config.json');
+        fs.mkdirSync(path.dirname(gateCfgPath), { recursive: true });
+        fs.writeFileSync(
+          gateCfgPath,
+          JSON.stringify({
+            version: '1.0.0',
+            modules: [
+              {
+                name: 'root',
+                path: '.',
+                commands: {
+                  coverage: `node -e "require('fs').mkdirSync('coverage',{recursive:true});require('fs').writeFileSync('coverage/coverage-summary.json',JSON.stringify({total:{lines:{pct:95},branches:{pct:90}}}))"`
+                },
+                thresholds: { diffCoverage: 85, mutationScore: null }
+              }
+            ]
+          })
+        );
+        assert.throws(() => runCLI(['gate', '--strict'], gateCfgPath, badDir), /README Audit failed/);
+
+        // SVG & VHS newline/null sanitization + wiki neutral Mermaid support
+        assert.ok(renderThemeWordmarkSvg({ title: null, mode: 'dark' }).includes('<svg'));
+        const safeTape = renderVhsDemoTape({
+          title: 'Demo\nExec echo pwned',
+          demoCmd: 'forge --run "a\\b"\nExec echo pwned',
+          outputPath: 'docs/demo.gif\nExec echo pwned'
+        });
+        assert.equal(/^Exec\b/m.test(safeTape), false);
+
+        syncWiki({ repoRoot: badDir, generateMissing: true });
+        fs.writeFileSync(
+          path.join(badDir, 'wiki/Architecture.md'),
+          "# Architecture\n\n```mermaid\n%%{init: {'theme': 'neutral'}}%%\nflowchart LR\n  Core[\"Domain Core\"] --> Port[\"Port\"]\n```\n"
+        );
+        assert.equal(auditWiki(badDir, { strict: true }).findings.some((f) => f.rule === 'INVALID_MERMAID_DIAGRAM'), false);
+
+        // Template exists and this repository dogfoods the 10-30-90 blueprint with 0 errors and 0 warnings
+        assert.equal(fs.existsSync(path.resolve('docs/templates/README_TEMPLATE.md')), true);
+        const repoSelfAudit = auditReadme(process.cwd(), { strict: true });
+        assert.equal(repoSelfAudit.passed, true, JSON.stringify(repoSelfAudit.findings));
+        assert.equal(repoSelfAudit.errorsCount, 0);
+        assert.equal(repoSelfAudit.warningsCount, 0);
+      } finally {
+        fs.rmSync(badDir, { recursive: true, force: true });
+      }
     });
   });
 });

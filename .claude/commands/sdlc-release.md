@@ -8,7 +8,10 @@ allowed-tools: Read, Write, Edit, Bash
 ## 1. Documentation & Knowledge Synchronization
 
 Before cutting a release or completing a feature ticket, synchronize documentation with the actual repository state:
-1. **`README.md` & Quickstart**: Ensure CLI commands, architecture diagrams, and quickstart instructions reflect current behavior without dead links or stale counts.
+1. **`README.md` (10–30–90 Developer Landing Page) & `llms.txt`**: Keep `README.md` aligned with `docs/templates/README_TEMPLATE.md` (`<= 4` badges with current version, `<picture>` dark/light logo, archetype Hero Proof, problem-first `Why`, one-line install `Quickstart` without `git clone`, neutral-themed Mermaid `%%{init: {'theme': 'neutral'}}%%`, `<details>` progressive disclosure, and `llms.txt` link), then verify zero anti-patterns:
+   ```bash
+   node .agent/scripts/sdlc-engine.mjs readme audit --strict
+   ```
 2. **`docs/specs/` & `docs/DECISION_MAP.md`**: Refresh the Causal Decision Lineage Graph:
    ```bash
    node .agent/scripts/sdlc-engine.mjs decision-graph sync

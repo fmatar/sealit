@@ -1,0 +1,21 @@
+# Agentic SDLC Framework
+
+> Deterministic engineering governance for AI coding agents (Gemini / Antigravity, Claude Code, Cursor, Grok, Windsurf, GitHub Copilot) enforcing Robert Martin TDD, Concentric Clean Architecture rings, Spec-Drift ADRs, and cryptographic PR merge gates.
+
+## Core Documentation
+
+- [README.md](./README.md): Developer landing page, positioning, and 90-second Quickstart
+- [wiki/Home.md](./wiki/Home.md): Project Wiki overview, 8-stage lifecycle summary, and sitemap
+- [wiki/Skills-Reference.md](./wiki/Skills-Reference.md): Complete reference for `/sdlc` router, 9 verb skills, and all `sdlc-engine.mjs` CLI subcommands
+- [wiki/Architecture.md](./wiki/Architecture.md): Concentric Clean Architecture rings (`.archlens/policy.json`), SHA-256 Gate Cache, and 4-Layer Git Guard
+- [wiki/Codebase-Map.md](./wiki/Codebase-Map.md): Deterministic AST module inventory, coupling metrics ($Ca$, $Ce$, $I$), and capability mapping
+- [wiki/Traceability.md](./wiki/Traceability.md): Multi-provider PM sync, HMAC-SHA256 gate receipts, and Merkle audit ledger (`docs/AUDIT_CHAIN.jsonl`)
+
+## Product Governance & Templates
+
+- [PRODUCT.md](./PRODUCT.md): Constitutional capabilities (`CAP-01`–`CAP-11`), hard invariants (`INV-01`–`INV-04`), and ADR index
+- [docs/PRD.md](./docs/PRD.md): Macro Product Requirements Document
+- [docs/SRS.md](./docs/SRS.md): IEEE 29148 Software Requirements Specification & compacted ADRs
+- [docs/templates/README_TEMPLATE.md](./docs/templates/README_TEMPLATE.md): Canonical 10–30–90 Developer Landing Page template (`cli`, `sdk`, `platform`)
+- [CONTRIBUTING.md](./CONTRIBUTING.md): Source build, TDD test suite execution, and pull request workflow
+- [CHANGELOG.md](./CHANGELOG.md): Semantic Versioning release history

@@ -21,6 +21,7 @@ const DEFAULT_ENGINE_RING_MAP = {
   'session.mjs': { ring: 'Ring 1: Application & Governance', index: 1 },
   'arch-trace.mjs': { ring: 'Ring 1: Application & Governance', index: 1 },
   'wiki-sync.mjs': { ring: 'Ring 1: Application & Governance', index: 1 },
+  'readme-sync.mjs': { ring: 'Ring 1: Application & Governance', index: 1 },
   'git-guard.mjs': { ring: 'Ring 2: Adapters & Enforcement', index: 2 },
   'pm-provider.mjs': { ring: 'Ring 2: Adapters & Enforcement', index: 2 },
   'quality-gate.mjs': { ring: 'Ring 2: Adapters & Enforcement', index: 2 },
@@ -401,6 +402,8 @@ export function auditWiki(repoRoot = '.', { strict = false } = {}) {
           candidatePath.startsWith('docs/AUDIT_CHAIN') ||
           candidatePath.startsWith('docs/PRD.md') ||
           candidatePath.startsWith('docs/SRS.md') ||
+          candidatePath.startsWith('docs/logo-') ||
+          candidatePath.startsWith('docs/demo.') ||
           candidatePath.startsWith('docs/architecture')
         ) {
           continue;
@@ -419,13 +422,18 @@ export function auditWiki(repoRoot = '.', { strict = false } = {}) {
       }
     }
 
-    // 3. Validate Mermaid diagrams in wiki page
+    // 3. Validate Mermaid diagrams in wiki page (stripping leading %%{init:...}%% directives/comments)
     const mermaidRegex = /```mermaid\n([\s\S]*?)```/g;
     let mMatch;
     while ((mMatch = mermaidRegex.exec(raw)) !== null) {
       const block = mMatch[1].trim();
+      const strippedBlock = block
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l && !l.startsWith('%%'))
+        .join('\n');
       const validHeader = /^(flowchart|graph|sequenceDiagram|stateDiagram(?:-v2)?|classDiagram|erDiagram|xychart-beta)\b/.test(
-        block
+        strippedBlock
       );
       if (!validHeader) {
         findings.push({
@@ -433,11 +441,11 @@ export function auditWiki(repoRoot = '.', { strict = false } = {}) {
           severity: 'ERROR',
           file: relWikiPath,
           line: 1,
-          target: block.split('\n')[0] || 'empty',
+          target: strippedBlock.split('\n')[0] || 'empty',
           message: `Unsupported or malformed Mermaid diagram header in ${relWikiPath}.`
         });
-      } else if (/^(flowchart|graph)\b/.test(block)) {
-        const parsed = parseMermaidDiagram(block);
+      } else if (/^(flowchart|graph)\b/.test(strippedBlock)) {
+        const parsed = parseMermaidDiagram(strippedBlock);
         if (parsed.nodes.length === 0 && parsed.edges.length === 0) {
           findings.push({
             rule: 'EMPTY_MERMAID_FLOWCHART',

@@ -1,7 +1,7 @@
 # 📋 Capability Specification: `CAP-11` — Technical Writer Skill (`sdlc-wiki`) & Archlens AST-to-Wiki Synchronization
 
-> **Governed by**: `PRODUCT.md` & `ADR-007`  
-> **Status**: `AMENDED (ADR-007)`  
+> **Governed by**: `PRODUCT.md`, `ADR-007` & `ADR-001`  
+> **Status**: `AMENDED (ADR-001)`  
 > **Depends On**: `CAP-03`, `CAP-05`, `CAP-08`
 
 ---
@@ -16,3 +16,5 @@ Manual wiki checklists inside `sdlc-release` caused `wiki/*.md` documentation to
 - **REQ-11.2 (Deterministic Codebase Map)**: Running `node .agent/scripts/sdlc-engine.mjs wiki sync` SHALL generate `wiki/Codebase-Map.md` containing a Mermaid concentric ring graph, per-ring AST export tables, canonical skill references, `CAP-XX` capabilities, and `ADR-00X` records.
 - **REQ-11.3 (Zero-Rot Wiki Linter)**: Running `node .agent/scripts/sdlc-engine.mjs wiki audit` SHALL scan all `wiki/*.md` files for broken repository file paths (`BROKEN_CODE_PATH`), active references to retired skills (`DEPRECATED_SKILL_REF`), undocumented canonical skills (`UNDOCUMENTED_SKILL`), unmapped engine modules (`UNMAPPED_SOURCE_MODULE`), and malformed Mermaid diagrams (`INVALID_MERMAID_DIAGRAM`).
 - **REQ-11.4 (Gate Enforcement)**: `executeCompositeStage({ action: 'pre-pr' })` and `runCLI(['gate', '--strict'])` SHALL execute `auditWiki()` and block PR gate receipts when `wiki/` contains broken paths or unmapped modules.
+- **REQ-11.5 (10–30–90 Developer Landing Page Template & Companion Scaffolder)**: `docs/templates/README_TEMPLATE.md` and `.agent/scripts/lib/readme-sync.mjs` (`sdlc-engine.mjs readme init`) SHALL scaffold archetype-aware (`cli`, `sdk`, `platform`) README landing pages stripping unused `<!-- ARCHETYPE:... -->` blocks, alongside theme-aware SVG wordmarks (`docs/logo-light.svg`, `docs/logo-dark.svg`), `llms.txt`, and Charmbracelet VHS `docs/demo.tape` scripts for CLI projects.
+- **REQ-11.6 (Tiered README Blueprint Auditor)**: `sdlc-engine.mjs readme audit [--strict]` (wired into `gate --strict`) SHALL block on hard anti-patterns (broken local links/images, leftover template tokens, >4 hero badges, `git clone`-first Quickstart) while emitting non-blocking warnings for optional polish (`<picture>` dark/light logo, neutral Mermaid `%%{init: {'theme': 'neutral'}}%%`, `llms.txt` reference, and inline bloat/table progressive disclosure).
