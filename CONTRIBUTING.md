@@ -1,39 +1,37 @@
 # Contributing to Agentic SDLC Framework
 
-Thank you for considering contributing to the Agentic SDLC Framework!
+Thank you for contributing to **Agentic SDLC Framework**! This repository dogfoods its own deterministic governance engine (`sdlc-engine.mjs`) and 10 canonical skills.
 
-## 🤖 Developing with Agents
+## 🛠️ Local Source Setup & Test Suite
 
-This repository is designed to be developed **by agents, alongside humans**. When contributing, use the provided `.agent/skills/` to orchestrate your work.
+Requires **Node.js >= 18** and **Git**:
 
-### The Recommended Workflow
+```bash
+git clone https://github.com/fmatar/agentic-sdlc-framework.git
+cd agentic-sdlc-framework
+npm ci
 
-1. **Draft a Spec**: Ask your agent to run `sdlc-feature-spec` to generate an ADR or Feature Spec in `docs/templates/` describing what you want to build.
-2. **Implementation**: Use `sdlc-tdd-implement` for the code and `sdlc-test-coverage` for the tests. If executing an issue, use `sdlc-flow` to run the 8-stage lifecycle.
-3. **Run the Quality Gate**: Before submitting a Pull Request, you or your agent MUST run `sdlc-quality-gate`. This ensures:
-   - Spotless / Prettier code formatting.
-   - Zero TypeScript errors (`svelte-check`).
-   - All tests passing with $\ge$ 90% coverage on modified lines (`vitest`, `jacoco`).
-   - No high/critical security vulnerabilities (`npm audit`, dependency check).
-   - WCAG 2.1 AA Accessibility compliance.
-   - Clean production builds.
+# Run the full F.I.R.S.T. unit & hardening test suite
+npm test
 
-## 👨‍💻 Manual Contributions
+# Verify >= 85% coverage, concentric ring boundaries, and zero README / Wiki drift
+node .agent/scripts/sdlc-engine.mjs coverage --no-cache
+node .agent/scripts/sdlc-engine.mjs readme audit --strict
+node .agent/scripts/sdlc-engine.mjs wiki audit --strict
+node .agent/scripts/sdlc-engine.mjs skill-audit
+```
 
-If you prefer to write code manually without the agentic framework:
+## 🤖 Developing with Coding Agents (`/sdlc-flow`)
 
-1. **Fork and Branch**: Create a new branch for your feature (`feat/your-feature`) or bugfix (`fix/your-bug`).
-2. **Test-Driven Development**: We enforce strict TDD. Write failing tests before implementing logic.
-3. **Commit Messages**: We use [Conventional Commits](https://www.conventionalcommits.org/):
-   - `feat: added new provider sync adapter`
-   - `fix: resolved race condition in event sync`
-   - `docs: updated wiki architecture diagrams`
-4. **Open a Pull Request**: Ensure all GitHub Actions CI checks (which run `sdlc-quality-gate`) pass before requesting a review.
+1. **Start a Ticket Session (`INV-01` & `INV-02`)**: Direct commits to `main` are blocked by the 4-Layer Git Guard. Start an atomic feature branch and session lock via `/sdlc begin`:
+   ```bash
+   node .agent/scripts/sdlc-engine.mjs stage begin --title "<short-slug>" --type <feat|fix> --checkout
+   ```
+2. **Spec & ADR Alignment (`INV-03`)**: If modifying `PRODUCT.md`, `docs/specs/*.md`, dependency manifests, or CLI contracts, mint an ADR with `/sdlc-adr` (`node .agent/scripts/sdlc-engine.mjs adr create`).
+3. **Robert Martin TDD (`/sdlc-tdd`)**: Write a failing Red test first, implement minimal Green domain logic adhering to `.archlens/policy.json` Concentric Clean Architecture rings, and refactor.
+4. **Documentation & Multi-Agent Sync (`/sdlc-wiki`)**: When changing `.agent/skills/` or engine exports, sync multi-agent artifacts (`node .agent/scripts/sdlc-engine.mjs install --agents gemini,claude --yes --skip-detect`) and refresh `wiki/Codebase-Map.md` (`npm run wiki:sync`).
+5. **Strict Quality Gate & Parallel Review (`/sdlc-gate`)**: Run `node .agent/scripts/sdlc-engine.mjs gate --strict` and record the parallel subagent peer-review verdict before merging.
 
-## 🐛 Found a Bug?
+## 🐛 Bug Reports & Feature Requests
 
-Please use the **Bug Report** issue template on GitHub. Provide as much context as possible, including steps to reproduce. If using an agent, you can ask the agent to parse the bug report and use `sdlc-flow` to fix it!
-
-## ✨ Feature Requests
-
-Please use the **Feature Request** issue template. We encourage you to provide Acceptance Criteria so our `sdlc-feature-spec` skill can easily ingest it.
+Please open an issue using our [GitHub Issue Templates](./.github/ISSUE_TEMPLATE/) with clear reproduction steps or acceptance criteria.

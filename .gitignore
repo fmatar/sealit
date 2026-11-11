@@ -1,0 +1,32 @@
+# Node & Build Artifacts
+node_modules/
+coverage/
+.nyc_output/
+workbench/.svelte-kit/
+workbench/build/
+workbench/node_modules/
+
+# Agentic SDLC Ephemeral Cache, Local Locks & Secrets
+.env
+.env.*
+!.env.example
+.agent/.cache/
+.agent/.sdlc-session.json
+.agent/.receipt-key
+.agent/skills/*/scripts/bin/
+.agent/workbench/index.html
+.agent/arch-trace.jsonl
+docs/ARCH_TRACE.md
+*.lcov
+.impeccable/review/
+.impeccable/mocks/
+.impeccable/questions/
+.impeccable/config.local.json
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+
+# Stryker mutation testing
+.stryker-tmp/
+reports/

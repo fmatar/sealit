@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SDLC Architecture Diff & Decision Workbench</title>
+  <style>
+    :root {
+      --paper: #eef2f6;
+      --folio: #f8fafc;
+      --well: #e2e8f0;
+      --ink: #0f172a;
+      --ink-secondary: #334155;
+      --ink-muted: #475569;
+      --rule: #cbd5e1;
+      --rule-strong: #94a3b8;
+      --cobalt: #1e40af;
+      --cobalt-bg: #dbeafe;
+      --seal-pass: #166534;
+      --seal-pass-bg: #dcfce7;
+      --seal-crimson: #991b1b;
+      --seal-crimson-bg: #fee2e2;
+      --seal-amber: #92400e;
+      --seal-amber-bg: #fef3c7;
+      --serif: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      --mono: "SFMono-Regular", ui-monospace, Menlo, Monaco, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    ::selection { background: var(--cobalt); color: var(--folio); }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: 14px;
+      line-height: 1.5;
+      caret-color: var(--cobalt);
+      scrollbar-width: thin;
+      scrollbar-color: var(--rule-strong) var(--well);
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--cobalt); text-underline-offset: 3px; }
+    button, input {
+      font-family: inherit;
+      color: inherit;
+    }
+    :focus-visible {
+      outline: 2px solid var(--cobalt);
+      outline-offset: 2px;
+    }
+    .widget-shell {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+    .ledger-sheet {
+      background: var(--folio);
+      border: 1px solid var(--rule-strong);
+      border-radius: 6px;
+      box-shadow: 0 2px 8px -2px rgba(20, 24, 31, 0.07);
+      overflow: hidden;
+    }
+    .sheet-header {
+      padding: 16px 20px;
+      background: var(--well);
+      border-bottom: 1px solid var(--rule-strong);
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+    }
+    .sheet-header h1 {
+      margin: 0;
+      font-family: var(--serif);
+      font-size: clamp(1.15rem, 1rem + 0.6vw, 1.4rem);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--ink);
+      text-wrap: balance;
+    }
+    .sheet-subtitle {
+      margin: 4px 0 0 0;
+      font-size: 12px;
+      color: var(--ink-secondary);
+      max-inline-size: 70ch;
+    }
+    .sheet-subtitle code {
+      font-family: var(--mono);
+      font-variant-numeric: tabular-nums;
+      background: var(--folio);
+      padding: 1px 5px;
+      border-radius: 3px;
+      border: 1px solid var(--rule);
+    }
+    .seal-group {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+    }
+    .seal-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 4px;
+      border: 1px solid var(--rule-strong);
+      background: var(--folio);
+      color: var(--ink);
+      font-variant-numeric: tabular-nums;
+    }
+    .seal-pill.pass {
+      background: var(--seal-pass-bg);
+      color: var(--seal-pass);
+      border-color: #86efac;
+    }
+    .seal-pill.fail {
+      background: var(--seal-crimson-bg);
+      color: var(--seal-crimson);
+      border-color: #fca5a5;
+    }
+    .tab-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      padding: 10px 20px;
+      background: var(--paper);
+      border-bottom: 1px solid var(--rule);
+    }
+    .tab-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      background: transparent;
+      color: var(--ink-secondary);
+      border: 1px solid transparent;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+    }
+    .tab-btn:hover {
+      background: var(--well);
+      color: var(--ink);
+    }
+    .tab-btn[aria-selected="true"] {
+      background: var(--cobalt);
+      color: var(--folio);
+      border-color: var(--cobalt);
+    }
+    .folio-body {
+      padding: 20px;
+    }
+    .folio-panel {
+      animation: folioReveal 200ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .folio-panel[hidden] {
+      display: none !important;
+    }
+    @keyframes folioReveal {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .folio-panel { animation: none; }
+    }
+    .double-entry {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 20px;
+    }
+    .folio-column {
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      background: var(--paper);
+      padding: 12px 14px;
+      overflow: hidden;
+    }
+    .folio-column h2 {
+      margin: -12px -14px 12px -14px;
+      padding: 10px 14px;
+      font-family: var(--serif);
+      font-size: 14px;
+      font-weight: 700;
+      background: var(--well);
+      border-bottom: 1px solid var(--rule);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .ledger-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+    .ledger-table th,
+    .ledger-table td {
+      padding: 8px 12px;
+      text-align: left;
+      border-bottom: 1px solid var(--rule);
+      vertical-align: top;
+    }
+    .ledger-table th {
+      font-weight: 600;
+      color: var(--ink-secondary);
+      background: var(--folio);
+    }
+    .ledger-table tr:last-child td {
+      border-bottom: none;
+    }
+    .mono {
+      font-family: var(--mono);
+      font-variant-numeric: tabular-nums;
+    }
+    .node-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 10px;
+      max-height: 260px;
+      overflow-y: auto;
+      padding: 4px 2px;
+    }
+    .node-item {
+      text-align: left;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      padding: 10px 12px;
+      cursor: pointer;
+      transition: border-color 150ms ease, background-color 150ms ease;
+    }
+    .node-item:hover {
+      background: var(--well);
+      border-color: var(--cobalt);
+    }
+    .node-item-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      color: var(--ink-secondary);
+      font-family: var(--mono);
+    }
+    .node-item-title {
+      font-weight: 600;
+      margin-top: 4px;
+      color: var(--ink);
+      font-size: 12px;
+    }
+    .inspector-box {
+      margin-top: 14px;
+      padding: 12px 16px;
+      background: var(--well);
+      border: 1px solid var(--rule-strong);
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    .scrubber-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      background: var(--well);
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      margin-bottom: 14px;
+    }
+    .scrubber-bar input[type="range"] {
+      flex: 1;
+      accent-color: var(--cobalt);
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div class="widget-shell">
+    <div class="ledger-sheet">
+      <header class="sheet-header">
+        <div>
+          <h1>SDLC Architecture Diff & Decision Workbench</h1>
+          <p class="sheet-subtitle">
+            Concentric Ring Clearinghouse, Mermaid AST Diffs &amp; Causal Decision Lineage &middot; Live Server: <code>http://localhost:4120</code>
+          </p>
+        </div>
+        <div class="seal-group">
+          <span id="session-pill" class="seal-pill"></span>
+          <span id="ring-badge" class="seal-pill"></span>
+          <span id="merkle-badge" class="seal-pill"></span>
+        </div>
+      </header>
+
+      <nav class="tab-strip" role="tablist" aria-label="Architecture workbench views">
+        <button type="button" role="tab" aria-selected="true" onclick="switchTab('rings')" id="tab-rings" class="tab-btn">
+          Ring &amp; Merkle Clearinghouse
+        </button>
+        <button type="button" role="tab" aria-selected="false" onclick="switchTab('lineage')" id="tab-lineage" class="tab-btn">
+          Decision Lineage (CAP to ADR)
+        </button>
+        <button type="button" role="tab" aria-selected="false" onclick="switchTab('timemachine')" id="tab-timemachine" class="tab-btn">
+          Time-Machine Ledger
+        </button>
+        <button type="button" role="tab" aria-selected="false" onclick="switchTab('waves')" id="tab-waves" class="tab-btn">
+          DAG Waves &amp; Specs
+        </button>
+      </nav>
+
+      <div class="folio-body">
+        <section id="view-rings" class="folio-panel" role="tabpanel" aria-labelledby="tab-rings">
+          <div class="double-entry">
+            <div class="folio-column">
+              <h2>
+                <span>Debit Folio: Concentric Ring Boundaries</span>
+                <span class="mono" id="rings-count-label"></span>
+              </h2>
+              <table class="ledger-table">
+                <thead>
+                  <tr>
+                    <th>Architecture Ring</th>
+                    <th>Delta</th>
+                    <th>Modified Paths</th>
+                  </tr>
+                </thead>
+                <tbody id="rings-grid"></tbody>
+              </table>
+            </div>
+            <div class="folio-column">
+              <h2>
+                <span>Credit Folio: Merkle Audit &amp; AST Diff</span>
+                <span class="mono" id="merkle-root-short"></span>
+              </h2>
+              <div id="mermaid-diff-box" style="padding: 12px 14px; font-size: 12px;"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="view-lineage" class="folio-panel" role="tabpanel" aria-labelledby="tab-lineage" hidden>
+          <div id="nodes-grid" class="node-list"></div>
+          <div id="node-inspector" class="inspector-box">
+            Select any capability, specification, ticket, or ADR folio entry above to inspect its causal lineage and governance status.
+          </div>
+        </section>
+
+        <section id="view-timemachine" class="folio-panel" role="tabpanel" aria-labelledby="tab-timemachine" hidden>
+          <div class="scrubber-bar">
+            <label for="time-slider" style="font-weight: 600; font-size: 12px;">Evolution Snapshot:</label>
+            <input id="time-slider" type="range" min="0" max="0" value="0" oninput="renderSnapshot(this.value)" />
+            <span id="slider-label" class="mono" style="font-size: 12px; color: var(--ink-secondary);"></span>
+          </div>
+          <div id="snapshot-detail" class="folio-column" style="padding: 14px;"></div>
+        </section>
+
+        <section id="view-waves" class="folio-panel" role="tabpanel" aria-labelledby="tab-waves" hidden>
+          <div class="folio-column">
+            <h2>
+              <span>Topological Execution Wave Schedule</span>
+              <span class="mono">PRODUCT.md</span>
+            </h2>
+            <table class="ledger-table">
+              <thead>
+                <tr>
+                  <th>Wave</th>
+                  <th>Execution Mode</th>
+                  <th>Capabilities &amp; Status</th>
+                </tr>
+              </thead>
+              <tbody id="waves-tbody"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const STATE = {"session":{"active":true,"issueId":100,"type":"feat","branch":"feature/issue-#100-10-30-90-readme-template-engine","worktree":null,"stage":6,"stageName":"Pull Request & CI","remediationCount":0,"maxRemediations":3,"manifest":{"specPath":null,"prNumber":null,"coverageReport":"89.4%","mutationScore":"56.8%","uiScreenshotPath":null,"checkpoints":{"stage1":null,"stage2":"2026-11-11T15:10:01.878Z","stage3":null,"stage4":null,"stage5":"2026-11-11T16:02:09.619Z","stage6":"2026-11-11T16:02:14.682Z","stage7":"2026-11-11T15:46:09.464Z","stage8":null},"peerReview":{"verdict":"approve","reviewer":"@sdlc-gate","peerReviewSummary":"APPROVE: Verified 10-30-90 README template, scaffoldReadme (cli/sdk/platform/--no-assets), auditReadme tiered rules, code-span/srcset hardening, and 3 F.I.R.S.T. TDD suites (96.88% line / 100% func coverage).","archSecuritySummary":"APPROVE: Verified Ring 1 purity of readme-sync.mjs (zero Ring 2/3 imports), INV-04 shell-injection safety, XML/VHS sanitization, repo-root link containment, ADR-001 spec-drift alignment, and 0 SkillSpector findings.","body":null,"recordedAt":"2026-11-11T15:46:09.463Z"}},"startedAt":"2026-11-11T15:10:01.877Z","updatedAt":"2026-11-11T16:02:19.087Z","activeSubagents":[]},"audit":{"valid":true,"recordsCount":33,"merkleRoot":"29f151862a16da99a0b31d22f5b6087b5cbe184ee58695068e971f09283b801b","message":"Audit chain verified successfully (33 immutable records)."},"graph":{"nodes":[{"id":"INV-01","label":"INV-01: Zero direct commits, merges, or pushes to main or develop","category":"INVARIANT","status":"enforced","ticketId":null,"timestamp":"2026-11-11T16:02:22.082Z","metadata":{}},{"id":"INV-02","label":"INV-02: 100% of code changes require an active SDLC ticket session and Dual-Gate verification (>=85% coverage, >=80% mutation)","category":"INVARIANT","status":"enforced","ticketId":null,"timestamp":"2026-11-11T16:02:22.082Z","metadata":{}},{"id":"INV-03","label":"INV-03: All spec drift must be recorded via an ADR (docs/adr/ADR-00X.md) and synchronized with PRODUCT.md","category":"INVARIANT","status":"enforced","ticketId":null,"timestamp":"2026-11-11T16:02:22.082Z","metadata":{}},{"id":"INV-04","label":"INV-04: Zero shell command interpolation of untrusted user/markdown inputs in PM, Git, or test runner execution paths","category":"INVARIANT","status":"enforced","ticketId":null,"timestamp":"2026-11-11T16:02:22.082Z","metadata":{}},{"id":"CAP-01","label":"CAP-01: Core Domain & Architecture Foundation","category":"CAPABILITY","status":"PLANNED","ticketId":null,"timestamp":"2026-11-11T16:02:22.082Z","metadata":{"spec":"docs/specs/core-domain.md"}},{"id":"SPEC-01","label":"SPEC-01 (docs/specs/cap-01-composite-stage-session.md)","category":"SPEC","status":"active","ticketId":null,"timestamp":"2026-11-11T16:02:22.082Z","metadata":{"path":"docs/specs/cap-01-composite-stage-session.md"}},{"id":"CAP-02","label":"CAP-02: Shell Injection Remediation & Polyglot Test Runners (#69)","category":"CAPABILITY","status":"AMENDED (ADR-006)","ticketId":null,"timestamp":"2026-11-11T16:02:22.082Z","metadata":{}},{"id":"SPEC-02","label":"SPEC-02 (docs/specs/cap-02-security-polyglot-runners.md)","category":"SPEC","status":"active","ticketId":null,"timestamp":"2026-11-11T16:02:22.082Z","metadata":{"path":"docs/specs/cap-02-security-polyglot-runners.md"}},{"id":"CAP-03","label":"CAP-03: Real Coverage/Mutation Parsers & Policy ArchDiff (#70)","category":"CAPABILITY","status":"AMENDED (ADR-002)","ticketId":null,"timestamp":"2026-11-11T16:02:22.082Z","metadata":{}},{"id":"SPEC-03","label":"SPEC-03 (docs/specs/cap-03-real-dual-gate-archdiff.md)","category":"SPEC","status":"active","ticketId":null,"timestamp":"2026-11-11T16:02:22.082Z","metadata":{"path":"docs/specs/cap-03-real-dual-gate-archdiff.md"}},{"id":"CAP-04","label":"CAP-04: Live Canary Watchdog, Real Proofs & Polyglot Reproduce (#71)","category":"CAPABILITY","status":"AMENDED (ADR-002)","ticketId":null,"timestamp":"2026-11-11T16:02:22.082Z","metadata":{}},{"id":"SPEC-04","label":"SPEC-04 (docs/specs/cap-04-live-probes-reproduce.md)","category":"SPEC","status":"active","ticketId":null,"timestamp":"2026-11-11T16:02:22.082Z","metadata":{"path":"docs/specs/cap-04-live-probes-reproduce.md"}},{"id":"CAP-05","label":"CAP-05: Consolidate 14 Skills into 6 Schema-Valid Core Skills (#72)","category":"CAPABILITY","status":"AMENDED (ADR-007)","ticketId":null,"timestamp":"2026-11-11T16:02:22.082Z","metadata":{}},{"id":"SPEC-05","label":"SPEC-05 (docs/specs/cap-05-skill-consolidation.md)","category":"SPEC","status":"active","ticketId":null,"timestamp":"2026-11-11T16:02:22.082Z","metadata":{"path":"docs/specs/cap-05-skill-consolidation.md"}},{"id":"CAP-06","label":"CAP-06: Dogfooding Configuration, Docs Sync & Full Test Suite (#73)","category":"CAPABILITY","status":"AMENDED (ADR-007)","ticketId":null,"timestamp":"2026-11-11T16:02:22.082Z","metadata":{}},{"id":"SPEC-06","label":"SPEC-06 (docs/specs/cap-06-dogfood-docs-tests.md)","category":"SPEC","status":"active","ticketId":null,"timestamp":"2026-11-11T16:02:22.082Z","metadata":{"path":"docs/specs/cap-06-dogfood-docs-tests.md"}},{"id":"CAP-07","label":"CAP-07: Native `npx` Multi-Agent Interactive Installer & Legacy Installer Removal (#75)","category":"CAPABILITY","status":"AMENDED (ADR-004)","ticketId":null,"timestamp":"2026-11-11T16:02:22.082Z","metadata":{}},{"id":"SPEC-07","label":"SPEC-07 (docs/specs/cap-07-npx-multi-agent-installer.md)","category":"SPEC","status":"active","ticketId":null,"timestamp":"2026-11-11T16:02:22.082Z","metadata":{"path":"docs/specs/cap-07-npx-multi-agent-installer.md"}},{"id":"CAP-08","label":"CAP-08: `/sdlc` Universal Command Router & 9 Verb-Driven Skills (#81)","category":"CAPABILITY","status":"AMENDED (ADR-007)","ticketId":null,"timestamp":"2026-11-11T16:02:22.082Z","metadata":{}},{"id":"SPEC-08","label":"SPEC-08 (docs/specs/cap-08-command-verb-skills-router.md)","category":"SPEC","status":"active","ticketId":null,"timestamp":"2026-11-11T16:02:22.082Z","metadata":{"path":"docs/specs/cap-08-command-verb-skills-router.md"}},{"id":"CAP-09","label":"CAP-09: Two-Tier PRD & IEEE 29148 SRS Specification Engine (#84)","category":"CAPABILITY","status":"PLANNED","ticketId":null,"timestamp":"2026-11-11T16:02:22.082Z","metadata":{"spec":"docs/specs/cap-09-prd-srs-specification-engine.md"}},{"id":"SPEC-09","label":"SPEC-09 (docs/specs/cap-09-prd-srs-specification-engine.md)","category":"SPEC","status":"active","ticketId":null,"timestamp":"2026-11-11T16:02:22.082Z","metadata":{"path":"docs/specs/cap-09-prd-srs-specification-engine.md"}},{"id":"CAP-10","label":"CAP-10: Unified Multi-Provider Ticket Engine & Issue Templates (#86)","category":"CAPABILITY","status":"PLANNED","ticketId":null,"timestamp":"2026-11-11T16:02:22.082Z","metadata":{"spec":"docs/specs/cap-10-unified-multi-provider-ticket-engine-issue-templ.md"}},{"id":"SPEC-10","label":"SPEC-10 (docs/specs/cap-10-unified-multi-provider-ticket-engine-issue-templ.md)","category":"SPEC","status":"active","ticketId":null,"timestamp":"2026-11-11T16:02:22.082Z","metadata":{"path":"docs/specs/cap-10-unified-multi-provider-ticket-engine-issue-templ.md"}},{"id":"CAP-11","label":"CAP-11: Technical Writer Skill (`sdlc-wiki`) & Archlens AST-to-Wiki Sync (#90)","category":"CAPABILITY","status":"AMENDED (ADR-001)","ticketId":null,"timestamp":"2026-11-11T16:02:22.082Z","metadata":{}},{"id":"SPEC-11","label":"SPEC-11 (docs/specs/cap-11-technical-writer-archlens-wiki-sync.md)","category":"SPEC","status":"active","ticketId":null,"timestamp":"2026-11-11T16:02:22.082Z","metadata":{"path":"docs/specs/cap-11-technical-writer-archlens-wiki-sync.md"}},{"id":"ADR-001","label":"ADR-001: 10-30-90 Developer Landing Page README Template and Deterministic README Engine","category":"ADR","status":"accepted","ticketId":100,"timestamp":"2026-11-11T15:11:26.404Z","metadata":{"file":"docs/adr/ADR-001-10-30-90-developer-landing-page-readme-template-.md","scope":"technical","supersedes":["CAP-11"],"content":"--- id: ADR-001 title: 10-30-90 Developer Landing Page README Template and Deterministic README Engine status: accepted scope: technical ticket: #100 supersedes: CAP-11 createdAt: 2026-11-11T15:11:26.404Z --- # ADR-001: 10-30-90 Developer Landing Page README Template and Determi","decision":"Add docs/templates/README_TEMPLATE.md with cli/sdk/platform archetype blocks, implement Ring 1 .agent/scripts/lib/readme-sync.mjs (readme init & tiered readme audit), wire /sdlc readme across sdlc, sdlc-wiki, sdlc-product, and sdlc-release, and enforce hard README anti-patterns in gate --strict."}},{"id":"#100","label":"Ticket #100 (feature/issue-#100-10-30-90-readme-template-engine)","category":"TICKET","status":"PASSED","ticketId":100,"timestamp":"2026-11-11T16:02:22.083Z","metadata":{}},{"id":"ADR-COMPACT-v0.3.0","label":"Compacted 8 ADR(s) into SRS.md (v0.3.0)","category":"ADR","status":"compacted","ticketId":null,"timestamp":"2026-11-04T05:05:54.433Z","metadata":{"releaseVersion":"v0.3.0","compactedAdrIds":["ADR-001","ADR-002","ADR-003","ADR-004","ADR-005","ADR-006","ADR-007","ADR-008"],"compactedCount":8,"srsPath":"docs/SRS.md"}},{"id":"createdAt: 2026-11-03T18:52:42.656Z","label":"createdAt: 2026-11-03T18:52:42.656Z","category":"GENERIC","status":"active","ticketId":null,"timestamp":"2026-11-11T16:02:22.083Z","metadata":{}},{"id":"#SDLC-INIT","label":"Ticket #SDLC-INIT (feature/arch-traceability-governance)","category":"TICKET","status":"PASSED","ticketId":null,"timestamp":"2026-11-11T16:02:22.085Z","metadata":{}},{"id":"#24","label":"Ticket #24 (feature/issue-#24-api-contract-drift-sentinel)","category":"TICKET","status":"PASSED","ticketId":null,"timestamp":"2026-11-11T16:02:22.085Z","metadata":{}},{"id":"#25","label":"Ticket #25 (feature/issue-#25-bug-reproduce-generator)","category":"TICKET","status":"PASSED","ticketId":null,"timestamp":"2026-11-11T16:02:22.085Z","metadata":{}},{"id":"#26","label":"Ticket #26 (feature/issue-#26-session-telemetry-roi)","category":"TICKET","status":"PASSED","ticketId":null,"timestamp":"2026-11-11T16:02:22.085Z","metadata":{}},{"id":"#43","label":"Ticket #43 (feature/issue-#43-multi-branch-protection)","category":"TICKET","status":"PASSED","ticketId":null,"timestamp":"2026-11-11T16:02:22.085Z","metadata":{}},{"id":"#63","label":"Ticket #63 (feature/issue-#63-product-autopilot-adr-workbench)","category":"TICKET","status":"PASSED","ticketId":null,"timestamp":"2026-11-11T16:02:22.085Z","metadata":{}},{"id":"#68","label":"Ticket #68 (feature/issue-#68-framework-hardening-v0-1)","category":"TICKET","status":"PASSED","ticketId":null,"timestamp":"2026-11-11T16:02:22.085Z","metadata":{}},{"id":"#75","label":"Ticket #75 (feature/issue-#75-npx-multi-agent-installer)","category":"TICKET","status":"PASSED","ticketId":null,"timestamp":"2026-11-11T16:02:22.085Z","metadata":{}},{"id":"#77","label":"Ticket #77 (feature/issue-#77-readme-overhaul)","category":"TICKET","status":"PASSED","ticketId":null,"timestamp":"2026-11-11T16:02:22.085Z","metadata":{}},{"id":"#79","label":"Ticket #79 (feature/issue-#79-readme-dx-redesign)","category":"TICKET","status":"PASSED","ticketId":null,"timestamp":"2026-11-11T16:02:22.085Z","metadata":{}},{"id":"#81","label":"Ticket #81 (feature/issue-#81-command-verb-skills-router)","category":"TICKET","status":"PASSED","ticketId":null,"timestamp":"2026-11-11T16:02:22.085Z","metadata":{}},{"id":"#84","label":"Ticket #84 (feature/issue-#84-two-tier-prd-srs-specification-engine)","category":"TICKET","status":"PASSED","ticketId":null,"timestamp":"2026-11-11T16:02:22.085Z","metadata":{}},{"id":"#86","label":"Ticket #86 (feature/issue-#86-multi-provider-ticket-engine-and-templat)","category":"TICKET","status":"PASSED","ticketId":null,"timestamp":"2026-11-11T16:02:22.085Z","metadata":{}},{"id":"#88","label":"Ticket #88 (feature/issue-#88-skillspector-zero-findings-and-skill-aud)","category":"TICKET","status":"PASSED","ticketId":null,"timestamp":"2026-11-11T16:02:22.085Z","metadata":{}},{"id":"#90","label":"Ticket #90 (feature/issue-#90-skillspector-security-audit)","category":"TICKET","status":"PASSED","ticketId":null,"timestamp":"2026-11-11T16:02:22.085Z","metadata":{}},{"id":"#91","label":"Ticket #91 (feature/issue-91-harden-gates)","category":"TICKET","status":"PASSED","ticketId":null,"timestamp":"2026-11-11T16:02:22.085Z","metadata":{}},{"id":"#94","label":"Ticket #94 (feature/issue-#94-fix-claude-cowork-skill-provisioning-non)","category":"TICKET","status":"PASSED","ticketId":null,"timestamp":"2026-11-11T16:02:22.085Z","metadata":{}},{"id":"#95","label":"Ticket #95 (feature/issue-#95-implement-adr-lifecycle-compaction-and-f)","category":"TICKET","status":"PASSED","ticketId":null,"timestamp":"2026-11-11T16:02:22.085Z","metadata":{}},{"id":"#97","label":"Ticket #97 (feature/issue-#97-fix-claude-desktop-skills)","category":"TICKET","status":"PASSED","ticketId":null,"timestamp":"2026-11-11T16:02:22.085Z","metadata":{}},{"id":"#99","label":"Ticket #99 (feature/issue-#99-publish-consolidated-peer-review-quality)","category":"TICKET","status":"PASSED","ticketId":null,"timestamp":"2026-11-11T16:02:22.085Z","metadata":{}}],"edges":[{"from":"CAP-01","to":"SPEC-01","relation":"specified_by"},{"from":"CAP-02","to":"SPEC-02","relation":"specified_by"},{"from":"CAP-03","to":"SPEC-03","relation":"specified_by"},{"from":"CAP-03","to":"CAP-01","relation":"depends_on"},{"from":"CAP-03","to":"CAP-02","relation":"depends_on"},{"from":"CAP-04","to":"SPEC-04","relation":"specified_by"},{"from":"CAP-04","to":"CAP-02","relation":"depends_on"},{"from":"CAP-05","to":"SPEC-05","relation":"specified_by"},{"from":"CAP-05","to":"CAP-03","relation":"depends_on"},{"from":"CAP-05","to":"CAP-04","relation":"depends_on"},{"from":"CAP-06","to":"SPEC-06","relation":"specified_by"},{"from":"CAP-06","to":"CAP-05","relation":"depends_on"},{"from":"CAP-07","to":"SPEC-07","relation":"specified_by"},{"from":"CAP-07","to":"CAP-06","relation":"depends_on"},{"from":"CAP-08","to":"SPEC-08","relation":"specified_by"},{"from":"CAP-08","to":"CAP-05","relation":"depends_on"},{"from":"CAP-08","to":"CAP-07","relation":"depends_on"},{"from":"CAP-09","to":"SPEC-09","relation":"specified_by"},{"from":"CAP-09","to":"CAP-05","relation":"depends_on"},{"from":"CAP-09","to":"CAP-08","relation":"depends_on"},{"from":"CAP-10","to":"SPEC-10","relation":"specified_by"},{"from":"CAP-10","to":"CAP-02","relation":"depends_on"},{"from":"CAP-10","to":"CAP-09","relation":"depends_on"},{"from":"CAP-11","to":"SPEC-11","relation":"specified_by"},{"from":"CAP-11","to":"CAP-03","relation":"depends_on"},{"from":"CAP-11","to":"CAP-05","relation":"depends_on"},{"from":"CAP-11","to":"CAP-08","relation":"depends_on"},{"from":"#100","to":"ADR-001","relation":"triggered_drift_adr"},{"from":"CAP-11","to":"ADR-001","relation":"amended_by_adr"},{"from":"CAP-01","to":"ADR-COMPACT-v0.3.0","relation":"realized_by"},{"from":"CAP-02","to":"ADR-COMPACT-v0.3.0","relation":"realized_by"},{"from":"CAP-03","to":"ADR-COMPACT-v0.3.0","relation":"realized_by"},{"from":"CAP-04","to":"ADR-COMPACT-v0.3.0","relation":"realized_by"},{"from":"CAP-05","to":"ADR-COMPACT-v0.3.0","relation":"realized_by"},{"from":"CAP-06","to":"ADR-COMPACT-v0.3.0","relation":"realized_by"},{"from":"CAP-07","to":"ADR-COMPACT-v0.3.0","relation":"realized_by"},{"from":"CAP-08","to":"ADR-COMPACT-v0.3.0","relation":"realized_by"},{"from":"CAP-09","to":"ADR-COMPACT-v0.3.0","relation":"realized_by"},{"from":"CAP-10","to":"ADR-COMPACT-v0.3.0","relation":"realized_by"},{"from":"CAP-11","to":"ADR-COMPACT-v0.3.0","relation":"realized_by"},{"from":"createdAt: 2026-11-03T18:52:42.656Z","to":"ADR-COMPACT-v0.3.0","relation":"realized_by"}],"driftPivots":[{"id":"ADR-001","title":"10-30-90 Developer Landing Page README Template and Deterministic README Engine","scope":"technical","status":"accepted","ticketId":100,"supersedes":["CAP-11"],"file":"docs/adr/ADR-001-10-30-90-developer-landing-page-readme-template-.md"}],"stats":{"totalNodes":50,"totalEdges":41,"capabilitiesCount":11,"adrsCount":1,"pendingAdrsCount":0}},"product":{"exists":true,"productPath":"/Users/fady/workspace/labs/agentic-sdlc-framework/PRODUCT.md","title":"Agentic SDLC Framework","vision":"End-to-end spec-driven autonomous software development lifecycle, Spec-Drift ADR engine, 4-Layer Git Lockdown, real polyglot Dual-Gate verification, and SvelteKit 5 Causal Decision Workbench governed by 6 focused agentic skills.","capabilities":[{"id":"CAP-01","title":"Composite Stage CLI & Session Hygiene (#68)","spec":"docs/specs/cap-01-composite-stage-session.md","dependsOn":[],"status":"AMENDED (ADR-002)"},{"id":"CAP-02","title":"Shell Injection Remediation & Polyglot Test Runners (#69)","spec":"docs/specs/cap-02-security-polyglot-runners.md","dependsOn":[],"status":"AMENDED (ADR-006)"},{"id":"CAP-03","title":"Real Coverage/Mutation Parsers & Policy ArchDiff (#70)","spec":"docs/specs/cap-03-real-dual-gate-archdiff.md","dependsOn":["CAP-01","CAP-02"],"status":"AMENDED (ADR-002)"},{"id":"CAP-04","title":"Live Canary Watchdog, Real Proofs & Polyglot Reproduce (#71)","spec":"docs/specs/cap-04-live-probes-reproduce.md","dependsOn":["CAP-02"],"status":"AMENDED (ADR-002)"},{"id":"CAP-05","title":"Consolidate 14 Skills into 6 Schema-Valid Core Skills (#72)","spec":"docs/specs/cap-05-skill-consolidation.md","dependsOn":["CAP-03","CAP-04"],"status":"AMENDED (ADR-007)"},{"id":"CAP-06","title":"Dogfooding Configuration, Docs Sync & Full Test Suite (#73)","spec":"docs/specs/cap-06-dogfood-docs-tests.md","dependsOn":["CAP-05"],"status":"AMENDED (ADR-007)"},{"id":"CAP-07","title":"Native `npx` Multi-Agent Interactive Installer & Legacy Installer Removal (#75)","spec":"docs/specs/cap-07-npx-multi-agent-installer.md","dependsOn":["CAP-06"],"status":"AMENDED (ADR-004)"},{"id":"CAP-08","title":"`/sdlc` Universal Command Router & 9 Verb-Driven Skills (#81)","spec":"docs/specs/cap-08-command-verb-skills-router.md","dependsOn":["CAP-05","CAP-07"],"status":"AMENDED (ADR-007)"},{"id":"CAP-09","title":"Two-Tier PRD & IEEE 29148 SRS Specification Engine (#84)","spec":"docs/specs/cap-09-prd-srs-specification-engine.md","dependsOn":["CAP-05","CAP-08"],"status":"AMENDED (ADR-006)"},{"id":"CAP-10","title":"Unified Multi-Provider Ticket Engine & Issue Templates (#86)","spec":"docs/specs/cap-10-unified-multi-provider-ticket-engine-issue-templ.md","dependsOn":["CAP-02","CAP-09"],"status":"AMENDED (ADR-006)"},{"id":"CAP-11","title":"Technical Writer Skill (`sdlc-wiki`) & Archlens AST-to-Wiki Sync (#90)","spec":"docs/specs/cap-11-technical-writer-archlens-wiki-sync.md","dependsOn":["CAP-03","CAP-05","CAP-08"],"status":"AMENDED (ADR-001)"}],"invariants":[{"id":"INV-01","text":"Zero direct commits, merges, or pushes to main or develop"},{"id":"INV-02","text":"100% of code changes require an active SDLC ticket session and Dual-Gate verification (>=85% coverage, >=80% mutation)"},{"id":"INV-03","text":"All spec drift must be recorded via an ADR (docs/adr/ADR-00X.md) and synchronized with PRODUCT.md"},{"id":"INV-04","text":"Zero shell command interpolation of untrusted user/markdown inputs in PM, Git, or test runner execution paths"}],"adrs":[{"id":"ADR-001","title":"10-30-90 Developer Landing Page README Template and Deterministic README Engine","scope":"technical","status":"accepted","ticket":"#100","supersedes":"CAP-11"}]},"dag":{"success":true,"title":"Agentic SDLC Framework","totalCapabilities":11,"waves":[{"wave":1,"parallelizable":true,"items":[{"id":"CAP-01","title":"Composite Stage CLI & Session Hygiene (#68)","spec":"docs/specs/cap-01-composite-stage-session.md","dependsOn":[],"status":"AMENDED (ADR-002)","worktreeBranch":"feature/issue-cap-01-composite-stage-cli-session-hygiene-68"},{"id":"CAP-02","title":"Shell Injection Remediation & Polyglot Test Runners (#69)","spec":"docs/specs/cap-02-security-polyglot-runners.md","dependsOn":[],"status":"AMENDED (ADR-006)","worktreeBranch":"feature/issue-cap-02-shell-injection-remediation-polyglot-test-runners-69"}]},{"wave":2,"parallelizable":true,"items":[{"id":"CAP-03","title":"Real Coverage/Mutation Parsers & Policy ArchDiff (#70)","spec":"docs/specs/cap-03-real-dual-gate-archdiff.md","dependsOn":["CAP-01","CAP-02"],"status":"AMENDED (ADR-002)","worktreeBranch":"feature/issue-cap-03-real-coverage-mutation-parsers-policy-archdiff-70"},{"id":"CAP-04","title":"Live Canary Watchdog, Real Proofs & Polyglot Reproduce (#71)","spec":"docs/specs/cap-04-live-probes-reproduce.md","dependsOn":["CAP-02"],"status":"AMENDED (ADR-002)","worktreeBranch":"feature/issue-cap-04-live-canary-watchdog-real-proofs-polyglot-reproduce-71"}]},{"wave":3,"parallelizable":false,"items":[{"id":"CAP-05","title":"Consolidate 14 Skills into 6 Schema-Valid Core Skills (#72)","spec":"docs/specs/cap-05-skill-consolidation.md","dependsOn":["CAP-03","CAP-04"],"status":"AMENDED (ADR-007)","worktreeBranch":"feature/issue-cap-05-consolidate-14-skills-into-6-schema-valid-core-skills-72"}]},{"wave":4,"parallelizable":false,"items":[{"id":"CAP-06","title":"Dogfooding Configuration, Docs Sync & Full Test Suite (#73)","spec":"docs/specs/cap-06-dogfood-docs-tests.md","dependsOn":["CAP-05"],"status":"AMENDED (ADR-007)","worktreeBranch":"feature/issue-cap-06-dogfooding-configuration-docs-sync-full-test-suite-73"}]},{"wave":5,"parallelizable":false,"items":[{"id":"CAP-07","title":"Native `npx` Multi-Agent Interactive Installer & Legacy Installer Removal (#75)","spec":"docs/specs/cap-07-npx-multi-agent-installer.md","dependsOn":["CAP-06"],"status":"AMENDED (ADR-004)","worktreeBranch":"feature/issue-cap-07-native-npx-multi-agent-interactive-installer-legacy-installer-removal-75"}]},{"wave":6,"parallelizable":false,"items":[{"id":"CAP-08","title":"`/sdlc` Universal Command Router & 9 Verb-Driven Skills (#81)","spec":"docs/specs/cap-08-command-verb-skills-router.md","dependsOn":["CAP-05","CAP-07"],"status":"AMENDED (ADR-007)","worktreeBranch":"feature/issue-cap-08-sdlc-universal-command-router-9-verb-driven-skills-81"}]},{"wave":7,"parallelizable":true,"items":[{"id":"CAP-09","title":"Two-Tier PRD & IEEE 29148 SRS Specification Engine (#84)","spec":"docs/specs/cap-09-prd-srs-specification-engine.md","dependsOn":["CAP-05","CAP-08"],"status":"AMENDED (ADR-006)","worktreeBranch":"feature/issue-cap-09-two-tier-prd-ieee-29148-srs-specification-engine-84"},{"id":"CAP-11","title":"Technical Writer Skill (`sdlc-wiki`) & Archlens AST-to-Wiki Sync (#90)","spec":"docs/specs/cap-11-technical-writer-archlens-wiki-sync.md","dependsOn":["CAP-03","CAP-05","CAP-08"],"status":"AMENDED (ADR-001)","worktreeBranch":"feature/issue-cap-11-technical-writer-skill-sdlc-wiki-archlens-ast-to-wiki-sync-90"}]},{"wave":8,"parallelizable":false,"items":[{"id":"CAP-10","title":"Unified Multi-Provider Ticket Engine & Issue Templates (#86)","spec":"docs/specs/cap-10-unified-multi-provider-ticket-engine-issue-templ.md","dependsOn":["CAP-02","CAP-09"],"status":"AMENDED (ADR-006)","worktreeBranch":"feature/issue-cap-10-unified-multi-provider-ticket-engine-issue-templates-86"}]}],"provisioned":[],"state":{"status":"idle","currentWave":1,"history":[]}},"arch":{"archDiff":{"enabled":true,"passed":true,"violationsCount":0,"violations":[]},"modifiedFiles":[".agent/arch-trace.jsonl",".agent/decision-graph.jsonl",".agent/scripts/lib/readme-sync.mjs",".agent/scripts/lib/wiki-sync.mjs",".agent/scripts/sdlc-engine.mjs",".agent/skills/sdlc-product/SKILL.md",".agent/skills/sdlc-release/SKILL.md",".agent/skills/sdlc-wiki/SKILL.md",".agent/skills/sdlc/SKILL.md",".agent/workbench/index.html",".claude/commands/sdlc-product.md",".claude/commands/sdlc-release.md",".claude/commands/sdlc-wiki.md",".claude/commands/sdlc.md",".claude/cowork/sdlc-product.zip",".claude/cowork/sdlc-release.zip",".claude/cowork/sdlc-wiki.zip",".claude/cowork/sdlc.zip",".claude/skills/sdlc-product/SKILL.md",".claude/skills/sdlc-release/SKILL.md",".claude/skills/sdlc-wiki/SKILL.md",".claude/skills/sdlc/SKILL.md","CHANGELOG.md","CONTRIBUTING.md","PRODUCT.md","README.md","docs/ARCH_TRACE.md","docs/AUDIT_CHAIN.jsonl","docs/DECISION_MAP.md","docs/adr/ADR-001-10-30-90-developer-landing-page-readme-template-.md","docs/demo.tape","docs/logo-dark.svg","docs/logo-light.svg","docs/specs/cap-11-technical-writer-archlens-wiki-sync.md","docs/templates/README_TEMPLATE.md","llms.txt","tests/sdlc-nextgen.test.mjs","wiki/Codebase-Map.md","wiki/Skills-Reference.md"],"rings":{"Domain & Core Rules":["PRODUCT.md"],"Application & Engine Libs":[".agent/scripts/lib/readme-sync.mjs",".agent/scripts/lib/wiki-sync.mjs"],"Adapters, CLI & Skills":[".agent/scripts/sdlc-engine.mjs",".agent/skills/sdlc-product/SKILL.md",".agent/skills/sdlc-release/SKILL.md",".agent/skills/sdlc-wiki/SKILL.md",".agent/skills/sdlc/SKILL.md",".agent/workbench/index.html",".claude/commands/sdlc-product.md",".claude/commands/sdlc-release.md",".claude/commands/sdlc-wiki.md",".claude/commands/sdlc.md",".claude/cowork/sdlc-product.zip",".claude/cowork/sdlc-release.zip",".claude/cowork/sdlc-wiki.zip",".claude/cowork/sdlc.zip",".claude/skills/sdlc-product/SKILL.md",".claude/skills/sdlc-release/SKILL.md",".claude/skills/sdlc-wiki/SKILL.md",".claude/skills/sdlc/SKILL.md"],"Specs, ADRs & Verification":[".agent/arch-trace.jsonl",".agent/decision-graph.jsonl","CHANGELOG.md","CONTRIBUTING.md","README.md","docs/ARCH_TRACE.md","docs/AUDIT_CHAIN.jsonl","docs/DECISION_MAP.md","docs/adr/ADR-001-10-30-90-developer-landing-page-readme-template-.md","docs/demo.tape","docs/logo-dark.svg","docs/logo-light.svg","docs/specs/cap-11-technical-writer-archlens-wiki-sync.md","docs/templates/README_TEMPLATE.md","llms.txt","tests/sdlc-nextgen.test.mjs","wiki/Codebase-Map.md","wiki/Skills-Reference.md"]},"snapshotsCount":27,"latestSnapshot":{"id":"trace-1794412940073","timestamp":"2026-11-11T16:02:19.158Z","ticket":"#100","branch":"feature/issue-#100-10-30-90-readme-template-engine","commitSha":"a01326c","reason":"10-30-90 Developer Landing Page README template, CLI engine, and dogfood README","diagramChanges":[],"modifiedFiles":[".agent/arch-trace.jsonl",".agent/decision-graph.jsonl",".agent/scripts/lib/readme-sync.mjs",".agent/scripts/lib/wiki-sync.mjs",".agent/scripts/sdlc-engine.mjs",".agent/skills/sdlc-product/SKILL.md",".agent/skills/sdlc-release/SKILL.md",".agent/skills/sdlc-wiki/SKILL.md",".agent/skills/sdlc/SKILL.md",".agent/workbench/index.html",".claude/commands/sdlc-product.md",".claude/commands/sdlc-release.md",".claude/commands/sdlc-wiki.md",".claude/commands/sdlc.md",".claude/cowork/sdlc-product.zip",".claude/cowork/sdlc-release.zip",".claude/cowork/sdlc-wiki.zip",".claude/cowork/sdlc.zip",".claude/skills/sdlc-product/SKILL.md",".claude/skills/sdlc-release/SKILL.md",".claude/skills/sdlc-wiki/SKILL.md",".claude/skills/sdlc/SKILL.md","CHANGELOG.md","CONTRIBUTING.md","PRODUCT.md","README.md","docs/ARCH_TRACE.md","docs/AUDIT_CHAIN.jsonl","docs/DECISION_MAP.md","docs/adr/ADR-001-10-30-90-developer-landing-page-readme-template-.md","docs/demo.tape","docs/logo-dark.svg","docs/logo-light.svg","docs/specs/cap-11-technical-writer-archlens-wiki-sync.md","docs/templates/README_TEMPLATE.md","llms.txt","tests/sdlc-nextgen.test.mjs","wiki/Codebase-Map.md","wiki/Skills-Reference.md"],"archlensViolations":0,"status":"PASSED"},"snapshots":[{"id":"trace-1793033339896","timestamp":"2026-10-26T16:48:59.537Z","ticket":"#81","branch":"feature/issue-#81-command-verb-skills-router","commitSha":"c0eb15a","reason":"Implemented CAP-08 & ADR-004: 1 Universal /sdlc Router + 8 Verb Skills (sdlc-flow, sdlc-product, sdlc-doctor, sdlc-status, sdlc-tdd, sdlc-gate, sdlc-adr, sdlc-release) and retired sdlc-init/sdlc-review-gate","diagramChanges":[],"modifiedFiles":[".agent/scripts/lib/installer.mjs",".agent/skills/sdlc-flow/SKILL.md",".agent/skills/sdlc-init/SKILL.md",".agent/skills/sdlc-review-gate/SKILL.md",".agent/workbench/index.html","CHANGELOG.md","PRODUCT.md","README.md","docs/DECISION_MAP.md","docs/KANBAN.md","tests/scripts.test.mjs","tests/sdlc-nextgen.test.mjs","wiki/Skills-Reference.md",".agent/skills/sdlc-adr/SKILL.md",".agent/skills/sdlc-doctor/SKILL.md",".agent/skills/sdlc-gate/SKILL.md",".agent/skills/sdlc-status/SKILL.md",".agent/skills/sdlc/SKILL.md","docs/adr/ADR-004-command-verb-skills-and-sdlc-router.md","docs/specs/cap-08-command-verb-skills-router.md"],"archlensViolations":0,"status":"PASSED"},{"id":"trace-1793036323613","timestamp":"2026-10-26T17:38:43.306Z","ticket":"#84","branch":"feature/issue-#84-two-tier-prd-srs-specification-engine","commitSha":"f77dd98","reason":"Implemented CAP-09 & ADR-005: Two-Tier PRD (docs/PRD.md) and IEEE 29148 SRS (docs/SRS.md) specification engine, product spec CLI, drift check PRD/SRS governance, and dossier SRS excerpts.","diagramChanges":[],"modifiedFiles":[".agent/decision-graph.jsonl",".agent/scripts/lib/adr-drift.mjs",".agent/scripts/lib/dossier.mjs",".agent/scripts/lib/product-dag.mjs",".agent/scripts/sdlc-engine.mjs",".agent/skills/sdlc-product/SKILL.md",".agent/skills/sdlc/SKILL.md",".agent/workbench/index.html","PRODUCT.md","docs/DECISION_MAP.md","tests/sdlc-nextgen.test.mjs","docs/PRD.md","docs/SRS.md","docs/adr/ADR-005-two-tier-prd-srs-specification-governance.md","docs/specs/cap-09-prd-srs-specification-engine.md"],"archlensViolations":0,"status":"PASSED"},{"id":"trace-1793076458141","timestamp":"2026-10-27T04:47:37.807Z","ticket":"#86","branch":"feature/issue-#86-multi-provider-ticket-engine-and-templat","commitSha":"4a0d7e5","reason":"Implemented CAP-10 & ADR-006: canonical 4-template GitHub issue suite (.github/ISSUE_TEMPLATE/*.md + pull_request_template.md) and full 4-operation parity (createTicket, transitionPMState, postPMComment, syncKanbanBoard) across GitHub, Linear (GraphQL), and Jira (REST v3)","diagramChanges":[],"modifiedFiles":[".agent/decision-graph.jsonl",".agent/scripts/lib/core.mjs",".agent/scripts/lib/installer.mjs",".agent/scripts/lib/pm-provider.mjs",".agent/scripts/lib/quality-gate.mjs",".agent/scripts/sdlc-engine.mjs",".agent/skills/sdlc/SKILL.md",".agent/workbench/index.html","PRODUCT.md","docs/AUDIT_CHAIN.jsonl","docs/DECISION_MAP.md","docs/KANBAN.md","docs/PRD.md","docs/SRS.md","tests/sdlc-nextgen.test.mjs",".github/ISSUE_TEMPLATE/architecture_spike.md",".github/ISSUE_TEMPLATE/hotfix_incident.md",".github/workflows/sdlc-quality-gate.yml","docs/adr/ADR-006-unified-multi-provider-ticket-engine-and-canonic.md","docs/specs/cap-10-unified-multi-provider-ticket-engine-issue-templ.md"],"archlensViolations":0,"status":"PASSED"},{"id":"trace-1793077920832","timestamp":"2026-10-27T05:12:00.633Z","ticket":"#88","branch":"feature/issue-#88-skillspector-zero-findings-and-skill-aud","commitSha":"73d37aa","reason":"Remediated NVIDIA SkillSpector RP1 and AS3 findings across sdlc, sdlc-doctor, and sdlc-flow (achieving 0/100 score across all 9 skills) and added /sdlc skill-audit","diagramChanges":[],"modifiedFiles":[".agent/scripts/lib/quality-gate.mjs",".agent/scripts/sdlc-engine.mjs",".agent/skills/sdlc-doctor/SKILL.md",".agent/skills/sdlc-flow/SKILL.md",".agent/skills/sdlc/SKILL.md",".agent/workbench/index.html","docs/DECISION_MAP.md","docs/KANBAN.md","tests/scripts.test.mjs"],"archlensViolations":0,"status":"PASSED"},{"id":"trace-1793206074958","timestamp":"2026-10-28T16:47:54.803Z","ticket":"#90","branch":"feature/issue-#90-skillspector-security-audit","commitSha":"02dc31e","reason":"NVIDIA SkillSpector security audit of .agent/skills/ suite with 10 clean skills and detailed findings on impeccable","diagramChanges":[{"diagram":"wiki/Architecture.md","summary":"Nodes: +17/-39, Edges: +5/-50","diff":{"hasChanges":true,"addedNodes":[{"id":"CLI","label":"sdlc-engine.mjs (Universal CLI Router & Barrel Export)","subgraph":"Ring3"},{"id":"SKILLS","label":".agent/skills/sdlc*/SKILL.md (1 Router + 9 Verb Skills)","subgraph":"Ring3"},{"id":"GUARD","label":"git-guard.mjs (4-Layer Git Lockdown)","subgraph":"Ring2"},{"id":"PM","label":"pm-provider.mjs (GitHub, Linear, Jira & Templates)","subgraph":"Ring2"},{"id":"GATE","label":"quality-gate.mjs (Polyglot Stack Probes, Coverage/Mutation & SkillSpector)","subgraph":"Ring2"},{"id":"INST","label":"installer.mjs (6-Agent Provisioner & Skill Pruner)","subgraph":"Ring2"}],"removedNodes":[{"id":"AutoClassify","label":"Auto-Classifier\\n• feat / fix / hotfix / spike\\n• Problem scope analysis","subgraph":"Gate0"},{"id":"ProvTicket","label":"Auto-Provision Tracking Ticket\\n(node .agent/scripts/sdlc-engine.mjs ticket create)\\n• GitHub Issues / Jira / Linear / KANBAN.md\\n• Set status:ready","subgraph":"Gate0"},{"id":"UserReq","label":"UserReq","subgraph":null},{"id":"HasTicket","label":"HasTicket","subgraph":null},{"id":"PreFlightGuard","label":"PreFlightGuard","subgraph":null},{"id":"FastPath","label":"Ad-Hoc Fast Path\\n• Append Task to Ticket #\u003cid>\\n• Affected-only Test Runner\\n• Direct TDD remediation","subgraph":"Stage0"}]}},{"diagram":"wiki/Codebase-Map.md","summary":"Nodes: +16/-0, Edges: +45/-0","diff":{"hasChanges":true,"addedNodes":[{"id":"audit_chain_mjs","label":"audit-chain.mjs (7 exports, I=0)","subgraph":"Ring0"},{"id":"cache_mjs","label":"cache.mjs (6 exports, I=0.5)","subgraph":"Ring0"},{"id":"core_mjs","label":"core.mjs (11 exports, I=0)","subgraph":"Ring0"},{"id":"adr_drift_mjs","label":"adr-drift.mjs (5 exports, I=0.3)","subgraph":"Ring1"},{"id":"arch_trace_mjs","label":"arch-trace.mjs (5 exports, I=0.25)","subgraph":"Ring1"},{"id":"decision_graph_mjs","label":"decision-graph.mjs (5 exports, I=0.17)","subgraph":"Ring1"}],"removedNodes":[]}}],"modifiedFiles":[".agent/workbench/index.html","docs/KANBAN.md",".agent/skillspector-report.json"],"archlensViolations":0,"status":"PASSED"},{"id":"trace-1793732614941","timestamp":"2026-11-03T19:03:34.703Z","ticket":"#91","branch":"feature/issue-91-harden-gates","commitSha":"973a3e6","reason":"Harden enforcement: exit codes, shell-free git calls, measured+signed receipts, fail-closed gates, token-protected loopback workbench (ADR-008)","diagramChanges":[],"modifiedFiles":[".agent/decision-graph.jsonl",".agent/scripts/lib/adr-drift.mjs",".agent/scripts/lib/arch-trace.mjs",".agent/scripts/lib/audit-chain.mjs",".agent/scripts/lib/cache.mjs",".agent/scripts/lib/core.mjs",".agent/scripts/lib/git-guard.mjs",".agent/scripts/lib/quality-gate.mjs",".agent/scripts/lib/session.mjs",".agent/scripts/lib/workbench-server.mjs",".agent/scripts/sdlc-engine.mjs",".agent/sdlc-config.json",".agent/skills/sdlc-flow/SKILL.md",".agent/skills/sdlc-gate/SKILL.md",".agent/skills/sdlc-status/SKILL.md",".gitignore","CHANGELOG.md","CLAUDE.md","PRODUCT.md","README.md","docs/AUDIT_CHAIN.jsonl","docs/DECISION_MAP.md","docs/adr/ADR-008-fail-closed-enforcement-exit-codes-signed-measur.md","package.json","tests/hardening.test.mjs","tests/scripts.test.mjs","tests/sdlc-engine.test.mjs","tests/sdlc-nextgen.test.mjs","wiki/Codebase-Map.md","wiki/Traceability.md"],"archlensViolations":0,"status":"PASSED"},{"id":"trace-1793766196279","timestamp":"2026-11-04T04:23:15.471Z","ticket":"#94","branch":"feature/issue-#94-fix-claude-cowork-skill-provisioning-non","commitSha":"7aebd1a","reason":"Provision Claude Code & Cowork skills/commands/zip bundles without Antigravity tool tags, preserve CLAUDE.md and .claude/settings.json non-destructively, and print deterministic CLI output across all subcommands","diagramChanges":[],"modifiedFiles":[".agent/scripts/lib/installer.mjs",".agent/scripts/sdlc-engine.mjs",".agent/sdlc-config.json",".agent/workbench/index.html",".claude/settings.json","CLAUDE.md","docs/KANBAN.md","tests/sdlc-nextgen.test.mjs","wiki/Codebase-Map.md","wiki/Skills-Reference.md",".claude-plugin/plugin.json",".claude/commands/sdlc-adr.md",".claude/commands/sdlc-doctor.md",".claude/commands/sdlc-flow.md",".claude/commands/sdlc-gate.md",".claude/commands/sdlc-product.md",".claude/commands/sdlc-release.md",".claude/commands/sdlc-status.md",".claude/commands/sdlc-tdd.md",".claude/commands/sdlc-wiki.md",".claude/commands/sdlc.md",".claude/cowork/sdlc-adr.zip",".claude/cowork/sdlc-doctor.zip",".claude/cowork/sdlc-flow.zip",".claude/cowork/sdlc-gate.zip",".claude/cowork/sdlc-product.zip",".claude/cowork/sdlc-release.zip",".claude/cowork/sdlc-status.zip",".claude/cowork/sdlc-tdd.zip",".claude/cowork/sdlc-wiki.zip",".claude/cowork/sdlc.zip",".claude/skills/sdlc-adr/SKILL.md",".claude/skills/sdlc-doctor/SKILL.md",".claude/skills/sdlc-flow/SKILL.md",".claude/skills/sdlc-gate/SKILL.md",".claude/skills/sdlc-product/SKILL.md",".claude/skills/sdlc-release/SKILL.md",".claude/skills/sdlc-status/SKILL.md",".claude/skills/sdlc-tdd/SKILL.md",".claude/skills/sdlc-wiki/SKILL.md",".claude/skills/sdlc/SKILL.md"],"archlensViolations":0,"status":"PASSED"},{"id":"trace-1793767567554","timestamp":"2026-11-04T04:46:06.653Z","ticket":"#95","branch":"feature/issue-#95-implement-adr-lifecycle-compaction-and-f","commitSha":"7aebd1a","reason":"Implement ADR lifecycle compaction and fix 6 field-tested engine bugs","diagramChanges":[],"modifiedFiles":[".agent/arch-trace.jsonl",".agent/scripts/lib/adr-drift.mjs",".agent/scripts/lib/audit-chain.mjs",".agent/scripts/lib/decision-graph.mjs",".agent/scripts/lib/installer.mjs",".agent/scripts/lib/pm-provider.mjs",".agent/scripts/lib/product-dag.mjs",".agent/scripts/lib/session.mjs",".agent/scripts/lib/wiki-sync.mjs",".agent/scripts/lib/workbench-server.mjs",".agent/scripts/sdlc-engine.mjs",".agent/sdlc-config.json",".agent/skills/sdlc-adr/SKILL.md",".agent/skills/sdlc-release/SKILL.md",".agent/skills/sdlc/SKILL.md",".agent/workbench/index.html",".claude/settings.json",".gitignore",".mcp.json","CLAUDE.md","docs/ARCH_TRACE.md","docs/AUDIT_CHAIN.jsonl","docs/DECISION_MAP.md","docs/KANBAN.md","tests/sdlc-nextgen.test.mjs","wiki/Codebase-Map.md","wiki/Skills-Reference.md",".claude-plugin/plugin.json",".claude/commands/sdlc-adr.md",".claude/commands/sdlc-doctor.md",".claude/commands/sdlc-flow.md",".claude/commands/sdlc-gate.md",".claude/commands/sdlc-product.md",".claude/commands/sdlc-release.md",".claude/commands/sdlc-status.md",".claude/commands/sdlc-tdd.md",".claude/commands/sdlc-wiki.md",".claude/commands/sdlc.md",".claude/cowork/sdlc-adr.zip",".claude/cowork/sdlc-doctor.zip",".claude/cowork/sdlc-flow.zip",".claude/cowork/sdlc-gate.zip",".claude/cowork/sdlc-product.zip",".claude/cowork/sdlc-release.zip",".claude/cowork/sdlc-status.zip",".claude/cowork/sdlc-tdd.zip",".claude/cowork/sdlc-wiki.zip",".claude/cowork/sdlc.zip",".claude/skills/sdlc-adr/SKILL.md",".claude/skills/sdlc-doctor/SKILL.md",".claude/skills/sdlc-flow/SKILL.md",".claude/skills/sdlc-gate/SKILL.md",".claude/skills/sdlc-product/SKILL.md",".claude/skills/sdlc-release/SKILL.md",".claude/skills/sdlc-status/SKILL.md",".claude/skills/sdlc-tdd/SKILL.md",".claude/skills/sdlc-wiki/SKILL.md",".claude/skills/sdlc/SKILL.md"],"archlensViolations":0,"status":"PASSED"},{"id":"trace-1793767909028","timestamp":"2026-11-04T04:51:48.093Z","ticket":"#95","branch":"feature/issue-#95-implement-adr-lifecycle-compaction-and-f","commitSha":"7aebd1a","reason":"Implement ADR lifecycle compaction and fix 6 field-tested engine bugs","diagramChanges":[],"modifiedFiles":[".agent/arch-trace.jsonl",".agent/scripts/lib/adr-drift.mjs",".agent/scripts/lib/audit-chain.mjs",".agent/scripts/lib/decision-graph.mjs",".agent/scripts/lib/installer.mjs",".agent/scripts/lib/pm-provider.mjs",".agent/scripts/lib/product-dag.mjs",".agent/scripts/lib/session.mjs",".agent/scripts/lib/wiki-sync.mjs",".agent/scripts/lib/workbench-server.mjs",".agent/scripts/sdlc-engine.mjs",".agent/sdlc-config.json",".agent/skills/sdlc-adr/SKILL.md",".agent/skills/sdlc-release/SKILL.md",".agent/skills/sdlc/SKILL.md",".agent/workbench/index.html",".claude/settings.json",".gitignore",".mcp.json","CLAUDE.md","docs/ARCH_TRACE.md","docs/AUDIT_CHAIN.jsonl","docs/DECISION_MAP.md","docs/KANBAN.md","tests/hardening.test.mjs","tests/sdlc-nextgen.test.mjs","wiki/Codebase-Map.md","wiki/Skills-Reference.md",".claude-plugin/plugin.json",".claude/commands/sdlc-adr.md",".claude/commands/sdlc-doctor.md",".claude/commands/sdlc-flow.md",".claude/commands/sdlc-gate.md",".claude/commands/sdlc-product.md",".claude/commands/sdlc-release.md",".claude/commands/sdlc-status.md",".claude/commands/sdlc-tdd.md",".claude/commands/sdlc-wiki.md",".claude/commands/sdlc.md",".claude/cowork/sdlc-adr.zip",".claude/cowork/sdlc-doctor.zip",".claude/cowork/sdlc-flow.zip",".claude/cowork/sdlc-gate.zip",".claude/cowork/sdlc-product.zip",".claude/cowork/sdlc-release.zip",".claude/cowork/sdlc-status.zip",".claude/cowork/sdlc-tdd.zip",".claude/cowork/sdlc-wiki.zip",".claude/cowork/sdlc.zip",".claude/skills/sdlc-adr/SKILL.md",".claude/skills/sdlc-doctor/SKILL.md",".claude/skills/sdlc-flow/SKILL.md",".claude/skills/sdlc-gate/SKILL.md",".claude/skills/sdlc-product/SKILL.md",".claude/skills/sdlc-release/SKILL.md",".claude/skills/sdlc-status/SKILL.md",".claude/skills/sdlc-tdd/SKILL.md",".claude/skills/sdlc-wiki/SKILL.md",".claude/skills/sdlc/SKILL.md"],"archlensViolations":0,"status":"PASSED"},{"id":"trace-1793990396019","timestamp":"2026-11-06T18:39:51.762Z","ticket":"#97","branch":"feature/issue-#97-fix-claude-desktop-skills","commitSha":"0370a13","reason":"Fix Claude Code and Desktop skill discovery: map tools to allowed-tools, clean descriptions, and allow bash permissions","diagramChanges":[],"modifiedFiles":[".agent/scripts/lib/installer.mjs",".agent/sdlc-config.json",".agent/workbench/index.html",".claude/commands/sdlc-adr.md",".claude/commands/sdlc-doctor.md",".claude/commands/sdlc-flow.md",".claude/commands/sdlc-gate.md",".claude/commands/sdlc-product.md",".claude/commands/sdlc-release.md",".claude/commands/sdlc-status.md",".claude/commands/sdlc-tdd.md",".claude/commands/sdlc-wiki.md",".claude/commands/sdlc.md",".claude/cowork/sdlc-adr.zip",".claude/cowork/sdlc-doctor.zip",".claude/cowork/sdlc-flow.zip",".claude/cowork/sdlc-gate.zip",".claude/cowork/sdlc-product.zip",".claude/cowork/sdlc-release.zip",".claude/cowork/sdlc-status.zip",".claude/cowork/sdlc-tdd.zip",".claude/cowork/sdlc-wiki.zip",".claude/cowork/sdlc.zip",".claude/settings.json",".claude/skills/sdlc-adr/SKILL.md",".claude/skills/sdlc-doctor/SKILL.md",".claude/skills/sdlc-flow/SKILL.md",".claude/skills/sdlc-gate/SKILL.md",".claude/skills/sdlc-product/SKILL.md",".claude/skills/sdlc-release/SKILL.md",".claude/skills/sdlc-status/SKILL.md",".claude/skills/sdlc-tdd/SKILL.md",".claude/skills/sdlc-wiki/SKILL.md",".claude/skills/sdlc/SKILL.md","CLAUDE.md","docs/AUDIT_CHAIN.jsonl","docs/KANBAN.md","tests/sdlc-nextgen.test.mjs","wiki/Codebase-Map.md"],"archlensViolations":0,"status":"PASSED"},{"id":"trace-1794100964276","timestamp":"2026-11-08T01:22:44.010Z","ticket":"#99","branch":"feature/issue-#99-publish-consolidated-peer-review-quality","commitSha":"d794b18","reason":"Publish consolidated 4-section peer review & quality gate comments to GitHub PRs","diagramChanges":[],"modifiedFiles":[".agent/scripts/lib/core.mjs",".agent/scripts/lib/pm-provider.mjs",".agent/scripts/lib/session.mjs",".agent/scripts/sdlc-engine.mjs",".agent/skills/sdlc-flow/SKILL.md",".agent/skills/sdlc-gate/SKILL.md",".agent/skills/sdlc/SKILL.md",".agent/workbench/index.html",".claude/commands/sdlc-flow.md",".claude/commands/sdlc-gate.md",".claude/commands/sdlc.md",".claude/cowork/sdlc-flow.zip",".claude/cowork/sdlc-gate.zip",".claude/cowork/sdlc.zip",".claude/skills/sdlc-flow/SKILL.md",".claude/skills/sdlc-gate/SKILL.md",".claude/skills/sdlc/SKILL.md","docs/KANBAN.md","tests/sdlc-nextgen.test.mjs","wiki/Codebase-Map.md"],"archlensViolations":0,"status":"PASSED"},{"id":"trace-1794101430650","timestamp":"2026-11-08T01:30:30.378Z","ticket":"#99","branch":"feature/issue-#99-publish-consolidated-peer-review-quality","commitSha":"d794b18","reason":"Publish consolidated 4-section peer review & quality gate comments to GitHub PRs","diagramChanges":[],"modifiedFiles":[".agent/scripts/lib/core.mjs",".agent/scripts/lib/pm-provider.mjs",".agent/scripts/lib/session.mjs",".agent/scripts/sdlc-engine.mjs",".agent/skills/sdlc-flow/SKILL.md",".agent/skills/sdlc-gate/SKILL.md",".agent/skills/sdlc/SKILL.md",".agent/workbench/index.html",".claude/commands/sdlc-flow.md",".claude/commands/sdlc-gate.md",".claude/commands/sdlc.md",".claude/cowork/sdlc-flow.zip",".claude/cowork/sdlc-gate.zip",".claude/cowork/sdlc.zip",".claude/skills/sdlc-flow/SKILL.md",".claude/skills/sdlc-gate/SKILL.md",".claude/skills/sdlc/SKILL.md","docs/KANBAN.md","tests/sdlc-nextgen.test.mjs","wiki/Codebase-Map.md",".agent/arch-trace.jsonl","docs/ARCH_TRACE.md","docs/DECISION_MAP.md"],"archlensViolations":0,"status":"PASSED"},{"id":"trace-1794410672252","timestamp":"2026-11-11T15:24:31.835Z","ticket":"#100","branch":"feature/issue-#100-10-30-90-readme-template-engine","commitSha":"04aea37","reason":"Implemented 10-30-90 README template, readme-sync.mjs engine, and dogfooded root README","diagramChanges":[{"diagram":"wiki/Codebase-Map.md","summary":"Nodes: +1/-0, Edges: +1/-1","diff":{"hasChanges":true,"addedNodes":[{"id":"readme_sync_mjs","label":"readme-sync.mjs (9 exports, I=0.67)","subgraph":"Ring1"}],"removedNodes":[]}},{"diagram":"README.md","summary":"Nodes: +1/-1, Edges: +4/-0","diff":{"hasChanges":true,"addedNodes":[{"id":"G","label":"4. /sdlc-gate\\nParallel Review & Receipt","subgraph":null}],"removedNodes":[{"id":"RG","label":"4. /sdlc-gate\u003cbr/>• Parallel Subagent Audit\u003cbr/>• Security & Contract Gate\u003cbr/>• Post Verdict to PM","subgraph":null}]}}],"modifiedFiles":[".agent/decision-graph.jsonl",".agent/scripts/lib/wiki-sync.mjs",".agent/scripts/sdlc-engine.mjs",".agent/skills/sdlc-product/SKILL.md",".agent/skills/sdlc-release/SKILL.md",".agent/skills/sdlc-wiki/SKILL.md",".agent/skills/sdlc/SKILL.md",".agent/workbench/index.html",".claude/commands/sdlc-product.md",".claude/commands/sdlc-release.md",".claude/commands/sdlc-wiki.md",".claude/commands/sdlc.md",".claude/cowork/sdlc-product.zip",".claude/cowork/sdlc-release.zip",".claude/cowork/sdlc-wiki.zip",".claude/cowork/sdlc.zip",".claude/skills/sdlc-product/SKILL.md",".claude/skills/sdlc-release/SKILL.md",".claude/skills/sdlc-wiki/SKILL.md",".claude/skills/sdlc/SKILL.md","CONTRIBUTING.md","PRODUCT.md","README.md","docs/AUDIT_CHAIN.jsonl","docs/DECISION_MAP.md","docs/specs/cap-11-technical-writer-archlens-wiki-sync.md","tests/sdlc-nextgen.test.mjs","wiki/Codebase-Map.md","wiki/Skills-Reference.md",".agent/scripts/lib/readme-sync.mjs","docs/adr/ADR-001-10-30-90-developer-landing-page-readme-template-.md","docs/demo.tape","docs/logo-dark.svg","docs/logo-light.svg","docs/templates/README_TEMPLATE.md","llms.txt"],"archlensViolations":0,"status":"PASSED"},{"id":"trace-1794411773874","timestamp":"2026-11-11T15:42:53.425Z","ticket":"#100","branch":"feature/issue-#100-10-30-90-readme-template-engine","commitSha":"04aea37","reason":"Architectural refinement","diagramChanges":[{"diagram":"wiki/Codebase-Map.md","summary":"Nodes: +1/-0, Edges: +1/-1","diff":{"hasChanges":true,"addedNodes":[{"id":"readme_sync_mjs","label":"readme-sync.mjs (9 exports, I=0.67)","subgraph":"Ring1"}],"removedNodes":[]}},{"diagram":"README.md","summary":"Nodes: +1/-1, Edges: +4/-0","diff":{"hasChanges":true,"addedNodes":[{"id":"G","label":"4. /sdlc-gate\\nParallel Review & Receipt","subgraph":null}],"removedNodes":[{"id":"RG","label":"4. /sdlc-gate\u003cbr/>• Parallel Subagent Audit\u003cbr/>• Security & Contract Gate\u003cbr/>• Post Verdict to PM","subgraph":null}]}}],"modifiedFiles":[".agent/arch-trace.jsonl",".agent/decision-graph.jsonl",".agent/scripts/lib/wiki-sync.mjs",".agent/scripts/sdlc-engine.mjs",".agent/skills/sdlc-product/SKILL.md",".agent/skills/sdlc-release/SKILL.md",".agent/skills/sdlc-wiki/SKILL.md",".agent/skills/sdlc/SKILL.md",".agent/workbench/index.html",".claude/commands/sdlc-product.md",".claude/commands/sdlc-release.md",".claude/commands/sdlc-wiki.md",".claude/commands/sdlc.md",".claude/cowork/sdlc-product.zip",".claude/cowork/sdlc-release.zip",".claude/cowork/sdlc-wiki.zip",".claude/cowork/sdlc.zip",".claude/skills/sdlc-product/SKILL.md",".claude/skills/sdlc-release/SKILL.md",".claude/skills/sdlc-wiki/SKILL.md",".claude/skills/sdlc/SKILL.md","CONTRIBUTING.md","PRODUCT.md","README.md","docs/ARCH_TRACE.md","docs/AUDIT_CHAIN.jsonl","docs/DECISION_MAP.md","docs/specs/cap-11-technical-writer-archlens-wiki-sync.md","tests/sdlc-nextgen.test.mjs","wiki/Codebase-Map.md","wiki/Skills-Reference.md",".agent/scripts/lib/readme-sync.mjs","docs/adr/ADR-001-10-30-90-developer-landing-page-readme-template-.md","docs/demo.tape","docs/logo-dark.svg","docs/logo-light.svg","docs/templates/README_TEMPLATE.md","llms.txt"],"archlensViolations":0,"status":"PASSED"},{"id":"trace-1794412940073","timestamp":"2026-11-11T16:02:19.158Z","ticket":"#100","branch":"feature/issue-#100-10-30-90-readme-template-engine","commitSha":"a01326c","reason":"10-30-90 Developer Landing Page README template, CLI engine, and dogfood README","diagramChanges":[],"modifiedFiles":[".agent/arch-trace.jsonl",".agent/decision-graph.jsonl",".agent/scripts/lib/readme-sync.mjs",".agent/scripts/lib/wiki-sync.mjs",".agent/scripts/sdlc-engine.mjs",".agent/skills/sdlc-product/SKILL.md",".agent/skills/sdlc-release/SKILL.md",".agent/skills/sdlc-wiki/SKILL.md",".agent/skills/sdlc/SKILL.md",".agent/workbench/index.html",".claude/commands/sdlc-product.md",".claude/commands/sdlc-release.md",".claude/commands/sdlc-wiki.md",".claude/commands/sdlc.md",".claude/cowork/sdlc-product.zip",".claude/cowork/sdlc-release.zip",".claude/cowork/sdlc-wiki.zip",".claude/cowork/sdlc.zip",".claude/skills/sdlc-product/SKILL.md",".claude/skills/sdlc-release/SKILL.md",".claude/skills/sdlc-wiki/SKILL.md",".claude/skills/sdlc/SKILL.md","CHANGELOG.md","CONTRIBUTING.md","PRODUCT.md","README.md","docs/ARCH_TRACE.md","docs/AUDIT_CHAIN.jsonl","docs/DECISION_MAP.md","docs/adr/ADR-001-10-30-90-developer-landing-page-readme-template-.md","docs/demo.tape","docs/logo-dark.svg","docs/logo-light.svg","docs/specs/cap-11-technical-writer-archlens-wiki-sync.md","docs/templates/README_TEMPLATE.md","llms.txt","tests/sdlc-nextgen.test.mjs","wiki/Codebase-Map.md","wiki/Skills-Reference.md"],"archlensViolations":0,"status":"PASSED"}]}};
+
+    function switchTab(tab) {
+      for (const t of ['rings', 'lineage', 'timemachine', 'waves']) {
+        const view = document.getElementById('view-' + t);
+        const btn = document.getElementById('tab-' + t);
+        if (t === tab) {
+          view.hidden = false;
+          btn.setAttribute('aria-selected', 'true');
+        } else {
+          view.hidden = true;
+          btn.setAttribute('aria-selected', 'false');
+        }
+      }
+    }
+
+    function renderSnapshot(idxStr) {
+      const snaps = STATE.arch.snapshots || [];
+      const idx = Math.max(0, Math.min(snaps.length - 1, Number(idxStr) || 0));
+      const snap = snaps[idx];
+      const label = document.getElementById('slider-label');
+      const box = document.getElementById('snapshot-detail');
+      if (!snap) {
+        label.textContent = '0 / 0';
+        box.innerHTML = '<p style="margin:0;color:var(--ink-secondary);">No architectural snapshots recorded yet.</p>';
+        return;
+      }
+      label.textContent = 'Entry ' + (idx + 1) + ' of ' + snaps.length + ' (' + (snap.timestamp || '').slice(0, 16).replace('T', ' ') + ')';
+      const diagList = (snap.diagramChanges || []).map(d => '<li class="mono">' + d.diagram + ' &mdash; ' + d.summary + '</li>').join('');
+      box.innerHTML =
+        '<div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;font-weight:600;border-bottom:1px solid var(--rule);padding-bottom:8px;margin-bottom:8px;">' +
+          '<span>Ticket: <code class="mono">' + (snap.ticket || 'N/A') + '</code> &middot; Branch: <code class="mono">' + (snap.branch || 'main') + '</code></span>' +
+          '<span>Commit: <code class="mono">' + (snap.commitSha || 'HEAD') + '</code> &middot; Seal: <strong>' + (snap.status || 'PASSED') + '</strong></span>' +
+        '</div>' +
+        '<p style="margin:0 0 8px 0;color:var(--ink-secondary);"><strong>Checkpoint Rationale:</strong> ' + (snap.reason || 'Architectural verification checkpoint') + '</p>' +
+        (diagList ? '<ul style="margin:0;padding-left:18px;">' + diagList + '</ul>' : '<p style="margin:0;color:var(--ink-secondary);" class="mono">Modified Files: ' + ((snap.modifiedFiles || []).length) + '</p>');
+    }
+
+    function inspectNode(nodeId) {
+      const node = (STATE.graph.nodes || []).find(n => n.id === nodeId);
+      const el = document.getElementById('node-inspector');
+      if (!node || !el) return;
+      const connected = (STATE.graph.edges || [])
+        .filter(e => e.from === node.id || e.to === node.id)
+        .map(e => e.from + ' [' + e.relation + '] -> ' + e.to);
+      el.innerHTML =
+        '<div style="font-weight:700;color:var(--ink);">' + node.id + ' &mdash; ' + node.label + '</div>' +
+        '<div style="margin-top:4px;color:var(--ink-secondary);">Category: <code class="mono">' + node.category + '</code> &middot; Governance Status: <code class="mono">' + (node.status || 'ACTIVE') + '</code></div>' +
+        (connected.length ? '<div style="margin-top:6px;color:var(--cobalt);" class="mono">' + connected.join(' | ') + '</div>' : '<div style="margin-top:6px;color:var(--ink-muted);">Standalone constitutional node.</div>');
+    }
+
+    function init() {
+      const sess = STATE.session;
+      const sessPill = document.getElementById('session-pill');
+      sessPill.textContent = sess
+        ? 'Ticket #' + sess.issueId + ' (Stage ' + sess.stage + '/8)'
+        : 'Mainline Standing By';
+
+      const archPass = STATE.arch.archDiff?.passed !== false;
+      const ringBadge = document.getElementById('ring-badge');
+      ringBadge.className = 'seal-pill ' + (archPass ? 'pass' : 'fail');
+      ringBadge.textContent = archPass
+        ? 'Rings Balanced: 0 Violations'
+        : 'Ring Violations: ' + STATE.arch.archDiff.violationsCount;
+
+      const merkleBadge = document.getElementById('merkle-badge');
+      merkleBadge.className = 'seal-pill ' + (STATE.audit?.valid ? 'pass' : 'fail');
+      merkleBadge.textContent = STATE.audit?.valid
+        ? 'Merkle Verified (' + (STATE.audit.recordsCount || 0) + ' entries)'
+        : 'Merkle Check Failed';
+
+      document.getElementById('rings-count-label').textContent = (STATE.arch.modifiedFiles?.length || 0) + ' modified';
+      document.getElementById('merkle-root-short').textContent = STATE.audit?.merkleRoot
+        ? 'Root ' + String(STATE.audit.merkleRoot).slice(0, 12) + '...'
+        : 'Genesis Root';
+
+      const ringsGrid = document.getElementById('rings-grid');
+      const ringEntries = Object.entries(STATE.arch.rings || {});
+      ringsGrid.innerHTML = ringEntries.map(([ringName, files]) => {
+        const preview = files.slice(0, 4).map(f => '<div class="mono">' + f + '</div>').join('');
+        const more = files.length > 4 ? '<div style="color:var(--ink-muted);">+' + (files.length - 4) + ' additional file(s)</div>' : '';
+        return '<tr>' +
+          '<td style="font-weight:600;">' + ringName + '</td>' +
+          '<td class="mono">' + files.length + '</td>' +
+          '<td>' + (files.length > 0 ? preview + more : '<span style="color:var(--ink-muted);">In Balance (Unchanged)</span>') + '</td>' +
+        '</tr>';
+      }).join('');
+
+      const latest = STATE.arch.latestSnapshot;
+      const diffBox = document.getElementById('mermaid-diff-box');
+      const rootHash = STATE.audit?.merkleRoot || '0000000000000000';
+      if (latest && (latest.diagramChanges || []).length > 0) {
+        diffBox.innerHTML =
+          '<div style="margin-bottom:8px;"><strong>SHA-256 Merkle Root:</strong> <code class="mono">' + rootHash.slice(0, 24) + '...</code></div>' +
+          '<div style="font-weight:600;margin-bottom:4px;">Latest Mermaid AST Graph Diff (' + latest.ticket + '):</div>' +
+          latest.diagramChanges.map(d => '<div class="mono">&bull; ' + d.diagram + ': ' + d.summary + '</div>').join('');
+      } else {
+        diffBox.innerHTML =
+          '<div style="margin-bottom:8px;"><strong>SHA-256 Merkle Root:</strong> <code class="mono">' + rootHash.slice(0, 24) + '...</code></div>' +
+          '<div style="font-weight:600;">Latest Architectural Checkpoint:</div>' +
+          '<div style="color:var(--ink-secondary);margin-top:4px;">' + (latest ? (latest.reason + ' (' + latest.ticket + ' on ' + latest.branch + ')') : 'Zero breaking diagram mutations recorded.') + '</div>';
+      }
+
+      const nodesGrid = document.getElementById('nodes-grid');
+      nodesGrid.innerHTML = (STATE.graph.nodes || []).map(n =>
+        '<button type="button" onclick="inspectNode(\'' + n.id.replace(/'/g, '') + '\')" class="node-item">' +
+          '<div class="node-item-head"><span>' + n.id + '</span><span>' + (n.status || n.category) + '</span></div>' +
+          '<div class="node-item-title">' + n.label + '</div>' +
+        '</button>'
+      ).join('');
+
+      const snaps = STATE.arch.snapshots || [];
+      const slider = document.getElementById('time-slider');
+      slider.max = String(Math.max(0, snaps.length - 1));
+      slider.value = String(Math.max(0, snaps.length - 1));
+      renderSnapshot(slider.value);
+
+      const wavesTbody = document.getElementById('waves-tbody');
+      wavesTbody.innerHTML = (STATE.dag?.waves || []).map(w =>
+        '<tr>' +
+          '<td class="mono" style="font-weight:600;">Wave ' + w.wave + '</td>' +
+          '<td>' + (w.parallelizable ? 'Parallelizable Fork-Join' : 'Sequential Gate') + '</td>' +
+          '<td>' + (w.items || []).map(it => '<div class="mono"><strong>' + it.id + '</strong>: ' + it.title + ' (' + it.status + ')</div>').join('') + '</td>' +
+        '</tr>'
+      ).join('');
+
+      switchTab('rings');
+    }
+
+    init();
+  </script>
+</body>
+</html>

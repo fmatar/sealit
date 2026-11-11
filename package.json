@@ -1,6 +1,6 @@
 {
   "name": "@fmatar/agentic-sdlc",
-  "version": "0.0.1",
+  "version": "0.3.2",
   "description": "Autonomous Agentic Software Development Lifecycle (SDLC) Framework for AI Coding Agents",
   "keywords": [
     "agentic-sdlc",
@@ -22,14 +22,14 @@
   "type": "module",
   "main": "./.agent/scripts/sdlc-engine.mjs",
   "bin": {
-    "sdlc": "./.agent/scripts/sdlc-engine.mjs",
-    "agentic-sdlc": "./.agent/scripts/sdlc-engine.mjs"
+    "agentic-sdlc-framework": "./.agent/scripts/sdlc-engine.mjs",
+    "agentic-sdlc": "./.agent/scripts/sdlc-engine.mjs",
+    "sdlc": "./.agent/scripts/sdlc-engine.mjs"
   },
   "files": [
     ".agent/skills",
     ".agent/scripts",
     "docs/templates",
-    "install.sh",
     "README.md",
     "LICENSE"
   ],
@@ -37,9 +37,13 @@
     "detect": "node .agent/scripts/sdlc-engine.mjs detect",
     "env": "node .agent/scripts/sdlc-engine.mjs env",
     "gate": "node .agent/scripts/sdlc-engine.mjs gate",
-    "test": "node .agent/scripts/sdlc-engine.mjs test",
+    "test": "node --test tests/sdlc-engine.test.mjs tests/sdlc-nextgen.test.mjs tests/scripts.test.mjs tests/hardening.test.mjs",
+    "test:coverage": "node --test --experimental-test-coverage tests/sdlc-engine.test.mjs tests/sdlc-nextgen.test.mjs tests/scripts.test.mjs tests/hardening.test.mjs",
     "coverage": "node .agent/scripts/sdlc-engine.mjs coverage",
     "mutation": "node .agent/scripts/sdlc-engine.mjs mutation",
+    "stage:begin": "node .agent/scripts/sdlc-engine.mjs stage begin",
+    "stage:pre-pr": "node .agent/scripts/sdlc-engine.mjs stage pre-pr",
+    "stage:complete": "node .agent/scripts/sdlc-engine.mjs stage complete",
     "dashboard": "node .agent/scripts/sdlc-engine.mjs session dashboard",
     "resume": "node .agent/scripts/sdlc-engine.mjs session resume",
     "exemptions": "node .agent/scripts/sdlc-engine.mjs exemption list",
@@ -57,10 +61,16 @@
     "adr:list": "node .agent/scripts/sdlc-engine.mjs adr list",
     "drift:check": "node .agent/scripts/sdlc-engine.mjs drift check",
     "decision:sync": "node .agent/scripts/sdlc-engine.mjs decision-graph sync",
+    "wiki:sync": "node .agent/scripts/sdlc-engine.mjs wiki sync",
+    "wiki:audit": "node .agent/scripts/sdlc-engine.mjs wiki audit --strict",
     "cache:status": "node .agent/scripts/sdlc-engine.mjs cache status",
-    "workbench:serve": "node .agent/scripts/sdlc-engine.mjs serve"
+    "workbench:serve": "node .agent/scripts/sdlc-engine.mjs serve",
+    "test:mutation": "stryker run"
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@stryker-mutator/core": "9.6.1"
   }
 }

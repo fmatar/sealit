@@ -492,11 +492,12 @@ jobs:
       assert.equal(result.success, true);
     });
 
-    it('falls back to help when an unknown subcommand is passed', () => {
+    it('reports failure (exit code 2) when an unknown subcommand is passed', () => {
       const configPath = path.join(tmpDir, '.agent/sdlc-config.json');
       const result = runCLI(['unknown_command_xyz'], configPath, tmpDir);
       assert.equal(result.command, 'unknown_command_xyz');
-      assert.equal(result.success, true);
+      assert.equal(result.success, false);
+      assert.equal(result.exitCode, 2);
     });
 
     it('executes test subcommand and runs commands in module working directory', () => {
@@ -533,7 +534,7 @@ jobs:
           commands: {
             lint: 'node -e "process.exit(0)"',
             build: 'node -e "process.exit(0)"',
-            coverage: 'node -e "process.exit(0)"'
+            coverage: `node -e "require('fs').mkdirSync('coverage',{recursive:true});require('fs').writeFileSync('coverage/coverage-summary.json',JSON.stringify({total:{lines:{pct:95},branches:{pct:90}}}))"`
           },
           thresholds: { diffCoverage: 85, mutationScore: 80 }
         }]
@@ -543,6 +544,14 @@ jobs:
       const result = runCLI(['gate'], configPath, tmpDir);
       assert.equal(result.command, 'gate');
       assert.equal(result.success, true);
+      assert.equal(result.coverageReport.formatted, '95.0%');
+
+      // Fail closed: a coverage command that writes no report fails the gate.
+      fs.rmSync(path.join(tmpDir, 'coverage'), { recursive: true, force: true });
+      config.modules[0].commands.coverage = 'node -e "process.exit(0)"';
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+      const failed = runCLI(['gate', '--no-cache'], configPath, tmpDir);
+      assert.equal(failed.success, false);
     });
 
     it('executes session status CLI command cleanly', () => {
@@ -1154,7 +1163,7 @@ jobs:
 
       const res = installHooks({ repoRoot: tmpDir });
       assert.equal(res.success, true);
-      assert.deepEqual(res.installed, ['pre-commit', 'pre-push']);
+      assert.deepEqual(res.installed, ['pre-commit', 'pre-merge-commit', 'pre-push']);
 
       const preCommit = fs.readFileSync(path.join(gitDir, 'hooks/pre-commit'), 'utf8');
       const prePush = fs.readFileSync(path.join(gitDir, 'hooks/pre-push'), 'utf8');
@@ -1330,7 +1339,16 @@ jobs:
     });
 
     it('executes universal gate in strict mode without errors on clean state', () => {
-      const gateRes = runCLI(['gate', '--strict'], null, tmpDir);
+      const configPath = path.join(tmpDir, '.agent/sdlc-config.json');
+      fs.mkdirSync(path.dirname(configPath), { recursive: true });
+      fs.writeFileSync(
+        configPath,
+        JSON.stringify({
+          version: '1.0.0',
+          modules: [{ name: 'root', path: '.', commands: { coverage: `node -e "require('fs').mkdirSync('coverage',{recursive:true});require('fs').writeFileSync('coverage/coverage-summary.json',JSON.stringify({total:{lines:{pct:95},branches:{pct:90}}}))"` }, thresholds: { diffCoverage: 85, mutationScore: null } }]
+        })
+      );
+      const gateRes = runCLI(['gate', '--strict'], configPath, tmpDir);
       assert.equal(gateRes.command, 'gate');
       assert.equal(gateRes.success, true);
       assert.ok(gateRes.risk);

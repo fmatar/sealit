@@ -1,0 +1,38 @@
+{
+  "title": "agentic-sdlc-framework",
+  "src": ".",
+  "prefix": "",
+  "hierarchical": true,
+  "order": [
+    "domain",
+    "docs",
+    "wiki",
+    "adapters"
+  ],
+  "levels": [
+    [
+      "domain"
+    ],
+    [
+      "docs",
+      "wiki"
+    ],
+    [
+      "adapters"
+    ]
+  ],
+  "foreign": [
+    "node:",
+    "@types/"
+  ],
+  "omit": [
+    "target",
+    "build",
+    ".git",
+    "node_modules",
+    ".gradle",
+    ".idea",
+    ".vscode"
+  ],
+  "lang": "typescript"
+}
