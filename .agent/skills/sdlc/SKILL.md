@@ -32,6 +32,7 @@ When the user invokes `/sdlc <subcommand> [arguments]`, map the request directly
 | `/sdlc kanban` | `.agent/scripts/kanban-sync.sh` |
 | `/sdlc ub` | Activate `ub-mode` (Robert C. Martin reduced principles) for the active session |
 | `/sdlc ui` / `/sdlc serve` | `node .agent/scripts/sdlc-engine.mjs ui-snapshot` + embed `<agent-embed>` |
+| `/sdlc readme [init\|audit]` | `node .agent/scripts/sdlc-engine.mjs readme <subcommand> [--archetype <auto\|cli\|sdk\|platform>] [--strict]` |
 | `/sdlc wiki [sync\|audit\|map]` | `node .agent/scripts/sdlc-engine.mjs wiki <subcommand>` |
 | `/sdlc release [patch\|minor\|major]` | `node .agent/scripts/sdlc-engine.mjs release <bump>` |
 

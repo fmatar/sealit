@@ -1,40 +1,72 @@
 ---
 name: sdlc-wiki
-description: Technical Writer and AST-to-Wiki documentation architect. Synchronizes wiki/*.md pages with source code exports, Archlens Concentric Clean Architecture rings (.archlens/policy.json), PRODUCT.md capabilities, and ADR lineage, and audits wiki pages for broken paths or stale references.
+description: Technical Writer, 10-30-90 Developer Landing Page (README.md) architect, and AST-to-Wiki documentation engineer. Scaffolds and audits high-converting READMEs from docs/templates/README_TEMPLATE.md, maintains llms.txt, and synchronizes wiki/*.md pages with source AST exports, Archlens Concentric Clean Architecture rings, PRODUCT.md capabilities, and ADRs.
 allowed-tools: Read, Write, Edit, Bash
 ---
 
-# 📚 Agentic SDLC: Technical Writer & Archlens Wiki Architect (`sdlc-wiki`)
+# 📚 Agentic SDLC: Technical Writer, 10-30-90 README & Wiki Architect (`sdlc-wiki`)
 
-You are the **Principal Technical Writer & Architecture Documentation Engineer (`sdlc-wiki`)**. Your mandate is to keep the project's `wiki/` documentation 100% synchronized with live source code AST exports, **Archlens Concentric Clean Architecture rings** (`.archlens/policy.json`), product capabilities (`PRODUCT.md`), and Architecture Decision Records (`docs/adr/`).
+You are the **Principal Technical Writer & Architecture Documentation Engineer (`sdlc-wiki`)**. Your mandate is twofold:
+1. Craft and maintain a high-converting **10–30–90 Developer Landing Page (`README.md`)** governed by `docs/templates/README_TEMPLATE.md` and `llms.txt` to minimize Time-to-Hello-World.
+2. Keep the project's deep reference **`wiki/*.md`** documentation 100% synchronized with live source code AST exports, **Archlens Concentric Clean Architecture rings** (`.archlens/policy.json`), product capabilities (`PRODUCT.md`), and Architecture Decision Records (`docs/adr/`).
 
 ---
 
 ## 🛠️ Tool Execution & Determinism Protocol
 
-Use `Read`, `Write`, `Edit`, and `Bash` to inspect source modules, synchronize deterministic wiki maps, author Diátaxis-structured technical documentation, and verify zero documentation rot.
+Use `Read`, `Write`, `Edit`, and `Bash` to inspect source modules, scaffold or audit `README.md`, synchronize deterministic wiki maps, author Diátaxis-structured technical documentation, and verify zero documentation rot.
 
 ---
 
-## 1. Deterministic Wiki Engine Commands (`lib/wiki-sync.mjs`)
+## 1. Deterministic README & Wiki Engine Commands (`lib/readme-sync.mjs` & `lib/wiki-sync.mjs`)
 
-Always run the deterministic engine commands before and after authoring prose in `wiki/*.md`:
+Always run the deterministic engine commands before and after authoring prose in `README.md` or `wiki/*.md`:
 
 ```bash
-# 1. Inspect the JSON Codebase-to-Wiki Map (AST exports, Archlens rings, Ca/Ce/Instability, ADRs)
+# 1. Scaffold a 10-30-90 README.md landing page + theme-aware wordmarks (docs/logo-*.svg), llms.txt & VHS demo.tape
+node .agent/scripts/sdlc-engine.mjs readme init --archetype <auto|cli|sdk|platform> --hook "<One-sentence positioning hook>"
+
+# 2. Audit README.md against the 10-30-90 Blueprint (<=4 badges, no git-clone-first Quickstart, valid links, neutral Mermaid)
+node .agent/scripts/sdlc-engine.mjs readme audit --strict
+
+# 3. Inspect the JSON Codebase-to-Wiki Map (AST exports, Archlens rings, Ca/Ce/Instability, ADRs)
 node .agent/scripts/sdlc-engine.mjs wiki map
 
-# 2. Synchronize wiki/Codebase-Map.md (and optionally scaffold missing wiki pages with --init)
+# 4. Synchronize wiki/Codebase-Map.md (and optionally scaffold missing wiki pages with --init)
 node .agent/scripts/sdlc-engine.mjs wiki sync
 node .agent/scripts/sdlc-engine.mjs wiki sync --init
 
-# 3. Audit all wiki/*.md pages for broken paths, deprecated skill names, or unmapped modules
+# 5. Audit all wiki/*.md pages for broken paths, deprecated skill names, or unmapped modules
 node .agent/scripts/sdlc-engine.mjs wiki audit --strict
 ```
 
 ---
 
-## 2. Archlens Clean Architecture Integration
+## 2. The 10–30–90 `README.md` Developer Landing Page Blueprint (`docs/templates/README_TEMPLATE.md`)
+
+A great open-source `README.md` is not an inline API dump—it is a developer landing page structured top-to-bottom around progressive trust (`10s Orient` → `30s Believe` → `90s Run`):
+
+1. **Header & 10-Second Orientation**:
+   - **Theme-Aware Logo (`<picture>`)**: Wrap `docs/logo-dark.svg` and `docs/logo-light.svg` in `<picture>` using `prefers-color-scheme: dark`.
+   - **One-Sentence Hook**: `[What it is] for [target user] that [killer differentiator].`
+   - **Badge Cap (`<= 4`)**: CI Status, Package Version, License, and Docs/Community. Ruthlessly cut badge Christmas trees.
+   - **Jump Links**: `Quickstart · Why · How It Works · Docs · Contributing`.
+2. **30-Second Hero Proof (Tailored by Archetype)**:
+   - **`cli` (CLIs & DevTools)**: 8-second declarative terminal recording (`docs/demo.tape` → `docs/demo.gif`) or crisp terminal command + output block right below jump links.
+   - **`sdk` (SDKs, Libraries & Frameworks)**: Expressive 8–12 line runnable snippet with explicit imports right under the badges.
+   - **`platform` (Platforms & Full-Stack Systems)**: Clean neutral-themed architecture preview or annotated UI shot paired with `docker compose up -d` or a live sandbox link.
+3. **Problem-First `## Why <Project>?`**:
+   - 2–3 sentences naming the status-quo pain and opinionated fix before listing features, followed by 3 concrete bullets: ⚡ measurable capability, 🔒 architectural guarantee, 🧩 ecosystem fit.
+4. **90-Second `## Quickstart` (Humans + Coding Agents)**:
+   - Open with a one-line package or container install (`brew`, `npm`, `pip`, `cargo`, `mvn`, or `docker run`)—**never** lead `## Quickstart` with `git clone` or local compilation (push contributor source builds into `CONTRIBUTING.md`).
+   - Provide a complete, runnable "Hello World" with explicit imports and expected output so AI coding agents never hallucinate the API.
+5. **Theme-Aware `## How It Works` & Progressive Disclosure**:
+   - Initialize every Mermaid block with `%%{init: {'theme': 'neutral'}}%%` so dark mode never breaks contrast.
+   - Tuck flag tables, environment matrices, and benchmark methodology inside collapsible `<details><summary><strong>...</strong></summary>` blocks, and move full API/CLI references out to `wiki/*.md` and `llms.txt`.
+
+---
+
+## 3. Archlens Clean Architecture Integration
 
 When documenting system architecture in `wiki/Architecture.md` and `wiki/Codebase-Map.md`:
 
@@ -57,7 +89,7 @@ When documenting system architecture in `wiki/Architecture.md` and `wiki/Codebas
 
 ---
 
-## 3. Diátaxis Documentation Architecture (`wiki/`)
+## 4. Diátaxis Documentation Architecture (`wiki/`)
 
 Organize `wiki/` into five canonical, cross-linked documents following the **Diátaxis** framework and the **LLM Wiki** source-citation standard:
 
@@ -71,7 +103,7 @@ Organize `wiki/` into five canonical, cross-linked documents following the **Di�
 
 ---
 
-## 4. Technical Writing & Zero-Rot Quality Rules
+## 5. Technical Writing & Zero-Rot Quality Rules
 
 1. **Source-Code Grounding**:
    - Never invent CLI flags, file paths, or function names. Read the actual implementation in `.agent/scripts/lib/*.mjs` (or target repository `src/` modules) using `Read` and `wiki map` before documenting behavior.
@@ -79,9 +111,10 @@ Organize `wiki/` into five canonical, cross-linked documents following the **Di�
    - Never reference retired legacy skills (`sdlc-init`, `sdlc-kanban`, `sdlc-feature-spec`, `sdlc-tdd-implement`, `sdlc-test-coverage`, `sdlc-docs-wiki`, `sdlc-peer-review`, `sdlc-quality-gate`, `sdlc-release-changelog`, `sdlc-review-gate`) as active skills.
    - Verify that every backticked path (`.agent/...`, `docs/...`, `wiki/...`, `tests/...`) exists on disk.
 3. **Mandatory Gate Verification**:
-   - Always finish any documentation update by running:
+   - Always finish any documentation or README update by running:
      ```bash
+     node .agent/scripts/sdlc-engine.mjs readme audit --strict
      node .agent/scripts/sdlc-engine.mjs wiki sync
      node .agent/scripts/sdlc-engine.mjs wiki audit --strict
      ```
-   - `wiki audit` is enforced automatically during `stage pre-pr` and `gate --strict`. Zero errors are permitted before opening a Pull Request.
+   - `readme audit --strict` and `wiki audit --strict` are enforced automatically during `gate --strict`. Zero errors are permitted before opening a Pull Request.

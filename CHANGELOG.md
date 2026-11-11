@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **10–30–90 Developer Landing Page `README.md` Template & Engine (`CAP-11`, `ADR-001`)**: Added `docs/templates/README_TEMPLATE.md` and Ring 1 module `.agent/scripts/lib/readme-sync.mjs` (`node .agent/scripts/sdlc-engine.mjs readme <init|audit> [--archetype <auto|cli|sdk|platform>] [--strict]`). Scaffolds progressive-trust developer landing pages (`10s Orient` -> `30s Believe` -> `90s Run`) alongside theme-aware wordmark SVGs (`docs/logo-light.svg`, `docs/logo-dark.svg`), `llms.txt`, and Charmbracelet VHS `docs/demo.tape`.
+- **Tiered README Anti-Pattern Gate Enforcement (`ADR-001`)**: Wired `auditReadme` into `gate --strict` to block hard anti-patterns (`MISSING_README`, `LEFTOVER_TEMPLATE_TOKEN`, `BADGE_CHRISTMAS_TREE` > 4 badges, `GIT_CLONE_FIRST_QUICKSTART`, `BROKEN_README_LINK`, and `MISSING_CORE_SECTIONS`) while surfacing non-blocking `WARN`s for optional polish (`MISSING_THEME_AWARE_LOGO`, `NON_NEUTRAL_MERMAID`, `MISSING_LLMS_TXT_LINK`, `INLINE_BLOAT_BUDGET` > 180 visible lines).
+
+### Changed
+- **Dogfooded Root `README.md`, `CONTRIBUTING.md`, `llms.txt` & Multi-Agent Skills (`ADR-001`)**: Refactored root `README.md` into a 67-visible-line 10–30–90 landing page with `<picture>` dark/light wordmarks, neutral-themed Mermaid diagram, and `<details>` progressive disclosure; moved contributor setup into `CONTRIBUTING.md`; and synchronized `sdlc`, `sdlc-wiki`, `sdlc-product`, and `sdlc-release` across `.agent/skills/` and `.claude/` dialects.
+
 ## [0.3.2] - 2026-11-08
 
 ### Added

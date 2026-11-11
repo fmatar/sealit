@@ -197,6 +197,18 @@ import {
   syncWiki
 } from './lib/wiki-sync.mjs';
 
+import {
+  escapeXml,
+  slugifyHeadingAnchor,
+  detectReadmeArchetype,
+  stripArchetypeBlocks,
+  renderThemeWordmarkSvg,
+  renderVhsDemoTape,
+  renderLlmsTxt,
+  scaffoldReadme,
+  auditReadme
+} from './lib/readme-sync.mjs';
+
 // --- Re-export complete public API for backward compatibility & modular tests ---
 export {
   loadEnv,
@@ -342,7 +354,16 @@ export {
   buildWikiCodeMap,
   auditWiki,
   renderCodebaseMapMarkdown,
-  syncWiki
+  syncWiki,
+  escapeXml,
+  slugifyHeadingAnchor,
+  detectReadmeArchetype,
+  stripArchetypeBlocks,
+  renderThemeWordmarkSvg,
+  renderVhsDemoTape,
+  renderLlmsTxt,
+  scaffoldReadme,
+  auditReadme
 };
 
 export function executeRelease({
@@ -721,8 +742,15 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         if (wikiRes.enabled && !wikiRes.passed) {
           throw new Error(`Wiki Audit failed: ${wikiRes.errorsCount} documentation drift / broken path issue(s) detected.`);
         }
+
+        const readmeRes = auditReadme(repoRoot, { strict: true });
+        result.readmeAudit = readmeRes;
+        if (readmeRes.readmeExists && !readmeRes.passed) {
+          throw new Error(`README Audit failed: ${readmeRes.errorsCount} 10-30-90 blueprint violation(s) detected.`);
+        }
       } else {
         result.wikiAudit = auditWiki(repoRoot);
+        result.readmeAudit = auditReadme(repoRoot);
       }
 
       return result;
@@ -1301,6 +1329,39 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         console.log(`📚 Synchronized Wiki Codebase Map -> ${wikiSync.codeMapPath} (${wikiSync.modulesCount} modules across ${wikiSync.ringsCount} Archlens rings)`);
         console.log(wikiSync.audit.summary);
         for (const f of wikiSync.audit.findings) {
+          console.log(`  [${f.severity}] ${f.rule} (${f.file}:${f.line}): ${f.message}`);
+        }
+        return result;
+      }
+      result.success = false;
+      return result;
+    }
+
+    case 'readme': {
+      const sub = (args[1] || 'audit').toLowerCase();
+      result.subcommand = sub;
+      if (sub === 'init' || sub === 'scaffold' || sub === 'generate') {
+        let archetype = 'auto';
+        let title = null;
+        let hook = null;
+        const force = args.includes('--force') || args.includes('-f');
+        const withAssets = !args.includes('--no-assets');
+        for (let i = 2; i < args.length; i++) {
+          if (args[i] === '--archetype' && args[i + 1]) archetype = args[++i];
+          else if (args[i] === '--title' && args[i + 1]) title = args[++i];
+          else if (args[i] === '--hook' && args[i + 1]) hook = args[++i];
+        }
+        result.readme = scaffoldReadme({ repoRoot, archetype, title, hook, force, withAssets });
+        result.readmeAudit = auditReadme(repoRoot, { strict: true });
+        result.success = result.readmeAudit.passed;
+        return result;
+      }
+      if (sub === 'audit' || sub === 'check' || sub === 'lint') {
+        const strict = args.includes('--strict');
+        const readmeAudit = auditReadme(repoRoot, { strict });
+        result.readmeAudit = readmeAudit;
+        result.success = readmeAudit.passed;
+        for (const f of readmeAudit.findings) {
           console.log(`  [${f.severity}] ${f.rule} (${f.file}:${f.line}): ${f.message}`);
         }
         return result;
@@ -1901,6 +1962,8 @@ Usage:
   node .agent/scripts/sdlc-engine.mjs adr <create|list|decide>
   node .agent/scripts/sdlc-engine.mjs drift check
   node .agent/scripts/sdlc-engine.mjs decision-graph <build|sync>
+  node .agent/scripts/sdlc-engine.mjs readme <init|audit> [--archetype <auto|cli|sdk|platform>] [--strict]
+  node .agent/scripts/sdlc-engine.mjs wiki <sync|audit|map> [--strict]
   node .agent/scripts/sdlc-engine.mjs dossier generate --issue <id>
   node .agent/scripts/sdlc-engine.mjs guard <pre-commit|pre-merge|pre-push|receipt>
   node .agent/scripts/sdlc-engine.mjs cache <status|clear>
@@ -2066,6 +2129,18 @@ export function formatCLIResult(res, args = []) {
 
   if (cmd === 'interop' && res.interop) {
     return `✅ Exported rules & skills for [${(res.interop.selectedAgents || []).join(', ')}] (${(res.interop.filesCreated || []).length} file(s) updated).`;
+  }
+
+  if (cmd === 'readme') {
+    if (res.readme) {
+      const assets = (res.readme.createdAssets || []).length;
+      return res.readme.written
+        ? `📄 Scaffolded 10-30-90 README.md (archetype: ${res.readme.archetype}, ${assets} companion asset(s) written).`
+        : `ℹ️ ${res.readme.reason || 'README.md unchanged.'}`;
+    }
+    if (res.readmeAudit) {
+      return res.readmeAudit.summary;
+    }
   }
 
   return '';

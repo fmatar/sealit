@@ -33,7 +33,7 @@ End-to-end spec-driven autonomous software development lifecycle, Spec-Drift ADR
 | CAP-08 | `/sdlc` Universal Command Router & 9 Verb-Driven Skills (#81) | `docs/specs/cap-08-command-verb-skills-router.md` | CAP-05, CAP-07 | `AMENDED (ADR-007)` |
 | CAP-09 | Two-Tier PRD & IEEE 29148 SRS Specification Engine (#84) | `docs/specs/cap-09-prd-srs-specification-engine.md` | CAP-05, CAP-08 | `AMENDED (ADR-006)` |
 | CAP-10 | Unified Multi-Provider Ticket Engine & Issue Templates (#86) | `docs/specs/cap-10-unified-multi-provider-ticket-engine-issue-templ.md` | CAP-02, CAP-09 | `AMENDED (ADR-006)` |
-| CAP-11 | Technical Writer Skill (`sdlc-wiki`) & Archlens AST-to-Wiki Sync (#90) | `docs/specs/cap-11-technical-writer-archlens-wiki-sync.md` | CAP-03, CAP-05, CAP-08 | `AMENDED (ADR-007)` |
+| CAP-11 | Technical Writer Skill (`sdlc-wiki`) & Archlens AST-to-Wiki Sync (#90) | `docs/specs/cap-11-technical-writer-archlens-wiki-sync.md` | CAP-03, CAP-05, CAP-08 | `AMENDED (ADR-001)` |
 
 ---
 
@@ -49,4 +49,5 @@ End-to-end spec-driven autonomous software development lifecycle, Spec-Drift ADR
 | ADR ID | Title | Scope | Status | Ticket | Supersedes |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | *None* | *Compacted into SRS.md (v0.3.0)* | - | - | - | - |
+| ADR-001 | 10-30-90 Developer Landing Page README Template and Deterministic README Engine | `technical` | `accepted` | #100 | CAP-11 |
 <!-- ADR_INDEX_END -->

@@ -34,6 +34,8 @@ flowchart TD
   SPEC_10["SPEC-10 (docs/specs/cap-10-unified-multi-provider-ticket-engine-issue-templ.md)"]
   CAP_11["CAP-11: Technical Writer Skill (`sdlc-wiki`) & Archlens AST-to-Wiki Sync (#90)"]
   SPEC_11["SPEC-11 (docs/specs/cap-11-technical-writer-archlens-wiki-sync.md)"]
+  ADR_001["ADR-001: 10-30-90 Developer Landing Page README Template and Deterministic README Engine"]
+  _100["Ticket #100 (feature/issue-#100-10-30-90-readme-template-engine)"]
   ADR_COMPACT_v0_3_0["Compacted 8 ADR(s) into SRS.md (v0.3.0)"]
   createdAt__2026_11_03T18_52_42_656Z["createdAt: 2026-11-03T18:52:42.656Z"]
   _SDLC_INIT["Ticket #SDLC-INIT (feature/arch-traceability-governance)"]
@@ -83,6 +85,8 @@ flowchart TD
   CAP_11 -->|depends_on| CAP_03
   CAP_11 -->|depends_on| CAP_05
   CAP_11 -->|depends_on| CAP_08
+  _100 -->|triggered_drift_adr| ADR_001
+  CAP_11 -.->|ADR Drift| ADR_001
   CAP_01 -->|realized_by| ADR_COMPACT_v0_3_0
   CAP_02 -->|realized_by| ADR_COMPACT_v0_3_0
   CAP_03 -->|realized_by| ADR_COMPACT_v0_3_0
@@ -103,7 +107,7 @@ flowchart TD
 
 | ADR ID | Decision Title | Scope | Status | Triggered By | Supersedes / Amends |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| *None* | No architectural drift ADRs recorded yet | - | - | - | - |
+| **ADR-001** | 10-30-90 Developer Landing Page README Template and Deterministic README Engine | `technical` | `accepted` | #100 | CAP-11 |
 
 ---
 
@@ -121,4 +125,4 @@ flowchart TD
 | **CAP-08** | `/sdlc` Universal Command Router & 9 Verb-Driven Skills (#81) | `AMENDED (ADR-007)` |
 | **CAP-09** | Two-Tier PRD & IEEE 29148 SRS Specification Engine (#84) | `PLANNED` |
 | **CAP-10** | Unified Multi-Provider Ticket Engine & Issue Templates (#86) | `PLANNED` |
-| **CAP-11** | Technical Writer Skill (`sdlc-wiki`) & Archlens AST-to-Wiki Sync (#90) | `AMENDED (ADR-007)` |
+| **CAP-11** | Technical Writer Skill (`sdlc-wiki`) & Archlens AST-to-Wiki Sync (#90) | `AMENDED (ADR-001)` |

@@ -27,11 +27,12 @@ flowchart TD
     TechADR --> Map["🗺️ Sync Causal Decision Graph\n(docs/DECISION_MAP.md)"]
 ```
 
-### Step 1: Initialize or Update Two-Tier Product Specifications (`PRODUCT.md`, `docs/PRD.md`, `docs/SRS.md` & `docs/specs/`)
-- **Macro Product Bootstrap (`PRODUCT.md` + `docs/PRD.md` + `docs/SRS.md`)**:
-  Initialize `PRODUCT.md`, macro Product Requirements (`docs/PRD.md`), IEEE 29148 Software Requirements (`docs/SRS.md`), and initial capability specs if not present:
+### Step 1: Initialize or Update Two-Tier Product Specifications (`PRODUCT.md`, `docs/PRD.md`, `docs/SRS.md`, `README.md` & `docs/specs/`)
+- **Macro Product Bootstrap (`PRODUCT.md` + `docs/PRD.md` + `docs/SRS.md` + `README.md`)**:
+  Initialize `PRODUCT.md`, macro Product Requirements (`docs/PRD.md`), IEEE 29148 Software Requirements (`docs/SRS.md`), initial capability specs, and the 10–30–90 Developer Landing Page (`README.md`, `docs/logo-*.svg`, `llms.txt` from `docs/templates/README_TEMPLATE.md`) if not present:
   ```bash
   node .agent/scripts/sdlc-engine.mjs product init --title "<Product Title>" --vision "<Vision>"
+  node .agent/scripts/sdlc-engine.mjs readme init --archetype <auto|cli|sdk|platform> --title "<Product Title>" --hook "<One-sentence positioning hook>"
   ```
 - **Per-Capability Specification (`docs/specs/cap-XX-<slug>.md`)**:
   For each new or updated capability (`CAP-XX`), scaffold or refine its unified specification file combining **PRD Slice** (Problem, Scope/Non-Goals, UX flows), **IEEE 29148 SRS Slice** (`Inputs`, `Processing`, `Outputs`, NFRs), and **C4 Mermaid Diagram**, while automatically syncing `PRODUCT.md`, `docs/PRD.md`, and `docs/SRS.md`:

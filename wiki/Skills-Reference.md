@@ -26,6 +26,7 @@ This reference documents the **1 Universal Router (`/sdlc`) + 9 Verb-Driven Skil
 | `/sdlc drift` | `node .agent/scripts/sdlc-engine.mjs drift check` |
 | `/sdlc gate` | `node .agent/scripts/sdlc-engine.mjs gate --strict` |
 | `/sdlc ticket <create\|transition\|comment\|sync\|templates>` | `node .agent/scripts/sdlc-engine.mjs ticket <subcommand>` |
+| `/sdlc readme <init\|audit>` | `node .agent/scripts/sdlc-engine.mjs readme <subcommand> [--archetype <auto\|cli\|sdk\|platform>] [--strict]` |
 | `/sdlc wiki <sync\|audit\|map>` | `node .agent/scripts/sdlc-engine.mjs wiki <subcommand>` |
 | `/sdlc release [patch\|minor\|major]` | `node .agent/scripts/sdlc-engine.mjs release <bump>` |
 
@@ -98,10 +99,12 @@ This reference documents the **1 Universal Router (`/sdlc`) + 9 Verb-Driven Skil
   - Bumps SemVer versions across `package.json`, `pom.xml`, `pyproject.toml`, or `Cargo.toml`, updates `CHANGELOG.md`, and creates annotated Git tags (`release <patch|minor|major>`).
   - Monitors post-deployment canary health endpoints with automatic rollback on error-rate threshold breach (`watchdog monitor`).
 
-### 2.9 `sdlc-wiki` — Technical Writer & Archlens Wiki Architect
+### 2.9 `sdlc-wiki` — Technical Writer, 10–30–90 README & Archlens Wiki Architect
 - **Path**: `.agent/skills/sdlc-wiki/SKILL.md`
-- **Engine Modules**: `.agent/scripts/lib/wiki-sync.mjs`, `.agent/scripts/lib/arch-trace.mjs`
+- **Engine Modules**: `.agent/scripts/lib/readme-sync.mjs`, `.agent/scripts/lib/wiki-sync.mjs`, `.agent/scripts/lib/arch-trace.mjs`
 - **Capabilities**:
+  - Scaffolds high-converting 10–30–90 Developer Landing Pages (`README.md`) from `docs/templates/README_TEMPLATE.md` along with theme-aware wordmarks (`docs/logo-light.svg`, `docs/logo-dark.svg`), `llms.txt`, and Charmbracelet VHS `docs/demo.tape` scripts (`readme init --archetype <auto|cli|sdk|platform>`).
+  - Audits `README.md` against tiered 10–30–90 anti-pattern rules (`<= 4` badges, zero `git clone`-first Quickstarts, valid local links, neutral Mermaid, and `<details>` progressive disclosure) (`readme audit --strict`).
   - Inspects AST exports with line numbers and maps modules into `.archlens/policy.json` Concentric Clean Architecture rings with $Ca / Ce / I$ coupling telemetry (`wiki map`).
   - Generates and updates `wiki/Codebase-Map.md` (`wiki sync`).
   - Audits `wiki/*.md` for broken repo paths, retired skill references, unmapped modules, undocumented skills, and invalid Mermaid syntax (`wiki audit --strict`).
@@ -138,8 +141,9 @@ node .agent/scripts/sdlc-engine.mjs gate [--strict] [--no-cache]
 node .agent/scripts/sdlc-engine.mjs reproduce --error "<stack-trace>" [--target <file>]
 node .agent/scripts/sdlc-engine.mjs cache <status|clear>
 
-# Architecture, Wiki Synchronization & Git Lockdown
+# Architecture, README & Wiki Synchronization, and Git Lockdown
 node .agent/scripts/sdlc-engine.mjs archlens <check|diff|trace|scaffold|update>
+node .agent/scripts/sdlc-engine.mjs readme <init|audit> [--archetype <auto|cli|sdk|platform>] [--strict] [--force]
 node .agent/scripts/sdlc-engine.mjs wiki <sync|audit|map> [--strict] [--init]
 node .agent/scripts/sdlc-engine.mjs guard <pre-commit|pre-merge|pre-push|receipt>
 node .agent/scripts/sdlc-engine.mjs audit <verify|record>
