@@ -1,0 +1,66 @@
+---
+name: sdlc-product
+description: "Use when bootstrapping PRODUCT.md from a raw spec, authoring CAP-XX specs, or planning DAG ticket waves. Not for implementing a single existing ticket (use sdlc-flow)."
+---
+
+# Spec-Driven Product Autopilot & Feature Architect (`sdlc-product`)
+
+## When to use / When NOT to use
+- **Use when** initializing `PRODUCT.md` (`INV-XX`, `CAP-XX`), authoring a capability specification (`docs/specs/cap-XX-*.md`), or planning topological DAG ticket waves.
+- **Not for** coding an already-specified ticket (`sdlc-flow`), minting standalone ADRs (`sdlc-adr`), or writing `README.md` / `wiki/` prose (`sdlc-wiki`).
+
+## Lane behavior (Execution Modes)
+| Mode | When to choose | Scope |
+| :--- | :--- | :--- |
+| **Single Capability** | Adding or refining one `CAP-XX` feature | Clarify open questions -> `product spec --cap CAP-XX` -> `ticket create` (skip macro bootstrap). |
+| **Full Product Handover** | New repo or multi-capability epic | Clarify ambiguities -> `product init` -> `product spec` per capability -> `product plan` preview -> confirm -> `product plan --provision` -> `dossier generate`. |
+
+## Steps
+
+1. **Clarify Before Authoring**:
+   If inputs, non-goals, or domain invariants are ambiguous in the user's brief, ask concise clarifying questions before generating specs.
+
+2. **Bootstrap Constitution or Author Capability Spec**:
+   ```bash
+   # Full Product Handover only (creates PRODUCT.md, docs/PRD.md, docs/SRS.md):
+   node .agent/scripts/sdlc-engine.mjs product init --title "<Product Title>" --vision "<Vision>"
+
+   # Single Capability or per-capability slice (non-destructively updates PRD.md & SRS.md):
+   node .agent/scripts/sdlc-engine.mjs product spec \
+     --cap CAP-XX \
+     --title "<Capability Title>" \
+     --problem "<User Problem>" \
+     --inputs "<Validated Inputs>" \
+     --processing "<Domain Rules>" \
+     --outputs "<Outputs & Contracts>" \
+     --depends-on "<CAP-YY>"
+   ```
+
+3. **Preview & Provision Topological Waves (or Single Ticket)**:
+   ```bash
+   # 1. Always preview DAG waves first (read-only plan, zero remote issues created):
+   node .agent/scripts/sdlc-engine.mjs product plan
+
+   # 2. After user confirms wave plan, provision tickets in GitHub/Linear/Jira/KANBAN.md:
+   node .agent/scripts/sdlc-engine.mjs product plan --provision
+
+   # Or create a single ticket directly:
+   node .agent/scripts/sdlc-engine.mjs ticket create --title "<Title>" --type <feat|fix> --problem "<Problem>" --solution "<Solution>"
+   ```
+
+4. **Compile Compact Subagent Dossiers (`~500` tokens per wave ticket)**:
+   ```bash
+   node .agent/scripts/sdlc-engine.mjs dossier generate --issue <id> --cap <CAP-XX> <target_files...>
+   ```
+   Execute wave tickets in topological wave order via `sdlc-flow` (for parallel tickets within the same wave, isolate each worker in its own git worktree or `Workspace: "branch"`). If an existing spec changes, record an ADR via `sdlc-adr`. Run `ui-snapshot` only when the user requests the visual DAG/lineage view.
+
+## ⚠️ Confirm with user before
+- Running `product plan --provision` (creates multiple remote issues across the DAG at once — always show the `product plan` preview first).
+- Passing `--force` to `product spec` (overwrites hand-edited `docs/specs/cap-XX-*.md`).
+
+## If it fails
+- **Cycle detected in `product plan`** -> inspect `--depends-on` edges in `PRODUCT.md` and break the circular dependency.
+- **Spec-drift check fails on existing repo** -> invoke `sdlc-adr` to record the constitutional amendment.
+
+## Done when
+`PRODUCT.md` and `docs/specs/cap-XX-*.md` parse cleanly via `product status`, `drift check` passes, and approved tickets/dossiers are ready for `sdlc-flow`.

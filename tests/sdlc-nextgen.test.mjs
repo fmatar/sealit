@@ -879,7 +879,8 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
       fs.writeFileSync(path.join(customSkillDir, 'SKILL.md'), 'custom', 'utf8');
 
       assert.equal(SUPPORTED_AGENTS.length, 6);
-      assert.equal(CANONICAL_SDLC_SKILLS.length, 10);
+      assert.equal(CANONICAL_SDLC_SKILLS.length, 11);
+      assert.ok(CANONICAL_SDLC_SKILLS.includes('ub-mode'));
       assert.ok(DEPRECATED_SDLC_SKILLS.includes('sdlc-kanban'));
       assert.ok(DEPRECATED_SDLC_SKILLS.includes('sdlc-init'));
       assert.ok(DEPRECATED_SDLC_SKILLS.includes('sdlc-review-gate'));
@@ -919,17 +920,18 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
         process.cwd()
       );
       assert.equal(cliRes.installed.success, true);
-      assert.equal(cliRes.installed.skillsCount, 10);
+      assert.equal(cliRes.installed.skillsCount, 11);
       assert.ok(cliRes.installed.prunedSkills.includes('sdlc-kanban'));
 
-      // Deprecated skill removed, custom skill preserved, 6 canonical skills present
+      // Deprecated skill removed, custom skill preserved, 11 canonical skills present across runtimes
       assert.equal(fs.existsSync(legacySkillDir), false);
       assert.equal(fs.existsSync(customSkillDir), true);
       for (const s of CANONICAL_SDLC_SKILLS) {
         assert.equal(fs.existsSync(path.join(tmpDir, '.agent/skills', s, 'SKILL.md')), true);
         assert.equal(fs.existsSync(path.join(tmpDir, '.claude/skills', s, 'SKILL.md')), true);
-        assert.equal(fs.existsSync(path.join(tmpDir, '.claude/commands', `${s}.md`)), true);
+        assert.equal(fs.existsSync(path.join(tmpDir, '.claude/commands', `${s}.md`)), false);
         assert.equal(fs.existsSync(path.join(tmpDir, '.grok/skills', s, 'SKILL.md')), true);
+        assert.equal(fs.existsSync(path.join(tmpDir, '.cursor/skills', s, 'SKILL.md')), true);
         assert.equal(fs.existsSync(path.join(tmpDir, '.cursor/rules', `${s}.mdc`)), true);
         assert.equal(fs.existsSync(path.join(tmpDir, '.windsurf/workflows', `${s}.md`)), true);
         assert.equal(fs.existsSync(path.join(tmpDir, '.github/prompts', `${s}.prompt.md`)), true);
@@ -1221,13 +1223,14 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
         'Must allow sdlc-engine.mjs execution'
       );
 
-      // 3. All 10 Claude skills, commands, and Cowork .zip bundles have clean frontmatter and zero Antigravity tool names
+      // 3. All 11 Claude, Cursor, and Grok skills and Cowork .zip bundles have clean frontmatter and zero Antigravity tool names
       for (const skillId of CANONICAL_SDLC_SKILLS) {
         const claudeSkill = fs.readFileSync(path.join(tmpDir, '.claude/skills', skillId, 'SKILL.md'), 'utf8');
-        const claudeCmd = fs.readFileSync(path.join(tmpDir, '.claude/commands', `${skillId}.md`), 'utf8');
+        const cursorSkill = fs.readFileSync(path.join(tmpDir, '.cursor/skills', skillId, 'SKILL.md'), 'utf8');
         const grokSkill = fs.readFileSync(path.join(tmpDir, '.grok/skills', skillId, 'SKILL.md'), 'utf8');
+        assert.equal(fs.existsSync(path.join(tmpDir, '.claude/commands', `${skillId}.md`)), false, 'Must not emit duplicate .claude/commands');
 
-        for (const content of [claudeSkill, claudeCmd, grokSkill]) {
+        for (const content of [claudeSkill, cursorSkill, grokSkill]) {
           assert.equal(/^tools:/m.test(content), false, `${skillId} must not include Antigravity tools: frontmatter`);
           assert.equal(content.includes('<agent-embed'), false, `${skillId} must not include <agent-embed>`);
           assert.equal(content.includes('<artifactDir>'), false, `${skillId} must not include <artifactDir>`);
@@ -1236,10 +1239,6 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
 
         assert.ok(claudeSkill.includes('allowed-tools:'), `${skillId} must include allowed-tools in SKILL.md frontmatter`);
         assert.equal(claudeSkill.includes('user-invocable:'), false, `${skillId} must not have non-standard user-invocable in SKILL.md`);
-        assert.ok(claudeCmd.includes('allowed-tools:'), `${skillId} command must include allowed-tools in frontmatter`);
-        if (skillId === 'sdlc') {
-          assert.ok(claudeCmd.includes('argument-hint: <subcommand> [args]'), 'sdlc command must have argument-hint');
-        }
 
         // Cowork account-level skill .zip bundle exists and starts with PK\x03\x04 ZIP signature containing <skillId>/SKILL.md
         const zipPath = path.join(tmpDir, '.claude/cowork', `${skillId}.zip`);

@@ -812,8 +812,10 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       if (sub === 'plan') {
         const autoProvision = args.includes('--provision');
         result.product = planProductDAG({ repoRoot, autoProvision });
-        ensureWorkbenchRunning({ repoRoot });
-        result.uiWidget = generateArchitectureWidget({ repoRoot });
+        if (args.includes('--ui')) {
+          ensureWorkbenchRunning({ repoRoot });
+          result.uiWidget = generateArchitectureWidget({ repoRoot });
+        }
         return result;
       }
       if (sub === 'control') {
@@ -893,8 +895,10 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
           else if (args[i] === '--consequences' && args[i + 1]) consequences = args[++i];
         }
         result.adr = createADR({ title, scope, ticketId, supersedes, context, decision, consequences, repoRoot });
-        ensureWorkbenchRunning({ repoRoot });
-        result.uiWidget = generateArchitectureWidget({ repoRoot });
+        if (args.includes('--ui')) {
+          ensureWorkbenchRunning({ repoRoot });
+          result.uiWidget = generateArchitectureWidget({ repoRoot });
+        }
         return result;
       }
       if (sub === 'decide') {

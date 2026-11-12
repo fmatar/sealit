@@ -1984,7 +1984,11 @@ export function auditSkills(repoRoot = '.', { live = false } = {}) {
       // 2. SkillSpector RP1: Unpinned npx package invocation
       const lines = (body || content).split('\n');
       lines.forEach((line, idx) => {
-        if (/\bnpx\s+(?:-[yY]\s+)?(?:github:|[a-zA-Z0-9@_/-]+)(?!@[0-9])/i.test(line)) {
+        if (
+          /\bnpx\s+(?:-[yY]\s+)?(?:github:[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+|@[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+|[a-zA-Z0-9_.-]+)(?![a-zA-Z0-9_.-]|@[0-9])/i.test(
+            line
+          )
+        ) {
           findings.push({
             rule: 'RP1',
             severity: 'MEDIUM',

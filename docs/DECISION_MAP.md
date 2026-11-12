@@ -42,7 +42,9 @@ flowchart TD
   _105["Ticket #105 (feature/issue-#105-github-actions-quality-gate-ci-configura)"]
   createdAt__2026_11_12T18_08_28_446Z["createdAt: 2026-11-12T18:08:28.446Z"]
   ADR_004["ADR-004: Risk-Proportional Execution Lanes, Instant Pre-Commit Guard, and Spec-Drift Precision"]
-  _107["Ticket #107"]
+  _107["Ticket #107 (feature/issue-#107-risk-proportional-execution-lanes-and-sp)"]
+  ADR_005["ADR-005: Right-Size Canonical Skills Suite and Native Claude and Cursor Skill Packaging"]
+  _109["Ticket #109 (feature/issue-#109-right-size-all-sdlc-skills-and-upgrade-c)"]
   ADR_COMPACT_v0_3_0["Compacted 8 ADR(s) into SRS.md (v0.3.0)"]
   createdAt__2026_11_03T18_52_42_656Z["createdAt: 2026-11-03T18:52:42.656Z"]
   _SDLC_INIT["Ticket #SDLC-INIT (feature/arch-traceability-governance)"]
@@ -102,6 +104,10 @@ flowchart TD
   _107 -->|triggered_drift_adr| ADR_004
   CAP_01 -.->|ADR Drift| ADR_004
   CAP_03 -.->|ADR Drift| ADR_004
+  _109 -->|triggered_drift_adr| ADR_005
+  CAP_05 -.->|ADR Drift| ADR_005
+  CAP_07 -.->|ADR Drift| ADR_005
+  CAP_08 -.->|ADR Drift| ADR_005
   CAP_01 -->|realized_by| ADR_COMPACT_v0_3_0
   CAP_02 -->|realized_by| ADR_COMPACT_v0_3_0
   CAP_03 -->|realized_by| ADR_COMPACT_v0_3_0
@@ -126,6 +132,7 @@ flowchart TD
 | **ADR-002** | Config-Driven Dual-Gate Thresholds, Verifiable CLI Telemetry, and SHA-256 Hook Drift Detection | `technical` | `accepted` | #103 | CAP-03, CAP-06 |
 | **ADR-003** | Shell-Free Command Execution, Least-Privilege Self-Hosted CI, and Bundled Config Schema | `technical` | `accepted` | #105 | createdAt: 2026-11-12T18:08:28.446Z |
 | **ADR-004** | Risk-Proportional Execution Lanes, Instant Pre-Commit Guard, and Spec-Drift Precision | `technical` | `accepted` | #107 | CAP-01, CAP-03 |
+| **ADR-005** | Right-Size Canonical Skills Suite and Native Claude and Cursor Skill Packaging | `technical` | `accepted` | #109 | CAP-05, CAP-07, CAP-08 |
 
 ---
 
@@ -137,10 +144,10 @@ flowchart TD
 | **CAP-02** | Shell Injection Remediation & Polyglot Test Runners (#69) | `AMENDED (ADR-006)` |
 | **CAP-03** | Real Coverage/Mutation Parsers & Policy ArchDiff (#70) | `AMENDED (ADR-004)` |
 | **CAP-04** | Live Canary Watchdog, Real Proofs & Polyglot Reproduce (#71) | `AMENDED (ADR-002)` |
-| **CAP-05** | Consolidate 14 Skills into 6 Schema-Valid Core Skills (#72) | `AMENDED (ADR-007)` |
+| **CAP-05** | Consolidate 14 Skills into 6 Schema-Valid Core Skills (#72) | `AMENDED (ADR-005)` |
 | **CAP-06** | Dogfooding Configuration, Docs Sync & Full Test Suite (#73) | `AMENDED (ADR-002)` |
-| **CAP-07** | Native `npx` Multi-Agent Interactive Installer & Legacy Installer Removal (#75) | `AMENDED (ADR-004)` |
-| **CAP-08** | `/sdlc` Universal Command Router & 9 Verb-Driven Skills (#81) | `AMENDED (ADR-007)` |
+| **CAP-07** | Native `npx` Multi-Agent Interactive Installer & Legacy Installer Removal (#75) | `AMENDED (ADR-005)` |
+| **CAP-08** | `/sdlc` Universal Command Router & 9 Verb-Driven Skills (#81) | `AMENDED (ADR-005)` |
 | **CAP-09** | Two-Tier PRD & IEEE 29148 SRS Specification Engine (#84) | `PLANNED` |
 | **CAP-10** | Unified Multi-Provider Ticket Engine & Issue Templates (#86) | `PLANNED` |
 | **CAP-11** | Technical Writer Skill (`sdlc-wiki`) & Archlens AST-to-Wiki Sync (#90) | `AMENDED (ADR-001)` |

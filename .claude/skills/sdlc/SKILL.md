@@ -1,42 +1,63 @@
 ---
 name: sdlc
-description: Universal /sdlc $ARGUMENTS command router. Accepts any subcommand directly in chat (/sdlc doctor, /sdlc begin 4912, /sdlc status, /sdlc drift, /sdlc pre-pr, /sdlc gate, /sdlc kanban, /sdlc ui) and maps it 1:1 to sdlc-engine.mjs.
+description: "Use when running an explicit /sdlc $ARGUMENTS command in chat. Not for multi-stage autonomous delivery (use sdlc-flow). Routes 1:1 to sdlc-engine.mjs."
 allowed-tools: Read, Write, Edit, Bash, Agent
 ---
 
-# ⚡ Universal Command Router (`/sdlc $ARGUMENTS`)
+# Universal Command Router (`/sdlc $ARGUMENTS`)
 
-## 1. Direct Subcommand Routing (`1:1` to `sdlc-engine.mjs`)
+## When to use / When NOT to use
+- **Use when** the user invokes `/sdlc <subcommand> [args]` for a direct CLI operation.
+- **Not for** full autonomous feature/bug implementation from intake to merge — delegate that to `sdlc-flow`.
 
-When the user invokes `/sdlc <subcommand> [arguments]`, map the request directly to the corresponding deterministic command in `.agent/scripts/sdlc-engine.mjs`:
+## Lane behavior
+| Lane | Entry shortcut | Verification scope |
+| :--- | :--- | :--- |
+| `trivial` | `/sdlc quick "<desc>"` | Local `L-*` session, `test --affected-only`, auto-signed `trivial` receipt in `stage pre-pr`. |
+| `standard` | `/sdlc begin <#id-or-title>` | Ticket session, `coverage`, 1 reviewer via `sdlc-gate`, `gate`, Stage 7 receipt. |
+| `full` | `/sdlc begin <#id> --lane full` | Ticket + ADR (if drift), `coverage` + `mutation`, 2-3 reviewers, `gate --strict`, Stage 7 receipt. |
 
-| Chat Command | Executed CLI Command |
+## Steps (`1:1` mapping to `sdlc-engine.mjs`)
+
+| Chat Command | Executed CLI Command / Action |
 | :--- | :--- |
-| `/sdlc install [flags]` | `node .agent/scripts/sdlc-engine.mjs install [flags]` |
-| `/sdlc doctor` | `node .agent/scripts/sdlc-engine.mjs doctor --fix` |
-| `/sdlc skill-audit` | `node .agent/scripts/sdlc-engine.mjs skill-audit` |
+| `/sdlc triage` | `node .agent/scripts/sdlc-engine.mjs triage` |
+| `/sdlc quick "<desc>"` | `node .agent/scripts/sdlc-engine.mjs stage begin --lane trivial --title "<desc>" --checkout` |
+| `/sdlc begin <#id>` | `node .agent/scripts/sdlc-engine.mjs stage begin --issue <id> --checkout` |
+| `/sdlc begin "<title>"` | `node .agent/scripts/sdlc-engine.mjs stage begin --title "<title>" --checkout` |
+| `/sdlc pre-pr [#id]` | `node .agent/scripts/sdlc-engine.mjs stage pre-pr --issue <id> --summary "<from-git-log-main..HEAD>"` |
+| `/sdlc review` | Run `sdlc-gate` (`review plan` -> read-only subagent review -> blocker-derived `review record`) |
+| `/sdlc complete [#id]` | `node .agent/scripts/sdlc-engine.mjs stage complete --issue <id> --pr <prNumber>` |
+| `/sdlc status [--full]` | `node .agent/scripts/sdlc-engine.mjs session dashboard` (`--full` adds `drift check`, `arch diff`, `stats`, `audit verify`) |
+| `/sdlc doctor` | `node .agent/scripts/sdlc-engine.mjs doctor` |
+| `/sdlc doctor fix` | `node .agent/scripts/sdlc-engine.mjs doctor --fix` |
 | `/sdlc detect` | `node .agent/scripts/sdlc-engine.mjs detect` |
-| `/sdlc status` / `/sdlc dashboard` | `node .agent/scripts/sdlc-engine.mjs session dashboard` |
-| `/sdlc begin <title-or-#id>` | `node .agent/scripts/sdlc-engine.mjs stage begin --title "<title>" --checkout` |
-| `/sdlc pre-pr [#id]` | `node .agent/scripts/sdlc-engine.mjs stage pre-pr --issue <id> --summary "<summary>"` |
-| `/sdlc complete [#id]` | `node .agent/scripts/sdlc-engine.mjs stage complete --issue <id>` |
+| `/sdlc install [flags]` | `node .agent/scripts/sdlc-engine.mjs install [flags]` |
+| `/sdlc skill-audit` | `node .agent/scripts/sdlc-engine.mjs skill-audit` |
 | `/sdlc test` | `node .agent/scripts/sdlc-engine.mjs test --affected-only` |
-| `/sdlc coverage` / `/sdlc mutation` | `node .agent/scripts/sdlc-engine.mjs coverage` / `mutation` |
+| `/sdlc coverage` / `/sdlc mutation` | `node .agent/scripts/sdlc-engine.mjs coverage` / `node .agent/scripts/sdlc-engine.mjs mutation` |
 | `/sdlc reproduce "<trace>"` | `node .agent/scripts/sdlc-engine.mjs reproduce --error "<trace>"` |
-| `/sdlc spec --cap CAP-XX --title "<title>"` | `node .agent/scripts/sdlc-engine.mjs product spec --cap CAP-XX --title "<title>"` |
 | `/sdlc drift` | `node .agent/scripts/sdlc-engine.mjs drift check` |
-| `/sdlc adr <create\|list\|decide\|compact>` | `node .agent/scripts/sdlc-engine.mjs adr <subcommand> [--release <ver>]` |
+| `/sdlc adr <create\|list\|decide\|compact>` | `node .agent/scripts/sdlc-engine.mjs adr <subcommand> [flags]` |
+| `/sdlc spec --cap CAP-XX --title "<title>"` | `node .agent/scripts/sdlc-engine.mjs product spec --cap CAP-XX --title "<title>"` |
 | `/sdlc gate` | `node .agent/scripts/sdlc-engine.mjs gate --strict` |
-| `/sdlc review` | `node .agent/scripts/sdlc-engine.mjs review record --verdict approve --reviewer "@sdlc-gate" --peer-review "<tdd>" --arch-review "<arch>"` |
 | `/sdlc ticket <create\|transition\|comment\|sync\|templates>` | `node .agent/scripts/sdlc-engine.mjs ticket <subcommand> [args]` |
-| `/sdlc kanban` | `.agent/scripts/kanban-sync.sh` |
-| `/sdlc ub` | Activate `ub-mode` (Robert C. Martin reduced principles) for the active session |
-| `/sdlc ui` / `/sdlc serve` | `node .agent/scripts/sdlc-engine.mjs ui-snapshot` (then hand the user the path of `.agent/workbench/index.html`) |
-| `/sdlc readme [init\|audit]` | `node .agent/scripts/sdlc-engine.mjs readme <subcommand> [--archetype <auto\|cli\|sdk\|platform>] [--strict]` |
-| `/sdlc wiki [sync\|audit\|map]` | `node .agent/scripts/sdlc-engine.mjs wiki <subcommand>` |
-| `/sdlc release [patch\|minor\|major]` | `node .agent/scripts/sdlc-engine.mjs release <bump>` |
+| `/sdlc kanban` | `node .agent/scripts/sdlc-engine.mjs ticket sync` |
+| `/sdlc ub` | Activate `ub-mode` reduced principles for the current task |
+| `/sdlc ui` | `node .agent/scripts/sdlc-engine.mjs ui-snapshot` (embed snapshot only when requested) |
+| `/sdlc serve` | `node .agent/scripts/sdlc-engine.mjs serve` |
+| `/sdlc readme <init\|audit>` | `node .agent/scripts/sdlc-engine.mjs readme <subcommand> [--strict]` |
+| `/sdlc wiki <sync\|audit\|map>` | `node .agent/scripts/sdlc-engine.mjs wiki <subcommand>` |
+| `/sdlc release <patch\|minor\|major>` | `node .agent/scripts/sdlc-engine.mjs release <bump> --dry-run` (confirm before live cut) |
+| Unknown subcommand | `node .agent/scripts/sdlc-engine.mjs help` |
 
-## 2. Execution Protocol
-1. Parse the user's subcommand and flags after `/sdlc`.
-2. Execute the mapped `node .agent/scripts/sdlc-engine.mjs ...` command via `Bash`.
-3. If the subcommand is `begin`, `pre-pr`, `ui`, or `status`, also regenerate `.agent/workbench/index.html` with `node .agent/scripts/sdlc-engine.mjs ui-snapshot`. Claude Code cannot embed HTML inline: tell the user the path of `.agent/workbench/index.html` so they can open it in a browser.
+## ⚠️ Confirm with user before
+- Running `doctor --fix`, `install --global`, `release <bump>` without `--dry-run`, or `stage begin --title` when it will create a new remote issue the user did not ask for.
+
+## If it fails
+- **Spec-drift failure** -> run `sdlc-adr` to mint or link an ADR.
+- **Coverage/mutation failure** -> run `sdlc-tdd` to add behavioral assertions.
+- **`gh` authentication/network error** -> re-run outside sandbox if permitted, or stop and report to the user.
+
+## Done when
+The mapped `sdlc-engine.mjs` subcommand exits `0` and its output is summarized concisely for the user.

@@ -1,53 +1,54 @@
 ---
 name: sdlc-release
-description: Synchronizes project documentation (README.md, docs/specs/, CHANGELOG.md, wiki/) and automates Semantic Versioning (SemVer) releases, Git tagging, regression proofs, and canary health watchdog verification.
+description: "Use when cutting a SemVer release, compacting ADRs, generating regression proofs, or running canary health checks. Not for routine per-ticket feature commits."
 tools: read_file, write_file, edit_file, run_command
 ---
 
-# 📦 Documentation Sync & Release Manager (`sdlc-release`)
+# Release Cut, ADR Compaction & Canary Watchdog (`sdlc-release`)
 
-## 1. Documentation & Knowledge Synchronization
+## When to use / When NOT to use
+- **Use when** cutting a `patch`, `minor`, or `major` SemVer release, compacting accepted ADRs into `docs/SRS.md`, generating delivery proofs, or probing post-release health.
+- **Not for** ordinary feature/bug PRs (do not run release-level doc/changelog compaction on every ticket).
 
-Before cutting a release or completing a feature ticket, synchronize documentation with the actual repository state:
-1. **`README.md` (10–30–90 Developer Landing Page) & `llms.txt`**: Keep `README.md` aligned with `docs/templates/README_TEMPLATE.md` (`<= 4` badges with current version, `<picture>` dark/light logo, archetype Hero Proof, problem-first `Why`, one-line install `Quickstart` without `git clone`, neutral-themed Mermaid `%%{init: {'theme': 'neutral'}}%%`, `<details>` progressive disclosure, and `llms.txt` link), then verify zero anti-patterns:
-   ```bash
-   node .agent/scripts/sdlc-engine.mjs readme audit --strict
-   ```
-2. **`docs/specs/` & `docs/DECISION_MAP.md`**: Refresh the Causal Decision Lineage Graph:
-   ```bash
-   node .agent/scripts/sdlc-engine.mjs decision-graph sync
-   ```
-3. **`CHANGELOG.md` (Keep a Changelog & SemVer)**: Categorize changes under `## [Unreleased]` (`Added`, `Changed`, `Fixed`, `Security`, `Removed`).
-4. **`wiki/` Synchronization (`sdlc-wiki`)**: When `wiki/` exists in the workspace, run `node .agent/scripts/sdlc-engine.mjs wiki sync` and `node .agent/scripts/sdlc-engine.mjs wiki audit --strict` to keep `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Architecture.md`, `wiki/Traceability.md`, and `wiki/Home.md` 100% aligned with the codebase and `README.md`.
-5. **ADR Lifecycle Compaction (`adr compact`)**: Before or during release cut, consolidate in-flight accepted `docs/adr/ADR-*.md` files into `docs/SRS.md` (`## Compacted Architectural Decisions`) and reset the `PRODUCT.md` ADR index table:
-   ```bash
-   node .agent/scripts/sdlc-engine.mjs adr compact --release vX.Y.Z
-   ```
-   *(Note: `release <patch|minor|major>` automatically runs `adr compact` unless `--no-compact` is passed.)*
+## Branch & `INV-01` Protocol (Where Releases Happen)
+Direct commits to `main` are blocked by `INV-01` and branch protection:
+1. Start a release branch via `stage begin --title "Release vX.Y.Z" --type chore --checkout`.
+2. Sync docs (`sdlc-wiki`), run `gate --strict`, and run `release <patch|minor|major>` **on the release branch** (updates `package.json`/manifests, compacts accepted ADRs into `docs/SRS.md`, rolls `CHANGELOG.md`). Pure `version` bumps in `package.json` are exempted from `drift check`.
+3. Complete `stage pre-pr` + `sdlc-gate` (`review record` Stage 7 receipt), wait for green CI, and merge the release PR into `main`.
+4. Checkout updated `main`, verify/push the annotated `vX.Y.Z` tag (`git tag -a vX.Y.Z -m "Release vX.Y.Z" && git push origin vX.Y.Z`), and publish the GitHub Release (`gh release create vX.Y.Z --generate-notes`).
 
----
+## Lane behavior
+| Release type | Required verification |
+| :--- | :--- |
+| `patch` / `minor` / `major` | Releases always run in `full` lane (`gate --strict`, `readme audit --strict`, `wiki sync`, `wiki audit --strict`, Stage 7 signed receipt, green CI). |
 
-## 2. Automated Release & Canary Verification
+## Steps
 
-### Step 1: Pre-Release Quality Gate & Regression Proof
-Generate a cryptographic delivery regression proof (`docs/proofs/proof-*.md`) hashing verified API endpoints and UI route components on disk:
 ```bash
-node .agent/scripts/sdlc-engine.mjs proof generate --name <component-or-release>
-```
+# 1. Sync docs & verify strict 9-pillar quality gate on the release branch
+node .agent/scripts/sdlc-engine.mjs wiki sync
+node .agent/scripts/sdlc-engine.mjs wiki audit --strict
+node .agent/scripts/sdlc-engine.mjs readme audit --strict
+node .agent/scripts/sdlc-engine.mjs gate --strict
 
-### Step 2: Execute SemVer Release (`patch` | `minor` | `major`)
-Preview the version bump first with `--dry-run`, then execute the release across `package.json`, `pom.xml`, `pyproject.toml`, or `Cargo.toml`:
-```bash
-# Dry-run preview:
-node .agent/scripts/sdlc-engine.mjs release patch --dry-run
+# 2. (Optional) Generate SHA-256 delivery regression proof
+node .agent/scripts/sdlc-engine.mjs proof generate --name <release-version>
 
-# Execute release (updates manifest, rolls CHANGELOG.md, commits, and creates annotated git tag):
+# 3. Preview SemVer bump & ADR compaction first (--dry-run), then execute on release branch
+node .agent/scripts/sdlc-engine.mjs release <patch|minor|major> --dry-run
 node .agent/scripts/sdlc-engine.mjs release <patch|minor|major>
+
+# 4. After PR merge to main: monitor canary health endpoint (read-only probe unless rollback confirmed)
+node .agent/scripts/sdlc-engine.mjs watchdog monitor --url https://service.example.com/health --threshold 0.05 --samples 5 --live
 ```
 
-### Step 3: Post-Deployment Canary Watchdog
-Monitor live canary health endpoints (or run synthetic error-rate verification) with automatic rollback on threshold breach:
-```bash
-# Live HTTP probing against a deployed health endpoint:
-node .agent/scripts/sdlc-engine.mjs watchdog monitor --url https://service.example.com/health --threshold 0.05 --samples 5 --live --rollback "git revert HEAD --no-edit"
-```
+## ⚠️ Confirm with user before
+- Running `release <patch|minor|major>` without `--dry-run` (always present `--dry-run` output first).
+- Pushing git tags (`git push origin vX.Y.Z`), running `gh release create`, `npm publish`, or passing `--rollback` to `watchdog monitor`.
+
+## If it fails
+- **`adr compact` fails on `pending_approval` ADR** -> resolve pending ADRs via `sdlc-adr` before cutting the release, or pass `--no-compact` if explicitly requested.
+- **`gate --strict` or `readme/wiki audit` fails** -> fix findings on the release branch before running `release`.
+
+## Done when
+Release PR is merged into `main` with green CI and a Stage 7 receipt, `vX.Y.Z` tag/release is published (when requested), and `stage complete` closes the session.

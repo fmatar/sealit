@@ -34,7 +34,8 @@ export const CANONICAL_SDLC_SKILLS = [
   'sdlc-release',
   'sdlc-status',
   'sdlc-tdd',
-  'sdlc-wiki'
+  'sdlc-wiki',
+  'ub-mode'
 ];
 
 export const ARCHLENS_SKILL_PACKAGE = '@fmatar/archlens-skill@1.2.0';
@@ -91,10 +92,9 @@ export const SUPPORTED_AGENTS = [
   {
     id: 'claude',
     name: 'Anthropic Claude Code & Cowork',
-    badge: '.claude/skills + .claude/commands + .claude/cowork/*.zip + CLAUDE.md',
+    badge: '.claude/skills + .claude/cowork/*.zip + .claude-plugin/plugin.json + CLAUDE.md',
     localPaths: [
       '.claude/skills/<skill>/SKILL.md',
-      '.claude/commands/<skill>.md',
       '.claude/cowork/<skill>.zip',
       '.claude/settings.json',
       '.claude-plugin/plugin.json',
@@ -102,7 +102,6 @@ export const SUPPORTED_AGENTS = [
     ],
     globalPaths: [
       '~/.claude/skills/<skill>/SKILL.md',
-      '~/.claude/commands/<skill>.md',
       '~/.claude/cowork/<skill>.zip'
     ],
     defaultSelected: true
@@ -110,9 +109,17 @@ export const SUPPORTED_AGENTS = [
   {
     id: 'cursor',
     name: 'Cursor IDE',
-    badge: '.cursor/rules/*.mdc + .cursorrules',
-    localPaths: ['.cursor/rules/agentic-sdlc.mdc', '.cursor/rules/<skill>.mdc', '.cursorrules'],
-    globalPaths: ['~/.cursor/rules/agentic-sdlc.mdc'],
+    badge: '.cursor/skills + .cursor/rules/*.mdc + .cursorrules',
+    localPaths: [
+      '.cursor/skills/<skill>/SKILL.md',
+      '.cursor/rules/agentic-sdlc.mdc',
+      '.cursor/rules/<skill>.mdc',
+      '.cursorrules'
+    ],
+    globalPaths: [
+      '~/.cursor/skills/<skill>/SKILL.md',
+      '~/.cursor/rules/agentic-sdlc.mdc'
+    ],
     defaultSelected: true
   },
   {
@@ -249,8 +256,9 @@ export function toClaudeSkill(sk) {
     )
   );
   const description = toClaudeDialect(fm.description || sk.description || sk.id);
+  const yamlDesc = /[:#]/.test(description) ? JSON.stringify(description) : description;
   const body = toClaudeDialect(parsed.body || sk.body || '');
-  const lines = ['---', `name: ${fm.name || sk.id}`, `description: ${description}`];
+  const lines = ['---', `name: ${fm.name || sk.id}`, `description: ${yamlDesc}`];
   if (allowedTools.length) lines.push(`allowed-tools: ${allowedTools.join(', ')}`);
   lines.push('---', '', body, '');
   return { id: sk.id, description, body, allowedTools, markdown: lines.join('\n') };
@@ -612,6 +620,7 @@ export function adaptSkillForAgent(skill, agentId = 'claude') {
     skillMarkdown,
     coworkSkillMarkdown,
     commandMarkdown,
+    description: safeDesc,
     body
   };
 }
@@ -718,12 +727,14 @@ export function provisionAgentIntegrations({
     prunedSkills.push(...pruneDeprecatedSkills(path.join(homeDir, '.gemini/config/skills')));
     prunedSkills.push(...pruneDeprecatedSkills(path.join(homeDir, '.claude/skills')));
     prunedSkills.push(...pruneDeprecatedSkills(path.join(homeDir, '.claude/commands')));
+    prunedSkills.push(...pruneDeprecatedSkills(path.join(homeDir, '.cursor/skills')));
     prunedSkills.push(...pruneDeprecatedSkills(path.join(homeDir, '.grok/skills')));
   } else {
     prunedSkills.push(...pruneDeprecatedSkills(path.join(absTarget, '.agent/skills')));
     prunedSkills.push(...pruneDeprecatedSkills(path.join(absTarget, '.agents/skills')));
     prunedSkills.push(...pruneDeprecatedSkills(path.join(absTarget, '.claude/skills')));
     prunedSkills.push(...pruneDeprecatedSkills(path.join(absTarget, '.claude/commands')));
+    prunedSkills.push(...pruneDeprecatedSkills(path.join(absTarget, '.cursor/skills')));
     prunedSkills.push(...pruneDeprecatedSkills(path.join(absTarget, '.grok/skills')));
     prunedSkills.push(...pruneDeprecatedSkills(path.join(absTarget, '.cursor/rules')));
     prunedSkills.push(...pruneDeprecatedSkills(path.join(absTarget, '.windsurf/workflows')));
@@ -753,8 +764,25 @@ export function provisionAgentIntegrations({
       const claudeCommandsDir = path.join(claudeRoot, 'commands');
       const claudeCoworkDir = path.join(claudeRoot, 'cowork');
       fs.mkdirSync(claudeSkillsDir, { recursive: true });
-      fs.mkdirSync(claudeCommandsDir, { recursive: true });
       fs.mkdirSync(claudeCoworkDir, { recursive: true });
+
+      // Remove legacy duplicate .claude/commands/<skill>.md files while preserving user-authored commands
+      if (fileExists(claudeCommandsDir)) {
+        for (const canonicalId of CANONICAL_SDLC_SKILLS) {
+          const dupCmdPath = path.join(claudeCommandsDir, `${canonicalId}.md`);
+          if (fileExists(dupCmdPath)) {
+            try {
+              fs.unlinkSync(dupCmdPath);
+              prunedSkills.push(`${canonicalId}.md`);
+            } catch {}
+          }
+        }
+        try {
+          if (fs.readdirSync(claudeCommandsDir).length === 0) {
+            fs.rmdirSync(claudeCommandsDir);
+          }
+        } catch {}
+      }
 
       for (const sk of skills) {
         const adapted = adaptSkillForAgent(sk, 'claude');
@@ -762,10 +790,6 @@ export function provisionAgentIntegrations({
         fs.mkdirSync(path.dirname(skillFile), { recursive: true });
         fs.writeFileSync(skillFile, adapted.skillMarkdown, 'utf8');
         filesCreated.push(global ? `~/.claude/skills/${sk.id}/SKILL.md` : `.claude/skills/${sk.id}/SKILL.md`);
-
-        const cmdFile = path.join(claudeCommandsDir, `${sk.id}.md`);
-        fs.writeFileSync(cmdFile, adapted.commandMarkdown, 'utf8');
-        filesCreated.push(global ? `~/.claude/commands/${sk.id}.md` : `.claude/commands/${sk.id}.md`);
 
         const zipFile = path.join(claudeCoworkDir, `${sk.id}.zip`);
         fs.writeFileSync(zipFile, createSkillZipBuffer(sk.id, adapted.coworkSkillMarkdown));
@@ -786,10 +810,10 @@ export function provisionAgentIntegrations({
         fs.mkdirSync(path.dirname(pluginManifestPath), { recursive: true });
         const pluginManifest = {
           name: 'agentic-sdlc',
-          version: '0.1.0',
-          description: 'Agentic SDLC Framework — Universal /sdlc router and 9 lifecycle skills for Claude Code & Cowork',
-          skills: './.claude/skills',
-          commands: './.claude/commands'
+          version: getFrameworkVersion(packageRoot),
+          description:
+            'Agentic SDLC Framework — Universal /sdlc router, ub-mode, and 9 lifecycle skills for Claude Code & Cowork',
+          skills: './.claude/skills'
         };
         fs.writeFileSync(pluginManifestPath, JSON.stringify(pluginManifest, null, 2) + '\n', 'utf8');
         filesCreated.push('.claude-plugin/plugin.json');
@@ -797,9 +821,13 @@ export function provisionAgentIntegrations({
     }
 
     if (agentId === 'cursor') {
+      const cursorSkillsDir = global
+        ? path.join(homeDir, '.cursor/skills')
+        : path.join(absTarget, '.cursor/skills');
       const cursorRulesDir = global
         ? path.join(homeDir, '.cursor/rules')
         : path.join(absTarget, '.cursor/rules');
+      fs.mkdirSync(cursorSkillsDir, { recursive: true });
       fs.mkdirSync(cursorRulesDir, { recursive: true });
 
       const masterMdc = path.join(cursorRulesDir, 'agentic-sdlc.mdc');
@@ -812,10 +840,15 @@ export function provisionAgentIntegrations({
 
       for (const sk of skills) {
         const adapted = adaptSkillForAgent(sk, 'cursor');
+        const cursorSkillFile = path.join(cursorSkillsDir, sk.id, 'SKILL.md');
+        fs.mkdirSync(path.dirname(cursorSkillFile), { recursive: true });
+        fs.writeFileSync(cursorSkillFile, adapted.coworkSkillMarkdown, 'utf8');
+        filesCreated.push(global ? `~/.cursor/skills/${sk.id}/SKILL.md` : `.cursor/skills/${sk.id}/SKILL.md`);
+
         const skillMdc = path.join(cursorRulesDir, `${sk.id}.mdc`);
         fs.writeFileSync(
           skillMdc,
-          `---\ndescription: ${sk.description}\nglobs: *\nalwaysApply: false\n---\n\n${adapted.body}\n`,
+          `---\ndescription: ${JSON.stringify(adapted.description || sk.description)}\nglobs: *\nalwaysApply: false\n---\n\n${adapted.body}\n`,
           'utf8'
         );
         filesCreated.push(global ? `~/.cursor/rules/${sk.id}.mdc` : `.cursor/rules/${sk.id}.mdc`);
@@ -879,7 +912,11 @@ export function provisionAgentIntegrations({
         for (const sk of skills) {
           const adapted = adaptSkillForAgent(sk, 'windsurf');
           const wfPath = path.join(wsWorkflowsDir, `${sk.id}.md`);
-          fs.writeFileSync(wfPath, `---\ndescription: ${sk.description}\n---\n\n${adapted.body}\n`, 'utf8');
+          fs.writeFileSync(
+            wfPath,
+            `---\ndescription: ${JSON.stringify(adapted.description || sk.description)}\n---\n\n${adapted.body}\n`,
+            'utf8'
+          );
           filesCreated.push(`.windsurf/workflows/${sk.id}.md`);
         }
 
@@ -903,7 +940,7 @@ export function provisionAgentIntegrations({
         const promptFile = path.join(promptsDir, `${sk.id}.prompt.md`);
         fs.writeFileSync(
           promptFile,
-          `---\nmode: 'agent'\ndescription: '${sk.description.replace(/'/g, "''")}'\n---\n\n${adapted.body}\n`,
+          `---\nmode: 'agent'\ndescription: '${(adapted.description || sk.description).replace(/'/g, "''")}'\n---\n\n${adapted.body}\n`,
           'utf8'
         );
         filesCreated.push(global ? `~/.github/prompts/${sk.id}.prompt.md` : `.github/prompts/${sk.id}.prompt.md`);
@@ -1353,7 +1390,7 @@ export function parseInstallArgs(args = [], repoRoot = '.') {
 
 export function printInstallerHelp() {
   console.log(`
-⚡ Agentic SDLC Framework — Universal Multi-Agent Installer (v0.1.0)
+⚡ Agentic SDLC Framework — Universal Multi-Agent Installer (v${getFrameworkVersion()})
 
 Usage:
   npx github:fmatar/agentic-sdlc-framework install [options]

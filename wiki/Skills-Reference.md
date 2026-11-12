@@ -1,8 +1,8 @@
 # 🛠️ Skills & CLI Command Reference
 
-This reference documents the **1 Universal Router (`/sdlc`) + 9 Verb-Driven Skills** (`ADR-004` & `ADR-007`) located in `.agent/skills/` and the complete CLI subcommand table for `.agent/scripts/sdlc-engine.mjs`.
+This reference documents the **11 Canonical Skills — 1 Universal Router (`/sdlc`), 9 Verb-Driven Lifecycle Skills, and `ub-mode`** (`ADR-005`) located in `.agent/skills/` and the complete CLI subcommand table for `.agent/scripts/sdlc-engine.mjs`.
 
-> **Historical Note (`ADR-002` & `ADR-004`)**: Earlier versions of this framework used 14 separate skills (such as `sdlc-init`, `sdlc-kanban`, `sdlc-feature-spec`, `sdlc-tdd-implement`, `sdlc-test-coverage`, `sdlc-docs-wiki`, `sdlc-peer-review`, `sdlc-quality-gate`, `sdlc-release-changelog`, and `sdlc-review-gate`). Those retired skills are automatically pruned by `pruneDeprecatedSkills` in `.agent/scripts/lib/installer.mjs` and replaced by the 10 canonical skills below.
+> **Historical Note (`ADR-002`, `ADR-004`, `ADR-005`)**: Earlier versions of this framework used 14 separate skills (such as `sdlc-init`, `sdlc-kanban`, `sdlc-feature-spec`, `sdlc-tdd-implement`, `sdlc-test-coverage`, `sdlc-docs-wiki`, `sdlc-peer-review`, `sdlc-quality-gate`, `sdlc-release-changelog`, and `sdlc-review-gate`). Those retired skills are automatically pruned by `pruneDeprecatedSkills` in `.agent/scripts/lib/installer.mjs` and replaced by the 11 canonical skills below.
 
 ---
 
@@ -14,21 +14,28 @@ This reference documents the **1 Universal Router (`/sdlc`) + 9 Verb-Driven Skil
 | Chat Invocation | Mapped Engine Command |
 | :--- | :--- |
 | `/sdlc install [flags]` | `node .agent/scripts/sdlc-engine.mjs install [flags]` |
-| `/sdlc doctor` | `node .agent/scripts/sdlc-engine.mjs doctor --fix` |
+| `/sdlc doctor` | `node .agent/scripts/sdlc-engine.mjs doctor` |
+| `/sdlc doctor --fix` / `/sdlc doctor fix` | `node .agent/scripts/sdlc-engine.mjs doctor --fix` |
 | `/sdlc skill-audit` | `node .agent/scripts/sdlc-engine.mjs skill-audit` |
 | `/sdlc detect` | `node .agent/scripts/sdlc-engine.mjs detect` |
-| `/sdlc status` / `/sdlc ui` | `node .agent/scripts/sdlc-engine.mjs session dashboard` + `ui-snapshot` |
-| `/sdlc begin <title-or-#id>` | `node .agent/scripts/sdlc-engine.mjs stage begin --title "<title>" --checkout` |
+| `/sdlc status` | `node .agent/scripts/sdlc-engine.mjs session dashboard` + `drift check` + `audit verify` |
+| `/sdlc ui` | `node .agent/scripts/sdlc-engine.mjs ui-snapshot` |
+| `/sdlc serve` | `node .agent/scripts/sdlc-engine.mjs serve` |
+| `/sdlc triage` | `node .agent/scripts/sdlc-engine.mjs triage` |
+| `/sdlc quick "<title>"` | `node .agent/scripts/sdlc-engine.mjs stage begin --title "<title>" --lane trivial --checkout` |
+| `/sdlc begin <#id>` | `node .agent/scripts/sdlc-engine.mjs stage begin --issue <id> --checkout` |
+| `/sdlc begin "<title>"` | `node .agent/scripts/sdlc-engine.mjs stage begin --title "<title>" --checkout` |
 | `/sdlc pre-pr [#id]` | `node .agent/scripts/sdlc-engine.mjs stage pre-pr --issue <id>` |
 | `/sdlc complete [#id]` | `node .agent/scripts/sdlc-engine.mjs stage complete --issue <id>` |
 | `/sdlc test` / `/sdlc coverage` / `/sdlc mutation` | `node .agent/scripts/sdlc-engine.mjs <test\|coverage\|mutation>` |
-| `/sdlc adr <create\|list\|decide>` | `node .agent/scripts/sdlc-engine.mjs adr <subcommand>` |
+| `/sdlc adr <create\|list\|decide\|compact>` | `node .agent/scripts/sdlc-engine.mjs adr <subcommand>` |
 | `/sdlc drift` | `node .agent/scripts/sdlc-engine.mjs drift check` |
+| `/sdlc review` | Delegates to `sdlc-gate` (`review plan` + `gate --strict` + `review record`) |
 | `/sdlc gate` | `node .agent/scripts/sdlc-engine.mjs gate --strict` |
 | `/sdlc ticket <create\|transition\|comment\|sync\|templates>` | `node .agent/scripts/sdlc-engine.mjs ticket <subcommand>` |
 | `/sdlc readme <init\|audit>` | `node .agent/scripts/sdlc-engine.mjs readme <subcommand> [--archetype <auto\|cli\|sdk\|platform>] [--strict]` |
 | `/sdlc wiki <sync\|audit\|map>` | `node .agent/scripts/sdlc-engine.mjs wiki <subcommand>` |
-| `/sdlc release [patch\|minor\|major]` | `node .agent/scripts/sdlc-engine.mjs release <bump>` |
+| `/sdlc release [patch\|minor\|major]` | `node .agent/scripts/sdlc-engine.mjs release <bump> --dry-run` (confirm before live release) |
 
 ---
 
@@ -66,22 +73,22 @@ This reference documents the **1 Universal Router (`/sdlc`) + 9 Verb-Driven Skil
 - **Capabilities**:
   - Enforces the Three Laws of TDD (*Red-Green-Refactor*), Transformation Priority Premise (TPP), and F.I.R.S.T. test isolation.
   - Scaffolds automated bug reproduction tests from stack traces across JavaScript/TypeScript, Python, Java, Go, and Rust (`reproduce --error "<trace>"`).
-  - Executes affected-only unit tests (`test --affected-only`), diff coverage verification $\ge 85\%$ (`coverage`), mutation testing $\ge 80\%$ (`mutation`), and mutant strengthening (`strengthen`).
+  - Executes affected-only unit tests (`test --affected-only`), diff coverage verification (`coverage`), mutation testing (`mutation`) against the thresholds configured in `.agent/sdlc-config.json`, and mutant strengthening (`strengthen`).
 
 ### 2.5 `sdlc-gate` — Parallel Fork-Join Peer Reviewer & Quality Gatekeeper
 - **Path**: `.agent/skills/sdlc-gate/SKILL.md`
 - **Engine Modules**: `.agent/scripts/lib/quality-gate.mjs`, `.agent/scripts/lib/arch-trace.mjs`, `.agent/scripts/lib/audit-chain.mjs`
 - **Capabilities**:
-  - Generates parallel subagent review plans (`review plan`) for **PR Peer Reviewer** and **Quality Gatekeeper** subagents.
+  - Generates risk-tiered parallel subagent review plans (`review plan --base main`) for read-only **PR Peer Reviewer** and **Architecture & Security Gatekeeper** subagents.
   - Runs the strict 9-pillar gate (`gate --strict`): lint, build, coverage, risk audit (`risk-audit`), secret/CVE scan (`security-audit`), Archlens concentric ring diff (`archlens diff`), flaky test detection (`flake-check`), API contract check (`contract check`), Merkle audit verification (`audit verify`), and Wiki drift audit (`wiki audit --strict`).
-  - Issues cryptographic Stage 7 SHA-256 Merkle Gate Receipts (`guard receipt`).
+  - Derives `--verdict <approve|request-changes>` strictly from reviewer blocker counts and issues HMAC-SHA256 Stage 7 Merkle Gate Receipts (`review record` / `guard receipt`).
 
-### 2.6 `sdlc-status` — Mission Control, Kanban & Telemetry Inspector
+### 2.6 `sdlc-status` — Read-Only Mission Control, Kanban & Telemetry Inspector
 - **Path**: `.agent/skills/sdlc-status/SKILL.md`
-- **Engine Modules**: `.agent/scripts/lib/session.mjs`, `.agent/scripts/lib/workbench-server.mjs`
+- **Engine Modules**: `.agent/scripts/lib/session.mjs`, `.agent/scripts/lib/adr-drift.mjs`, `.agent/scripts/lib/audit-chain.mjs`
 - **Capabilities**:
-  - Displays the 8-stage ASCII progress dashboard (`session dashboard`), session velocity/ROI metrics (`stats`), and Spec-Drift status.
-  - Generates `.agent/workbench/index.html` (`ui-snapshot`) and launches the live Clearinghouse Ledger Workbench server on `http://localhost:4120` (`serve`).
+  - Strictly read-only (`tools: read_file, run_command`): displays the 8-stage ASCII progress dashboard (`session dashboard`), session velocity/estimated ROI metrics (`stats`), Spec-Drift status (`drift check`), Merkle audit health (`audit verify`), and Archlens ring diff (`arch diff`).
+  - Never writes `.agent/workbench/index.html` or starts `serve` automatically (use `/sdlc ui` or `/sdlc serve` when the HTML workbench is requested).
 
 ### 2.7 `sdlc-doctor` — Stack Discovery, Auto-Healer & Multi-Agent Installer
 - **Path**: `.agent/skills/sdlc-doctor/SKILL.md`
@@ -108,6 +115,11 @@ This reference documents the **1 Universal Router (`/sdlc`) + 9 Verb-Driven Skil
   - Inspects AST exports with line numbers and maps modules into `.archlens/policy.json` Concentric Clean Architecture rings with $Ca / Ce / I$ coupling telemetry (`wiki map`).
   - Generates and updates `wiki/Codebase-Map.md` (`wiki sync`).
   - Audits `wiki/*.md` for broken repo paths, retired skill references, unmapped modules, undocumented skills, and invalid Mermaid syntax (`wiki audit --strict`).
+
+### 2.10 `ub-mode` — Robert C. Martin Reduced Principles
+- **Path**: `.agent/skills/ub-mode/SKILL.md`
+- **Capabilities**:
+  - Enforces *First Make it Work* (Laziness Protocol, Foundational Thinking, TDD, Attack the Premise, Subtract Before You Add, Domain/Boundary/Type Discipline), *Then Make it Right* (Fix Root Causes, CRAP < 10, DRY, Mutator, Refactoring), and *Practice* across `trivial`, `standard`, and `full` execution lanes.
 
 ---
 
