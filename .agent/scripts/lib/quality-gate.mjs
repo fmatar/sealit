@@ -7,7 +7,7 @@ import { getSessionStatus } from './session.mjs';
 import { createTicket, scaffoldIssueTemplates } from './pm-provider.mjs';
 import { appendAuditRecord } from './audit-chain.mjs';
 import { auditContractDrift } from './adr-drift.mjs';
-import { installHooks } from './git-guard.mjs';
+import { installHooks, inspectHooksHealth } from './git-guard.mjs';
 import { scaffoldArchlensPolicy } from './arch-trace.mjs';
 import { provisionAgentIntegrations } from './installer.mjs';
 
@@ -68,9 +68,21 @@ export function runDoctor(repoRoot = '.', { fix = false } = {}) {
     console.log('  ✔ Active Sessions: Clean (no stale session locks detected)');
   }
 
+  let hooks = inspectHooksHealth(repoRoot);
+  if (hooks.isGitRepo) {
+    console.log('\n🪝 Git Guard Hooks:');
+    if (hooks.upToDate) {
+      console.log('  ✔ 4-Layer Git Hooks  : Installed & SHA-256 template-verified');
+    } else if (!hooks.installed) {
+      console.log(`  ⚠ 4-Layer Git Hooks  : Missing [${hooks.missingHooks.join(', ')}]`);
+    } else {
+      console.log(`  ⚠ 4-Layer Git Hooks  : Outdated [${hooks.outdatedHooks.join(', ')}] — run doctor --fix or hooks install`);
+    }
+  }
+
   const autoFixed = [];
   if (fix) {
-    console.log('\n🛠️ Running Doctor Auto-Fix for Missing Framework Assets...');
+    console.log('\n🛠️ Running Doctor Auto-Fix for Missing or Outdated Framework Assets...');
     for (const a of assetResults) {
       if (!a.status) {
         if (a.path === 'docs/KANBAN.md') {
@@ -86,8 +98,9 @@ export function runDoctor(repoRoot = '.', { fix = false } = {}) {
       }
     }
 
-    if (fs.existsSync(path.resolve(repoRoot, '.git')) && !fs.existsSync(path.resolve(repoRoot, '.git/hooks/pre-push'))) {
+    if (hooks.isGitRepo && !hooks.upToDate) {
       installHooks({ repoRoot });
+      hooks = inspectHooksHealth(repoRoot);
       autoFixed.push('git-hooks');
     }
     if (!fs.existsSync(path.resolve(repoRoot, '.github/workflows/sdlc-quality-gate.yml'))) {
@@ -104,6 +117,7 @@ export function runDoctor(repoRoot = '.', { fix = false } = {}) {
     healthy: allPassed,
     toolchain: toolResults,
     assets: assetResults,
+    hooks,
     sessionStatus,
     autoFixed
   };
@@ -1133,11 +1147,27 @@ export function auditSecurity(repoRoot = '.') {
   }
 
   let packageAuditPassed = true;
-  if (fileExists(path.resolve(repoRoot, 'package.json'))) {
+  let packageAuditStatus = 'not-applicable';
+  if (
+    fileExists(path.resolve(repoRoot, 'package.json')) &&
+    (fileExists(path.resolve(repoRoot, 'package-lock.json')) || fileExists(path.resolve(repoRoot, 'npm-shrinkwrap.json')))
+  ) {
     try {
-      execSync('npm audit --audit-level=high 2>&1', { cwd: repoRoot, stdio: 'pipe' });
-    } catch {
-      packageAuditPassed = false;
+      execFileSync('npm', ['audit', '--audit-level=high', '--json'], { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' });
+      packageAuditStatus = 'clean';
+    } catch (err) {
+      const stdout = String(err?.stdout || '');
+      let parsed = null;
+      try {
+        parsed = JSON.parse(stdout);
+      } catch {}
+      const vulns = parsed?.metadata?.vulnerabilities;
+      if (vulns && Number(vulns.high || 0) + Number(vulns.critical || 0) > 0) {
+        packageAuditPassed = false;
+        packageAuditStatus = 'vulnerable';
+      } else {
+        packageAuditStatus = 'skipped-offline';
+      }
     }
   }
 
@@ -1148,6 +1178,7 @@ export function auditSecurity(repoRoot = '.') {
     secretLeaksCount: secretViolations.length,
     secretViolations,
     packageAuditPassed,
+    packageAuditStatus,
     recommendation: clean ? 'Ready to push.' : 'Resolve hardcoded secrets and high-severity dependencies.'
   };
 }
@@ -1244,20 +1275,20 @@ export function generateReviewPlan({ repoRoot = '.' } = {}) {
     {
       TypeName: 'research',
       Role: 'PR Peer Reviewer',
-      Prompt: `Load sdlc-review-gate/SKILL.md. Audit git diff against main on branch ${branch} for issue #${issueId}.
-1. Audit for Robert Martin test smells (no assertion-free tests, no trivial getters, no mock abuse).
-2. Verify Dual-Gate metrics (Line diff coverage >= 85%, Mutation kill score >= 80%).
-3. Verify developer showcase quickstart in README.md and CHANGELOG.md entry.
-4. MANDATORILY post formal review comment to GitHub PR, Jira, Linear, or docs/KANBAN.md (node .agent/scripts/sdlc-engine.mjs pm comment ${issueId} --body "<comment>").`
+      Prompt: `Follow sdlc-gate review guidelines. Audit git diff against main on branch ${branch} for issue #${issueId}.
+1. Audit for Robert Martin test smells (no assertion-free tests, no trivial getters, no mock abuse) and F.I.R.S.T. isolation.
+2. Verify Dual-Gate metrics against .agent/sdlc-config.json thresholds.
+3. Verify README.md and CHANGELOG.md alignment when user-facing behavior changes.
+4. Return a structured read-only verdict (verdict: approve | request-changes, blockers, notes) so the orchestrator can publish it via review record.`
     },
     {
       TypeName: 'research',
       Role: 'Quality Gatekeeper',
-      Prompt: `Load sdlc-review-gate/SKILL.md. Execute universal quality gate (node .agent/scripts/sdlc-engine.mjs gate --strict).
-1. Audit formatting, static typing, and production builds.
-2. Check pre-flight risk profile (detected: ${risk.riskLevel}).
-3. Run secret scanning and package CVE check (node .agent/scripts/sdlc-engine.mjs security-audit).
-4. Verify zero concentric layer inversions (node .agent/scripts/sdlc-engine.mjs archlens diff).`
+      Prompt: `Follow sdlc-gate architectural & security guidelines. Inspect modified files on branch ${branch} for issue #${issueId}.
+1. Check pre-flight risk profile (detected: ${risk.riskLevel}, modified files: ${diffFiles.length}).
+2. Inspect modified files for hardcoded secrets, unsafe shell interpolation, or package CVEs.
+3. Verify zero concentric layer inversions against .archlens/policy.json and zero undeclared API contract drift.
+4. Return a structured read-only gate report (verdict: approve | request-changes, blockers, notes).`
     }
   ];
 
@@ -1625,7 +1656,7 @@ export function auditSkills(repoRoot = '.', { live = false } = {}) {
   if (fs.existsSync(skillsDir)) {
     const entries = fs
       .readdirSync(skillsDir, { withFileTypes: true })
-      .filter((d) => d.isDirectory() && d.name.startsWith('sdlc'))
+      .filter((d) => d.isDirectory() && (d.name.startsWith('sdlc') || d.name === 'ub-mode'))
       .map((d) => d.name)
       .sort();
 
@@ -1701,6 +1732,7 @@ export function auditSkills(repoRoot = '.', { live = false } = {}) {
   return {
     success: totalFindings === 0,
     skillsScanned: results.length,
+    skillsAudited: results.length,
     totalFindings,
     maxScore: results.reduce((max, r) => Math.max(max, r.score), 0),
     skills: results,

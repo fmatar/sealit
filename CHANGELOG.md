@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **Dogfooded Root `README.md`, `CONTRIBUTING.md`, `llms.txt` & Multi-Agent Skills (`ADR-001`)**: Refactored root `README.md` into a 67-visible-line 10–30–90 landing page with `<picture>` dark/light wordmarks, neutral-themed Mermaid diagram, and `<details>` progressive disclosure; moved contributor setup into `CONTRIBUTING.md`; and synchronized `sdlc`, `sdlc-wiki`, `sdlc-product`, and `sdlc-release` across `.agent/skills/` and `.claude/` dialects.
+- **Config-Driven Dual-Gate Baseline & Real Concentric Ring Policy (`#103`, `ADR-002`)**: Updated `PRODUCT.md` (`INV-02`) and `CONSTITUTIONAL_RULES_SUMMARY` to make `.agent/sdlc-config.json` the single source of truth for coverage and mutation thresholds, mapped `.archlens/policy.json` to the 4 real concentric layers of `.agent/scripts/`, and widened `stryker.config.json` mutation coverage to include `.agent/scripts/lib/git-guard.mjs`.
+
+### Fixed
+- **Truthful CLI Output Formatters, Complete `help` & Honest Session Telemetry (`#103`)**: Fixed `formatCLIResult` field mismatches for `audit verify`, `audit record`, `skill-audit`, `adr create`, `drift check`, and `review plan`; expanded `sdlc-engine.mjs help` across all CLI command groups; updated `auditSkills` to include `ub-mode`; fixed `calculateSessionStats` so zero-session workspaces report `$0` instead of historical trace-inflated savings and label ROI figures as estimates; fixed `gate --strict` passing modified files into `assessRisk`; and added SHA-256 Git hook drift detection (`inspectHooksHealth`) to `doctor` (`--fix`).
 
 ## [0.3.2] - 2026-11-08
 

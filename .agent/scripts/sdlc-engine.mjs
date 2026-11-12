@@ -82,6 +82,8 @@ import {
   verifyCommitGuard,
   verifyMergeGuard,
   verifyPushGuard,
+  buildHookTemplates,
+  inspectHooksHealth,
   installHooks,
   applyBranchProtection
 } from './lib/git-guard.mjs';
@@ -263,6 +265,8 @@ export {
   verifyCommitGuard,
   verifyMergeGuard,
   verifyPushGuard,
+  buildHookTemplates,
+  inspectHooksHealth,
   installHooks,
   applyBranchProtection,
   CANONICAL_ISSUE_TEMPLATES,
@@ -712,7 +716,8 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
 
       const isStrict = args.includes('--strict');
       if (isStrict) {
-        result.risk = assessRisk([], repoRoot);
+        const modifiedFiles = getModifiedFiles('main', repoRoot);
+        result.risk = assessRisk(modifiedFiles, repoRoot);
         const secRes = auditSecurity(repoRoot);
         result.security = secRes;
         if (!secRes.passed) throw new Error('Security Audit failed: Hardcoded secrets or critical CVEs detected.');
@@ -1951,24 +1956,52 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         result.success = false;
         result.exitCode = 2;
       }
-      (isHelp ? console.log : console.error)(`
-Agentic SDLC Universal Engine (sdlc-engine.mjs)
-
-Usage:
-  npx github:fmatar/agentic-sdlc-framework install [--agents <list>] [--global]
-  node .agent/scripts/sdlc-engine.mjs install [--agents gemini,claude,grok,cursor,windsurf,copilot]
-  node .agent/scripts/sdlc-engine.mjs stage <begin|pre-pr|complete> [--issue <id>]
-  node .agent/scripts/sdlc-engine.mjs product <init|status|plan|control>
-  node .agent/scripts/sdlc-engine.mjs adr <create|list|decide>
-  node .agent/scripts/sdlc-engine.mjs drift check
-  node .agent/scripts/sdlc-engine.mjs decision-graph <build|sync>
-  node .agent/scripts/sdlc-engine.mjs readme <init|audit> [--archetype <auto|cli|sdk|platform>] [--strict]
-  node .agent/scripts/sdlc-engine.mjs wiki <sync|audit|map> [--strict]
-  node .agent/scripts/sdlc-engine.mjs dossier generate --issue <id>
-  node .agent/scripts/sdlc-engine.mjs guard <pre-commit|pre-merge|pre-push|receipt>
-  node .agent/scripts/sdlc-engine.mjs cache <status|clear>
-  node .agent/scripts/sdlc-engine.mjs serve [--port <n>]
-      `);
+      const helpLines = [
+        '',
+        'Agentic SDLC Universal Engine (sdlc-engine.mjs)',
+        '',
+        'Setup & Environment:',
+        '  install [--agents gemini,claude,cursor,grok,windsurf,copilot] [--global] [--with-hooks] [--with-ci] [--yes]',
+        '  detect                                                Auto-detect stack and write .agent/sdlc-config.json',
+        '  doctor [--fix]                                        Diagnose toolchain, assets & hook SHA-256 health (--fix heals)',
+        '  interop <export> [--agent <all|id>]                   Provision agent rules & skills across supported runtimes',
+        '  hooks install | protect [main develop] | ci-workflow  Install 4-Layer Git hooks, branch protection, or CI workflow',
+        '',
+        'Lifecycle & Sessions:',
+        '  stage <begin|pre-pr|complete> [--issue <id>] [--title "<slug>"] [--type <feat|fix|hotfix>] [--checkout]',
+        '  session <status|dashboard|list|start|update|switch|resume|release>',
+        '  ticket <create|transition|comment|sync|templates>     Manage GitHub, Linear, Jira, or local KANBAN.md tickets',
+        '  pm <status|sync|transition|comment|templates>         Project management provider operations',
+        '',
+        'TDD, Quality Gate & Peer Review:',
+        '  test [--affected-only]                                Run module or git-diff affected tests',
+        '  coverage [--no-cache]                                 Measure line/branch coverage against sdlc-config.json',
+        '  mutation | strengthen | exemption <list|add>          Run mutation testing, assertion advice, or audited exemptions',
+        '  reproduce --error "<trace>" [--target <file>]         Scaffold polyglot Red bug-reproduction harness',
+        '  flake-check [--runs <n>]                              Verify test determinism across repeated runs',
+        '  gate [--strict] [--no-cache]                          Execute Universal Quality Gate pillars',
+        '  review <plan|record> [--verdict <approve|request-changes>] [--reviewer <id>]',
+        '  guard <pre-commit|pre-merge|pre-push|receipt>         4-Layer Git Guard & Stage 7 HMAC receipt verification',
+        '  risk-audit | pr-summary | check-ci                    Diff risk profile, PR markdown summary, and CI polling',
+        '',
+        'Product Specs, ADRs & Architecture:',
+        '  product <init|status|plan|control|spec> [--provision] Constitutional PRODUCT.md, PRD/SRS specs, and DAG waves',
+        '  spec <init|create> --cap <CAP-XX> --title "<title>"   Scaffold IEEE 29148 capability specification',
+        '  adr <create|list|decide|compact> [--release <ver>]    Manage Architecture Decision Records & SRS compaction',
+        '  drift check | contract check                          Verify spec, manifest, and API contract drift',
+        '  decision-graph <build|sync> | dossier generate        Sync DECISION_MAP.md or build compact ticket dossiers',
+        '  arch <trace|diff> | archlens <check|diff|trace|scaffold>',
+        '',
+        'Documentation, Security, Telemetry & Release:',
+        '  readme <init|audit> [--archetype <auto|cli|sdk|platform>] [--strict]',
+        '  wiki <sync|audit|map> [--init] [--strict]             AST-to-Wiki synchronization & broken-path auditing',
+        '  skill-audit [--live] | security-audit                 Static SkillSpector & secret/CVE scanning',
+        '  audit <verify|record> | cache <status|clear> | stats  Merkle audit chain verification, gate cache & est. stats',
+        '  ui-snapshot | serve [--port <4120>]                   Build static workbench HTML or start token-gated server',
+        '  proof generate --name <id> | release <patch|minor|major> [--dry-run] | watchdog monitor',
+        ''
+      ];
+      (isHelp ? console.log : console.error)(helpLines.join('\n'));
       return result;
     }
   }
@@ -2032,10 +2065,11 @@ export function formatCLIResult(res, args = []) {
 
   if (cmd === 'drift' && res.drift) {
     const d = res.drift;
+    const touchCount = d.triggers?.length ?? d.modifiedSpecs?.length ?? 0;
     if (d.passed) {
-      return `✅ Spec-Drift Check Passed (${(d.modifiedSpecs || []).length} spec/contract touchpoint(s) verified).`;
+      return `✅ Spec-Drift Check Passed (${touchCount} spec/contract touchpoint(s) verified).`;
     }
-    return `🛑 Spec-Drift Check Failed: ${d.reason || 'Undeclared spec or contract drift requires an accepted ADR.'}`;
+    return `🛑 Spec-Drift Check Failed: ${d.message || d.reason || 'Undeclared spec or contract drift requires an accepted ADR.'}`;
   }
 
   if (cmd === 'adr') {
@@ -2047,7 +2081,11 @@ export function formatCLIResult(res, args = []) {
       return ['📜 Architecture Decision Records:', ...res.adrs.map((a) => `  • ${a.id}: ${a.title} [${a.scope} | ${a.status}] (${a.file})`)].join('\n');
     }
     if (res.adr) {
-      return `📜 ADR ${res.adr.id || res.adr.adrId || ''}: ${res.adr.title || res.adr.status || 'updated'} (${res.adr.file || 'docs/adr'})`;
+      const adrItem = res.adr.adr || res.adr;
+      const adrId = adrItem.id || adrItem.adrId || res.adr.adrId || '';
+      const adrTitle = adrItem.title || adrItem.status || res.adr.status || 'updated';
+      const adrPath = res.adr.relativePath || adrItem.file || res.adr.file || 'docs/adr';
+      return `📜 ADR ${adrId}: ${adrTitle} (${adrPath})`;
     }
   }
 
@@ -2067,19 +2105,23 @@ export function formatCLIResult(res, args = []) {
 
   if (cmd === 'skill-audit' && res.skillAudit) {
     const sa = res.skillAudit;
-    return `🛡️ Skill Audit: ${sa.skillsAudited || sa.results?.length || 0} skill(s) checked, ${sa.totalFindings || 0} finding(s) (${sa.success ? 'PASSED' : 'FAILED'})`;
+    const checkedCount = sa.skillsScanned ?? sa.skillsAudited ?? sa.skills?.length ?? sa.results?.length ?? 0;
+    return `🛡️ Skill Audit: ${checkedCount} skill(s) checked, ${sa.totalFindings || 0} finding(s) (${sa.success ? 'PASSED' : 'FAILED'})`;
   }
 
   if (cmd === 'audit' && res.audit) {
     if (res.audit.valid !== undefined) {
-      return `${res.audit.valid ? '✅' : '🛑'} Merkle Audit Chain: ${res.audit.valid ? 'VALID' : 'INVALID'} (${res.audit.entriesCount ?? 0} record(s))`;
+      const count = res.audit.recordsCount ?? res.audit.entriesCount ?? 0;
+      return `${res.audit.valid ? '✅' : '🛑'} Merkle Audit Chain: ${res.audit.valid ? 'VALID' : 'INVALID'} (${count} record(s))`;
     }
-    return `📝 Audit record appended: ${res.audit.event || 'OK'} (${res.audit.hash || ''})`;
+    const rec = res.audit.record || res.audit;
+    const hash = rec.currentHash || rec.hash || '';
+    return `📝 Audit record appended: ${rec.event || 'OK'} (${hash ? hash.slice(0, 12) : 'recorded'})`;
   }
 
   if (cmd === 'stats' && res.stats) {
     const st = res.stats;
-    return `📊 SDLC Telemetry: Stage=${st.currentStage} | Branch=${st.activeBranch} | Sessions=${st.completedSessions}/${st.totalSessions} | Velocity=${st.velocityScore}% | Saved=${st.estimatedHoursSaved}h ($${st.totalDollarSavingsUSD})`;
+    return `📊 SDLC Telemetry: Stage=${st.currentStage} | Branch=${st.activeBranch} | Sessions=${st.completedSessions}/${st.totalSessions} | Velocity=${st.velocityScore}% | Est. Saved=${st.estimatedHoursSaved}h ($${st.totalDollarSavingsUSD} est.)`;
   }
 
   if (cmd === 'cache' && res.cache) {
@@ -2124,7 +2166,10 @@ export function formatCLIResult(res, args = []) {
       const recPart = res.review.receipt?.receiptId ? ` | Receipt: ${res.review.receipt.receiptId}` : '';
       return `✅ Recorded peer review verdict '${res.review.verdict}' by ${res.review.reviewer}${recPart}${prPart}`;
     }
-    if (res.reviewPlan) return `🔍 Review Plan generated (${(res.reviewPlan.files || []).length} modified file(s)).`;
+    if (res.reviewPlan) {
+      const rp = res.reviewPlan;
+      return `🔍 Review Plan (#${rp.issueId || 'N/A'}): risk=${rp.riskLevel || 'LOW'}, reviewers=${rp.subagentsCount ?? (rp.payload?.Subagents || []).length}`;
+    }
   }
 
   if (cmd === 'interop' && res.interop) {
