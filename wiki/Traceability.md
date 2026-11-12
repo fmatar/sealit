@@ -1,6 +1,6 @@
 # 🎯 End-to-End Traceability, Multi-Provider Kanban & Cryptographic Ledgers
 
-The **Agentic SDLC Framework** enforces unbroken traceability from constitutional product capabilities (`PRODUCT.md`) and issue tickets (`GitHub Issues`, `Linear`, `Jira`, and `docs/KANBAN.md`) down to feature branches, Mermaid architecture diffs (`docs/ARCH_TRACE.md`), cryptographic audit records (`docs/AUDIT_CHAIN.jsonl`), Stage 7 Gate Receipts (`.agent/gate-receipts.jsonl`), and AST-verified wiki documentation (`wiki/Codebase-Map.md`).
+The **Agentic SDLC Framework** enforces unbroken traceability from constitutional product capabilities (`PRODUCT.md`) and issue tickets (`GitHub Issues`, `Linear`, `Jira`, and `docs/KANBAN.md`) down to feature branches, [Archlens](https://github.com/fmatar/archlens)-governed Mermaid architecture diffs (`docs/ARCH_TRACE.md`, `.archlens/policy.json`), cryptographic hash-chain audit records and Stage 7 HMAC-SHA256 Gate Receipts (`docs/AUDIT_CHAIN.jsonl`), and AST-verified wiki documentation (`wiki/Codebase-Map.md`).
 
 ---
 
@@ -11,9 +11,9 @@ flowchart LR
     P["PRODUCT.md (CAP-XX / INV-XX)"] --> S["docs/specs/cap-XX-*.md (PRD + IEEE 29148 SRS)"]
     S --> T["Ticket (#ID in GitHub / Linear / Jira & docs/KANBAN.md)"]
     T --> B["Isolated Branch (feature/issue-#ID-slug)"]
-    B --> C["TDD & Dual-Gate (>=85% Cov, >=80% Mut)"]
-    C --> W["Wiki Sync & Audit (wiki/Codebase-Map.md)"]
-    W --> R["Stage 7 Merkle Gate Receipt (.agent/gate-receipts.jsonl)"]
+    B --> C["TDD & Config-Driven Dual-Gate (.agent/sdlc-config.json)"]
+    C --> W["Wiki & README Strict Audit (wiki/, README.md)"]
+    W --> R["Stage 7 HMAC-SHA256 Receipt (docs/AUDIT_CHAIN.jsonl)"]
     R --> M["Protected Merge to main & Release Tag"]
 ```
 
@@ -21,14 +21,14 @@ flowchart LR
 | :--- | :--- | :--- |
 | **Product Constitution** | `PRODUCT.md` | `.agent/scripts/lib/product-dag.mjs` |
 | **Two-Tier PRD & IEEE 29148 SRS** | `docs/PRD.md`, `docs/SRS.md`, `docs/specs/` | `.agent/scripts/lib/product-dag.mjs` |
-| **Architecture Decision Records** | `docs/adr/ADR-001..ADR-007` | `.agent/scripts/lib/adr-drift.mjs` |
+| **Architecture Decision Records** | `docs/adr/`, `docs/SRS.md` | `.agent/scripts/lib/adr-drift.mjs` |
 | **Causal Decision Lineage Map** | `docs/DECISION_MAP.md` | `.agent/scripts/lib/decision-graph.mjs` |
 | **Living Markdown Kanban Board** | `docs/KANBAN.md` | `.agent/scripts/lib/pm-provider.mjs` & `.agent/scripts/kanban-sync.sh` |
 | **Canonical Issue & PR Templates** | `.github/ISSUE_TEMPLATE/*.md`, `.github/PULL_REQUEST_TEMPLATE.md` | `.agent/scripts/lib/pm-provider.mjs` |
-| **Architectural Trace Ledger** | `docs/ARCH_TRACE.md`, `.agent/arch-trace.jsonl` | `.agent/scripts/lib/arch-trace.mjs` |
-| **Merkle Cryptographic Audit Chain** | `docs/AUDIT_CHAIN.jsonl` | `.agent/scripts/lib/audit-chain.mjs` |
-| **Stage 7 Merge Gate Receipts** | `.agent/gate-receipts.jsonl` | `.agent/scripts/lib/audit-chain.mjs` & `.agent/scripts/lib/git-guard.mjs` |
-| **AST-to-Wiki Codebase Map** | `wiki/Codebase-Map.md` | `.agent/scripts/lib/wiki-sync.mjs` |
+| **Architectural Trace Ledger ([Archlens](https://github.com/fmatar/archlens))** | `docs/ARCH_TRACE.md`, `.archlens/policy.json` | `.agent/scripts/lib/arch-trace.mjs` |
+| **Cryptographic Hash-Chain Audit Log** | `docs/AUDIT_CHAIN.jsonl` | `.agent/scripts/lib/audit-chain.mjs` |
+| **Stage 7 Merge Gate Receipts** | `docs/AUDIT_CHAIN.jsonl`, `.agent/.receipt-key` | `.agent/scripts/lib/audit-chain.mjs` & `.agent/scripts/lib/git-guard.mjs` |
+| **AST-to-Wiki & 10-30-90 README Sync** | `wiki/Codebase-Map.md`, `README.md` | `.agent/scripts/lib/wiki-sync.mjs` & `.agent/scripts/lib/readme-sync.mjs` |
 
 ---
 
@@ -69,17 +69,17 @@ For repositories using GitHub Projects v2, two executable helper scripts in `.ag
 
 ## 3. Cryptographic Audit Trail & Stage 7 Merkle Gate Receipts
 
-Every state transition in the framework is recorded in two tamper-evident ledgers managed by `.agent/scripts/lib/audit-chain.mjs`:
+Every state transition and merge authorization in the framework is recorded inside the tamper-evident hash chain managed by `.agent/scripts/lib/audit-chain.mjs`:
 
-1. **Sequential SHA-256 Merkle Audit Chain (`docs/AUDIT_CHAIN.jsonl`)**:
+1. **Sequential SHA-256 Hash-Chain Audit Log (`docs/AUDIT_CHAIN.jsonl`)**:
    - Each record hashes `index + timestamp + event + metadata + previousHash` starting from `GENESIS_HASH` (`0000...0000`).
    - Verify integrity at any time:
      ```bash
      node .agent/scripts/sdlc-engine.mjs audit verify
      ```
-2. **Stage 7 Cryptographic Gate Receipts (`.agent/gate-receipts.jsonl`)**:
-   - Issued during `node .agent/scripts/sdlc-engine.mjs stage pre-pr` (or `guard receipt`) only when **Spec-Drift (`checkSpecDrift`)** and **Wiki Audit (`auditWiki`)** pass.
-   - Binds the branch `HEAD` commit SHA, ticket ID, coverage/mutation metrics, and current Merkle root into an HMAC-SHA256 signature verified by `verifyMergeGuard` before any merge into `main`.
+2. **Stage 7 HMAC-SHA256 Gate Receipts (`STAGE_7_GATE_RECEIPT_SIGNED` in `docs/AUDIT_CHAIN.jsonl`)**:
+   - Signed with `.agent/.receipt-key` (or `SDLC_RECEIPT_KEY`) via `node .agent/scripts/sdlc-engine.mjs review record --verdict approve` / `guard receipt` (and auto-signed during `stage pre-pr` for eligible `trivial`-lane changes) only when lane-required measured **Coverage/Mutation**, **Spec-Drift (`checkSpecDrift`)**, and **Wiki Audit (`auditWiki`)** pass.
+   - Binds the branch name, ticket ID, execution lane (`trivial` / `standard` / `full`), measured coverage/mutation metrics, reviewer verdict, and chain hash into an HMAC-SHA256 signature verified by `verifyMergeGuard` before any merge into `main`.
 
 ---
 

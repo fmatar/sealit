@@ -40,6 +40,7 @@ import {
   CANONICAL_SDLC_SKILLS,
   provisionAgentIntegrations,
   auditSkills,
+  auditReadme,
   auditWiki,
   buildWikiCodeMap,
   parseFrontmatter
@@ -1633,6 +1634,95 @@ describe('Issue #111: Slim npm package (<250 KB), untracked binaries, and single
       assert.equal(wikiRes.passed, true, `Expected clean-checkout wiki audit to pass, got: ${JSON.stringify(wikiRes.findings)}`);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ===========================================================================
+// Issue #114: README, Wiki, PRD & SRS documentation alignment + Archlens links
+// ===========================================================================
+describe('Issue #114: Documentation alignment & Archlens repository link hygiene', () => {
+  it('links https://github.com/fmatar/archlens across README.md, llms.txt, CONTRIBUTING.md, wiki, PRD, and SRS', () => {
+    const requiredDocPaths = [
+      'README.md',
+      'llms.txt',
+      'CONTRIBUTING.md',
+      'wiki/Home.md',
+      'wiki/Architecture.md',
+      'wiki/Skills-Reference.md',
+      'wiki/Traceability.md',
+      'wiki/Codebase-Map.md',
+      'wiki/_Sidebar.md',
+      'wiki/_Footer.md',
+      'docs/PRD.md',
+      'docs/SRS.md'
+    ];
+
+    for (const relPath of requiredDocPaths) {
+      const content = fs.readFileSync(path.join(REPO_ROOT, relPath), 'utf8');
+      assert.ok(
+        content.includes('https://github.com/fmatar/archlens'),
+        `Expected ${relPath} to include canonical Archlens repository link https://github.com/fmatar/archlens`
+      );
+    }
+  });
+
+  it('passes strict README and Wiki audits with zero errors or polish warnings and removes obsolete v0.0.x docs', () => {
+    const readmeRes = auditReadme(REPO_ROOT, { strict: true });
+    assert.equal(readmeRes.passed, true, `README strict audit failed: ${JSON.stringify(readmeRes.findings)}`);
+    assert.equal(readmeRes.errorsCount, 0);
+    assert.equal(readmeRes.warningsCount, 0, `Expected 0 README polish warnings, got: ${JSON.stringify(readmeRes.findings)}`);
+
+    const wikiRes = auditWiki(REPO_ROOT, { strict: true });
+    assert.equal(wikiRes.passed, true, `Wiki strict audit failed: ${JSON.stringify(wikiRes.findings)}`);
+
+    // Obsolete pre-v0.1 NoteZen-era docs must be removed
+    assert.equal(fs.existsSync(path.join(REPO_ROOT, 'docs/SDLC_AGENTIC_OPERATIONS_GUIDE.md')), false);
+    assert.equal(fs.existsSync(path.join(REPO_ROOT, 'docs/SDLC_COMPLIANCE_REPORT.md')), false);
+
+    // Active prose in CONTRIBUTING.md, PRD.md, SRS.md (before Compacted Architectural Decisions), and wiki/Architecture.md must match v0.4.0
+    const contributing = fs.readFileSync(path.join(REPO_ROOT, 'CONTRIBUTING.md'), 'utf8');
+    assert.match(contributing, /11 canonical skills/i);
+    assert.doesNotMatch(contributing, /\b10 canonical skills\b/i);
+
+    const prd = fs.readFileSync(path.join(REPO_ROOT, 'docs/PRD.md'), 'utf8');
+    assert.doesNotMatch(prd, /SvelteKit 5|6 focused agentic skills/i);
+    assert.match(prd, /CAP-11/);
+
+    const srsActive = fs.readFileSync(path.join(REPO_ROOT, 'docs/SRS.md'), 'utf8').split('## Compacted Architectural Decisions')[0];
+    assert.doesNotMatch(srsActive, /SvelteKit 5|6 focused agentic skills|8 Verb Skills/i);
+
+    const archWiki = fs.readFileSync(path.join(REPO_ROOT, 'wiki/Architecture.md'), 'utf8');
+    assert.match(archWiki, /readme-sync\.mjs/);
+    assert.match(archWiki, /detectReadmeArchetype/);
+    assert.match(archWiki, /scaffoldReadme/);
+    assert.doesNotMatch(archWiki, /detectProjectArchetype|initReadme/);
+
+    const traceWiki = fs.readFileSync(path.join(REPO_ROOT, 'wiki/Traceability.md'), 'utf8');
+    assert.doesNotMatch(traceWiki, /\.agent\/gate-receipts\.jsonl/);
+    assert.match(traceWiki, /STAGE_7_GATE_RECEIPT_SIGNED/);
+
+    // buildWikiCodeMap must honor .archlens/policy.json concentric rings (4 / 6 / 6 / 1) with zero outward imports
+    const codeMap = buildWikiCodeMap(REPO_ROOT);
+    assert.deepEqual(
+      codeMap.rings.map((r) => ({ name: r.name, count: r.modules.length })),
+      [
+        { name: 'Ring 0: domain-core', count: 4 },
+        { name: 'Ring 1: governance-models', count: 6 },
+        { name: 'Ring 2: adapters-orchestrators', count: 6 },
+        { name: 'Ring 3: cli-entrypoints', count: 1 }
+      ]
+    );
+    const ringIndexByPath = new Map(codeMap.modules.map((m) => [m.path, m.ringIndex]));
+    for (const mod of codeMap.modules) {
+      for (const imp of mod.imports) {
+        if (ringIndexByPath.has(imp)) {
+          assert.ok(
+            mod.ringIndex >= ringIndexByPath.get(imp),
+            `Expected inward-only ring import, got ${mod.path} (Ring ${mod.ringIndex}) -> ${imp} (Ring ${ringIndexByPath.get(imp)})`
+          );
+        }
+      }
     }
   });
 });

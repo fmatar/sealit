@@ -39,7 +39,7 @@ This reference documents the **11 Canonical Skills — 1 Universal Router (`/sdl
 
 ---
 
-## 2. The 9 Verb-Driven Skills
+## 2. The 9 Verb-Driven Skills & `ub-mode`
 
 ### 2.1 `sdlc-product` — Product Autopilot & IEEE 29148 SRS Architect
 - **Path**: `.agent/skills/sdlc-product/SKILL.md`
@@ -80,7 +80,7 @@ This reference documents the **11 Canonical Skills — 1 Universal Router (`/sdl
 - **Engine Modules**: `.agent/scripts/lib/quality-gate.mjs`, `.agent/scripts/lib/arch-trace.mjs`, `.agent/scripts/lib/audit-chain.mjs`
 - **Capabilities**:
   - Generates risk-tiered parallel subagent review plans (`review plan --base main`) for read-only **PR Peer Reviewer** and **Architecture & Security Gatekeeper** subagents.
-  - Runs the strict 9-pillar gate (`gate --strict`): lint, build, coverage, risk audit (`risk-audit`), secret/CVE scan (`security-audit`), Archlens concentric ring diff (`archlens diff`), flaky test detection (`flake-check`), API contract check (`contract check`), Merkle audit verification (`audit verify`), and Wiki drift audit (`wiki audit --strict`).
+  - Runs the strict 9-pillar gate (`gate --strict`): lint, build, coverage, risk audit (`risk-audit`), secret/CVE scan (`security-audit`), [Archlens](https://github.com/fmatar/archlens) concentric ring diff (`archlens diff`), flaky test detection (`flake-check`), API contract check (`contract check`), Merkle audit verification (`audit verify`), README 10–30–90 audit (`readme audit --strict`), and Wiki drift audit (`wiki audit --strict`).
   - Derives `--verdict <approve|request-changes>` strictly from reviewer blocker counts and issues HMAC-SHA256 Stage 7 Merkle Gate Receipts (`review record` / `guard receipt`).
 
 ### 2.6 `sdlc-status` — Read-Only Mission Control, Kanban & Telemetry Inspector
@@ -106,13 +106,13 @@ This reference documents the **11 Canonical Skills — 1 Universal Router (`/sdl
   - Bumps SemVer versions across `package.json`, `pom.xml`, `pyproject.toml`, or `Cargo.toml`, updates `CHANGELOG.md`, and creates annotated Git tags (`release <patch|minor|major>`).
   - Monitors post-deployment canary health endpoints with automatic rollback on error-rate threshold breach (`watchdog monitor`).
 
-### 2.9 `sdlc-wiki` — Technical Writer, 10–30–90 README & Archlens Wiki Architect
+### 2.9 `sdlc-wiki` — Technical Writer, 10–30–90 README & [Archlens](https://github.com/fmatar/archlens) Wiki Architect
 - **Path**: `.agent/skills/sdlc-wiki/SKILL.md`
 - **Engine Modules**: `.agent/scripts/lib/readme-sync.mjs`, `.agent/scripts/lib/wiki-sync.mjs`, `.agent/scripts/lib/arch-trace.mjs`
 - **Capabilities**:
   - Scaffolds high-converting 10–30–90 Developer Landing Pages (`README.md`) from `docs/templates/README_TEMPLATE.md` along with theme-aware wordmarks (`docs/logo-light.svg`, `docs/logo-dark.svg`), `llms.txt`, and Charmbracelet VHS `docs/demo.tape` scripts (`readme init --archetype <auto|cli|sdk|platform>`).
   - Audits `README.md` against tiered 10–30–90 anti-pattern rules (`<= 4` badges, zero `git clone`-first Quickstarts, valid local links, neutral Mermaid, and `<details>` progressive disclosure) (`readme audit --strict`).
-  - Inspects AST exports with line numbers and maps modules into `.archlens/policy.json` Concentric Clean Architecture rings with $Ca / Ce / I$ coupling telemetry (`wiki map`).
+  - Inspects AST exports with line numbers and maps modules into [Archlens](https://github.com/fmatar/archlens) `.archlens/policy.json` Concentric Clean Architecture rings with $Ca / Ce / I$ coupling telemetry (`wiki map`).
   - Generates and updates `wiki/Codebase-Map.md` (`wiki sync`).
   - Audits `wiki/*.md` for broken repo paths, retired skill references, unmapped modules, undocumented skills, and invalid Mermaid syntax (`wiki audit --strict`).
 
@@ -127,13 +127,15 @@ This reference documents the **11 Canonical Skills — 1 Universal Router (`/sdl
 
 ```bash
 # Stack Discovery, Installation & Diagnostics
-node .agent/scripts/sdlc-engine.mjs install [--agents gemini,claude,cursor,grok,windsurf,copilot] [--global] [--yes]
+node .agent/scripts/sdlc-engine.mjs install [--agents gemini,claude,cursor,grok,windsurf,copilot] [--global] [--with-archlens] [--with-hooks] [--with-ci] [--yes]
+node .agent/scripts/sdlc-engine.mjs interop export [--agent <all|gemini,claude,cursor>]
 node .agent/scripts/sdlc-engine.mjs detect
 node .agent/scripts/sdlc-engine.mjs doctor [--fix]
 node .agent/scripts/sdlc-engine.mjs skill-audit [--live]
 
-# Composite Lifecycle & Session Management
-node .agent/scripts/sdlc-engine.mjs stage <begin|pre-pr|complete> [--issue <id>] [--title "<title>"] [--checkout]
+# Risk Triage, Composite Lifecycle & Session Management
+node .agent/scripts/sdlc-engine.mjs triage [files...] [--intent "<desc>"] [--lane <trivial|standard|full>] [--reason "<why>"]
+node .agent/scripts/sdlc-engine.mjs stage <begin|pre-pr|complete> [--issue <id>] [--title "<title>"] [--lane <trivial|standard|full>] [--checkout] [--ui]
 node .agent/scripts/sdlc-engine.mjs session <status|dashboard|start|update|list|switch|resume|release>
 node .agent/scripts/sdlc-engine.mjs stats
 
@@ -150,6 +152,11 @@ node .agent/scripts/sdlc-engine.mjs test [--affected-only]
 node .agent/scripts/sdlc-engine.mjs coverage [--no-cache]
 node .agent/scripts/sdlc-engine.mjs mutation [--no-cache]
 node .agent/scripts/sdlc-engine.mjs gate [--strict] [--no-cache]
+node .agent/scripts/sdlc-engine.mjs review <plan|record> [--verdict <approve|request-changes>] [--reviewer <id>] [--pr <num>]
+node .agent/scripts/sdlc-engine.mjs risk-audit
+node .agent/scripts/sdlc-engine.mjs security-audit
+node .agent/scripts/sdlc-engine.mjs flake-check [--runs <n>]
+node .agent/scripts/sdlc-engine.mjs check-ci [<pr_number>]
 node .agent/scripts/sdlc-engine.mjs reproduce --error "<stack-trace>" [--target <file>]
 node .agent/scripts/sdlc-engine.mjs cache <status|clear>
 
