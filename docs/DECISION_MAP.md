@@ -63,6 +63,7 @@ flowchart TD
   _105["Ticket #105 (feature/issue-#105-github-actions-quality-gate-ci-configura)"]
   _107["Ticket #107 (feature/issue-#107-risk-proportional-execution-lanes-and-sp)"]
   _109["Ticket #109 (feature/issue-#109-right-size-all-sdlc-skills-and-upgrade-c)"]
+  _111["Ticket #111 (feature/issue-#111-slim-npm-package-retire-duplicate-svelte)"]
   CAP_01 -->|specified_by| SPEC_01
   CAP_02 -->|specified_by| SPEC_02
   CAP_03 -->|specified_by| SPEC_03

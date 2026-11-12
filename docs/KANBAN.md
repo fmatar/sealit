@@ -13,7 +13,7 @@
 
 | 📥 Backlog | 📋 Ready | ⚡ In Progress | 🔍 In Review | ✅ Done |
 | :--- | :--- | :--- | :--- | :--- |
-| [#111 chore: Slim npm package (<250 KB), retire duplicate SvelteKit workbench, sync docs, and release v0.4.0](https://github.com/fmatar/agentic-sdlc-framework/issues/111) |  |  |  | [#109 feat: Right-size all sdlc skills and upgrade Claude and Cursor integrations](https://github.com/fmatar/agentic-sdlc-framework/issues/109) |
+|  |  |  | [#111 chore: Slim npm package (<250 KB), retire duplicate SvelteKit workbench, sync docs, and release v0.4.0](https://github.com/fmatar/agentic-sdlc-framework/issues/111) |  |
 |  |  |  |  | [#107 feat: Risk-proportional execution lanes and spec-drift precision](https://github.com/fmatar/agentic-sdlc-framework/issues/107) |
 |  |  |  |  | [#105 feat: GitHub Actions quality-gate CI, configurable runners, and shell-free execution](https://github.com/fmatar/agentic-sdlc-framework/issues/105) |
 |  |  |  |  | [#103 fix: Truthful CLI telemetry, hook drift doctor, and config-driven Dual-Gate baseline](https://github.com/fmatar/agentic-sdlc-framework/issues/103) |
@@ -58,7 +58,7 @@
 
 | Issue | Status | Priority | Component | Milestone | Spec / Contract |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| [#111 chore: Slim npm package (<250 KB), retire duplicate SvelteKit workbench, sync docs, and release v0.4.0](https://github.com/fmatar/agentic-sdlc-framework/issues/111) | `status:backlog` | P2 - Medium | General | — | — |
+| [#111 chore: Slim npm package (<250 KB), retire duplicate SvelteKit workbench, sync docs, and release v0.4.0](https://github.com/fmatar/agentic-sdlc-framework/issues/111) | `status:in-review` | P2 - Medium | General | — | — |
 | [#109 feat: Right-size all sdlc skills and upgrade Claude and Cursor integrations](https://github.com/fmatar/agentic-sdlc-framework/issues/109) | `status:done` | P2 - Medium | General | — | — |
 | [#107 feat: Risk-proportional execution lanes and spec-drift precision](https://github.com/fmatar/agentic-sdlc-framework/issues/107) | `status:done` | P2 - Medium | General | — | — |
 | [#105 feat: GitHub Actions quality-gate CI, configurable runners, and shell-free execution](https://github.com/fmatar/agentic-sdlc-framework/issues/105) | `status:done` | P2 - Medium | General | — | — |
