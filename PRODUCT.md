@@ -51,4 +51,5 @@ End-to-end spec-driven autonomous software development lifecycle, Spec-Drift ADR
 | *None* | *Compacted into SRS.md (v0.3.0)* | - | - | - | - |
 | ADR-001 | 10-30-90 Developer Landing Page README Template and Deterministic README Engine | `technical` | `accepted` | #100 | CAP-11 |
 | ADR-002 | Config-Driven Dual-Gate Thresholds, Verifiable CLI Telemetry, and SHA-256 Hook Drift Detection | `technical` | `accepted` | #103 | CAP-03, CAP-06 |
+| ADR-003 | Shell-Free Command Execution, Least-Privilege Self-Hosted CI, and Bundled Config Schema | `technical` | `accepted` | #105 | None |
 <!-- ADR_INDEX_END -->

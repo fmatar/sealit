@@ -19,7 +19,7 @@ flowchart TD
   subgraph Ring0 ["Ring 0: Domain Core & Primitives"]
     audit_chain_mjs["audit-chain.mjs (11 exports, I=0)"]
     cache_mjs["cache.mjs (6 exports, I=0.5)"]
-    core_mjs["core.mjs (14 exports, I=0)"]
+    core_mjs["core.mjs (16 exports, I=0)"]
   end
   subgraph Ring1 ["Ring 1: Application & Governance"]
     adr_drift_mjs["adr-drift.mjs (6 exports, I=0.3)"]
@@ -32,7 +32,7 @@ flowchart TD
     wiki_sync_mjs["wiki-sync.mjs (6 exports, I=0.75)"]
   end
   subgraph Ring2 ["Ring 2: Adapters & Enforcement"]
-    git_guard_mjs["git-guard.mjs (7 exports, I=0.5)"]
+    git_guard_mjs["git-guard.mjs (8 exports, I=0.5)"]
     installer_mjs["installer.mjs (26 exports, I=0.57)"]
     pm_provider_mjs["pm-provider.mjs (16 exports, I=0.17)"]
     quality_gate_mjs["quality-gate.mjs (26 exports, I=0.8)"]
@@ -98,14 +98,14 @@ flowchart TD
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | `.agent/scripts/lib/audit-chain.mjs` | 343 | 7 / 0 | `0` | `AUDIT_LEDGER_FILE` (L6), `GENESIS_HASH` (L7), `calculateRecordHash` (L9), `appendAuditRecord` (L14), `verifyAuditChain` (L58), `RECEIPT_KEY_FILE` (L150), `loadReceiptKey` (L158), `signReceiptPayload` (L183) +3 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
 | `.agent/scripts/lib/cache.mjs` | 162 | 1 / 1 | `0.5` | `getGateCachePath` (L9), `computeTreeHash` (L17), `getGateCacheHit` (L96), `recordGateCache` (L110), `getGateCacheStats` (L143), `clearGateCache` (L153) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md` |
-| `.agent/scripts/lib/core.mjs` | 285 | 15 / 0 | `0` | `loadEnv` (L10), `fileExists` (L40), `readFileSafe` (L48), `execCommand` (L56), `execAsync` (L65), `runParallelTasks` (L80), `parseFrontmatter` (L97), `inspectArchlens` (L120) +6 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md` |
+| `.agent/scripts/lib/core.mjs` | 412 | 15 / 0 | `0` | `loadEnv` (L10), `fileExists` (L40), `readFileSafe` (L48), `execCommand` (L56), `parseCommandArgv` (L69), `runConfiguredCommand` (L187), `execAsync` (L192), `runParallelTasks` (L207) +8 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md` |
 
 ### 🏛️ Ring 1: Application & Governance
 
 | Source Module | Lines | $Ca$ / $Ce$ | Instability ($I$) | Exported AST Symbols (Line #) | Wiki Coverage |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | `.agent/scripts/lib/adr-drift.mjs` | 621 | 7 / 3 | `0.3` | `listADRs` (L40), `createADR` (L80), `decideADR` (L183), `compactADRs` (L256), `checkSpecDrift` (L422), `auditContractDrift` (L510) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
-| `.agent/scripts/lib/arch-trace.mjs` | 435 | 6 / 2 | `0.25` | `checkArchDiff` (L7), `parseMermaidDiagram` (L157), `diffMermaidGraphs` (L229), `recordArchTrace` (L253), `scaffoldArchlensPolicy` (L374) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
+| `.agent/scripts/lib/arch-trace.mjs` | 427 | 6 / 2 | `0.25` | `checkArchDiff` (L6), `parseMermaidDiagram` (L156), `diffMermaidGraphs` (L228), `recordArchTrace` (L252), `scaffoldArchlensPolicy` (L366) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
 | `.agent/scripts/lib/decision-graph.mjs` | 332 | 5 / 1 | `0.17` | `DECISION_GRAPH_FILE` (L5), `DECISION_MAP_MD` (L6), `appendDecisionEvent` (L8), `buildDecisionGraph` (L39), `syncDecisionMapMarkdown` (L257) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
 | `.agent/scripts/lib/dossier.mjs` | 117 | 2 / 3 | `0.6` | `extractExportSignatures` (L7), `generateTicketDossier` (L23) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md` |
 | `.agent/scripts/lib/product-dag.mjs` | 837 | 5 / 4 | `0.44` | `renderCapabilitySpecMarkdown` (L10), `renderProductPrdMarkdown` (L61), `renderProductSrsMarkdown` (L110), `initProductConstitution` (L185), `scaffoldCapabilitySpec` (L387), `parseProductMarkdown` (L563), `planProductDAG` (L637), `controlProductDAG` (L705) +1 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
@@ -117,17 +117,17 @@ flowchart TD
 
 | Source Module | Lines | $Ca$ / $Ce$ | Instability ($I$) | Exported AST Symbols (Line #) | Wiki Coverage |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `.agent/scripts/lib/git-guard.mjs` | 376 | 3 / 3 | `0.5` | `verifyCommitGuard` (L42), `verifyMergeGuard` (L100), `verifyPushGuard` (L145), `buildHookTemplates` (L179), `inspectHooksHealth` (L251), `installHooks` (L297), `applyBranchProtection` (L332) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
-| `.agent/scripts/lib/installer.mjs` | 1426 | 3 / 4 | `0.57` | `DEPRECATED_SDLC_SKILLS` (L10), `CANONICAL_SDLC_SKILLS` (L27), `ARCHLENS_SKILL_PACKAGE` (L40), `DEFAULT_GITIGNORE_ENTRIES` (L42), `upsertGitignore` (L52), `pinArchlensMcpConfigs` (L66), `SUPPORTED_AGENTS` (L82), `getFrameworkVersion` (L144) +18 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md` |
+| `.agent/scripts/lib/git-guard.mjs` | 411 | 3 / 3 | `0.5` | `verifyCommitGuard` (L42), `verifyMergeGuard` (L100), `verifyPushGuard` (L145), `buildHookTemplates` (L179), `inspectHooksHealth` (L251), `installHooks` (L297), `DEFAULT_QUALITY_GATE_CHECK` (L332), `applyBranchProtection` (L338) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
+| `.agent/scripts/lib/installer.mjs` | 1431 | 3 / 4 | `0.57` | `DEPRECATED_SDLC_SKILLS` (L10), `CANONICAL_SDLC_SKILLS` (L27), `ARCHLENS_SKILL_PACKAGE` (L40), `DEFAULT_GITIGNORE_ENTRIES` (L42), `upsertGitignore` (L52), `pinArchlensMcpConfigs` (L66), `SUPPORTED_AGENTS` (L82), `getFrameworkVersion` (L144) +18 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md` |
 | `.agent/scripts/lib/pm-provider.mjs` | 1381 | 5 / 1 | `0.17` | `CANONICAL_ISSUE_TEMPLATES` (L6), `scaffoldIssueTemplates` (L108), `loadIssueTemplate` (L130), `formatTemplatedIssue` (L184), `updateLocalKanbanState` (L249), `transitionPMState` (L332), `createTicket` (L652), `resolveOpenPRNumber` (L923) +8 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
-| `.agent/scripts/lib/quality-gate.mjs` | 1742 | 2 / 8 | `0.8` | `runDoctor` (L14), `generateRegressionProof` (L126), `monitorCanaryHealthAndWatchdog` (L287), `installCIWorkflow` (L400), `exportAgentRules` (L464), `scaffoldReproductionTest` (L481), `assessRisk` (L599), `generatePRSummary` (L673) +18 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md` |
+| `.agent/scripts/lib/quality-gate.mjs` | 1803 | 2 / 8 | `0.8` | `runDoctor` (L25), `generateRegressionProof` (L137), `monitorCanaryHealthAndWatchdog` (L298), `installCIWorkflow` (L411), `exportAgentRules` (L516), `scaffoldReproductionTest` (L533), `assessRisk` (L651), `generatePRSummary` (L725) +18 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md` |
 | `.agent/scripts/lib/workbench-server.mjs` | 2667 | 2 / 7 | `0.78` | `parseKanbanMarkdown` (L63), `parseArchTraceMarkdown` (L144), `buildArchDiffPayload` (L178), `generateArchitectureWidget` (L255), `renderWorkbenchHTML` (L853), `ensureWorkbenchRunning` (L2428), `createWorkbenchServer` (L2466) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md` |
 
 ### 🏛️ Ring 3: CLI Router & Entrypoint
 
 | Source Module | Lines | $Ca$ / $Ce$ | Instability ($I$) | Exported AST Symbols (Line #) | Wiki Coverage |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `.agent/scripts/sdlc-engine.mjs` | 2249 | 0 / 16 | `1` | `executeRelease` (L373), `runCLI` (L541), `formatCLIResult` (L2014), `cliExitCode` (L2230) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Home.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
+| `.agent/scripts/sdlc-engine.mjs` | 2276 | 0 / 16 | `1` | `executeRelease` (L377), `runCLI` (L549), `formatCLIResult` (L2041), `cliExitCode` (L2257) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Home.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
 
 
 ---
@@ -173,6 +173,7 @@ flowchart TD
 | :--- | :--- | :--- | :--- | :--- |
 | **ADR-001** | 10-30-90 Developer Landing Page README Template and Deterministic README Engine | `technical` | `accepted` | CAP-11 |
 | **ADR-002** | Config-Driven Dual-Gate Thresholds, Verifiable CLI Telemetry, and SHA-256 Hook Drift Detection | `technical` | `accepted` | CAP-03, CAP-06 |
+| **ADR-003** | Shell-Free Command Execution, Least-Privilege Self-Hosted CI, and Bundled Config Schema | `technical` | `accepted` | createdAt: 2026-11-12T18:08:28.446Z |
 
 ---
 

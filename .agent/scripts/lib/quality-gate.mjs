@@ -1,8 +1,19 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { execSync, execFileSync } from 'node:child_process';
-import { fileExists, readFileSafe, parseFrontmatter, inspectArchlens, detectPMProvider, getModifiedFiles, gitDiffForFile } from './core.mjs';
+import { execFileSync } from 'node:child_process';
+import {
+  fileExists,
+  readFileSafe,
+  parseFrontmatter,
+  inspectArchlens,
+  detectPMProvider,
+  getModifiedFiles,
+  gitDiffForFile,
+  gitOutput,
+  parseCommandArgv,
+  runConfiguredCommand
+} from './core.mjs';
 import { getSessionStatus } from './session.mjs';
 import { createTicket, scaffoldIssueTemplates } from './pm-provider.mjs';
 import { appendAuditRecord } from './audit-chain.mjs';
@@ -17,17 +28,17 @@ export function runDoctor(repoRoot = '.', { fix = false } = {}) {
   console.log('================================================================');
 
   const tools = [
-    { name: 'Git CLI', cmd: 'git --version', minReq: 'git version' },
-    { name: 'Node.js Runtime', cmd: 'node --version', minReq: 'v' },
-    { name: 'Skills CLI (npx skills)', cmd: 'npx skills --version', minReq: '1.' },
-    { name: 'GitHub CLI (gh)', cmd: 'gh --version', minReq: 'gh version' },
-    { name: 'Docker Engine', cmd: 'docker --version', minReq: 'Docker version' }
+    { name: 'Git CLI', bin: 'git', args: ['--version'], minReq: 'git version' },
+    { name: 'Node.js Runtime', bin: 'node', args: ['--version'], minReq: 'v' },
+    { name: 'Skills CLI (npx skills)', bin: 'npx', args: ['skills', '--version'], minReq: '1.' },
+    { name: 'GitHub CLI (gh)', bin: 'gh', args: ['--version'], minReq: 'gh version' },
+    { name: 'Docker Engine', bin: 'docker', args: ['--version'], minReq: 'Docker version' }
   ];
 
   const toolResults = [];
   for (const t of tools) {
     try {
-      const out = execSync(t.cmd, { stdio: 'pipe', encoding: 'utf8' }).trim().split('\n')[0];
+      const out = execFileSync(t.bin, t.args, { stdio: 'pipe', encoding: 'utf8' }).trim().split('\n')[0];
       toolResults.push({ name: t.name, status: true, version: out });
     } catch {
       toolResults.push({ name: t.name, status: false, version: 'Not found / Not installed' });
@@ -351,7 +362,7 @@ export function monitorCanaryHealthAndWatchdog({
     );
     if (rollbackCommand) {
       try {
-        rollbackOutput = execSync(rollbackCommand, { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' });
+        rollbackOutput = runConfiguredCommand(rollbackCommand, { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' });
         rollbackExecuted = true;
       } catch (err) {
         rollbackOutput = err.message;
@@ -397,7 +408,7 @@ export function monitorCanaryHealthAndWatchdog({
   };
 }
 
-export function installCIWorkflow({ repoRoot = '.', force = false } = {}) {
+export function installCIWorkflow({ repoRoot = '.', force = false, runsOn = null } = {}) {
   console.log('⚙️ Scaffolding GitHub Actions Quality Gate CI/CD Workflow...');
   const workflowDir = path.resolve(repoRoot, '.github/workflows');
   fs.mkdirSync(workflowDir, { recursive: true });
@@ -408,6 +419,34 @@ export function installCIWorkflow({ repoRoot = '.', force = false } = {}) {
     return { success: true, created: false, path: workflowPath, reason: 'Already exists' };
   }
 
+  let configuredRunsOn = runsOn;
+  if (!configuredRunsOn) {
+    const cfgPath = path.resolve(repoRoot, '.agent/sdlc-config.json');
+    if (fileExists(cfgPath)) {
+      try {
+        const cfg = JSON.parse(readFileSafe(cfgPath) || '{}');
+        if (cfg?.ci?.runsOn) {
+          configuredRunsOn = cfg.ci.runsOn;
+        }
+      } catch {}
+    }
+  }
+
+  let runsOnYaml = "${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}";
+  if (Array.isArray(configuredRunsOn) && configuredRunsOn.length > 0) {
+    for (const item of configuredRunsOn) {
+      if (/[\r\n]/.test(String(item))) {
+        throw new Error('Invalid ci.runsOn entry: newline characters are not permitted.');
+      }
+    }
+    runsOnYaml = `[${configuredRunsOn.map((item) => JSON.stringify(String(item))).join(', ')}]`;
+  } else if (typeof configuredRunsOn === 'string' && configuredRunsOn.trim()) {
+    if (/[\r\n]/.test(configuredRunsOn)) {
+      throw new Error('Invalid ci.runsOn value: newline characters are not permitted.');
+    }
+    runsOnYaml = configuredRunsOn.trim();
+  }
+
   const workflowContent = `name: SDLC Quality Gate
 
 on:
@@ -416,10 +455,13 @@ on:
   pull_request:
     branches: [ main, develop ]
 
+permissions:
+  contents: read
+
 jobs:
   quality-gate:
     name: Universal Quality Gate, Spec-Drift & Merkle Receipt Defense
-    runs-on: ubuntu-latest
+    runs-on: ${runsOnYaml}
 
     steps:
       - name: Checkout Code
@@ -430,7 +472,15 @@ jobs:
       - name: Setup Node.js Runtime
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
+
+      - name: Install Dependencies
+        run: |
+          if [ -f "package-lock.json" ]; then
+            npm ci --no-audit --no-fund
+          elif [ -f "package.json" ]; then
+            npm install --no-audit --no-fund
+          fi
 
       - name: Detect SDLC Stack & Configure Environment
         run: |
@@ -443,7 +493,8 @@ jobs:
           if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
             node .agent/scripts/sdlc-engine.mjs drift check
             node .agent/scripts/sdlc-engine.mjs audit verify
-            node .agent/scripts/sdlc-engine.mjs gate
+            node .agent/scripts/sdlc-engine.mjs skill-audit
+            node .agent/scripts/sdlc-engine.mjs gate --strict
           elif npm run | grep -q 'gate'; then
             npm run gate
           else
@@ -457,6 +508,7 @@ jobs:
   return {
     success: true,
     created: true,
+    runsOn: runsOnYaml,
     path: workflowPath
   };
 }
@@ -681,13 +733,11 @@ export function generatePRSummary({ issueId = null, repoRoot = '.' } = {}) {
   const risk = assessRisk(diffFiles, repoRoot);
   const archInfo = inspectArchlens(repoRoot);
 
-  let statSummary = '';
-  try {
-    statSummary = execSync('git diff --stat HEAD~1 2>/dev/null || git diff --stat 2>/dev/null || true', {
-      cwd: repoRoot,
-      encoding: 'utf8'
-    }).trim();
-  } catch {}
+  const statSummary = (
+    gitOutput(['diff', '--stat', 'HEAD~1'], repoRoot) ||
+    gitOutput(['diff', '--stat'], repoRoot) ||
+    ''
+  ).trim();
 
   const covReport = activeSess?.manifest?.coverageReport || null;
   const mutReport = activeSess?.manifest?.mutationScore || null;
@@ -1324,7 +1374,9 @@ export function inspectCIWorkflows(repoRoot = '.') {
   if (!fileExists(workflowsDir)) return detected;
 
   try {
-    const files = fs.readdirSync(workflowsDir).filter((f) => f.endsWith('.yml') || f.endsWith('.yaml'));
+    const files = fs
+      .readdirSync(workflowsDir)
+      .filter((f) => (f.endsWith('.yml') || f.endsWith('.yaml')) && !/^sdlc-quality-gate\.ya?ml$/i.test(f));
     for (const file of files) {
       const content = readFileSafe(path.join(workflowsDir, file));
       if (!content) continue;
@@ -1335,6 +1387,12 @@ export function inspectCIWorkflows(repoRoot = '.') {
         const match = trimmed.match(/^(-\s*)?run:\s*(.+)$/);
         if (match) {
           const runCmd = match[2].trim();
+          let isSingleExecutable = false;
+          try {
+            parseCommandArgv(runCmd);
+            isSingleExecutable = true;
+          } catch {}
+          if (!isSingleExecutable) continue;
           if (!detected.testCommand && (runCmd.includes('test') || runCmd.includes('check') || runCmd.includes('pytest'))) {
             detected.testCommand = runCmd;
           }
@@ -1550,12 +1608,12 @@ export function discoverModules(repoRoot = '.') {
       stack: 'generic-script',
       language: 'generic',
       commands: {
-        test: 'npm test 2>/dev/null || true',
-        coverage: 'npm run test:coverage 2>/dev/null || true',
+        test: 'npm test',
+        coverage: 'npm run test:coverage',
         coverageFile: 'coverage/coverage-summary.json',
-        mutation: 'npx stryker run 2>/dev/null || true',
-        lint: 'npm run lint 2>/dev/null || true',
-        build: 'npm run build 2>/dev/null || true'
+        mutation: 'npx stryker run',
+        lint: 'npm run lint',
+        build: 'npm run build'
       },
       thresholds: {
         diffCoverage: 85,
@@ -1602,10 +1660,13 @@ export function generateConfig(repoRoot = '.') {
   }
 
   return {
-    $schema: 'https://agentic-sdlc.dev/schemas/config.v1.json',
-    version: '2.0.0',
+    $schema: './schemas/sdlc-config.schema.json',
+    version: '2.1.0',
     generatedAt: new Date().toISOString(),
     profile: modules.length > 1 ? 'polyglot-monorepo' : 'standard',
+    ci: {
+      runsOn: "${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}"
+    },
     projectManagement: {
       provider: pm.provider,
       key: pm.key || 'SDLC',
