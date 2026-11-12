@@ -620,6 +620,7 @@ export function adaptSkillForAgent(skill, agentId = 'claude') {
     skillMarkdown,
     coworkSkillMarkdown,
     commandMarkdown,
+    description: safeDesc,
     body
   };
 }
@@ -847,7 +848,7 @@ export function provisionAgentIntegrations({
         const skillMdc = path.join(cursorRulesDir, `${sk.id}.mdc`);
         fs.writeFileSync(
           skillMdc,
-          `---\ndescription: ${JSON.stringify(sk.description)}\nglobs: *\nalwaysApply: false\n---\n\n${adapted.body}\n`,
+          `---\ndescription: ${JSON.stringify(adapted.description || sk.description)}\nglobs: *\nalwaysApply: false\n---\n\n${adapted.body}\n`,
           'utf8'
         );
         filesCreated.push(global ? `~/.cursor/rules/${sk.id}.mdc` : `.cursor/rules/${sk.id}.mdc`);
@@ -911,7 +912,11 @@ export function provisionAgentIntegrations({
         for (const sk of skills) {
           const adapted = adaptSkillForAgent(sk, 'windsurf');
           const wfPath = path.join(wsWorkflowsDir, `${sk.id}.md`);
-          fs.writeFileSync(wfPath, `---\ndescription: ${sk.description}\n---\n\n${adapted.body}\n`, 'utf8');
+          fs.writeFileSync(
+            wfPath,
+            `---\ndescription: ${JSON.stringify(adapted.description || sk.description)}\n---\n\n${adapted.body}\n`,
+            'utf8'
+          );
           filesCreated.push(`.windsurf/workflows/${sk.id}.md`);
         }
 
@@ -935,7 +940,7 @@ export function provisionAgentIntegrations({
         const promptFile = path.join(promptsDir, `${sk.id}.prompt.md`);
         fs.writeFileSync(
           promptFile,
-          `---\nmode: 'agent'\ndescription: '${sk.description.replace(/'/g, "''")}'\n---\n\n${adapted.body}\n`,
+          `---\nmode: 'agent'\ndescription: '${(adapted.description || sk.description).replace(/'/g, "''")}'\n---\n\n${adapted.body}\n`,
           'utf8'
         );
         filesCreated.push(global ? `~/.github/prompts/${sk.id}.prompt.md` : `.github/prompts/${sk.id}.prompt.md`);

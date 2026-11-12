@@ -264,7 +264,7 @@ export function buildWikiCodeMap(repoRoot = '.') {
   if (fileExists(skillsDir) && fs.statSync(skillsDir).isDirectory()) {
     const dirs = fs
       .readdirSync(skillsDir, { withFileTypes: true })
-      .filter((d) => d.isDirectory() && d.name.startsWith('sdlc'))
+      .filter((d) => d.isDirectory() && (d.name.startsWith('sdlc') || CANONICAL_SDLC_SKILLS.includes(d.name)))
       .map((d) => d.name)
       .sort();
     for (const sName of dirs) {

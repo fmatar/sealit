@@ -39,6 +39,7 @@ import {
   CANONICAL_SDLC_SKILLS,
   provisionAgentIntegrations,
   auditSkills,
+  buildWikiCodeMap,
   parseFrontmatter
 } from '../.agent/scripts/sdlc-engine.mjs';
 import * as coreMod from '../.agent/scripts/lib/core.mjs';
@@ -1353,6 +1354,18 @@ describe('Issue #109: Right-sized canonical skills, Claude unified packaging, an
       const content = fs.readFileSync(path.join(REPO_ROOT, '.agent/skills', guardedSkill, 'SKILL.md'), 'utf8');
       assert.ok(content.includes('⚠️ Confirm with user before'), `${guardedSkill} must include confirmation gate`);
     }
+
+    // Wiki code map & Skills-Reference alignment with ADR-005
+    const codeMap = buildWikiCodeMap(REPO_ROOT);
+    assert.deepEqual(
+      codeMap.skills.map((s) => s.name),
+      [...CANONICAL_SDLC_SKILLS].sort(),
+      'buildWikiCodeMap must index all 11 canonical skills including ub-mode'
+    );
+    const skillsRefRaw = fs.readFileSync(path.join(REPO_ROOT, 'wiki/Skills-Reference.md'), 'utf8');
+    assert.equal(/\/sdlc doctor`\s*\|\s*`node \.agent\/scripts\/sdlc-engine\.mjs doctor --fix`/.test(skillsRefRaw), false);
+    assert.match(skillsRefRaw, /\/sdlc doctor`\s*\|\s*`node \.agent\/scripts\/sdlc-engine\.mjs doctor`/);
+    assert.match(skillsRefRaw, /stage begin --issue/);
   });
 
   it('verifies every sdlc-engine.mjs subcommand referenced across all 11 SKILL.md files exists in sdlc-engine.mjs', () => {
@@ -1418,7 +1431,9 @@ describe('Issue #109: Right-sized canonical skills, Claude unified packaging, an
       assert.match(cursorParsed.frontmatter.description, /\bUse when\b/);
       assert.equal(/\b(read_file|write_file|edit_file|run_command|invoke_subagent)\b/.test(cursorRaw), false);
 
-      assert.equal(fs.existsSync(path.join(dir, '.cursor/rules', `${skillId}.mdc`)), true);
+      const mdcPath = path.join(dir, '.cursor/rules', `${skillId}.mdc`);
+      assert.equal(fs.existsSync(mdcPath), true);
+      assert.equal(fs.readFileSync(mdcPath, 'utf8').includes('{{args}}'), false, `${skillId}.mdc must not leak {{args}}`);
     }
 
     // 3. .claude-plugin/plugin.json dynamically matches package.json version and omits duplicate "commands"
