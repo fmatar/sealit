@@ -1,6 +1,6 @@
 # 🏗️ System Architecture & Concentric Ring Design
 
-This document provides the deep architectural explanation of the **Agentic SDLC Framework**, detailing how `.agent/scripts/sdlc-engine.mjs` and its **12 modular domain libraries** (`.agent/scripts/lib/*.mjs`) are organized into **Archlens Concentric Clean Architecture Rings** (`.archlens/policy.json`), how the **4-Layer Git Lockdown** and **SHA-256 Gate Cache** operate, and how causal lineage flows from `PRODUCT.md` to `docs/DECISION_MAP.md`.
+This document provides the deep architectural explanation of the **Agentic SDLC Framework**, detailing how `.agent/scripts/sdlc-engine.mjs` and its **16 modular domain libraries** (`.agent/scripts/lib/*.mjs`) are organized into **Archlens Concentric Clean Architecture Rings** (`.archlens/policy.json`), how the **4-Layer Git Lockdown** and **SHA-256 Gate Cache** operate, and how causal lineage flows from `PRODUCT.md` to `docs/DECISION_MAP.md`.
 
 > For the auto-generated AST symbol inventory and line-number mapping across all modules, see **[Codebase-Map.md](Codebase-Map.md)**.
 
@@ -19,7 +19,7 @@ flowchart TD
 
     subgraph Ring3 ["Ring 3: CLI Router & Agent Skill Entrypoints"]
       CLI["sdlc-engine.mjs (Universal CLI Router & Barrel Export)"]:::r3
-      SKILLS[".agent/skills/sdlc*/SKILL.md (1 Router + 9 Verb Skills)"]:::r3
+      SKILLS[".agent/skills/*/SKILL.md (11 Canonical Skills)"]:::r3
     end
 
     subgraph Ring2 ["Ring 2: Adapters, Enforcement & Mission Control UI"]
@@ -87,7 +87,7 @@ sequenceDiagram
     participant Git as Git Hooks (.git/hooks/*)
     participant Guard as git-guard.mjs
     participant Session as .agent/.sdlc-session.json
-    participant Ledger as .agent/gate-receipts.jsonl
+    participant Ledger as docs/AUDIT_CHAIN.jsonl
 
     Dev->>Git: git commit -m "feat: implement capability"
     Git->>Guard: verifyCommitGuard()
@@ -95,8 +95,8 @@ sequenceDiagram
     Session-->>Guard: Session #90 Active (Stage >= 2)
     Guard-->>Git: Commit Allowed
 
-    Dev->>Guard: sdlc-engine stage pre-pr
-    Guard->>Ledger: Check Spec Drift + Wiki Audit + Issue SHA-256 Gate Receipt for HEAD SHA
+    Dev->>Guard: sdlc-engine review record --verdict approve
+    Guard->>Ledger: Sign HMAC-SHA256 Stage 7 Gate Receipt for HEAD SHA
 
     Dev->>Git: git merge feature/issue-#90 into main
     Git->>Guard: verifyMergeGuard()
@@ -107,7 +107,7 @@ sequenceDiagram
 
 1. **Layer 1 (`LAYER_1_PROTECTED_BRANCH`)**: Blocks direct commits on `main`, `master`, or `develop`.
 2. **Layer 2 (`LAYER_2_SESSION_REQUIRED`)**: Blocks commits on feature branches unless `.agent/.sdlc-session.json` has an active ticket session bound to that branch.
-3. **Layer 3 (`MISSING_STAGE_7_GATE_RECEIPT`)**: Blocks merges into `main`/`develop` unless `.agent/gate-receipts.jsonl` contains a valid cryptographic receipt matching the source branch `HEAD` SHA-256 digest.
+3. **Layer 3 (`MISSING_STAGE_7_GATE_RECEIPT`)**: Blocks merges into `main`/`develop` unless `docs/AUDIT_CHAIN.jsonl` contains a valid HMAC-SHA256 receipt matching the source branch `HEAD` SHA-256 digest.
 4. **Layer 4 (`pre-push` & CI Gate Workflow)**: Blocks direct pushes to protected branches and verifies the Merkle audit chain (`docs/AUDIT_CHAIN.jsonl`) in `.github/workflows/sdlc-quality-gate.yml`.
 
 ---
@@ -127,7 +127,7 @@ Every architectural evolution in the repository is tracked as a directed acyclic
 
 ## 4. Mission Control Clearinghouse Ledger UI (`workbench-server.mjs`)
 
-Running `node .agent/scripts/sdlc-engine.mjs serve --port 4120` (or `/sdlc status` / `/sdlc ui`) launches a zero-dependency HTTP server and generates a standalone interactive widget (`.agent/workbench/index.html`):
+Running `node .agent/scripts/sdlc-engine.mjs serve --port 4120` (or `/sdlc serve` / `/sdlc ui`) launches a zero-dependency loopback HTTP server and generates a standalone interactive widget (`.agent/workbench/index.html`):
 
 - **Aesthetic Direction (`DESIGN.md`)**: *THE ROLL — Double-Entry Clearinghouse Ledger* (`#F6F3EC` audit sheet ivory paper, `#141413` iron-gall ink, `#1E3A8A` cobalt ledger ink, tabular monospace telemetry).
 - **Live Bidirectional Endpoints**:

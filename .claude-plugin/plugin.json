@@ -1,6 +1,6 @@
 {
   "name": "agentic-sdlc",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "description": "Agentic SDLC Framework — Universal /sdlc router, ub-mode, and 9 lifecycle skills for Claude Code & Cowork",
   "skills": "./.claude/skills"
 }

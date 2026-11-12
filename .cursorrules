@@ -1,6 +1,6 @@
 <!-- AGENTIC-SDLC-RULES:START -->
 # Agentic SDLC Framework Invariants & Autonomous Rules
-_Generated automatically by @fmatar/agentic-sdlc (Universal Engine v0.3.2)_
+_Generated automatically by @fmatar/agentic-sdlc (Universal Engine v0.4.0)_
 _Adheres strictly to Robert C. Martin Clean Code & Clean Architecture_
 
 ## 1. Zero Direct Pushes (4-Layer Git Guard — INV-01)

@@ -154,7 +154,7 @@ export function getFrameworkVersion(packageRoot = null) {
     const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
     if (pkg && pkg.version) return String(pkg.version);
   } catch {}
-  return '0.3.2';
+  return '0.4.0';
 }
 
 export const CONSTITUTIONAL_RULES_SUMMARY = `# Agentic SDLC Framework Invariants & Autonomous Rules

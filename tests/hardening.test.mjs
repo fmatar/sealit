@@ -22,6 +22,7 @@ import {
   parseMutationReport,
   createWorkbenchServer,
   createADR,
+  compactADRs,
   listADRs,
   executeCompositeStage,
   startSession,
@@ -39,6 +40,7 @@ import {
   CANONICAL_SDLC_SKILLS,
   provisionAgentIntegrations,
   auditSkills,
+  auditWiki,
   buildWikiCodeMap,
   parseFrontmatter
 } from '../.agent/scripts/sdlc-engine.mjs';
@@ -1457,5 +1459,180 @@ describe('Issue #109: Right-sized canonical skills, Claude unified packaging, an
     assert.equal(fs.existsSync(path.join(fakeHome, '.claude/skills/ub-mode/SKILL.md')), true);
     assert.equal(fs.existsSync(path.join(fakeHome, '.cursor/skills/sdlc-flow/SKILL.md')), true);
     assert.equal(fs.existsSync(path.join(fakeHome, '.cursor/skills/ub-mode/SKILL.md')), true);
+  });
+});
+
+// ===========================================================================
+// Issue #111: Slim npm package (<250 KB), untracked binaries, single workbench & v0.4.0 sync
+// ===========================================================================
+describe('Issue #111: Slim npm package (<250 KB), untracked binaries, and single workbench', () => {
+  it('keeps npm pack tarball under 250 KB with all 11 canonical skills and zero third-party binaries', () => {
+    const packOut = execFileSync('npm', ['pack', '--dry-run', '--json'], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    const [packInfo] = JSON.parse(packOut);
+    assert.ok(packInfo.size < 250_000, `Expected npm tarball < 250 KB, got ${packInfo.size} bytes`);
+    assert.ok(packInfo.unpackedSize < 1_000_000, `Expected unpacked size < 1 MB, got ${packInfo.unpackedSize} bytes`);
+
+    const packedPaths = packInfo.files.map((f) => f.path);
+    for (const skillId of CANONICAL_SDLC_SKILLS) {
+      assert.ok(
+        packedPaths.includes(`.agent/skills/${skillId}/SKILL.md`),
+        `npm tarball must include .agent/skills/${skillId}/SKILL.md`
+      );
+    }
+    assert.equal(
+      packedPaths.some((p) => p.includes('impeccable') || p.includes('scripts/bin')),
+      false,
+      'npm tarball must not ship impeccable assets or native binaries'
+    );
+  });
+
+  it('untracks native skill binaries in git, removes abandoned workbench/, and aligns manifest/plugin/README versions', () => {
+    const trackedBins = execFileSync('git', ['ls-files', '*scripts/bin*'], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8'
+    }).trim();
+    assert.equal(trackedBins, '', `Expected zero tracked native binaries in git index, got:\n${trackedBins}`);
+
+    const gitignoreRaw = fs.readFileSync(path.join(REPO_ROOT, '.gitignore'), 'utf8');
+    assert.match(gitignoreRaw, /\*\*\/skills\/\*\/scripts\/bin\//);
+
+    assert.equal(fs.existsSync(path.join(REPO_ROOT, 'workbench')), false, 'Duplicate SvelteKit workbench/ prototype must be removed');
+    assert.equal(fs.existsSync(path.join(REPO_ROOT, '.agent/scripts/lib/workbench-server.mjs')), true);
+
+    const pkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'));
+    const pluginManifest = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, '.claude-plugin/plugin.json'), 'utf8'));
+    const readmeRaw = fs.readFileSync(path.join(REPO_ROOT, 'README.md'), 'utf8');
+    assert.equal(pluginManifest.version, pkg.version, '.claude-plugin/plugin.json version must match package.json');
+    assert.ok(readmeRaw.includes(`Version-${pkg.version}-`), `README.md badge must match package.json version ${pkg.version}`);
+  });
+
+  it('ignores git rm --cached files covered by .gitignore in gitDiffForFile and auditSecurity while catching unignored secrets', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-111-sec-'));
+    const fakeAwsKey = ['AKIA', 'IOSFODNN7EXAMPLE'].join('');
+    try {
+      git(tmpDir, 'init', '-b', 'main');
+      git(tmpDir, 'config', 'user.email', 'test@example.com');
+      git(tmpDir, 'config', 'user.name', 'Test User');
+
+      fs.mkdirSync(path.join(tmpDir, 'vendor/bin'), { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, 'vendor/bin/fake-binary'), `binary-bytes-${fakeAwsKey}-tail\n`, 'utf8');
+      fs.writeFileSync(path.join(tmpDir, 'README.md'), '# Test\n', 'utf8');
+      git(tmpDir, 'add', '.');
+      git(tmpDir, 'commit', '-m', 'initial commit on main');
+
+      git(tmpDir, 'checkout', '-b', 'feature/test-111');
+      git(tmpDir, 'rm', '--cached', 'vendor/bin/fake-binary');
+      fs.writeFileSync(path.join(tmpDir, '.gitignore'), 'vendor/bin/\n', 'utf8');
+      git(tmpDir, 'add', '.gitignore');
+      git(tmpDir, 'commit', '-m', 'untrack vendor binary');
+
+      fs.writeFileSync(path.join(tmpDir, 'README.md'), '# Test Updated\n', 'utf8');
+      git(tmpDir, 'add', 'README.md');
+      git(tmpDir, 'commit', '-m', 'second commit on branch');
+
+      const diffForIgnored = coreMod.gitDiffForFile('vendor/bin/fake-binary', tmpDir);
+      assert.equal(
+        diffForIgnored.split('\n').some((l) => l.startsWith('+') && !l.startsWith('+++') && l.includes(fakeAwsKey)),
+        false,
+        `gitDiffForFile must not synthesize + lines for gitignored file removed via git rm --cached, got:\n${diffForIgnored}`
+      );
+
+      const cleanSec = qualityGateMod.auditSecurity(tmpDir);
+      assert.equal(cleanSec.secretLeaksCount, 0, `Expected 0 secret leaks for gitignored cached-rm file, got: ${JSON.stringify(cleanSec.secretViolations)}`);
+      assert.equal(cleanSec.passed, true);
+
+      // Verify unignored untracked file with a real secret is still caught
+      fs.writeFileSync(path.join(tmpDir, 'untracked-secret.txt'), `aws_key=${fakeAwsKey}\n`, 'utf8');
+      const dirtySec = qualityGateMod.auditSecurity(tmpDir);
+      assert.equal(dirtySec.passed, false);
+      assert.ok(dirtySec.secretLeaksCount >= 1);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('preserves prior release rows in compactADRs and advances createADR numbering past compacted SRS.md rows', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-111-srs-'));
+    try {
+      fs.mkdirSync(path.join(tmpDir, 'docs/adr'), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpDir, 'docs/SRS.md'),
+        [
+          '# SRS',
+          '',
+          '## Compacted Architectural Decisions',
+          '',
+          '| ID | Title | Scope | Ticket | Supersedes | Compacted In Release | Decision |',
+          '| :--- | :--- | :--- | :--- | :--- | :--- | :--- |',
+          '| `ADR-001` | Legacy v0.3.0 Architecture | `technical` | #63 | CAP-01 | `v0.3.0` | Keep modular lib split. |',
+          '| `ADR-002` | Legacy v0.3.0 Skills | `architectural` | #68 | CAP-05 | `v0.3.0` | Consolidate skills. |',
+          ''
+        ].join('\n'),
+        'utf8'
+      );
+
+      // Even if an in-flight ADR shares ADR-001 from a legacy reset, compacting into v0.4.0 must NOT overwrite the v0.3.0 row
+      fs.writeFileSync(
+        path.join(tmpDir, 'docs/adr/ADR-001-readme-landing.md'),
+        [
+          '---',
+          'id: ADR-001',
+          'title: New v0.4.0 README Template',
+          'status: accepted',
+          'scope: technical',
+          'ticket: #100',
+          'supersedes: CAP-11',
+          'createdAt: 2026-11-12T00:00:00.000Z',
+          '---',
+          '',
+          '# ADR-001: New v0.4.0 README Template',
+          '',
+          '## 2. Decision',
+          'Add 10-30-90 README engine.'
+        ].join('\n'),
+        'utf8'
+      );
+
+      const compactRes = compactADRs({ releaseVersion: 'v0.4.0', repoRoot: tmpDir });
+      assert.equal(compactRes.compactedCount, 1);
+
+      const srsAfter = fs.readFileSync(path.join(tmpDir, 'docs/SRS.md'), 'utf8');
+      assert.match(srsAfter, /\|\s*`ADR-001`\s*\|\s*Legacy v0\.3\.0 Architecture\s*\|.*\|\s*`v0\.3\.0`\s*\|/);
+      assert.match(srsAfter, /\|\s*`ADR-002`\s*\|\s*Legacy v0\.3\.0 Skills\s*\|.*\|\s*`v0\.3\.0`\s*\|/);
+      assert.match(srsAfter, /\|\s*`ADR-001`\s*\|\s*New v0\.4\.0 README Template\s*\|.*\|\s*`v0\.4\.0`\s*\|/);
+
+      // Creating a new ADR when docs/adr/ is empty must advance past max ID in docs/SRS.md (ADR-002 -> ADR-003)
+      const created = createADR({ title: 'Post-Compaction Decision', repoRoot: tmpDir });
+      assert.equal(created.adr.id, 'ADR-003');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('audits wiki/*.md cleanly on a fresh checkout where gitignored .agent/.cache/ does not exist', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-111-wiki-'));
+    try {
+      fs.cpSync(path.join(REPO_ROOT, 'wiki'), path.join(tmpDir, 'wiki'), { recursive: true });
+      fs.cpSync(path.join(REPO_ROOT, 'docs'), path.join(tmpDir, 'docs'), { recursive: true });
+      fs.mkdirSync(path.join(tmpDir, 'tests'), { recursive: true });
+      fs.cpSync(path.join(REPO_ROOT, '.agent/scripts'), path.join(tmpDir, '.agent/scripts'), { recursive: true });
+      fs.cpSync(path.join(REPO_ROOT, '.agent/skills'), path.join(tmpDir, '.agent/skills'), { recursive: true });
+      fs.cpSync(path.join(REPO_ROOT, '.agent/sdlc-config.json'), path.join(tmpDir, '.agent/sdlc-config.json'));
+      fs.cpSync(path.join(REPO_ROOT, 'PRODUCT.md'), path.join(tmpDir, 'PRODUCT.md'));
+      fs.mkdirSync(path.join(tmpDir, '.github/ISSUE_TEMPLATE'), { recursive: true });
+      fs.cpSync(path.join(REPO_ROOT, '.github/ISSUE_TEMPLATE'), path.join(tmpDir, '.github/ISSUE_TEMPLATE'), { recursive: true });
+      fs.cpSync(path.join(REPO_ROOT, '.github/PULL_REQUEST_TEMPLATE.md'), path.join(tmpDir, '.github/PULL_REQUEST_TEMPLATE.md'));
+
+      // Explicitly ensure gitignored .agent/.cache does NOT exist in clean checkout simulation
+      assert.equal(fs.existsSync(path.join(tmpDir, '.agent/.cache')), false);
+      const wikiRes = auditWiki(tmpDir, { strict: true });
+      assert.equal(wikiRes.passed, true, `Expected clean-checkout wiki audit to pass, got: ${JSON.stringify(wikiRes.findings)}`);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });

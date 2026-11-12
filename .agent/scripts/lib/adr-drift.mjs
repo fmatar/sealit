@@ -77,6 +77,24 @@ export function listADRs(repoRoot = '.') {
   return adrs;
 }
 
+function getMaxExistingAdrNumber(repoRoot, existingAdrs = []) {
+  let maxNum = 0;
+  for (const adr of existingAdrs) {
+    const m = String(adr.id || '').match(/^ADR-(\d+)$/i);
+    if (m) maxNum = Math.max(maxNum, Number(m[1]));
+  }
+  const srsPath = path.resolve(repoRoot, 'docs/SRS.md');
+  if (fileExists(srsPath)) {
+    const srsRaw = readFileSafe(srsPath) || '';
+    const rowRegex = /^\|\s*`?ADR-(\d+)`?\s*\|/gm;
+    let rm;
+    while ((rm = rowRegex.exec(srsRaw)) !== null) {
+      maxNum = Math.max(maxNum, Number(rm[1]));
+    }
+  }
+  return maxNum;
+}
+
 export function createADR({
   title,
   scope = 'technical',
@@ -92,7 +110,7 @@ export function createADR({
   fs.mkdirSync(adrDir, { recursive: true });
 
   const existing = listADRs(repoRoot);
-  const nextNum = existing.length + 1;
+  const nextNum = getMaxExistingAdrNumber(repoRoot, existing) + 1;
   const adrId = `ADR-${String(nextNum).padStart(3, '0')}`;
   const slug = String(title || 'decision')
     .toLowerCase()
@@ -298,9 +316,12 @@ export function compactADRs({ releaseVersion = 'baseline', dryRun = false, repoR
     });
 
     if (srsContent.includes('## Compacted Architectural Decisions')) {
+      const escRel = String(releaseVersion).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       for (const row of rows) {
         const idMatch = row.match(/^\|\s*`(ADR-\d+)`/);
-        const existingRowRegex = idMatch ? new RegExp(`^\\|\\s*\`?${idMatch[1]}\`?\\s*\\|.*$`, 'm') : null;
+        const existingRowRegex = idMatch
+          ? new RegExp(`^\\|\\s*\`?${idMatch[1]}\`?\\s*\\|(?:[^|\\n]*\\|){4}\\s*\`?${escRel}\`?\\s*\\|.*$`, 'm')
+          : null;
         if (existingRowRegex && existingRowRegex.test(srsContent)) {
           srsContent = srsContent.replace(existingRowRegex, row);
         } else {

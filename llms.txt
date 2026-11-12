@@ -6,7 +6,7 @@
 
 - [README.md](./README.md): Developer landing page, positioning, and 90-second Quickstart
 - [wiki/Home.md](./wiki/Home.md): Project Wiki overview, 8-stage lifecycle summary, and sitemap
-- [wiki/Skills-Reference.md](./wiki/Skills-Reference.md): Complete reference for `/sdlc` router, 9 verb skills, and all `sdlc-engine.mjs` CLI subcommands
+- [wiki/Skills-Reference.md](./wiki/Skills-Reference.md): Complete reference for the 11 canonical skills (`/sdlc` router, 9 verb skills, `ub-mode`) and all `sdlc-engine.mjs` CLI subcommands
 - [wiki/Architecture.md](./wiki/Architecture.md): Concentric Clean Architecture rings (`.archlens/policy.json`), SHA-256 Gate Cache, and 4-Layer Git Guard
 - [wiki/Codebase-Map.md](./wiki/Codebase-Map.md): Deterministic AST module inventory, coupling metrics ($Ca$, $Ce$, $I$), and capability mapping
 - [wiki/Traceability.md](./wiki/Traceability.md): Multi-provider PM sync, HMAC-SHA256 gate receipts, and Merkle audit ledger (`docs/AUDIT_CHAIN.jsonl`)

@@ -299,6 +299,9 @@ export function buildWikiCodeMap(repoRoot = '.') {
     ...a,
     documentedIn: wikiPages.filter((w) => w.content.includes(a.id)).map((w) => w.path)
   }));
+  const srsPath = path.join(absRoot, 'docs/SRS.md');
+  const hasCompactedAdrs =
+    fileExists(srsPath) && (readFileSafe(srsPath) || '').includes('## Compacted Architectural Decisions');
 
   return {
     title: policy?.title || path.basename(absRoot),
@@ -309,6 +312,7 @@ export function buildWikiCodeMap(repoRoot = '.') {
     skills,
     capabilities,
     adrs,
+    hasCompactedAdrs,
     wikiPages: wikiPages.map(({ content: _c, ...rest }) => rest)
   };
 }
@@ -389,6 +393,8 @@ export function auditWiki(repoRoot = '.', { strict = false } = {}) {
           candidatePath.startsWith('.agent/dossiers') ||
           candidatePath.startsWith('.agent/sdlc-session') ||
           candidatePath.startsWith('.agent/.sdlc-session') ||
+          candidatePath.startsWith('.agent/.cache') ||
+          candidatePath.startsWith('.agent/.receipt-key') ||
           candidatePath.startsWith('.agent/sdlc-gate-cache') ||
           candidatePath.startsWith('.agent/sdlc-exemptions') ||
           candidatePath.startsWith('.agent/gate-receipts') ||
@@ -590,7 +596,9 @@ ${rows}
               `| **${a.id}** | ${a.title} | \`${a.scope}\` | \`${a.status}\` | ${(a.supersedes || []).join(', ') || 'None'} |`
           )
           .join('\n')
-      : '| `ADR-001` | Initial Architecture | `technical` | `accepted` | `CAP-01` |';
+      : codeMap.hasCompactedAdrs
+        ? '| *None* | *Compacted into `docs/SRS.md`* | - | - | - |'
+        : '| `ADR-001` | Initial Architecture | `technical` | `accepted` | `CAP-01` |';
 
   return `# 🗺️ Codebase-to-Wiki Traceability & Archlens Ring Map
 
