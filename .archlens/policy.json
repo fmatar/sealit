@@ -1,25 +1,59 @@
 {
   "title": "agentic-sdlc-framework",
-  "src": ".",
+  "src": ".agent/scripts",
   "prefix": "",
   "hierarchical": true,
-  "order": [
-    "domain",
-    "docs",
-    "wiki",
-    "adapters"
-  ],
-  "levels": [
-    [
-      "domain"
-    ],
-    [
-      "docs",
-      "wiki"
-    ],
-    [
-      "adapters"
-    ]
+  "layers": [
+    {
+      "name": "domain-core",
+      "paths": [
+        ".agent/scripts/lib/core.mjs",
+        ".agent/scripts/lib/cache.mjs",
+        ".agent/scripts/lib/audit-chain.mjs",
+        ".agent/scripts/lib/decision-graph.mjs"
+      ],
+      "allowedDependencies": []
+    },
+    {
+      "name": "governance-models",
+      "paths": [
+        ".agent/scripts/lib/pm-provider.mjs",
+        ".agent/scripts/lib/adr-drift.mjs",
+        ".agent/scripts/lib/product-dag.mjs",
+        ".agent/scripts/lib/dossier.mjs",
+        ".agent/scripts/lib/readme-sync.mjs",
+        ".agent/scripts/lib/git-guard.mjs"
+      ],
+      "allowedDependencies": [
+        "domain-core"
+      ]
+    },
+    {
+      "name": "adapters-orchestrators",
+      "paths": [
+        ".agent/scripts/lib/arch-trace.mjs",
+        ".agent/scripts/lib/installer.mjs",
+        ".agent/scripts/lib/wiki-sync.mjs",
+        ".agent/scripts/lib/workbench-server.mjs",
+        ".agent/scripts/lib/quality-gate.mjs",
+        ".agent/scripts/lib/session.mjs"
+      ],
+      "allowedDependencies": [
+        "domain-core",
+        "governance-models"
+      ]
+    },
+    {
+      "name": "cli-entrypoints",
+      "paths": [
+        ".agent/scripts/sdlc-engine.mjs"
+      ],
+      "allowedDependencies": [
+        "domain-core",
+        "governance-models",
+        "adapters-orchestrators"
+      ]
+    }
   ],
   "foreign": [
     "node:",
@@ -30,9 +64,13 @@
     "build",
     ".git",
     "node_modules",
+    "coverage",
+    "reports",
+    ".stryker-tmp",
+    ".impeccable",
     ".gradle",
     ".idea",
     ".vscode"
   ],
-  "lang": "typescript"
+  "lang": "javascript"
 }

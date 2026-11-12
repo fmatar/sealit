@@ -32,8 +32,8 @@ flowchart TD
     wiki_sync_mjs["wiki-sync.mjs (6 exports, I=0.75)"]
   end
   subgraph Ring2 ["Ring 2: Adapters & Enforcement"]
-    git_guard_mjs["git-guard.mjs (5 exports, I=0.5)"]
-    installer_mjs["installer.mjs (25 exports, I=0.57)"]
+    git_guard_mjs["git-guard.mjs (7 exports, I=0.5)"]
+    installer_mjs["installer.mjs (26 exports, I=0.57)"]
     pm_provider_mjs["pm-provider.mjs (16 exports, I=0.17)"]
     quality_gate_mjs["quality-gate.mjs (26 exports, I=0.8)"]
     workbench_server_mjs["workbench-server.mjs (7 exports, I=0.78)"]
@@ -110,24 +110,24 @@ flowchart TD
 | `.agent/scripts/lib/dossier.mjs` | 117 | 2 / 3 | `0.6` | `extractExportSignatures` (L7), `generateTicketDossier` (L23) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md` |
 | `.agent/scripts/lib/product-dag.mjs` | 837 | 5 / 4 | `0.44` | `renderCapabilitySpecMarkdown` (L10), `renderProductPrdMarkdown` (L61), `renderProductSrsMarkdown` (L110), `initProductConstitution` (L185), `scaffoldCapabilitySpec` (L387), `parseProductMarkdown` (L563), `planProductDAG` (L637), `controlProductDAG` (L705) +1 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
 | `.agent/scripts/lib/readme-sync.mjs` | 898 | 1 / 2 | `0.67` | `escapeXml` (L105), `slugifyHeadingAnchor` (L114), `detectReadmeArchetype` (L137), `stripArchetypeBlocks` (L182), `renderThemeWordmarkSvg` (L199), `renderVhsDemoTape` (L223), `renderLlmsTxt` (L249), `scaffoldReadme` (L432) +1 more | `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md` |
-| `.agent/scripts/lib/session.mjs` | 674 | 4 / 9 | `0.69` | `getSessionPath` (L16), `getSessionStatus` (L20), `startSession` (L56), `updateSession` (L130), `switchSession` (L198), `listSessions` (L220), `renderDashboard` (L242), `resumeSession` (L279) +7 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Home.md`, `wiki/Skills-Reference.md` |
+| `.agent/scripts/lib/session.mjs` | 677 | 4 / 9 | `0.69` | `getSessionPath` (L16), `getSessionStatus` (L20), `startSession` (L56), `updateSession` (L130), `switchSession` (L198), `listSessions` (L220), `renderDashboard` (L242), `resumeSession` (L279) +7 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Home.md`, `wiki/Skills-Reference.md` |
 | `.agent/scripts/lib/wiki-sync.mjs` | 740 | 2 / 6 | `0.75` | `inspectSourceModule` (L36), `resolveArchlensRing` (L104), `buildWikiCodeMap` (L136), `auditWiki` (L320), `renderCodebaseMapMarkdown` (L519), `syncWiki` (L668) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
 
 ### 🏛️ Ring 2: Adapters & Enforcement
 
 | Source Module | Lines | $Ca$ / $Ce$ | Instability ($I$) | Exported AST Symbols (Line #) | Wiki Coverage |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `.agent/scripts/lib/git-guard.mjs` | 304 | 3 / 3 | `0.5` | `verifyCommitGuard` (L41), `verifyMergeGuard` (L99), `verifyPushGuard` (L144), `installHooks` (L178), `applyBranchProtection` (L260) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
-| `.agent/scripts/lib/installer.mjs` | 1414 | 3 / 4 | `0.57` | `DEPRECATED_SDLC_SKILLS` (L10), `CANONICAL_SDLC_SKILLS` (L27), `ARCHLENS_SKILL_PACKAGE` (L40), `DEFAULT_GITIGNORE_ENTRIES` (L42), `upsertGitignore` (L52), `pinArchlensMcpConfigs` (L66), `SUPPORTED_AGENTS` (L82), `CONSTITUTIONAL_RULES_SUMMARY` (L144) +17 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md` |
+| `.agent/scripts/lib/git-guard.mjs` | 376 | 3 / 3 | `0.5` | `verifyCommitGuard` (L42), `verifyMergeGuard` (L100), `verifyPushGuard` (L145), `buildHookTemplates` (L179), `inspectHooksHealth` (L251), `installHooks` (L297), `applyBranchProtection` (L332) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
+| `.agent/scripts/lib/installer.mjs` | 1426 | 3 / 4 | `0.57` | `DEPRECATED_SDLC_SKILLS` (L10), `CANONICAL_SDLC_SKILLS` (L27), `ARCHLENS_SKILL_PACKAGE` (L40), `DEFAULT_GITIGNORE_ENTRIES` (L42), `upsertGitignore` (L52), `pinArchlensMcpConfigs` (L66), `SUPPORTED_AGENTS` (L82), `getFrameworkVersion` (L144) +18 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md` |
 | `.agent/scripts/lib/pm-provider.mjs` | 1381 | 5 / 1 | `0.17` | `CANONICAL_ISSUE_TEMPLATES` (L6), `scaffoldIssueTemplates` (L108), `loadIssueTemplate` (L130), `formatTemplatedIssue` (L184), `updateLocalKanbanState` (L249), `transitionPMState` (L332), `createTicket` (L652), `resolveOpenPRNumber` (L923) +8 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
-| `.agent/scripts/lib/quality-gate.mjs` | 1710 | 2 / 8 | `0.8` | `runDoctor` (L14), `generateRegressionProof` (L112), `monitorCanaryHealthAndWatchdog` (L273), `installCIWorkflow` (L386), `exportAgentRules` (L450), `scaffoldReproductionTest` (L467), `assessRisk` (L585), `generatePRSummary` (L659) +18 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md` |
+| `.agent/scripts/lib/quality-gate.mjs` | 1742 | 2 / 8 | `0.8` | `runDoctor` (L14), `generateRegressionProof` (L126), `monitorCanaryHealthAndWatchdog` (L287), `installCIWorkflow` (L400), `exportAgentRules` (L464), `scaffoldReproductionTest` (L481), `assessRisk` (L599), `generatePRSummary` (L673) +18 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md` |
 | `.agent/scripts/lib/workbench-server.mjs` | 2667 | 2 / 7 | `0.78` | `parseKanbanMarkdown` (L63), `parseArchTraceMarkdown` (L144), `buildArchDiffPayload` (L178), `generateArchitectureWidget` (L255), `renderWorkbenchHTML` (L853), `ensureWorkbenchRunning` (L2428), `createWorkbenchServer` (L2466) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md` |
 
 ### 🏛️ Ring 3: CLI Router & Entrypoint
 
 | Source Module | Lines | $Ca$ / $Ce$ | Instability ($I$) | Exported AST Symbols (Line #) | Wiki Coverage |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `.agent/scripts/sdlc-engine.mjs` | 2204 | 0 / 16 | `1` | `executeRelease` (L369), `runCLI` (L537), `formatCLIResult` (L1981), `cliExitCode` (L2185) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Home.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
+| `.agent/scripts/sdlc-engine.mjs` | 2249 | 0 / 16 | `1` | `executeRelease` (L373), `runCLI` (L541), `formatCLIResult` (L2014), `cliExitCode` (L2230) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Home.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
 
 
 ---
@@ -158,7 +158,7 @@ flowchart TD
 | **CAP-03** | Real Coverage/Mutation Parsers & Policy ArchDiff (#70) | `docs/specs/cap-03-real-dual-gate-archdiff.md` | `AMENDED (ADR-002)` | CAP-01, CAP-02 |
 | **CAP-04** | Live Canary Watchdog, Real Proofs & Polyglot Reproduce (#71) | `docs/specs/cap-04-live-probes-reproduce.md` | `AMENDED (ADR-002)` | CAP-02 |
 | **CAP-05** | Consolidate 14 Skills into 6 Schema-Valid Core Skills (#72) | `docs/specs/cap-05-skill-consolidation.md` | `AMENDED (ADR-007)` | CAP-03, CAP-04 |
-| **CAP-06** | Dogfooding Configuration, Docs Sync & Full Test Suite (#73) | `docs/specs/cap-06-dogfood-docs-tests.md` | `AMENDED (ADR-007)` | CAP-05 |
+| **CAP-06** | Dogfooding Configuration, Docs Sync & Full Test Suite (#73) | `docs/specs/cap-06-dogfood-docs-tests.md` | `AMENDED (ADR-002)` | CAP-05 |
 | **CAP-07** | Native `npx` Multi-Agent Interactive Installer & Legacy Installer Removal (#75) | `docs/specs/cap-07-npx-multi-agent-installer.md` | `AMENDED (ADR-004)` | CAP-06 |
 | **CAP-08** | `/sdlc` Universal Command Router & 9 Verb-Driven Skills (#81) | `docs/specs/cap-08-command-verb-skills-router.md` | `AMENDED (ADR-007)` | CAP-05, CAP-07 |
 | **CAP-09** | Two-Tier PRD & IEEE 29148 SRS Specification Engine (#84) | `docs/specs/cap-09-prd-srs-specification-engine.md` | `AMENDED (ADR-006)` | CAP-05, CAP-08 |
@@ -172,6 +172,7 @@ flowchart TD
 | ADR ID | Decision Title | Scope | Status | Amends / Supersedes |
 | :--- | :--- | :--- | :--- | :--- |
 | **ADR-001** | 10-30-90 Developer Landing Page README Template and Deterministic README Engine | `technical` | `accepted` | CAP-11 |
+| **ADR-002** | Config-Driven Dual-Gate Thresholds, Verifiable CLI Telemetry, and SHA-256 Hook Drift Detection | `technical` | `accepted` | CAP-03, CAP-06 |
 
 ---
 

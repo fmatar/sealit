@@ -7,13 +7,13 @@
 ---
 
 ## 1. Product Vision
-End-to-end spec-driven autonomous software development lifecycle, Spec-Drift ADR engine, 4-Layer Git Lockdown, real polyglot Dual-Gate verification, and SvelteKit 5 Causal Decision Workbench governed by 6 focused agentic skills.
+End-to-end spec-driven autonomous software development lifecycle, Spec-Drift ADR engine, 4-Layer Git Lockdown, real polyglot Dual-Gate verification, and zero-dependency Architecture & Causal Decision Workbench governed by the universal `/sdlc` command router and verb-driven lifecycle skills.
 
 ---
 
 ## 2. Hard Domain & System Invariants (`INV-XX`)
 - **INV-01**: Zero direct commits, merges, or pushes to main or develop
-- **INV-02**: 100% of code changes require an active SDLC ticket session and Dual-Gate verification (>=85% coverage, >=80% mutation)
+- **INV-02**: Code changes require an active SDLC session and Dual-Gate verification meeting the coverage and mutation thresholds configured in `.agent/sdlc-config.json`
 - **INV-03**: All spec drift must be recorded via an ADR (docs/adr/ADR-00X.md) and synchronized with PRODUCT.md
 - **INV-04**: Zero shell command interpolation of untrusted user/markdown inputs in PM, Git, or test runner execution paths
 
@@ -28,7 +28,7 @@ End-to-end spec-driven autonomous software development lifecycle, Spec-Drift ADR
 | CAP-03 | Real Coverage/Mutation Parsers & Policy ArchDiff (#70) | `docs/specs/cap-03-real-dual-gate-archdiff.md` | CAP-01, CAP-02 | `AMENDED (ADR-002)` |
 | CAP-04 | Live Canary Watchdog, Real Proofs & Polyglot Reproduce (#71) | `docs/specs/cap-04-live-probes-reproduce.md` | CAP-02 | `AMENDED (ADR-002)` |
 | CAP-05 | Consolidate 14 Skills into 6 Schema-Valid Core Skills (#72) | `docs/specs/cap-05-skill-consolidation.md` | CAP-03, CAP-04 | `AMENDED (ADR-007)` |
-| CAP-06 | Dogfooding Configuration, Docs Sync & Full Test Suite (#73) | `docs/specs/cap-06-dogfood-docs-tests.md` | CAP-05 | `AMENDED (ADR-007)` |
+| CAP-06 | Dogfooding Configuration, Docs Sync & Full Test Suite (#73) | `docs/specs/cap-06-dogfood-docs-tests.md` | CAP-05 | `AMENDED (ADR-002)` |
 | CAP-07 | Native `npx` Multi-Agent Interactive Installer & Legacy Installer Removal (#75) | `docs/specs/cap-07-npx-multi-agent-installer.md` | CAP-06 | `AMENDED (ADR-004)` |
 | CAP-08 | `/sdlc` Universal Command Router & 9 Verb-Driven Skills (#81) | `docs/specs/cap-08-command-verb-skills-router.md` | CAP-05, CAP-07 | `AMENDED (ADR-007)` |
 | CAP-09 | Two-Tier PRD & IEEE 29148 SRS Specification Engine (#84) | `docs/specs/cap-09-prd-srs-specification-engine.md` | CAP-05, CAP-08 | `AMENDED (ADR-006)` |
@@ -50,4 +50,5 @@ End-to-end spec-driven autonomous software development lifecycle, Spec-Drift ADR
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | *None* | *Compacted into SRS.md (v0.3.0)* | - | - | - | - |
 | ADR-001 | 10-30-90 Developer Landing Page README Template and Deterministic README Engine | `technical` | `accepted` | #100 | CAP-11 |
+| ADR-002 | Config-Driven Dual-Gate Thresholds, Verifiable CLI Telemetry, and SHA-256 Hook Drift Detection | `technical` | `accepted` | #103 | CAP-03, CAP-06 |
 <!-- ADR_INDEX_END -->

@@ -36,6 +36,8 @@ flowchart TD
   SPEC_11["SPEC-11 (docs/specs/cap-11-technical-writer-archlens-wiki-sync.md)"]
   ADR_001["ADR-001: 10-30-90 Developer Landing Page README Template and Deterministic README Engine"]
   _100["Ticket #100 (feature/issue-#100-10-30-90-readme-template-engine)"]
+  ADR_002["ADR-002: Config-Driven Dual-Gate Thresholds, Verifiable CLI Telemetry, and SHA-256 Hook Drift Detection"]
+  _103["Ticket #103"]
   ADR_COMPACT_v0_3_0["Compacted 8 ADR(s) into SRS.md (v0.3.0)"]
   createdAt__2026_11_03T18_52_42_656Z["createdAt: 2026-11-03T18:52:42.656Z"]
   _SDLC_INIT["Ticket #SDLC-INIT (feature/arch-traceability-governance)"]
@@ -87,6 +89,9 @@ flowchart TD
   CAP_11 -->|depends_on| CAP_08
   _100 -->|triggered_drift_adr| ADR_001
   CAP_11 -.->|ADR Drift| ADR_001
+  _103 -->|triggered_drift_adr| ADR_002
+  CAP_03 -.->|ADR Drift| ADR_002
+  CAP_06 -.->|ADR Drift| ADR_002
   CAP_01 -->|realized_by| ADR_COMPACT_v0_3_0
   CAP_02 -->|realized_by| ADR_COMPACT_v0_3_0
   CAP_03 -->|realized_by| ADR_COMPACT_v0_3_0
@@ -108,6 +113,7 @@ flowchart TD
 | ADR ID | Decision Title | Scope | Status | Triggered By | Supersedes / Amends |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **ADR-001** | 10-30-90 Developer Landing Page README Template and Deterministic README Engine | `technical` | `accepted` | #100 | CAP-11 |
+| **ADR-002** | Config-Driven Dual-Gate Thresholds, Verifiable CLI Telemetry, and SHA-256 Hook Drift Detection | `technical` | `accepted` | #103 | CAP-03, CAP-06 |
 
 ---
 
@@ -120,7 +126,7 @@ flowchart TD
 | **CAP-03** | Real Coverage/Mutation Parsers & Policy ArchDiff (#70) | `AMENDED (ADR-002)` |
 | **CAP-04** | Live Canary Watchdog, Real Proofs & Polyglot Reproduce (#71) | `AMENDED (ADR-002)` |
 | **CAP-05** | Consolidate 14 Skills into 6 Schema-Valid Core Skills (#72) | `AMENDED (ADR-007)` |
-| **CAP-06** | Dogfooding Configuration, Docs Sync & Full Test Suite (#73) | `AMENDED (ADR-007)` |
+| **CAP-06** | Dogfooding Configuration, Docs Sync & Full Test Suite (#73) | `AMENDED (ADR-002)` |
 | **CAP-07** | Native `npx` Multi-Agent Interactive Installer & Legacy Installer Removal (#75) | `AMENDED (ADR-004)` |
 | **CAP-08** | `/sdlc` Universal Command Router & 9 Verb-Driven Skills (#81) | `AMENDED (ADR-007)` |
 | **CAP-09** | Two-Tier PRD & IEEE 29148 SRS Specification Engine (#84) | `PLANNED` |

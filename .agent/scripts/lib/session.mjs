@@ -404,19 +404,22 @@ export function calculateSessionStats(repoRoot = '.') {
     } catch {}
   }
 
-  const estimatedHoursSaved = totalSessions * 2.5 + traceEventsCount * 0.5;
+  const completedSessions = Object.values(sessions).filter((s) => s.stage >= 5).length;
+  const inProgressSessions = Math.max(0, totalSessions - completedSessions);
+  const estimatedHoursSaved = totalSessions === 0 ? 0 : completedSessions * 2.5 + inProgressSessions * 0.5;
   const standardHourlyRateUSD = 120;
   const totalDollarSavingsUSD = Math.round(estimatedHoursSaved * standardHourlyRateUSD);
 
-  const completedSessions = Object.values(sessions).filter((s) => s.stage >= 5).length;
-  const velocityScore = Math.min(100, Math.round((completedSessions / Math.max(1, totalSessions)) * 100));
+  const velocityScore = totalSessions === 0 ? 0 : Math.min(100, Math.round((completedSessions / Math.max(1, totalSessions)) * 100));
 
   return {
     activeSessionId: sessionStatus.activeSessionId,
     totalSessions,
     completedSessions,
     traceEventsCount,
+    isEstimate: true,
     estimatedHoursSaved: Number(estimatedHoursSaved.toFixed(1)),
+    estimatedDollarSavingsUSD: totalDollarSavingsUSD,
     totalDollarSavingsUSD,
     velocityScore,
     currentStage: activeSess ? `${activeSess.stage}/8 (${activeSess.stageName})` : 'Idle',

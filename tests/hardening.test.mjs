@@ -25,8 +25,15 @@ import {
   listADRs,
   executeCompositeStage,
   startSession,
-  updateSession
+  updateSession,
+  runCLI,
+  formatCLIResult,
+  calculateSessionStats,
+  generateReviewPlan,
+  runDoctor,
+  verifyCommitGuard
 } from '../.agent/scripts/sdlc-engine.mjs';
+import * as gitGuardMod from '../.agent/scripts/lib/git-guard.mjs';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..');
 const SCRIPTS_SRC = path.join(REPO_ROOT, '.agent/scripts');
@@ -459,5 +466,184 @@ describe('Fix 5: workbench auth', () => {
     });
     assert.equal(ok.status, 200);
     assert.equal(listADRs(dir)[0].status, 'accepted');
+  });
+});
+
+// ===========================================================================
+// PR 1 (#103): Truthful CLI telemetry, SHA-256 hook drift doctor & baseline
+// ===========================================================================
+describe('Issue #103: Truthful CLI telemetry, hook drift doctor & baseline', () => {
+  let dir;
+  beforeEach(() => {
+    dir = makeRepo();
+  });
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it('formatCLIResult displays real producer counts for audit, skill-audit, adr, drift, and review plan', () => {
+    const recRes = runCLI(['audit', 'record', '--event', 'REAL_EVENT'], null, dir);
+    const recText = formatCLIResult(recRes);
+    assert.match(recText, /REAL_EVENT/);
+    assert.match(recText, /[a-f0-9]{8,}/);
+
+    const verRes = runCLI(['audit', 'verify'], null, dir);
+    const verText = formatCLIResult(verRes);
+    assert.match(verText, /VALID \(1 record\(s\)\)/);
+
+    const skillRes = runCLI(['skill-audit'], null, REPO_ROOT);
+    assert.ok(skillRes.skillAudit.skillsScanned >= 11, 'must scan ub-mode alongside sdlc* skills');
+    assert.ok(skillRes.skillAudit.skills.some((s) => s.skill === 'ub-mode'));
+    const skillText = formatCLIResult(skillRes);
+    assert.match(skillText, new RegExp(`${skillRes.skillAudit.skillsScanned} skill\\(s\\) checked`));
+
+    const adrRes = runCLI(['adr', 'create', '--title', 'Truthful Baseline', '--scope', 'technical'], null, dir);
+    const adrText = formatCLIResult(adrRes);
+    assert.match(adrText, /ADR-001/);
+    assert.match(adrText, /Truthful Baseline/);
+
+    const planRes = runCLI(['review', 'plan'], null, dir);
+    const planText = formatCLIResult(planRes);
+    assert.match(planText, /risk=/i);
+  });
+
+  it('help command documents all major engine subcommand groups', () => {
+    const h = engine(dir, 'help');
+    assert.equal(h.status, 0);
+    const out = h.stdout;
+    for (const cmd of [
+      'detect',
+      'doctor',
+      'test',
+      'coverage',
+      'mutation',
+      'gate',
+      'stage',
+      'session',
+      'product',
+      'spec',
+      'adr',
+      'drift',
+      'review',
+      'release',
+      'hooks',
+      'protect',
+      'wiki',
+      'readme',
+      'skill-audit',
+      'security-audit',
+      'audit',
+      'stats',
+      'ui-snapshot',
+      'serve',
+      'interop'
+    ]) {
+      assert.ok(out.includes(cmd), `help output missing '${cmd}'`);
+    }
+  });
+
+  it('calculateSessionStats reports $0 when totalSessions is 0 even with trace events, and marks savings as estimates', () => {
+    fs.mkdirSync(path.join(dir, '.agent'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, '.agent/arch-trace.jsonl'),
+      Array.from({ length: 27 }, (_, i) => JSON.stringify({ seq: i + 1 })).join('\n') + '\n',
+      'utf8'
+    );
+
+    const zeroStats = calculateSessionStats(dir);
+    assert.equal(zeroStats.totalSessions, 0);
+    assert.equal(zeroStats.estimatedHoursSaved, 0);
+    assert.equal(zeroStats.totalDollarSavingsUSD, 0);
+    assert.equal(zeroStats.isEstimate, true);
+
+    startSession({ issueId: 42, branch: 'feature/issue-42', stage: 6, repoRoot: dir, force: true });
+    const activeStats = calculateSessionStats(dir);
+    assert.equal(activeStats.totalSessions, 1);
+    assert.ok(activeStats.estimatedHoursSaved > 0);
+    assert.equal(activeStats.isEstimate, true);
+
+    const statsText = formatCLIResult({ command: 'stats', stats: activeStats });
+    assert.match(statsText, /est\./i);
+  });
+
+  it('inspectHooksHealth detects missing and outdated git hooks, and doctor --fix refreshes stale hooks', () => {
+    assert.equal(typeof gitGuardMod.inspectHooksHealth, 'function');
+    const missing = gitGuardMod.inspectHooksHealth(dir);
+    assert.equal(missing.installed, false);
+    assert.equal(missing.upToDate, false);
+
+    assert.equal(engine(dir, 'hooks', 'install').status, 0);
+    const fresh = gitGuardMod.inspectHooksHealth(dir);
+    assert.equal(fresh.installed, true);
+    assert.equal(fresh.upToDate, true);
+    assert.deepEqual(fresh.outdatedHooks, []);
+
+    // Simulate an Oct-27 stale hook with trailing `exit 0` / different content
+    fs.appendFileSync(path.join(dir, '.git/hooks/pre-push'), '\n# stale legacy footer\nexit 0\n', 'utf8');
+    const stale = gitGuardMod.inspectHooksHealth(dir);
+    assert.equal(stale.installed, true);
+    assert.equal(stale.upToDate, false);
+    assert.ok(stale.outdatedHooks.includes('pre-push'));
+
+    const docDiag = runDoctor(dir, { fix: false });
+    assert.equal(docDiag.hooks.upToDate, false);
+    assert.equal(gitGuardMod.inspectHooksHealth(dir).upToDate, false, 'diagnose-only doctor must not mutate hooks');
+
+    const docFix = runDoctor(dir, { fix: true });
+    assert.ok(docFix.autoFixed.includes('git-hooks'));
+    assert.equal(gitGuardMod.inspectHooksHealth(dir).upToDate, true);
+  });
+
+  it('generateReviewPlan never references deprecated sdlc-review-gate or tells read-only subagents to post comments, and verifyCommitGuard recommends stage begin', () => {
+    const plan = generateReviewPlan({ repoRoot: dir });
+    const serialized = JSON.stringify(plan);
+    assert.equal(serialized.includes('sdlc-review-gate'), false);
+    assert.equal(serialized.includes('MANDATORILY post'), false);
+
+    const guard = verifyCommitGuard({ branch: 'feature/issue-99-test', repoRoot: dir });
+    assert.equal(guard.allowed, false);
+    assert.match(guard.message, /stage begin/);
+    assert.doesNotMatch(guard.message, /session start/);
+  });
+
+  it('gate --strict evaluates assessRisk against actual modified files on the branch', () => {
+    fs.rmSync(path.join(dir, 'README.md'), { force: true });
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'chore: remove stub readme');
+
+    git(dir, 'checkout', '-q', '-b', 'feature/issue-50-auth');
+    fs.mkdirSync(path.join(dir, 'src/auth'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'src/auth/token.js'), 'export const verify = () => true;\n', 'utf8');
+    git(dir, 'add', 'src/auth/token.js');
+    git(dir, 'commit', '-q', '-m', 'feat: auth token');
+
+    fs.mkdirSync(path.join(dir, 'coverage'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'coverage/coverage-summary.json'),
+      JSON.stringify({ total: { lines: { pct: 95 }, branches: { pct: 90 } } }),
+      'utf8'
+    );
+    const cfgPath = path.join(dir, '.agent/sdlc-config.json');
+    fs.mkdirSync(path.dirname(cfgPath), { recursive: true });
+    fs.writeFileSync(
+      cfgPath,
+      JSON.stringify({
+        version: '2.1.0',
+        modules: [
+          {
+            name: 'root',
+            path: '.',
+            commands: {
+              test: 'node -e 0',
+              coverage: 'node -e 0',
+              coverageFile: 'coverage/coverage-summary.json'
+            },
+            thresholds: { diffCoverage: 85, mutationScore: null }
+          }
+        ]
+      }),
+      'utf8'
+    );
+    const res = runCLI(['gate', '--strict'], cfgPath, dir);
+    assert.equal(res.risk.riskLevel, 'CRITICAL');
+    assert.ok(res.risk.totalFiles >= 1);
   });
 });
