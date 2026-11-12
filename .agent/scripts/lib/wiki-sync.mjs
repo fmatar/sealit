@@ -393,6 +393,8 @@ export function auditWiki(repoRoot = '.', { strict = false } = {}) {
           candidatePath.startsWith('.agent/dossiers') ||
           candidatePath.startsWith('.agent/sdlc-session') ||
           candidatePath.startsWith('.agent/.sdlc-session') ||
+          candidatePath.startsWith('.agent/.cache') ||
+          candidatePath.startsWith('.agent/.receipt-key') ||
           candidatePath.startsWith('.agent/sdlc-gate-cache') ||
           candidatePath.startsWith('.agent/sdlc-exemptions') ||
           candidatePath.startsWith('.agent/gate-receipts') ||

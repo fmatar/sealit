@@ -40,6 +40,7 @@ import {
   CANONICAL_SDLC_SKILLS,
   provisionAgentIntegrations,
   auditSkills,
+  auditWiki,
   buildWikiCodeMap,
   parseFrontmatter
 } from '../.agent/scripts/sdlc-engine.mjs';
@@ -1607,6 +1608,29 @@ describe('Issue #111: Slim npm package (<250 KB), untracked binaries, and single
       // Creating a new ADR when docs/adr/ is empty must advance past max ID in docs/SRS.md (ADR-002 -> ADR-003)
       const created = createADR({ title: 'Post-Compaction Decision', repoRoot: tmpDir });
       assert.equal(created.adr.id, 'ADR-003');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('audits wiki/*.md cleanly on a fresh checkout where gitignored .agent/.cache/ does not exist', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-111-wiki-'));
+    try {
+      fs.cpSync(path.join(REPO_ROOT, 'wiki'), path.join(tmpDir, 'wiki'), { recursive: true });
+      fs.cpSync(path.join(REPO_ROOT, 'docs'), path.join(tmpDir, 'docs'), { recursive: true });
+      fs.mkdirSync(path.join(tmpDir, 'tests'), { recursive: true });
+      fs.cpSync(path.join(REPO_ROOT, '.agent/scripts'), path.join(tmpDir, '.agent/scripts'), { recursive: true });
+      fs.cpSync(path.join(REPO_ROOT, '.agent/skills'), path.join(tmpDir, '.agent/skills'), { recursive: true });
+      fs.cpSync(path.join(REPO_ROOT, '.agent/sdlc-config.json'), path.join(tmpDir, '.agent/sdlc-config.json'));
+      fs.cpSync(path.join(REPO_ROOT, 'PRODUCT.md'), path.join(tmpDir, 'PRODUCT.md'));
+      fs.mkdirSync(path.join(tmpDir, '.github/ISSUE_TEMPLATE'), { recursive: true });
+      fs.cpSync(path.join(REPO_ROOT, '.github/ISSUE_TEMPLATE'), path.join(tmpDir, '.github/ISSUE_TEMPLATE'), { recursive: true });
+      fs.cpSync(path.join(REPO_ROOT, '.github/PULL_REQUEST_TEMPLATE.md'), path.join(tmpDir, '.github/PULL_REQUEST_TEMPLATE.md'));
+
+      // Explicitly ensure gitignored .agent/.cache does NOT exist in clean checkout simulation
+      assert.equal(fs.existsSync(path.join(tmpDir, '.agent/.cache')), false);
+      const wikiRes = auditWiki(tmpDir, { strict: true });
+      assert.equal(wikiRes.passed, true, `Expected clean-checkout wiki audit to pass, got: ${JSON.stringify(wikiRes.findings)}`);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
