@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { fileExists, readFileSafe } from './core.mjs';
 
 const CACHE_REL_PATH = '.agent/.cache/gate-cache.json';
@@ -22,8 +22,8 @@ export function computeTreeHash(repoRoot = '.', modulePath = '.') {
 
   let gitAvailable = false;
   try {
-    const headSha = execSync('git rev-parse HEAD 2>/dev/null', { cwd: absRoot, encoding: 'utf8', stdio: 'pipe' }).trim();
-    const rawStatusOut = execFileSync('git', ['status', '--porcelain', '--', modulePath], {
+    const headSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: absRoot, encoding: 'utf8', stdio: 'pipe' }).trim();
+    const rawStatusOut = execFileSync('git', ['status', '--porcelain', '--untracked-files=all', '--', modulePath], {
       cwd: absRoot,
       encoding: 'utf8',
       stdio: 'pipe'

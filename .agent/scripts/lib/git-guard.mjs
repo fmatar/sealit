@@ -329,9 +329,19 @@ export function installHooks({ repoRoot = '.' } = {}) {
   };
 }
 
+export const DEFAULT_QUALITY_GATE_CHECK = 'Universal Quality Gate, Spec-Drift & Merkle Receipt Defense';
+
+/**
+ * Installs local 4-Layer Git hooks and applies GitHub remote branch protection
+ * with required quality-gate status checks and admin enforcement.
+ */
 export function applyBranchProtection({
   branches = ['main', 'develop'],
-  repoRoot = '.'
+  requiredChecks = undefined,
+  enforceAdmins = true,
+  requiredApprovals = 0,
+  repoRoot = '.',
+  execFn = execFileSync
 } = {}) {
   const results = {
     localHookInstalled: false,
@@ -346,26 +356,51 @@ export function applyBranchProtection({
     results.errors.push(`Local hook error: ${err.message}`);
   }
 
+  const hasGateWorkflow = fs.existsSync(path.resolve(repoRoot, '.github/workflows/sdlc-quality-gate.yml'));
+  const resolvedChecks = Array.isArray(requiredChecks)
+    ? requiredChecks.filter(Boolean)
+    : hasGateWorkflow
+      ? [DEFAULT_QUALITY_GATE_CHECK]
+      : [];
+
+  const approvalsCount = Math.max(0, Number(requiredApprovals) || 0);
+  const protectionPayload = {
+    required_status_checks: resolvedChecks.length > 0 ? { strict: true, contexts: resolvedChecks } : null,
+    enforce_admins: Boolean(enforceAdmins),
+    required_pull_request_reviews: {
+      dismiss_stale_reviews: true,
+      require_code_owner_reviews: false,
+      required_approving_review_count: approvalsCount
+    },
+    restrictions: null
+  };
+
   for (const b of branches) {
     try {
-      execFileSync(
+      execFn(
         'gh',
         [
-          'api', '--method', 'PUT', `repos/:owner/:repo/branches/${encodeURIComponent(b)}/protection`,
-          '-H', 'Accept: application/vnd.github+json',
-          '-F', 'required_status_checks=null',
-          '-F', 'enforce_admins=false',
-          '-F', 'required_pull_request_reviews[dismiss_stale_reviews]=true',
-          '-F', 'required_pull_request_reviews[require_code_owner_reviews]=false',
-          '-F', 'required_pull_request_reviews[required_approving_review_count]=0',
-          '-F', 'restrictions=null'
+          'api',
+          '--method',
+          'PUT',
+          `repos/:owner/:repo/branches/${encodeURIComponent(b)}/protection`,
+          '-H',
+          'Accept: application/vnd.github+json',
+          '--input',
+          '-'
         ],
         {
           cwd: repoRoot,
-          stdio: 'pipe'
+          stdio: 'pipe',
+          input: JSON.stringify(protectionPayload)
         }
       );
-      results.protectedBranches.push({ branch: b, remoteProtected: true });
+      results.protectedBranches.push({
+        branch: b,
+        remoteProtected: true,
+        enforceAdmins: Boolean(enforceAdmins),
+        requiredChecks: resolvedChecks
+      });
     } catch {
       results.protectedBranches.push({ branch: b, remoteProtected: false, localProtected: true });
     }

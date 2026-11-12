@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { execSync, execFileSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { fileExists, readFileSafe } from './core.mjs';
 import { createPMIssue, transitionPMState, syncKanbanBoard, ensurePullRequest } from './pm-provider.mjs';
 import { checkSpecDrift } from './adr-drift.mjs';

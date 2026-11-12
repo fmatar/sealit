@@ -1,0 +1,50 @@
+name: SDLC Quality Gate
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  quality-gate:
+    name: Universal Quality Gate, Spec-Drift & Merkle Receipt Defense
+    runs-on: ${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js Runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Dependencies
+        run: |
+          if [ -f "package-lock.json" ]; then
+            npm ci --no-audit --no-fund
+          elif [ -f "package.json" ]; then
+            npm install --no-audit --no-fund
+          fi
+
+      - name: Detect SDLC Stack & Configure Environment
+        run: |
+          if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
+            node .agent/scripts/sdlc-engine.mjs detect
+          fi
+
+      - name: Verify Universal Quality Gate, Spec Drift & Merkle Audit Chain
+        run: |
+          if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
+            node .agent/scripts/sdlc-engine.mjs drift check
+            node .agent/scripts/sdlc-engine.mjs audit verify
+            node .agent/scripts/sdlc-engine.mjs skill-audit
+            node .agent/scripts/sdlc-engine.mjs gate --strict
+          elif npm run | grep -q 'gate'; then
+            npm run gate
+          else
+            npm test
+          fi

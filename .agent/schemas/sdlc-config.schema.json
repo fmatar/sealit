@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/.agent/schemas/sdlc-config.schema.json",
+  "title": "Agentic SDLC Framework Configuration",
+  "description": "Repository configuration for the Agentic SDLC Engine, Dual-Gate thresholds, CI runners, execution lanes, and Clean Architecture governance.",
+  "type": "object",
+  "required": ["version", "modules"],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    },
+    "generatedAt": {
+      "type": "string"
+    },
+    "profile": {
+      "type": "string",
+      "enum": ["standard", "polyglot-monorepo", "custom"]
+    },
+    "ci": {
+      "type": "object",
+      "properties": {
+        "runsOn": {
+          "description": "GitHub Actions runner label, expression, or array of runner labels.",
+          "oneOf": [
+            { "type": "string" },
+            { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+          ]
+        }
+      },
+      "additionalProperties": true
+    },
+    "lanes": {
+      "type": "object",
+      "properties": {
+        "trivialMaxLines": { "type": "integer", "minimum": 1 },
+        "standardMaxLines": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": true
+    },
+    "projectManagement": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "type": "string",
+          "enum": ["github", "linear", "jira", "local"]
+        },
+        "key": { "type": "string" },
+        "livingBoard": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "archlens": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "policyPath": { "type": "string" },
+        "enforceInQualityGate": { "type": "boolean" },
+        "workbenchPort": { "type": "integer" }
+      },
+      "additionalProperties": true
+    },
+    "modules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "path", "commands"],
+        "properties": {
+          "name": { "type": "string" },
+          "path": { "type": "string" },
+          "stack": { "type": "string" },
+          "language": { "type": "string" },
+          "commands": {
+            "type": "object",
+            "properties": {
+              "test": {
+                "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }]
+              },
+              "coverage": {
+                "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }]
+              },
+              "coverageFile": { "type": "string" },
+              "lint": {
+                "oneOf": [{ "type": ["string", "null"] }, { "type": "array", "items": { "type": "string" } }]
+              },
+              "build": {
+                "oneOf": [{ "type": ["string", "null"] }, { "type": "array", "items": { "type": "string" } }]
+              },
+              "mutation": {
+                "oneOf": [{ "type": ["string", "null"] }, { "type": "array", "items": { "type": "string" } }]
+              }
+            },
+            "additionalProperties": true
+          },
+          "thresholds": {
+            "type": "object",
+            "properties": {
+              "diffCoverage": { "type": "number", "minimum": 0, "maximum": 100 },
+              "mutationScore": { "type": ["number", "null"], "minimum": 0, "maximum": 100 }
+            },
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

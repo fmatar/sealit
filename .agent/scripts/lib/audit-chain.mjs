@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { execSync, execFileSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 
 export const AUDIT_LEDGER_FILE = 'docs/AUDIT_CHAIN.jsonl';
 export const GENESIS_HASH = '0000000000000000000000000000000000000000000000000000000000000000';

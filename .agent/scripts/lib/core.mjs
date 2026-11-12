@@ -62,6 +62,133 @@ export function execCommand(cmd, options = {}) {
   }
 }
 
+/**
+ * Parses a configured command specification (string or argv array) into `{ file, args }`
+ * without invoking a shell, rejecting compound shell operators (`&&`, `||`, `;`, `|`, `>`, `<`, `` ` ``, `$()`).
+ */
+export function parseCommandArgv(cmdSpec) {
+  if (Array.isArray(cmdSpec)) {
+    const cleaned = cmdSpec.map((item) => String(item));
+    if (cleaned.length === 0 || !cleaned[0].trim()) {
+      throw new Error('Configured command argv array must contain at least an executable name.');
+    }
+    return { file: cleaned[0], args: cleaned.slice(1) };
+  }
+
+  if (typeof cmdSpec !== 'string' || !cmdSpec.trim()) {
+    throw new Error('Configured command must be a non-empty string or argv array.');
+  }
+
+  const tokens = [];
+  let current = '';
+  let hasToken = false;
+  let inSingle = false;
+  let inDouble = false;
+
+  for (let i = 0; i < cmdSpec.length; i++) {
+    const ch = cmdSpec[i];
+    const next = cmdSpec[i + 1];
+
+    if (inSingle) {
+      if (ch === "'") {
+        inSingle = false;
+      } else {
+        current += ch;
+      }
+      continue;
+    }
+
+    if (inDouble) {
+      if (ch === '\\' && (next === '"' || next === '\\' || next === '$' || next === '`')) {
+        current += next;
+        i++;
+        continue;
+      }
+      if (ch === '`') {
+        throw new Error(`Refusing shell compound command in configuration ('${cmdSpec}'): backtick substitution is not allowed.`);
+      }
+      if (ch === '$' && next === '(') {
+        throw new Error(`Refusing shell compound command in configuration ('${cmdSpec}'): command substitution $() is not allowed.`);
+      }
+      if (ch === '"') {
+        inDouble = false;
+      } else {
+        current += ch;
+      }
+      continue;
+    }
+
+    if (ch === '\\' && next !== undefined) {
+      current += next;
+      hasToken = true;
+      i++;
+      continue;
+    }
+
+    if (ch === "'") {
+      inSingle = true;
+      hasToken = true;
+      continue;
+    }
+
+    if (ch === '"') {
+      inDouble = true;
+      hasToken = true;
+      continue;
+    }
+
+    if (
+      ch === ';' ||
+      ch === '|' ||
+      ch === '&' ||
+      ch === '<' ||
+      ch === '>' ||
+      ch === '`' ||
+      ch === '\n' ||
+      ch === '\r' ||
+      (ch === '$' && next === '(')
+    ) {
+      throw new Error(
+        `Refusing shell compound command in configuration ('${cmdSpec}'): specify a single executable command or argv array without shell operators.`
+      );
+    }
+
+    if (ch === ' ' || ch === '\t') {
+      if (hasToken) {
+        tokens.push(current);
+        current = '';
+        hasToken = false;
+      }
+      continue;
+    }
+
+    current += ch;
+    hasToken = true;
+  }
+
+  if (inSingle || inDouble) {
+    throw new Error(`Unterminated quote in configured command ('${cmdSpec}').`);
+  }
+
+  if (hasToken) {
+    tokens.push(current);
+  }
+
+  if (tokens.length === 0 || !tokens[0]) {
+    throw new Error('Configured command resolved to empty executable.');
+  }
+
+  return { file: tokens[0], args: tokens.slice(1) };
+}
+
+/**
+ * Executes a configured command (`string` or `string[]`) directly via `execFileSync` (never `/bin/sh`).
+ */
+export function runConfiguredCommand(cmdSpec, options = {}) {
+  const { file, args } = parseCommandArgv(cmdSpec);
+  return execFileSync(file, args, options);
+}
+
 export async function execAsync(cmd, options = {}) {
   try {
     const { stdout, stderr } = await execPromise(cmd, { encoding: 'utf8', ...options });
@@ -173,7 +300,7 @@ export function detectPMProvider(repoRoot = '.') {
 
   let hasGhCliAuth = false;
   try {
-    execSync('gh auth status 2>/dev/null', { cwd: repoRoot, stdio: 'pipe' });
+    execFileSync('gh', ['auth', 'status'], { cwd: repoRoot, stdio: 'pipe' });
     hasGhCliAuth = true;
   } catch {}
 
@@ -188,7 +315,7 @@ export function diagnoseEnvironment(repoRoot = '.') {
 
   let hasGhCliAuth = false;
   try {
-    execSync('gh auth status 2>/dev/null', { cwd: repoRoot, stdio: 'pipe' });
+    execFileSync('gh', ['auth', 'status'], { cwd: repoRoot, stdio: 'pipe' });
     hasGhCliAuth = true;
   } catch {}
 

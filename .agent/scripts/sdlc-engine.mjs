@@ -6,13 +6,15 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { execSync, execFileSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 
 import {
   loadEnv,
   fileExists,
   readFileSafe,
   execCommand,
+  parseCommandArgv,
+  runConfiguredCommand,
   execAsync,
   runParallelTasks,
   parseFrontmatter,
@@ -217,6 +219,8 @@ export {
   fileExists,
   readFileSafe,
   execCommand,
+  parseCommandArgv,
+  runConfiguredCommand,
   execAsync,
   runParallelTasks,
   parseFrontmatter,
@@ -531,8 +535,12 @@ function measureCoverage(mod, repoRoot) {
   if (!mod.commands?.coverage) {
     return { found: false, passed: false, reason: 'No coverage command configured.' };
   }
+  const cwd = path.resolve(repoRoot, mod.path);
+  if (mod.commands.coverageFile) {
+    fs.mkdirSync(path.dirname(path.resolve(cwd, mod.commands.coverageFile)), { recursive: true });
+  }
   const startedAt = Date.now();
-  execSync(mod.commands.coverage, { stdio: 'inherit', cwd: path.resolve(repoRoot, mod.path) });
+  runConfiguredCommand(mod.commands.coverage, { stdio: 'inherit', cwd });
   return requireFreshReport(parseCoverageReport(repoRoot, mod), mod, repoRoot, startedAt);
 }
 
@@ -597,7 +605,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       const activeModules = files.length > 0 ? matchFilesToModules(files, config.modules) : config.modules;
       for (const mod of activeModules) {
         const cwd = path.resolve(repoRoot, mod.path);
-        execSync(mod.commands.test, { stdio: 'inherit', cwd });
+        runConfiguredCommand(mod.commands.test, { stdio: 'inherit', cwd });
       }
       result.activeModules = activeModules;
       return result;
@@ -659,7 +667,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
           console.error(`🛑 [${mod.name}] Mutation gate failed: no mutation command configured.`);
           return result;
         }
-        execSync(mod.commands.mutation, { stdio: 'inherit', cwd });
+        runConfiguredCommand(mod.commands.mutation, { stdio: 'inherit', cwd });
 
         const mutReport = requireFreshReport(parseMutationReport(repoRoot, mod), mod, repoRoot, startedAt);
         result.mutationReport = mutReport;
@@ -692,8 +700,8 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
           continue;
         }
         const cwd = path.resolve(repoRoot, mod.path);
-        if (mod.commands.lint) execSync(mod.commands.lint, { stdio: 'inherit', cwd });
-        if (mod.commands.build) execSync(mod.commands.build, { stdio: 'inherit', cwd });
+        if (mod.commands.lint) runConfiguredCommand(mod.commands.lint, { stdio: 'inherit', cwd });
+        if (mod.commands.build) runConfiguredCommand(mod.commands.build, { stdio: 'inherit', cwd });
         const covReport = measureCoverage(mod, repoRoot);
         result.coverageReport = covReport;
         if (!covReport.passed) {
@@ -705,13 +713,6 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
           updateSession({ manifestUpdate: { coverageReport: covReport.formatted }, repoRoot });
         } catch {}
         recordGateCache({ checkType: 'gate', modulePath: mod.path, result: { passed: true, coverage: covReport.formatted }, repoRoot });
-      }
-
-      const archInfo = inspectArchlens(repoRoot);
-      if (archInfo.installed || config.archlens?.enabled) {
-        try {
-          execSync('npx -y @fmatar/archlens-skill@1.2.0 prompt --path . 2>/dev/null || true', { cwd: repoRoot, stdio: 'inherit' });
-        } catch {}
       }
 
       const isStrict = args.includes('--strict');
@@ -1215,17 +1216,16 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
           return result;
         }
         try {
-          execSync('npx -y @fmatar/archlens-skill@1.2.0 prompt --path . 2>/dev/null || true', { cwd: repoRoot, stdio: 'inherit' });
+          execFileSync('npx', ['-y', ARCHLENS_SKILL_PACKAGE, 'prompt', '--path', '.'], { cwd: repoRoot, stdio: 'inherit' });
           result.passed = true;
-        } catch (err) {
-          result.passed = false;
-          result.error = err.message;
+        } catch {
+          result.passed = true;
         }
         return result;
       }
       if (sub === 'update') {
         try {
-          execSync('npx -y @fmatar/archlens-skill@1.2.0 update --path .', { cwd: repoRoot, stdio: 'inherit' });
+          execFileSync('npx', ['-y', ARCHLENS_SKILL_PACKAGE, 'update', '--path', '.'], { cwd: repoRoot, stdio: 'inherit' });
           result.passed = true;
         } catch {
           result.passed = false;
@@ -1580,7 +1580,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       const archInfo = inspectArchlens(repoRoot);
       if (archInfo.installed) {
         try {
-          execSync('npx -y @fmatar/archlens-skill@1.2.0 update --path .', { cwd: repoRoot, stdio: 'inherit' });
+          execFileSync('npx', ['-y', ARCHLENS_SKILL_PACKAGE, 'update', '--path', '.'], { cwd: repoRoot, stdio: 'inherit' });
         } catch {}
       }
       const freshConfig = generateConfig(repoRoot);
@@ -1743,9 +1743,31 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
     }
 
     case 'protect': {
-      const branches = args.slice(1).filter((a) => !a.startsWith('-'));
+      const branches = [];
+      let enforceAdmins = true;
+      let requiredApprovals = 0;
+      let requiredChecks;
+      for (let i = 1; i < args.length; i++) {
+        if (args[i] === '--no-enforce-admins') enforceAdmins = false;
+        else if (args[i] === '--enforce-admins') enforceAdmins = true;
+        else if (args[i] === '--no-checks') requiredChecks = [];
+        else if (args[i] === '--check' && args[i + 1]) {
+          requiredChecks = requiredChecks || [];
+          requiredChecks.push(args[++i]);
+        } else if (args[i] === '--approvals' && args[i + 1]) {
+          requiredApprovals = Number(args[++i]) || 0;
+        } else if (!args[i].startsWith('-')) {
+          branches.push(args[i]);
+        }
+      }
       const targetBranches = branches.length > 0 ? branches : ['main', 'develop'];
-      result.protect = applyBranchProtection({ branches: targetBranches, repoRoot });
+      result.protect = applyBranchProtection({
+        branches: targetBranches,
+        requiredChecks,
+        enforceAdmins,
+        requiredApprovals,
+        repoRoot
+      });
       return result;
     }
 
@@ -1753,7 +1775,12 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       const sub = args[1] || 'install';
       if (sub === 'install') {
         const force = args.includes('--force');
-        result.ciWorkflow = installCIWorkflow({ repoRoot, force });
+        let runsOn = null;
+        for (let i = 2; i < args.length; i++) {
+          if (args[i] === '--runs-on' && args[i + 1]) runsOn = args[++i];
+          else if (args[i].startsWith('--runs-on=')) runsOn = args[i].split('=')[1];
+        }
+        result.ciWorkflow = installCIWorkflow({ repoRoot, force, runsOn });
         return result;
       }
       result.success = false;

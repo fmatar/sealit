@@ -5,7 +5,7 @@
 > To refresh this board: `.agent/scripts/kanban-sync.sh`
 
 > **Repository**: `fmatar/agentic-sdlc-framework`  
-> **Last Synced**: `2026-11-06 19:14:07 UTC`
+> **Last Synced**: `2026-11-12 16:47:21 UTC`
 
 ---
 
@@ -13,7 +13,8 @@
 
 | 📥 Backlog | 📋 Ready | ⚡ In Progress | 🔍 In Review | ✅ Done |
 | :--- | :--- | :--- | :--- | :--- |
-|  |  |  | #103: [FIX] fix: Truthful CLI telemetry, hook drift doctor, and config-driven Dual-Gate baseline |  |
+|  |  | #105: [FEAT] feat: GitHub Actions quality-gate CI, configurable runners, and shell-free execution |  |  |
+|  |  |  |  | #103: [FIX] fix: Truthful CLI telemetry, hook drift doctor, and config-driven Dual-Gate baseline |
 |  |  |  | #99: [FIX] fix: Publish consolidated peer review & quality gate comments to GitHub PRs |  |
 |  |  |  |  | #97: [FIX] fix: fix-claude-desktop-skills |
 |  |  |  |  | #95: [FEAT] feat: Implement ADR lifecycle compaction and fix 6 field-tested engine bugs |

@@ -31,8 +31,11 @@ import {
   calculateSessionStats,
   generateReviewPlan,
   runDoctor,
-  verifyCommitGuard
+  verifyCommitGuard,
+  installCIWorkflow,
+  generateConfig
 } from '../.agent/scripts/sdlc-engine.mjs';
+import * as coreMod from '../.agent/scripts/lib/core.mjs';
 import * as gitGuardMod from '../.agent/scripts/lib/git-guard.mjs';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..');
@@ -649,5 +652,200 @@ describe('Issue #103: Truthful CLI telemetry, hook drift doctor & baseline', () 
     const res = runCLI(['gate', '--strict'], cfgPath, dir);
     assert.equal(res.risk.riskLevel, 'CRITICAL');
     assert.ok(res.risk.totalFiles >= 1);
+  });
+});
+
+describe('Issue #105: GitHub Actions quality-gate CI, configurable runners, local schema & shell-free execution', () => {
+  let dir;
+  beforeEach(() => {
+    dir = makeRepo();
+  });
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('installCIWorkflow uses vars.SDLC_RUNS_ON fallback by default and honors config ci.runsOn string/array + CLI flag', () => {
+    const defaultRes = installCIWorkflow({ repoRoot: dir });
+    assert.equal(defaultRes.created, true);
+    const defaultYaml = fs.readFileSync(path.join(dir, '.github/workflows/sdlc-quality-gate.yml'), 'utf8');
+    assert.match(defaultYaml, /runs-on:\s*\$\{\{\s*vars\.SDLC_RUNS_ON\s*\|\|\s*'ubuntu-latest'\s*\}\}/);
+    assert.match(defaultYaml, /sdlc-engine\.mjs skill-audit/);
+    assert.match(defaultYaml, /sdlc-engine\.mjs gate --strict/);
+
+    const cfgPath = path.join(dir, '.agent/sdlc-config.json');
+    fs.mkdirSync(path.dirname(cfgPath), { recursive: true });
+    fs.writeFileSync(
+      cfgPath,
+      JSON.stringify({
+        version: '2.1.0',
+        ci: { runsOn: 'local-archlens' },
+        modules: []
+      }),
+      'utf8'
+    );
+    installCIWorkflow({ repoRoot: dir, force: true });
+    const singleRunnerYaml = fs.readFileSync(path.join(dir, '.github/workflows/sdlc-quality-gate.yml'), 'utf8');
+    assert.match(singleRunnerYaml, /runs-on:\s*local-archlens/);
+
+    fs.writeFileSync(
+      cfgPath,
+      JSON.stringify({
+        version: '2.1.0',
+        ci: { runsOn: ['self-hosted', 'local-archlens'] },
+        modules: []
+      }),
+      'utf8'
+    );
+    installCIWorkflow({ repoRoot: dir, force: true });
+    const arrayRunnerYaml = fs.readFileSync(path.join(dir, '.github/workflows/sdlc-quality-gate.yml'), 'utf8');
+    assert.match(arrayRunnerYaml, /runs-on:\s*\["self-hosted",\s*"local-archlens"\]/);
+
+    runCLI(['ci-workflow', 'install', '--force', '--runs-on', 'mac-mini-runner'], cfgPath, dir);
+    const cliRunnerYaml = fs.readFileSync(path.join(dir, '.github/workflows/sdlc-quality-gate.yml'), 'utf8');
+    assert.match(cliRunnerYaml, /runs-on:\s*mac-mini-runner/);
+  });
+
+  it('parseCommandArgv & runConfiguredCommand execute single commands and argv arrays without a shell and reject shell operators', () => {
+    assert.equal(typeof coreMod.parseCommandArgv, 'function');
+    assert.equal(typeof coreMod.runConfiguredCommand, 'function');
+
+    const parsed = coreMod.parseCommandArgv('node -e "const x = 1; if (x && true) process.exit(0)"');
+    assert.equal(parsed.file, 'node');
+    assert.deepEqual(parsed.args, ['-e', 'const x = 1; if (x && true) process.exit(0)']);
+
+    const arrParsed = coreMod.parseCommandArgv(['node', '--version']);
+    assert.equal(arrParsed.file, 'node');
+    assert.deepEqual(arrParsed.args, ['--version']);
+
+    assert.throws(
+      () => coreMod.parseCommandArgv('npm test && echo pwned'),
+      /Refusing shell compound command/
+    );
+    assert.throws(
+      () => coreMod.parseCommandArgv('npm test; rm -rf /'),
+      /Refusing shell compound command/
+    );
+    assert.throws(
+      () => coreMod.parseCommandArgv('echo $(whoami)'),
+      /Refusing shell compound command/
+    );
+
+    const out = coreMod.runConfiguredCommand(['node', '-e', 'process.stdout.write("SAFE_EXEC")'], {
+      cwd: dir,
+      stdio: 'pipe',
+      encoding: 'utf8'
+    });
+    assert.equal(out, 'SAFE_EXEC');
+  });
+
+  it('engine & library modules contain zero execSync calls outside legacy coreMod.execCommand shim', () => {
+    const shellFreeModules = [
+      '.agent/scripts/sdlc-engine.mjs',
+      '.agent/scripts/lib/quality-gate.mjs',
+      '.agent/scripts/lib/arch-trace.mjs',
+      '.agent/scripts/lib/audit-chain.mjs',
+      '.agent/scripts/lib/session.mjs',
+      '.agent/scripts/lib/cache.mjs',
+      '.agent/scripts/lib/git-guard.mjs'
+    ];
+    for (const rel of shellFreeModules) {
+      const src = fs.readFileSync(path.join(REPO_ROOT, rel), 'utf8');
+      assert.equal(
+        /\bexecSync\b/.test(src),
+        false,
+        `Expected zero execSync references in ${rel}`
+      );
+    }
+  });
+
+  it('ships valid local JSON schema and dogfoods configurable runner workflows in repository', () => {
+    const schemaPath = path.join(REPO_ROOT, '.agent/schemas/sdlc-config.schema.json');
+    assert.equal(fs.existsSync(schemaPath), true, 'Expected .agent/schemas/sdlc-config.schema.json to exist');
+    const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf8'));
+    assert.ok(schema.$schema.includes('json-schema.org'));
+    assert.ok(schema.properties.ci);
+    assert.ok(schema.properties.modules);
+
+    const generatedCfg = generateConfig(dir);
+    assert.equal(generatedCfg.$schema, './schemas/sdlc-config.schema.json');
+
+    const repoConfig = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, '.agent/sdlc-config.json'), 'utf8'));
+    assert.equal(repoConfig.$schema, './schemas/sdlc-config.schema.json');
+    assert.doesNotThrow(() => coreMod.parseCommandArgv(repoConfig.modules[0].commands.coverage));
+
+    const gateWf = fs.readFileSync(path.join(REPO_ROOT, '.github/workflows/sdlc-quality-gate.yml'), 'utf8');
+    const wikiWf = fs.readFileSync(path.join(REPO_ROOT, '.github/workflows/publish-wiki.yml'), 'utf8');
+    assert.match(gateWf, /vars\.SDLC_RUNS_ON/);
+    assert.match(wikiWf, /vars\.SDLC_RUNS_ON/);
+  });
+
+  it('applyBranchProtection enforces required quality-gate status check and enforce_admins when workflow is present', () => {
+    installCIWorkflow({ repoRoot: dir });
+    const calls = [];
+    const res = gitGuardMod.applyBranchProtection({
+      branches: ['main'],
+      requiredApprovals: 2,
+      repoRoot: dir,
+      execFn: (bin, args, opts) => {
+        calls.push({ bin, args, opts, body: JSON.parse(opts.input) });
+        return '';
+      }
+    });
+    assert.equal(res.localHookInstalled, true);
+    assert.deepEqual(res.errors, []);
+    assert.equal(res.protectedBranches.length, 1);
+    assert.deepEqual(res.protectedBranches[0], {
+      branch: 'main',
+      remoteProtected: true,
+      enforceAdmins: true,
+      requiredChecks: [gitGuardMod.DEFAULT_QUALITY_GATE_CHECK]
+    });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].bin, 'gh');
+    assert.deepEqual(calls[0].args, [
+      'api',
+      '--method',
+      'PUT',
+      'repos/:owner/:repo/branches/main/protection',
+      '-H',
+      'Accept: application/vnd.github+json',
+      '--input',
+      '-'
+    ]);
+    assert.equal(calls[0].opts.cwd, dir);
+    assert.equal(calls[0].opts.stdio, 'pipe');
+    assert.deepEqual(calls[0].body, {
+      required_status_checks: {
+        strict: true,
+        contexts: [gitGuardMod.DEFAULT_QUALITY_GATE_CHECK]
+      },
+      enforce_admins: true,
+      required_pull_request_reviews: {
+        dismiss_stale_reviews: true,
+        require_code_owner_reviews: false,
+        required_approving_review_count: 2
+      },
+      restrictions: null
+    });
+
+    const fallbackRes = gitGuardMod.applyBranchProtection({
+      branches: ['develop'],
+      requiredChecks: [],
+      enforceAdmins: false,
+      requiredApprovals: -3,
+      repoRoot: dir,
+      execFn: (_bin, _args, opts) => {
+        const parsed = JSON.parse(opts.input);
+        assert.equal(parsed.required_status_checks, null);
+        assert.equal(parsed.enforce_admins, false);
+        assert.equal(parsed.required_pull_request_reviews.required_approving_review_count, 0);
+        throw new Error('offline');
+      }
+    });
+    assert.deepEqual(fallbackRes.protectedBranches[0], {
+      branch: 'develop',
+      remoteProtected: false,
+      localProtected: true
+    });
   });
 });

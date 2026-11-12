@@ -1168,6 +1168,7 @@ export function installFramework({
   const absTarget = path.resolve(repoRoot, targetDir);
   const srcSkills = path.join(packageRoot, '.agent/skills');
   const srcScripts = path.join(packageRoot, '.agent/scripts');
+  const srcSchemas = path.join(packageRoot, '.agent/schemas');
   const srcTemplates = path.join(packageRoot, 'docs/templates');
 
   let destSkills;
@@ -1201,6 +1202,7 @@ export function installFramework({
     fs.mkdirSync(absTarget, { recursive: true });
     destSkills = path.join(absTarget, '.agent/skills');
     destScripts = path.join(absTarget, '.agent/scripts');
+    const destSchemas = path.join(absTarget, '.agent/schemas');
     const destTemplates = path.join(absTarget, 'docs/templates');
 
     prePruned.push(...pruneDeprecatedSkills(destSkills));
@@ -1211,6 +1213,9 @@ export function installFramework({
     }
     if (path.resolve(srcScripts) !== path.resolve(destScripts)) {
       copyDirRecursive(srcScripts, destScripts);
+    }
+    if (fileExists(srcSchemas) && path.resolve(srcSchemas) !== path.resolve(destSchemas)) {
+      copyDirRecursive(srcSchemas, destSchemas);
     }
     if (fileExists(srcTemplates) && path.resolve(srcTemplates) !== path.resolve(destTemplates)) {
       copyDirRecursive(srcTemplates, destTemplates);

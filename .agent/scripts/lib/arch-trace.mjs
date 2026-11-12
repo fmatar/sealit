@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { execSync } from 'node:child_process';
 import { fileExists, readFileSafe, inspectArchlens, getModifiedFiles, gitOutput, gitDiffForFile } from './core.mjs';
 import { getSessionStatus } from './session.mjs';
 
@@ -261,21 +260,14 @@ export function recordArchTrace({
   const issueId = ticket || activeSess?.issueId || 'N/A';
   let branch = activeSess?.branch;
   if (!branch) {
-    try {
-      branch = execSync('git branch --show-current 2>/dev/null', { cwd: repoRoot, encoding: 'utf8' }).trim() || 'develop';
-    } catch {
-      branch = 'develop';
-    }
+    branch = (gitOutput(['branch', '--show-current'], repoRoot) || '').trim() || 'develop';
   }
 
   if (branch === 'develop' || branch === 'main') {
     console.warn(`⚠️ Warning: Recording architectural changes on protected branch '${branch}'!`);
   }
 
-  let commitSha = 'UNCOMMITTED';
-  try {
-    commitSha = execSync('git rev-parse --short HEAD 2>/dev/null', { cwd: repoRoot, encoding: 'utf8' }).trim() || 'UNCOMMITTED';
-  } catch {}
+  const commitSha = (gitOutput(['rev-parse', '--short', 'HEAD'], repoRoot) || '').trim() || 'UNCOMMITTED';
 
   const candidateDiagrams = diagramPath
     ? [path.resolve(repoRoot, diagramPath)]
