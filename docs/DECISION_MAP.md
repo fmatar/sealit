@@ -9,7 +9,7 @@
 ```mermaid
 flowchart TD
   INV_01["INV-01: Zero direct commits, merges, or pushes to main or develop"]
-  INV_02["INV-02: 100% of code changes require an active SDLC ticket session and Dual-Gate verification (>=85% coverage, >=80% mutation)"]
+  INV_02["INV-02: Code changes require an active SDLC session and Dual-Gate verification meeting the coverage and mutation thresholds configured in `.agent/sdlc-config.json`"]
   INV_03["INV-03: All spec drift must be recorded via an ADR (docs/adr/ADR-00X.md) and synchronized with PRODUCT.md"]
   INV_04["INV-04: Zero shell command interpolation of untrusted user/markdown inputs in PM, Git, or test runner execution paths"]
   CAP_01["CAP-01: Core Domain & Architecture Foundation"]

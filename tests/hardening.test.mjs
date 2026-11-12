@@ -500,6 +500,10 @@ describe('Issue #103: Truthful CLI telemetry, hook drift doctor & baseline', () 
     assert.match(adrText, /ADR-001/);
     assert.match(adrText, /Truthful Baseline/);
 
+    const driftRes = runCLI(['drift', 'check'], null, dir);
+    const driftText = formatCLIResult(driftRes);
+    assert.match(driftText, /Spec-Drift Check Passed/);
+
     const planRes = runCLI(['review', 'plan'], null, dir);
     const planText = formatCLIResult(planRes);
     assert.match(planText, /risk=/i);

@@ -13,7 +13,7 @@
 
 | 📥 Backlog | 📋 Ready | ⚡ In Progress | 🔍 In Review | ✅ Done |
 | :--- | :--- | :--- | :--- | :--- |
-|  |  | #103: [FIX] fix: Truthful CLI telemetry, hook drift doctor, and config-driven Dual-Gate baseline |  |  |
+|  |  |  | #103: [FIX] fix: Truthful CLI telemetry, hook drift doctor, and config-driven Dual-Gate baseline |  |
 |  |  |  | #99: [FIX] fix: Publish consolidated peer review & quality gate comments to GitHub PRs |  |
 |  |  |  |  | #97: [FIX] fix: fix-claude-desktop-skills |
 |  |  |  |  | #95: [FEAT] feat: Implement ADR lifecycle compaction and fix 6 field-tested engine bugs |
