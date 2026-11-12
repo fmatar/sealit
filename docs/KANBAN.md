@@ -13,7 +13,7 @@
 
 | 📥 Backlog | 📋 Ready | ⚡ In Progress | 🔍 In Review | ✅ Done |
 | :--- | :--- | :--- | :--- | :--- |
-|  |  | #105: [FEAT] feat: GitHub Actions quality-gate CI, configurable runners, and shell-free execution |  |  |
+|  |  |  | #105: [FEAT] feat: GitHub Actions quality-gate CI, configurable runners, and shell-free execution |  |
 |  |  |  |  | #103: [FIX] fix: Truthful CLI telemetry, hook drift doctor, and config-driven Dual-Gate baseline |
 |  |  |  | #99: [FIX] fix: Publish consolidated peer review & quality gate comments to GitHub PRs |  |
 |  |  |  |  | #97: [FIX] fix: fix-claude-desktop-skills |

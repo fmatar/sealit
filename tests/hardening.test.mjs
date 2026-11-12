@@ -668,9 +668,14 @@ describe('Issue #105: GitHub Actions quality-gate CI, configurable runners, loca
     const defaultRes = installCIWorkflow({ repoRoot: dir });
     assert.equal(defaultRes.created, true);
     const defaultYaml = fs.readFileSync(path.join(dir, '.github/workflows/sdlc-quality-gate.yml'), 'utf8');
+    assert.match(defaultYaml, /permissions:\s*\n\s*contents:\s*read/);
     assert.match(defaultYaml, /runs-on:\s*\$\{\{\s*vars\.SDLC_RUNS_ON\s*\|\|\s*'ubuntu-latest'\s*\}\}/);
     assert.match(defaultYaml, /sdlc-engine\.mjs skill-audit/);
     assert.match(defaultYaml, /sdlc-engine\.mjs gate --strict/);
+    assert.throws(
+      () => installCIWorkflow({ repoRoot: dir, force: true, runsOn: 'ubuntu-latest\n    permissions: write-all' }),
+      /newline characters are not permitted/
+    );
 
     const cfgPath = path.join(dir, '.agent/sdlc-config.json');
     fs.mkdirSync(path.dirname(cfgPath), { recursive: true });
@@ -776,7 +781,14 @@ describe('Issue #105: GitHub Actions quality-gate CI, configurable runners, loca
     const gateWf = fs.readFileSync(path.join(REPO_ROOT, '.github/workflows/sdlc-quality-gate.yml'), 'utf8');
     const wikiWf = fs.readFileSync(path.join(REPO_ROOT, '.github/workflows/publish-wiki.yml'), 'utf8');
     assert.match(gateWf, /vars\.SDLC_RUNS_ON/);
+    assert.match(gateWf, /permissions:\s*\n\s*contents:\s*read/);
     assert.match(wikiWf, /vars\.SDLC_RUNS_ON/);
+    assert.equal(wikiWf.includes('git config --global'), false);
+    assert.match(wikiWf, /mktemp -d/);
+    assert.match(wikiWf, /trap 'rm -rf "\$WIKI_DIR"' EXIT/);
+
+    const repoPkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'));
+    assert.ok(repoPkg.files.includes('.agent/schemas'));
   });
 
   it('applyBranchProtection enforces required quality-gate status check and enforce_admins when workflow is present', () => {

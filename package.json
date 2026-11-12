@@ -29,6 +29,7 @@
   "files": [
     ".agent/skills",
     ".agent/scripts",
+    ".agent/schemas",
     "docs/templates",
     "README.md",
     "LICENSE"

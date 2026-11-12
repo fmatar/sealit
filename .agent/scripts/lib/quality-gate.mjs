@@ -11,6 +11,7 @@ import {
   getModifiedFiles,
   gitDiffForFile,
   gitOutput,
+  parseCommandArgv,
   runConfiguredCommand
 } from './core.mjs';
 import { getSessionStatus } from './session.mjs';
@@ -433,8 +434,16 @@ export function installCIWorkflow({ repoRoot = '.', force = false, runsOn = null
 
   let runsOnYaml = "${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}";
   if (Array.isArray(configuredRunsOn) && configuredRunsOn.length > 0) {
+    for (const item of configuredRunsOn) {
+      if (/[\r\n]/.test(String(item))) {
+        throw new Error('Invalid ci.runsOn entry: newline characters are not permitted.');
+      }
+    }
     runsOnYaml = `[${configuredRunsOn.map((item) => JSON.stringify(String(item))).join(', ')}]`;
   } else if (typeof configuredRunsOn === 'string' && configuredRunsOn.trim()) {
+    if (/[\r\n]/.test(configuredRunsOn)) {
+      throw new Error('Invalid ci.runsOn value: newline characters are not permitted.');
+    }
     runsOnYaml = configuredRunsOn.trim();
   }
 
@@ -445,6 +454,9 @@ on:
     branches: [ main, develop ]
   pull_request:
     branches: [ main, develop ]
+
+permissions:
+  contents: read
 
 jobs:
   quality-gate:
@@ -1375,6 +1387,12 @@ export function inspectCIWorkflows(repoRoot = '.') {
         const match = trimmed.match(/^(-\s*)?run:\s*(.+)$/);
         if (match) {
           const runCmd = match[2].trim();
+          let isSingleExecutable = false;
+          try {
+            parseCommandArgv(runCmd);
+            isSingleExecutable = true;
+          } catch {}
+          if (!isSingleExecutable) continue;
           if (!detected.testCommand && (runCmd.includes('test') || runCmd.includes('check') || runCmd.includes('pytest'))) {
             detected.testCommand = runCmd;
           }

@@ -1778,7 +1778,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         let runsOn = null;
         for (let i = 2; i < args.length; i++) {
           if (args[i] === '--runs-on' && args[i + 1]) runsOn = args[++i];
-          else if (args[i].startsWith('--runs-on=')) runsOn = args[i].split('=')[1];
+          else if (args[i].startsWith('--runs-on=')) runsOn = args[i].slice('--runs-on='.length);
         }
         result.ciWorkflow = installCIWorkflow({ repoRoot, force, runsOn });
         return result;
