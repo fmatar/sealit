@@ -603,14 +603,14 @@ ${rows}
   return `# 🗺️ Codebase-to-Wiki Traceability & Archlens Ring Map
 
 > **Deterministic AST & Clean Architecture Inventory**  
-> Generated and verified by \`node .agent/scripts/sdlc-engine.mjs wiki sync\` (\`sdlc-wiki\`) and governed by \`.archlens/policy.json\`.  
+> Generated and verified by \`node .agent/scripts/sdlc-engine.mjs wiki sync\` (\`sdlc-wiki\`) and governed by [Archlens](https://github.com/fmatar/archlens) (\`.archlens/policy.json\`).  
 > Every module, exported symbol, concentric ring boundary, skill, capability (\`CAP-XX\`), and decision record (\`ADR-00X\`) is mapped below.
 
 ---
 
 ## 1. Archlens Concentric Ring Dependency Graph
 
-In accordance with Robert C. Martin's **Clean Architecture** and \`.archlens/policy.json\`, dependencies point strictly inward toward **Ring 0 (Domain Core & Primitives)**.
+In accordance with Robert C. Martin's **Clean Architecture** and [Archlens](https://github.com/fmatar/archlens) (\`.archlens/policy.json\`), dependencies point strictly inward toward **Ring 0 (Domain Core & Primitives)**.
 
 - **Afferent Coupling ($Ca$)**: Number of modules that depend on this module (inward stability).
 - **Efferent Coupling ($Ce$)**: Number of modules this module depends on (outward fan-out).
@@ -702,7 +702,7 @@ export function syncWiki({ repoRoot = '.', generateMissing = false } = {}) {
       },
       {
         name: 'Architecture.md',
-        title: '# 🏗️ System Architecture\n\nConcentric Clean Architecture governed by `.archlens/policy.json`.\n'
+        title: '# 🏗️ System Architecture\n\nConcentric Clean Architecture governed by [Archlens](https://github.com/fmatar/archlens) (`.archlens/policy.json`).\n'
       },
       {
         name: 'Skills-Reference.md',

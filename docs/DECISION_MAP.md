@@ -34,6 +34,8 @@ flowchart TD
   SPEC_10["SPEC-10 (docs/specs/cap-10-unified-multi-provider-ticket-engine-issue-templ.md)"]
   CAP_11["CAP-11: Technical Writer Skill (`sdlc-wiki`) & Archlens AST-to-Wiki Sync (#90)"]
   SPEC_11["SPEC-11 (docs/specs/cap-11-technical-writer-archlens-wiki-sync.md)"]
+  ADR_009["ADR-009: Align README, Wiki, PRD and SRS Documentation with v0.4.0 Architecture and Archlens Links"]
+  _114["Ticket #114"]
   ADR_COMPACT_v0_3_0["Compacted 8 ADR(s) into SRS.md (v0.3.0)"]
   createdAt__2026_11_03T18_52_42_656Z["createdAt: 2026-11-03T18:52:42.656Z"]
   ADR_COMPACT_v0_4_0["Compacted 6 ADR(s) into SRS.md (v0.4.0)"]
@@ -91,6 +93,9 @@ flowchart TD
   CAP_11 -->|depends_on| CAP_03
   CAP_11 -->|depends_on| CAP_05
   CAP_11 -->|depends_on| CAP_08
+  _114 -->|triggered_drift_adr| ADR_009
+  CAP_06 -.->|ADR Drift| ADR_009
+  CAP_11 -.->|ADR Drift| ADR_009
   CAP_01 -->|realized_by| ADR_COMPACT_v0_3_0
   CAP_02 -->|realized_by| ADR_COMPACT_v0_3_0
   CAP_03 -->|realized_by| ADR_COMPACT_v0_3_0
@@ -119,7 +124,7 @@ flowchart TD
 
 | ADR ID | Decision Title | Scope | Status | Triggered By | Supersedes / Amends |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| *None* | No architectural drift ADRs recorded yet | - | - | - | - |
+| **ADR-009** | Align README, Wiki, PRD and SRS Documentation with v0.4.0 Architecture and Archlens Links | `technical` | `accepted` | #114 | CAP-06, CAP-11 |
 
 ---
 
@@ -132,9 +137,9 @@ flowchart TD
 | **CAP-03** | Real Coverage/Mutation Parsers & Policy ArchDiff (#70) | `AMENDED (ADR-004)` |
 | **CAP-04** | Live Canary Watchdog, Real Proofs & Polyglot Reproduce (#71) | `AMENDED (ADR-002)` |
 | **CAP-05** | Consolidate 14 Skills into 6 Schema-Valid Core Skills (#72) | `AMENDED (ADR-005)` |
-| **CAP-06** | Dogfooding Configuration, Docs Sync & Full Test Suite (#73) | `AMENDED (ADR-006)` |
+| **CAP-06** | Dogfooding Configuration, Docs Sync & Full Test Suite (#73) | `AMENDED (ADR-009)` |
 | **CAP-07** | Native `npx` Multi-Agent Interactive Installer & Legacy Installer Removal (#75) | `AMENDED (ADR-005)` |
 | **CAP-08** | `/sdlc` Universal Command Router & 9 Verb-Driven Skills (#81) | `AMENDED (ADR-006)` |
 | **CAP-09** | Two-Tier PRD & IEEE 29148 SRS Specification Engine (#84) | `PLANNED` |
 | **CAP-10** | Unified Multi-Provider Ticket Engine & Issue Templates (#86) | `PLANNED` |
-| **CAP-11** | Technical Writer Skill (`sdlc-wiki`) & Archlens AST-to-Wiki Sync (#90) | `AMENDED (ADR-001)` |
+| **CAP-11** | Technical Writer Skill (`sdlc-wiki`) & Archlens AST-to-Wiki Sync (#90) | `AMENDED (ADR-009)` |
