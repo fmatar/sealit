@@ -44,7 +44,7 @@ flowchart TD
   ADR_004["ADR-004: Risk-Proportional Execution Lanes, Instant Pre-Commit Guard, and Spec-Drift Precision"]
   _107["Ticket #107 (feature/issue-#107-risk-proportional-execution-lanes-and-sp)"]
   ADR_005["ADR-005: Right-Size Canonical Skills Suite and Native Claude and Cursor Skill Packaging"]
-  _109["Ticket #109"]
+  _109["Ticket #109 (feature/issue-#109-right-size-all-sdlc-skills-and-upgrade-c)"]
   ADR_COMPACT_v0_3_0["Compacted 8 ADR(s) into SRS.md (v0.3.0)"]
   createdAt__2026_11_03T18_52_42_656Z["createdAt: 2026-11-03T18:52:42.656Z"]
   _SDLC_INIT["Ticket #SDLC-INIT (feature/arch-traceability-governance)"]
