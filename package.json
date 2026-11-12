@@ -37,7 +37,6 @@
     ".agent/skills/sdlc-status",
     ".agent/skills/sdlc-tdd",
     ".agent/skills/sdlc-wiki",
-    ".agent/skills/ub-mode",
     ".agent/scripts",
     ".agent/schemas",
     "docs/templates",

@@ -22,7 +22,7 @@
 - **Outputs**: Structured result payload, updated state artifacts, and audit ledger events.
 
 ## 3. Domain Contract & Acceptance Criteria
-- Enforce Clean Architecture concentric ring boundaries (`.archlens/policy.json`) and Robert C. Martin TDD.
+- Enforce Clean Architecture concentric ring boundaries (`.archlens/policy.json`) and Red-Green-Refactor TDD.
 - Achieve Dual-Gate verification (`>= 85%` diff line coverage and `>= 80%` mutation score).
 - Zero shell command interpolation of untrusted inputs (`INV-04`).
 

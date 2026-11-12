@@ -12,7 +12,7 @@ Abstract skill names like `sdlc-init` and `sdlc-review-gate` do not map intuitiv
 | **`sdlc-product`** | **Macro Autopilot** | `sdlc-product` | Spec/PRD-to-DAG autopilot (`PRODUCT.md`, `docs/specs/*.md`, topological waves) |
 | **`sdlc-doctor`** | **Ops & Diagnostics** | Replaces `sdlc-init` | `install`, `detect`, `doctor --fix`, `hooks install`, `archlens scaffold`, `interop export` |
 | **`sdlc-status`** | **Ops & Diagnostics** | New verb skill | `session status`, `session dashboard`, `drift check`, `KANBAN.md`, and `ui-snapshot` |
-| **`sdlc-tdd`** | **Stage Action** | `sdlc-tdd` | Robert Martin Red-Green-Refactor + `test --affected-only`, `coverage`, `mutation`, `reproduce` |
+| **`sdlc-tdd`** | **Stage Action** | `sdlc-tdd` | Red-Green-Refactor TDD + `test --affected-only`, `coverage`, `mutation`, `reproduce` |
 | **`sdlc-gate`** | **Stage Action** | Replaces `sdlc-review-gate` | Parallel Fork-Join PR review (`invoke_subagent`) + `gate --strict` + `guard receipt` |
 | **`sdlc-adr`** | **Stage Action** | New verb skill | `adr create`, `adr list`, `adr decide`, `drift check`, and `decision-graph sync` |
 | **`sdlc-release`** | **Stage Action** | `sdlc-release` | Docs/`CHANGELOG.md`/`wiki/` sync, `proof generate`, `release <patch\|minor\|major>`, `watchdog` |

@@ -4,4 +4,4 @@
 - **Status**: `ACTIVE`
 
 ## 1. Domain Contract & Acceptance Criteria
-- Enforce Clean Architecture boundaries and Robert Martin TDD.
+- Enforce Clean Architecture boundaries and Red-Green-Refactor TDD.

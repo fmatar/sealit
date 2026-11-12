@@ -35,8 +35,8 @@ description: "Use when implementing a feature, bug fix, or hotfix end-to-end acr
    ```
    Pass `--ui` only if the user asks for the `.agent/workbench/index.html` architecture widget. For `--type fix|hotfix`, scaffold a failing reproduction test first with `node .agent/scripts/sdlc-engine.mjs reproduce --error "<trace>"`.
 
-2. **Implement (`ub-mode` + `sdlc-tdd`)**:
-   Follow `ub-mode` (*First Make it Work -> Then Make it Right -> Practice*) and run the lane-appropriate test/coverage/mutation gates in `sdlc-tdd`. If `drift check` triggers, mint an ADR via `sdlc-adr`.
+2. **Implement (`sdlc-tdd`)**:
+   Model the domain types and concentric ring boundaries (`.archlens/policy.json`) first, make the smallest clean change via Red-Green-Refactor TDD, and run the lane-appropriate test/coverage/mutation gates in `sdlc-tdd`. If `drift check` triggers, mint an ADR via `sdlc-adr`.
 
 3. **Pre-PR Verification (`stage pre-pr`)**:
    ```bash

@@ -38,11 +38,13 @@ import {
   checkSpecDrift,
   verifyAuditChain,
   CANONICAL_SDLC_SKILLS,
+  DEPRECATED_SDLC_SKILLS,
   provisionAgentIntegrations,
   auditSkills,
   auditReadme,
   auditWiki,
   buildWikiCodeMap,
+  parseMermaidDiagram,
   parseFrontmatter
 } from '../.agent/scripts/sdlc-engine.mjs';
 import * as coreMod from '../.agent/scripts/lib/core.mjs';
@@ -504,8 +506,8 @@ describe('Issue #103: Truthful CLI telemetry, hook drift doctor & baseline', () 
     assert.match(verText, /VALID \(1 record\(s\)\)/);
 
     const skillRes = runCLI(['skill-audit'], null, REPO_ROOT);
-    assert.ok(skillRes.skillAudit.skillsScanned >= 11, 'must scan ub-mode alongside sdlc* skills');
-    assert.ok(skillRes.skillAudit.skills.some((s) => s.skill === 'ub-mode'));
+    assert.equal(skillRes.skillAudit.skillsScanned, 10, 'must scan all 10 canonical sdlc* skills');
+    assert.ok(skillRes.skillAudit.skills.every((s) => s.skill.startsWith('sdlc')));
     const skillText = formatCLIResult(skillRes);
     assert.match(skillText, new RegExp(`${skillRes.skillAudit.skillsScanned} skill\\(s\\) checked`));
 
@@ -1305,12 +1307,12 @@ describe('Issue #109: Right-sized canonical skills, Claude unified packaging, an
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  it('enforces <=200-char Use-when/Not-for descriptions, zero hardcoded approve verdicts, and clean SkillSpector audit across all 11 canonical skills', () => {
-    assert.equal(CANONICAL_SDLC_SKILLS.length, 11);
-    assert.ok(CANONICAL_SDLC_SKILLS.includes('ub-mode'), 'ub-mode must be part of CANONICAL_SDLC_SKILLS');
+  it('enforces <=200-char Use-when/Not-for descriptions, zero hardcoded approve verdicts, and clean SkillSpector audit across all 10 canonical skills', () => {
+    assert.equal(CANONICAL_SDLC_SKILLS.length, 10);
+    assert.ok(CANONICAL_SDLC_SKILLS.every((id) => id.startsWith('sdlc')), 'all canonical skills must be sdlc*');
 
     const skillAudit = auditSkills(REPO_ROOT);
-    assert.equal(skillAudit.skillsAudited, 11);
+    assert.equal(skillAudit.skillsAudited, 10);
     assert.equal(skillAudit.totalFindings, 0);
     assert.equal(skillAudit.success, true);
 
@@ -1358,12 +1360,12 @@ describe('Issue #109: Right-sized canonical skills, Claude unified packaging, an
       assert.ok(content.includes('⚠️ Confirm with user before'), `${guardedSkill} must include confirmation gate`);
     }
 
-    // Wiki code map & Skills-Reference alignment with ADR-005
+    // Wiki code map & Skills-Reference alignment with ADR-010
     const codeMap = buildWikiCodeMap(REPO_ROOT);
     assert.deepEqual(
       codeMap.skills.map((s) => s.name),
       [...CANONICAL_SDLC_SKILLS].sort(),
-      'buildWikiCodeMap must index all 11 canonical skills including ub-mode'
+      'buildWikiCodeMap must index all 10 canonical skills'
     );
     const skillsRefRaw = fs.readFileSync(path.join(REPO_ROOT, 'wiki/Skills-Reference.md'), 'utf8');
     assert.equal(/\/sdlc doctor`\s*\|\s*`node \.agent\/scripts\/sdlc-engine\.mjs doctor --fix`/.test(skillsRefRaw), false);
@@ -1371,7 +1373,7 @@ describe('Issue #109: Right-sized canonical skills, Claude unified packaging, an
     assert.match(skillsRefRaw, /stage begin --issue/);
   });
 
-  it('verifies every sdlc-engine.mjs subcommand referenced across all 11 SKILL.md files exists in sdlc-engine.mjs', () => {
+  it('verifies every sdlc-engine.mjs subcommand referenced across all 10 SKILL.md files exists in sdlc-engine.mjs', () => {
     const engineSrc = fs.readFileSync(path.join(REPO_ROOT, '.agent/scripts/sdlc-engine.mjs'), 'utf8');
     const validCommands = new Set(['help', 'install']);
     for (const m of engineSrc.matchAll(/case\s+'([a-z0-9-]+)'\s*:/g)) {
@@ -1396,10 +1398,11 @@ describe('Issue #109: Right-sized canonical skills, Claude unified packaging, an
   it('removes duplicate .claude/commands/sdlc*.md, syncs plugin.json version from package.json, and installs real .cursor/skills/<id>/SKILL.md', () => {
     // Seed legacy duplicate .claude/commands/sdlc*.md and a user-authored command that must be preserved
     const legacyCmdDir = path.join(dir, '.claude/commands');
+    const retiredModeId = ['ub', 'mode'].join('-');
     fs.mkdirSync(legacyCmdDir, { recursive: true });
     fs.writeFileSync(path.join(legacyCmdDir, 'sdlc.md'), 'legacy duplicate router command\n', 'utf8');
     fs.writeFileSync(path.join(legacyCmdDir, 'sdlc-flow.md'), 'legacy duplicate flow command\n', 'utf8');
-    fs.writeFileSync(path.join(legacyCmdDir, 'ub-mode.md'), 'legacy duplicate ub-mode command\n', 'utf8');
+    fs.writeFileSync(path.join(legacyCmdDir, `${retiredModeId}.md`), 'legacy retired command\n', 'utf8');
     fs.writeFileSync(path.join(legacyCmdDir, 'custom-deploy.md'), 'user custom command\n', 'utf8');
 
     const res = provisionAgentIntegrations({
@@ -1408,15 +1411,15 @@ describe('Issue #109: Right-sized canonical skills, Claude unified packaging, an
       global: false,
       packageRoot: REPO_ROOT
     });
-    assert.equal(res.skillsCount, 11);
+    assert.equal(res.skillsCount, 10);
 
-    // 1. Legacy canonical .claude/commands/*.md pruned; custom command preserved; zero new .claude/commands/<skill>.md created
+    // 1. Legacy canonical/deprecated .claude/commands/*.md pruned; custom command preserved; zero new .claude/commands/<skill>.md created
     assert.equal(fs.existsSync(path.join(legacyCmdDir, 'sdlc.md')), false);
     assert.equal(fs.existsSync(path.join(legacyCmdDir, 'sdlc-flow.md')), false);
-    assert.equal(fs.existsSync(path.join(legacyCmdDir, 'ub-mode.md')), false);
+    assert.equal(fs.existsSync(path.join(legacyCmdDir, `${retiredModeId}.md`)), false);
     assert.equal(fs.existsSync(path.join(legacyCmdDir, 'custom-deploy.md')), true);
 
-    // 2. All 11 .claude/skills/<id>/SKILL.md + Cowork .zip + .cursor/skills/<id>/SKILL.md + .cursor/rules/<id>.mdc exist
+    // 2. All 10 .claude/skills/<id>/SKILL.md + Cowork .zip + .cursor/skills/<id>/SKILL.md + .cursor/rules/<id>.mdc exist
     for (const skillId of CANONICAL_SDLC_SKILLS) {
       assert.equal(fs.existsSync(path.join(dir, '.claude/commands', `${skillId}.md`)), false);
       const claudeSkillPath = path.join(dir, '.claude/skills', skillId, 'SKILL.md');
@@ -1457,9 +1460,9 @@ describe('Issue #109: Right-sized canonical skills, Claude unified packaging, an
       packageRoot: REPO_ROOT
     });
     assert.equal(fs.existsSync(path.join(fakeHome, '.claude/commands/sdlc.md')), false);
-    assert.equal(fs.existsSync(path.join(fakeHome, '.claude/skills/ub-mode/SKILL.md')), true);
+    assert.equal(fs.existsSync(path.join(fakeHome, '.claude/skills/sdlc-tdd/SKILL.md')), true);
     assert.equal(fs.existsSync(path.join(fakeHome, '.cursor/skills/sdlc-flow/SKILL.md')), true);
-    assert.equal(fs.existsSync(path.join(fakeHome, '.cursor/skills/ub-mode/SKILL.md')), true);
+    assert.equal(fs.existsSync(path.join(fakeHome, '.cursor/skills/sdlc-tdd/SKILL.md')), true);
   });
 });
 
@@ -1467,7 +1470,7 @@ describe('Issue #109: Right-sized canonical skills, Claude unified packaging, an
 // Issue #111: Slim npm package (<250 KB), untracked binaries, single workbench & v0.4.0 sync
 // ===========================================================================
 describe('Issue #111: Slim npm package (<250 KB), untracked binaries, and single workbench', () => {
-  it('keeps npm pack tarball under 250 KB with all 11 canonical skills and zero third-party binaries', () => {
+  it('keeps npm pack tarball under 250 KB with all 10 canonical skills and zero third-party binaries', () => {
     const packOut = execFileSync('npm', ['pack', '--dry-run', '--json'], {
       cwd: REPO_ROOT,
       encoding: 'utf8',
@@ -1652,8 +1655,6 @@ describe('Issue #114: Documentation alignment & Archlens repository link hygiene
       'wiki/Skills-Reference.md',
       'wiki/Traceability.md',
       'wiki/Codebase-Map.md',
-      'wiki/_Sidebar.md',
-      'wiki/_Footer.md',
       'docs/PRD.md',
       'docs/SRS.md'
     ];
@@ -1680,10 +1681,10 @@ describe('Issue #114: Documentation alignment & Archlens repository link hygiene
     assert.equal(fs.existsSync(path.join(REPO_ROOT, 'docs/SDLC_AGENTIC_OPERATIONS_GUIDE.md')), false);
     assert.equal(fs.existsSync(path.join(REPO_ROOT, 'docs/SDLC_COMPLIANCE_REPORT.md')), false);
 
-    // Active prose in CONTRIBUTING.md, PRD.md, SRS.md (before Compacted Architectural Decisions), and wiki/Architecture.md must match v0.4.0
+    // Active prose in CONTRIBUTING.md, PRD.md, SRS.md (before Compacted Architectural Decisions), and wiki/Architecture.md must match ADR-010
     const contributing = fs.readFileSync(path.join(REPO_ROOT, 'CONTRIBUTING.md'), 'utf8');
-    assert.match(contributing, /11 canonical skills/i);
-    assert.doesNotMatch(contributing, /\b10 canonical skills\b/i);
+    assert.match(contributing, /10 canonical skills/i);
+    assert.doesNotMatch(contributing, /\b11 canonical skills\b/i);
 
     const prd = fs.readFileSync(path.join(REPO_ROOT, 'docs/PRD.md'), 'utf8');
     assert.doesNotMatch(prd, /SvelteKit 5|6 focused agentic skills/i);
@@ -1724,5 +1725,171 @@ describe('Issue #114: Documentation alignment & Archlens repository link hygiene
         }
       }
     }
+  });
+});
+
+// ===========================================================================
+// Issue #116: Zero author branding, retired legacy mode skill, clean footers & GitHub-width diagram
+// ===========================================================================
+describe('Issue #116: Author-neutral terminology, 10 canonical skills, clean footers, and GitHub-width How It Works diagram', () => {
+  const authorPattern = new RegExp(
+    [
+      ['rob', 'ert', '(?:\\s+c\\.?)?\\s*', 'mar', 'tin'].join(''),
+      ['unc', 'le', '\\s*', 'bob'].join('')
+    ].join('|'),
+    'i'
+  );
+  const retiredModeId = ['ub', 'mode'].join('-');
+  const retiredModePattern = new RegExp(
+    [
+      retiredModeId,
+      ['ub', 'mode'].join('_'),
+      ['/sdlc\\s+', 'ub\\b'].join('')
+    ].join('|'),
+    'i'
+  );
+
+  it('removes all author-specific branding across 100% of tracked files and restricts retired mode id to DEPRECATED_SDLC_SKILLS', () => {
+    const trackedFiles = execFileSync('git', ['ls-files'], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8'
+    })
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const authorHits = [];
+    const retiredHits = [];
+
+    for (const relPath of trackedFiles) {
+      const fullPath = path.join(REPO_ROOT, relPath);
+      if (!fs.existsSync(fullPath) || !fs.statSync(fullPath).isFile()) continue;
+      const content = fs.readFileSync(fullPath, 'utf8');
+      if (authorPattern.test(content)) {
+        authorHits.push(relPath);
+      }
+      if (relPath !== '.agent/scripts/lib/installer.mjs' && retiredModePattern.test(content)) {
+        retiredHits.push(relPath);
+      }
+    }
+
+    assert.deepEqual(authorHits, [], `Expected zero author-branding matches across repo, found in: ${authorHits.join(', ')}`);
+    assert.deepEqual(retiredHits, [], `Expected zero retired skill matches outside DEPRECATED_SDLC_SKILLS, found in: ${retiredHits.join(', ')}`);
+
+    assert.equal(CANONICAL_SDLC_SKILLS.length, 10);
+    assert.equal(CANONICAL_SDLC_SKILLS.includes(retiredModeId), false);
+    assert.equal(DEPRECATED_SDLC_SKILLS.includes(retiredModeId), true);
+  });
+
+  it('prunes retired skill directories, .md, .mdc, and Cowork .zip bundles in both local and global provisioning', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-116-prune-'));
+    try {
+      const localTarget = path.join(tmpDir, 'repo');
+      const fakeHome = path.join(tmpDir, 'home');
+
+      // Seed retired skill artifacts in local repo
+      fs.mkdirSync(path.join(localTarget, '.agent/skills', retiredModeId), { recursive: true });
+      fs.writeFileSync(path.join(localTarget, '.agent/skills', retiredModeId, 'SKILL.md'), 'legacy\n', 'utf8');
+      fs.mkdirSync(path.join(localTarget, '.claude/skills', retiredModeId), { recursive: true });
+      fs.writeFileSync(path.join(localTarget, '.claude/skills', retiredModeId, 'SKILL.md'), 'legacy\n', 'utf8');
+      fs.mkdirSync(path.join(localTarget, '.claude/cowork'), { recursive: true });
+      fs.writeFileSync(path.join(localTarget, '.claude/cowork', `${retiredModeId}.zip`), 'zip', 'utf8');
+      fs.mkdirSync(path.join(localTarget, '.cursor/skills', retiredModeId), { recursive: true });
+      fs.writeFileSync(path.join(localTarget, '.cursor/skills', retiredModeId, 'SKILL.md'), 'legacy\n', 'utf8');
+      fs.mkdirSync(path.join(localTarget, '.cursor/rules'), { recursive: true });
+      fs.writeFileSync(path.join(localTarget, '.cursor/rules', `${retiredModeId}.mdc`), 'legacy\n', 'utf8');
+
+      provisionAgentIntegrations({
+        agents: ['gemini', 'claude', 'cursor'],
+        targetDir: localTarget,
+        global: false,
+        packageRoot: REPO_ROOT
+      });
+
+      assert.equal(fs.existsSync(path.join(localTarget, '.agent/skills', retiredModeId)), false);
+      assert.equal(fs.existsSync(path.join(localTarget, '.claude/skills', retiredModeId)), false);
+      assert.equal(fs.existsSync(path.join(localTarget, '.claude/cowork', `${retiredModeId}.zip`)), false);
+      assert.equal(fs.existsSync(path.join(localTarget, '.cursor/skills', retiredModeId)), false);
+      assert.equal(fs.existsSync(path.join(localTarget, '.cursor/rules', `${retiredModeId}.mdc`)), false);
+
+      // Seed retired skill artifacts in global home directory
+      fs.mkdirSync(path.join(fakeHome, '.gemini/config/skills', retiredModeId), { recursive: true });
+      fs.writeFileSync(path.join(fakeHome, '.gemini/config/skills', retiredModeId, 'SKILL.md'), 'legacy\n', 'utf8');
+      fs.mkdirSync(path.join(fakeHome, '.claude/skills', retiredModeId), { recursive: true });
+      fs.writeFileSync(path.join(fakeHome, '.claude/skills', retiredModeId, 'SKILL.md'), 'legacy\n', 'utf8');
+      fs.mkdirSync(path.join(fakeHome, '.claude/cowork'), { recursive: true });
+      fs.writeFileSync(path.join(fakeHome, '.claude/cowork', `${retiredModeId}.zip`), 'zip', 'utf8');
+      fs.mkdirSync(path.join(fakeHome, '.cursor/skills', retiredModeId), { recursive: true });
+      fs.writeFileSync(path.join(fakeHome, '.cursor/skills', retiredModeId, 'SKILL.md'), 'legacy\n', 'utf8');
+      fs.mkdirSync(path.join(fakeHome, '.cursor/rules'), { recursive: true });
+      fs.writeFileSync(path.join(fakeHome, '.cursor/rules', `${retiredModeId}.mdc`), 'legacy\n', 'utf8');
+
+      provisionAgentIntegrations({
+        agents: ['gemini', 'claude', 'cursor'],
+        global: true,
+        homeDir: fakeHome,
+        packageRoot: REPO_ROOT
+      });
+
+      assert.equal(fs.existsSync(path.join(fakeHome, '.gemini/config/skills', retiredModeId)), false);
+      assert.equal(fs.existsSync(path.join(fakeHome, '.claude/skills', retiredModeId)), false);
+      assert.equal(fs.existsSync(path.join(fakeHome, '.claude/cowork', `${retiredModeId}.zip`)), false);
+      assert.equal(fs.existsSync(path.join(fakeHome, '.cursor/skills', retiredModeId)), false);
+      assert.equal(fs.existsSync(path.join(fakeHome, '.cursor/rules', `${retiredModeId}.mdc`)), false);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('removes Archlens links from page footers while keeping inline README/Wiki architecture links', () => {
+    const wikiFooter = fs.readFileSync(path.join(REPO_ROOT, 'wiki/_Footer.md'), 'utf8');
+    assert.doesNotMatch(wikiFooter, /archlens/i, 'wiki/_Footer.md must not link to Archlens');
+
+    const wikiSidebar = fs.readFileSync(path.join(REPO_ROOT, 'wiki/_Sidebar.md'), 'utf8');
+    const sidebarBottomLinks = wikiSidebar.split('---')[1] || '';
+    assert.doesNotMatch(sidebarBottomLinks, /github\.com\/fmatar\/archlens/i, 'wiki/_Sidebar.md bottom links must not link externally to Archlens');
+
+    const readme = fs.readFileSync(path.join(REPO_ROOT, 'README.md'), 'utf8');
+    const [readmeBody, readmeFooter = ''] = readme.split('## Documentation & Roadmap');
+    assert.ok(readmeBody.includes('https://github.com/fmatar/archlens'), 'README body must preserve inline Archlens link');
+    assert.doesNotMatch(readmeFooter, /archlens/i, 'README footer sections must not contain links to Archlens');
+  });
+
+  it('renders a compact vertical flowchart TD in README How It Works that fits GitHub column width cleanly', () => {
+    const readme = fs.readFileSync(path.join(REPO_ROOT, 'README.md'), 'utf8');
+    const howSection = readme.split('## How It Works')[1]?.split('\n### ')[0] || '';
+    const mermaidMatch = howSection.match(/```mermaid\r?\n([\s\S]*?)```/);
+    assert.ok(mermaidMatch, 'Expected Mermaid diagram under ## How It Works in README.md');
+
+    const diagram = mermaidMatch[1].trim();
+    assert.match(diagram, /%%\{init:\s*\{'theme':\s*'neutral'\}\}%%/, 'Diagram must use neutral theme');
+    assert.match(diagram, /\bflowchart\s+TD\b/, 'Diagram must use top-down flowchart TD to fit GitHub page width');
+    assert.doesNotMatch(diagram, /\bflowchart\s+LR\b/, 'Diagram must not use wide horizontal flowchart LR');
+    assert.equal(diagram.includes('\\n'), false, 'Diagram must not contain raw \\n escape sequences');
+    assert.doesNotMatch(diagram, /<br\s*\/?>/i, 'Diagram must not use HTML tags in labels');
+
+    const parsed = parseMermaidDiagram(diagram);
+    assert.ok(parsed.nodes.length >= 6, `Expected >= 6 nodes in How It Works diagram, got ${parsed.nodes.length}`);
+    assert.ok(parsed.edges.length >= 7, `Expected >= 7 edges in How It Works diagram, got ${parsed.edges.length}`);
+    for (const node of parsed.nodes) {
+      assert.ok(
+        node.label.length <= 62,
+        `Node ${node.id} label exceeds 62-char compact width budget (${node.label.length}): "${node.label}"`
+      );
+    }
+
+    // Verify maximum outgoing fan-out per node <= 3 so parallel columns stay <= ~720px (< GitHub 830px viewport)
+    const fanOut = new Map();
+    for (const edge of parsed.edges) {
+      fanOut.set(edge.from, (fanOut.get(edge.from) || 0) + 1);
+    }
+    for (const [nodeId, count] of fanOut.entries()) {
+      assert.ok(count <= 3, `Node ${nodeId} fans out to ${count} parallel nodes (must be <= 3 to fit GitHub page width)`);
+    }
+
+    // Verify wiki/Traceability.md also uses vertical flowchart TD rather than an 8-node horizontal chain
+    const traceWiki = fs.readFileSync(path.join(REPO_ROOT, 'wiki/Traceability.md'), 'utf8');
+    assert.doesNotMatch(traceWiki, /\bflowchart\s+LR\b/);
+    assert.match(traceWiki, /\bflowchart\s+TD\b/);
   });
 });

@@ -44,7 +44,7 @@ export function renderCapabilitySpecMarkdown({
 - **Outputs**: ${outputs || `Structured result payload, updated state artifacts, and audit ledger events.`}
 
 ## 3. Domain Contract & Acceptance Criteria
-- Enforce Clean Architecture concentric ring boundaries (\`.archlens/policy.json\`) and Robert C. Martin TDD.
+- Enforce Clean Architecture concentric ring boundaries (\`.archlens/policy.json\`) and Red-Green-Refactor TDD.
 - Achieve Dual-Gate verification (\`>= 85%\` diff line coverage and \`>= 80%\` mutation score).
 - Zero shell command interpolation of untrusted inputs (\`INV-04\`).
 
@@ -184,7 +184,7 @@ ${invRows}
 
 export function initProductConstitution({
   title = 'Autonomous Product System',
-  vision = 'End-to-end spec-driven autonomous software system governed by Robert C. Martin Clean Architecture and Dual-Gate TDD.',
+  vision = 'End-to-end spec-driven autonomous software system governed by Concentric Clean Architecture and Dual-Gate TDD.',
   capabilities = [],
   invariants = [],
   autoProvisionGenesis = false,

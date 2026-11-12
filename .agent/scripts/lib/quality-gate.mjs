@@ -264,7 +264,7 @@ ${uiRows}
 ---
 
 ### 🛡️ Cryptographic Proof Attestation
-- **Zero-Regression Guarantee:** Verified against Robert Martin clean architecture boundaries and backward-compatible contracts.
+- **Zero-Regression Guarantee:** Verified against Concentric Clean Architecture boundaries and backward-compatible contracts.
 - **Audit Verification:** Signed into project audit trail.
 `;
 
@@ -556,7 +556,7 @@ export function scaffoldReproductionTest({
   let testContent = '';
 
   const headerComment = `/**
- * MANDATORY BUG REPRODUCTION HARNESS (Robert Martin Red-Green-Refactor)
+ * MANDATORY BUG REPRODUCTION HARNESS (Red-Green-Refactor TDD)
  * Target Source: ${guessedTarget}
  * Stack / Error Trace:
  * ${cleanTrace.split('\n').map((l) => ' * ' + l).join('\n')}
@@ -583,7 +583,7 @@ public class ${className} {
     language = 'python';
     testFileName = `test_reproduce_${baseName.toLowerCase()}_${stamp}.py`;
     testContent = `"""
-MANDATORY BUG REPRODUCTION HARNESS (Robert Martin Red-Green-Refactor)
+MANDATORY BUG REPRODUCTION HARNESS (Red-Green-Refactor TDD)
 Target Source: ${guessedTarget}
 Bug Reproduction Harness: ${baseName}
 Trace: ${firstLine}
@@ -1538,7 +1538,7 @@ export function generateReviewPlan({ repoRoot = '.', lane = null } = {}) {
         TypeName: 'research',
         Role: 'PR Peer & Architecture Reviewer',
         Prompt: `Follow sdlc-gate review guidelines. Audit git diff against main on branch ${branch} for issue #${issueId} (standard lane, risk: ${risk.riskLevel}, modified files: ${diffFiles.length}).
-1. Audit logic correctness, Robert Martin test smells (no assertion-free tests), and F.I.R.S.T. isolation.
+1. Audit logic correctness, behavioral test smells (no assertion-free tests), and F.I.R.S.T. isolation.
 2. Verify coverage metrics against .agent/sdlc-config.json thresholds.
 3. Inspect modified files for hardcoded secrets, unsafe shell interpolation, concentric layer inversions (.archlens/policy.json), and undeclared spec drift.
 4. Return a structured read-only verdict (verdict: approve | request-changes, blockers, notes) so the orchestrator can publish it via review record.`
@@ -1559,7 +1559,7 @@ export function generateReviewPlan({ repoRoot = '.', lane = null } = {}) {
       TypeName: 'research',
       Role: 'PR Peer Reviewer',
       Prompt: `Follow sdlc-gate review guidelines. Audit git diff against main on branch ${branch} for issue #${issueId}.
-1. Audit for Robert Martin test smells (no assertion-free tests, no trivial getters, no mock abuse) and F.I.R.S.T. isolation.
+1. Audit for behavioral test smells (no assertion-free tests, no trivial getters, no mock abuse) and F.I.R.S.T. isolation.
 2. Verify Dual-Gate metrics against .agent/sdlc-config.json thresholds.
 3. Verify README.md and CHANGELOG.md alignment when user-facing behavior changes.
 4. Return a structured read-only verdict (verdict: approve | request-changes, blockers, notes) so the orchestrator can publish it via review record.`
@@ -1955,7 +1955,7 @@ export function auditSkills(repoRoot = '.', { live = false } = {}) {
   if (fs.existsSync(skillsDir)) {
     const entries = fs
       .readdirSync(skillsDir, { withFileTypes: true })
-      .filter((d) => d.isDirectory() && (d.name.startsWith('sdlc') || d.name === 'ub-mode'))
+      .filter((d) => d.isDirectory() && d.name.startsWith('sdlc'))
       .map((d) => d.name)
       .sort();
 

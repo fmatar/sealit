@@ -6,7 +6,7 @@ import { fileExists, readFileSafe, parseFrontmatter, detectPMProvider, hasGitHub
 export const CANONICAL_ISSUE_TEMPLATES = {
   '.github/ISSUE_TEMPLATE/feature_request.md': `---
 name: Feature Request (CAP-XX / SPEC-XX)
-about: Propose a constitutional product capability or feature governed by Robert C. Martin TDD
+about: Propose a constitutional product capability or feature governed by Red-Green-Refactor TDD
 title: "feat: "
 labels: feature, status:ready
 ---
@@ -42,7 +42,7 @@ Steps to reproduce the behavior:
 1. Execute command or endpoint
 2. Observe failure or stack trace
 
-### 🎯 Expected Behavior (Robert Martin TDD)
+### 🎯 Expected Behavior (Red-Green-Refactor TDD)
 A clear and concise description of what you expected to happen.
 
 ### 💻 Environment
@@ -96,7 +96,7 @@ A clear and concise description of what you want to happen.
 ## 🛡️ Dual-Gate & Architectural Verification
 | Gate Pillar | Requirement | Status |
 | :--- | :--- | :--- |
-| **Robert C. Martin TDD** | Red -> Green -> Refactor | ✅ Verified |
+| **Red-Green-Refactor TDD** | Red -> Green -> Refactor | ✅ Verified |
 | **Diff Test Coverage** | \`>= 85%\` | ✅ Verified |
 | **Mutation Score** | \`>= 80%\` | ✅ Verified |
 | **Archlens Ring Audit** | Zero Inner -> Outer Ring Imports | ✅ Verified |
@@ -204,7 +204,7 @@ export function formatTemplatedIssue({
     if (isBug) {
       const bugDesc = problem || body || title;
       const reproSteps = reproduce || '1. Observe behavior\n2. Run automated test suite\n3. Note failure';
-      const expBehavior = expected || solution || 'All Robert Martin assertions pass with zero regressions.';
+      const expBehavior = expected || solution || 'All automated assertions pass with zero regressions.';
       const envInfo = environment || '- OS: mac / linux\n- Runtime: node.js';
 
       t = t.replace(/A clear and concise description of what the bug is\./i, bugDesc);
@@ -213,7 +213,7 @@ export function formatTemplatedIssue({
       t = t.replace(/- OS: \[e\.g\. iOS\][\s\S]*?(?=$|\n\n)/i, envInfo);
     } else {
       const probDesc = problem || body || `Enhancement required for ${title}.`;
-      const solDesc = solution || acceptanceCriteria || body || 'Deliver complete end-to-end functionality adhering to Robert Martin Clean Architecture and TDD.';
+      const solDesc = solution || acceptanceCriteria || body || 'Deliver complete end-to-end functionality adhering to Concentric Clean Architecture and TDD.';
 
       t = t.replace(/A clear and concise description of what the problem is\.[^\n]*/i, probDesc);
       t = t.replace(/A clear and concise description of what you want to happen\.[^\n]*/i, solDesc);
@@ -224,13 +224,13 @@ export function formatTemplatedIssue({
       renderedBody =
         `### 🐛 Bug Description\n${problem || body || title}\n\n` +
         `### 🔄 Steps to Reproduce\n${reproduce || '1. Execute test suite\n2. Observe red failure'}\n\n` +
-        `### 🎯 Expected Behavior (Robert Martin TDD)\n${expected || solution || 'Failing red test must be made green with minimal implementation.'}\n\n` +
+        `### 🎯 Expected Behavior (Red-Green-Refactor TDD)\n${expected || solution || 'Failing red test must be made green with minimal implementation.'}\n\n` +
         `### 💻 Environment\n${environment || '- OS: ' + (process.platform || 'mac')}\n`;
     } else {
       renderedBody =
         `### 🎯 Problem Statement & User Value\n${problem || body || title}\n\n` +
         `### 🚀 Solution & Acceptance Criteria\n${solution || acceptanceCriteria || body || 'Complete implementation with Dual-Gate test and mutation coverage.'}\n\n` +
-        `### 🛡️ Clean Code Guarantees\n- 100% test pass rate with Robert Martin TDD\n- >= 85% diff test coverage\n- Zero direct pushes to protected branches\n`;
+        `### 🛡️ Clean Code Guarantees\n- 100% test pass rate with Red-Green-Refactor TDD\n- >= 85% diff test coverage\n- Zero direct pushes to protected branches\n`;
     }
   }
 
@@ -1117,7 +1117,7 @@ export function formatConsolidatedReviewComment({
   const subagent1Text =
     peerReviewSummary ||
     body ||
-    'Verified Robert C. Martin TDD laws (Red -> Green -> Refactor), F.I.R.S.T. test isolation, zero assertion-free or mock-heavy test smells, and Dual-Gate coverage/mutation thresholds.';
+    'Verified Red-Green-Refactor TDD discipline, F.I.R.S.T. test isolation, zero assertion-free or mock-heavy test smells, and Dual-Gate coverage/mutation thresholds.';
 
   const subagent2Text =
     archSecuritySummary ||
@@ -1137,7 +1137,7 @@ export function formatConsolidatedReviewComment({
     ``,
     `---`,
     ``,
-    `### 1. 🧪 Subagent 1: PR Peer Reviewer (Robert C. Martin TDD & Clean Code)`,
+    `### 1. 🧪 Subagent 1: PR Peer Reviewer (TDD & Clean Code)`,
     `${subagent1Text}`,
     ``,
     `---`,
