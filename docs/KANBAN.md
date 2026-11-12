@@ -13,7 +13,7 @@
 
 | 📥 Backlog | 📋 Ready | ⚡ In Progress | 🔍 In Review | ✅ Done |
 | :--- | :--- | :--- | :--- | :--- |
-|  |  | #114: [FEAT] feat: Refresh README.md, Wiki & SRS documentation with Archlens links |  |  |
+|  |  |  | #114: [FEAT] feat: Refresh README.md, Wiki & SRS documentation with Archlens links |  |
 |  |  |  | [#111 chore: Slim npm package (<250 KB), retire duplicate SvelteKit workbench, sync docs, and release v0.4.0](https://github.com/fmatar/agentic-sdlc-framework/issues/111) |  |
 |  |  |  |  | [#107 feat: Risk-proportional execution lanes and spec-drift precision](https://github.com/fmatar/agentic-sdlc-framework/issues/107) |
 |  |  |  |  | [#105 feat: GitHub Actions quality-gate CI, configurable runners, and shell-free execution](https://github.com/fmatar/agentic-sdlc-framework/issues/105) |

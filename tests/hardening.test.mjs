@@ -1694,5 +1694,35 @@ describe('Issue #114: Documentation alignment & Archlens repository link hygiene
 
     const archWiki = fs.readFileSync(path.join(REPO_ROOT, 'wiki/Architecture.md'), 'utf8');
     assert.match(archWiki, /readme-sync\.mjs/);
+    assert.match(archWiki, /detectReadmeArchetype/);
+    assert.match(archWiki, /scaffoldReadme/);
+    assert.doesNotMatch(archWiki, /detectProjectArchetype|initReadme/);
+
+    const traceWiki = fs.readFileSync(path.join(REPO_ROOT, 'wiki/Traceability.md'), 'utf8');
+    assert.doesNotMatch(traceWiki, /\.agent\/gate-receipts\.jsonl/);
+    assert.match(traceWiki, /STAGE_7_GATE_RECEIPT_SIGNED/);
+
+    // buildWikiCodeMap must honor .archlens/policy.json concentric rings (4 / 6 / 6 / 1) with zero outward imports
+    const codeMap = buildWikiCodeMap(REPO_ROOT);
+    assert.deepEqual(
+      codeMap.rings.map((r) => ({ name: r.name, count: r.modules.length })),
+      [
+        { name: 'Ring 0: domain-core', count: 4 },
+        { name: 'Ring 1: governance-models', count: 6 },
+        { name: 'Ring 2: adapters-orchestrators', count: 6 },
+        { name: 'Ring 3: cli-entrypoints', count: 1 }
+      ]
+    );
+    const ringIndexByPath = new Map(codeMap.modules.map((m) => [m.path, m.ringIndex]));
+    for (const mod of codeMap.modules) {
+      for (const imp of mod.imports) {
+        if (ringIndexByPath.has(imp)) {
+          assert.ok(
+            mod.ringIndex >= ringIndexByPath.get(imp),
+            `Expected inward-only ring import, got ${mod.path} (Ring ${mod.ringIndex}) -> ${imp} (Ring ${ringIndexByPath.get(imp)})`
+          );
+        }
+      }
+    }
   });
 });
