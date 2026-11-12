@@ -136,6 +136,7 @@ import {
   startSession,
   updateSession,
   receiptInputsFromSession,
+  reconcileSessionLaneWithDiff,
   switchSession,
   listSessions,
   renderDashboard,
@@ -316,6 +317,7 @@ export {
   startSession,
   updateSession,
   receiptInputsFromSession,
+  reconcileSessionLaneWithDiff,
   switchSession,
   listSessions,
   renderDashboard,
@@ -711,54 +713,15 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       }
 
       const sessStatus = getSessionStatus(repoRoot);
-      let effectiveLane = VALID_LANES.includes(sessStatus.session?.lane) ? sessStatus.session.lane : 'full';
       const gateDiffFiles = getModifiedFiles('main', repoRoot);
-
-      if (cliLane) {
-        const triaged = triageChange({
-          diffFiles: gateDiffFiles,
-          laneOverride: cliLane,
-          reason: cliReason,
-          ticketId: sessStatus.session?.issueId || null,
-          repoRoot
-        });
-        effectiveLane = triaged.lane;
-        if (sessStatus.active) {
-          try {
-            updateSession({ lane: effectiveLane, laneReason: triaged.reason || cliReason || null, repoRoot });
-          } catch {}
-        }
-      } else if (
-        sessStatus.active &&
-        effectiveLane !== 'full' &&
-        !sessStatus.session?.laneReason &&
-        gateDiffFiles.length > 0
-      ) {
-        const realTriage = triageChange({
-          diffFiles: gateDiffFiles,
-          ticketId: sessStatus.session?.issueId || null,
-          repoRoot
-        });
-        if (LANE_RANK[realTriage.computedLane] > LANE_RANK[effectiveLane]) {
-          appendAuditRecord({
-            event: 'LANE_AUTO_ESCALATED',
-            metadata: {
-              issueId: sessStatus.session?.issueId || null,
-              fromLane: effectiveLane,
-              toLane: realTriage.computedLane,
-              riskLevel: realTriage.riskLevel,
-              changedLines: realTriage.changedLines,
-              filesCount: realTriage.filesCount
-            },
-            repoRoot
-          });
-          effectiveLane = realTriage.computedLane;
-          try {
-            updateSession({ lane: effectiveLane, repoRoot });
-          } catch {}
-        }
-      }
-
+      const reconciled = reconcileSessionLaneWithDiff({
+        session: sessStatus.session,
+        cliLane,
+        cliReason,
+        diffFiles: gateDiffFiles,
+        repoRoot
+      });
+      const effectiveLane = reconciled.lane;
       result.lane = effectiveLane;
       const isStrict = args.includes('--strict');
 
@@ -1053,18 +1016,34 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
             cliReviewer = args[++i];
           } else if (args[i] === '--lane' && args[i + 1]) {
             cliLane = args[++i];
+          } else if (args[i].startsWith('--lane=')) {
+            cliLane = args[i].slice('--lane='.length);
           } else if (args[i] === '--reason' && args[i + 1]) {
             cliLaneReason = args[++i];
+          } else if (args[i].startsWith('--reason=')) {
+            cliLaneReason = args[i].slice('--reason='.length);
           }
         }
-        const drift = checkSpecDrift({ ticketId: sess.session.issueId, repoRoot });
-        const sessionInputs = receiptInputsFromSession(sess.session, { driftCheckPassed: Boolean(drift.passed), repoRoot });
+        const reconciled = reconcileSessionLaneWithDiff({
+          session: sess.session,
+          cliLane: cliLane || null,
+          cliReason: cliLaneReason || null,
+          repoRoot
+        });
+        const effectiveSession = reconciled.session || {
+          ...sess.session,
+          lane: reconciled.lane,
+          laneReason: reconciled.laneReason,
+          laneDowngraded: reconciled.laneDowngraded
+        };
+        const drift = checkSpecDrift({ ticketId: effectiveSession.issueId, repoRoot });
+        const sessionInputs = receiptInputsFromSession(effectiveSession, { driftCheckPassed: Boolean(drift.passed), repoRoot });
         result.receipt = issueGateReceipt({
-          issueId: sess.session.issueId,
-          branch: sess.session.branch,
+          issueId: effectiveSession.issueId,
+          branch: effectiveSession.branch,
           ...sessionInputs,
-          ...(cliLane ? { lane: cliLane } : {}),
-          ...(cliLaneReason ? { laneReason: cliLaneReason } : {}),
+          lane: reconciled.lane,
+          laneReason: reconciled.laneReason,
           ...(cliCoverage !== undefined ? { coveragePct: cliCoverage } : {}),
           ...(cliMutation !== undefined ? { mutationPct: cliMutation } : {}),
           ...(docsOnly ? { docsOnly: true, coveragePct: null, mutationPct: null } : {}),
@@ -1185,7 +1164,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
           stage = 1,
           stageName = 'Intake & Specification',
           type = 'feat',
-          lane = 'full',
+          cliLane = null,
           laneReason = null,
           worktree = null,
           force = false;
@@ -1195,12 +1174,41 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
           else if (args[i] === '--stage' && args[i + 1]) stage = args[++i];
           else if (args[i] === '--name' && args[i + 1]) stageName = args[++i];
           else if (args[i] === '--type' && args[i + 1]) type = args[++i];
-          else if (args[i] === '--lane' && args[i + 1]) lane = args[++i];
+          else if (args[i] === '--lane' && args[i + 1]) cliLane = args[++i];
+          else if (args[i].startsWith('--lane=')) cliLane = args[i].slice('--lane='.length);
           else if (args[i] === '--reason' && args[i + 1]) laneReason = args[++i];
+          else if (args[i].startsWith('--reason=')) laneReason = args[i].slice('--reason='.length);
           else if (args[i] === '--worktree' && args[i + 1]) worktree = args[++i];
           else if (args[i] === '--force') force = true;
         }
-        const sessionRes = startSession({ issueId, branch, stage, stageName, type, lane, laneReason, worktree, repoRoot, force });
+        let resolvedLane = 'full';
+        let resolvedReason = null;
+        let resolvedDowngraded = false;
+        if (cliLane) {
+          const triaged = triageChange({
+            intent: stageName || '',
+            laneOverride: cliLane,
+            reason: laneReason,
+            ticketId: issueId,
+            repoRoot
+          });
+          resolvedLane = triaged.lane;
+          resolvedReason = triaged.downgraded ? triaged.reason : null;
+          resolvedDowngraded = Boolean(triaged.downgraded);
+        }
+        const sessionRes = startSession({
+          issueId,
+          branch,
+          stage,
+          stageName,
+          type,
+          lane: resolvedLane,
+          laneReason: resolvedReason,
+          laneDowngraded: resolvedDowngraded,
+          worktree,
+          repoRoot,
+          force
+        });
         return { ...result, ...sessionRes };
       }
       if (sub === 'update') {
@@ -1764,15 +1772,27 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         let issuedReceipt = null;
         if (verdict === 'approve' && sessRes?.session) {
           try {
-            const drift = checkSpecDrift({ ticketId: sessRes.session.issueId, repoRoot });
-            const sessionInputs = receiptInputsFromSession(sessRes.session, {
+            const reconciled = reconcileSessionLaneWithDiff({
+              session: sessRes.session,
+              repoRoot
+            });
+            const effectiveSession = reconciled.session || {
+              ...sessRes.session,
+              lane: reconciled.lane,
+              laneReason: reconciled.laneReason,
+              laneDowngraded: reconciled.laneDowngraded
+            };
+            const drift = checkSpecDrift({ ticketId: effectiveSession.issueId, repoRoot });
+            const sessionInputs = receiptInputsFromSession(effectiveSession, {
               driftCheckPassed: Boolean(drift.passed),
               repoRoot
             });
             const recRes = issueGateReceipt({
-              issueId: sessRes.session.issueId,
-              branch: sessRes.session.branch,
+              issueId: effectiveSession.issueId,
+              branch: effectiveSession.branch,
               ...sessionInputs,
+              lane: reconciled.lane,
+              laneReason: reconciled.laneReason,
               reviewer,
               repoRoot
             });

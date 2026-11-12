@@ -1212,4 +1212,78 @@ describe('Issue #107: Risk-proportional execution lanes, instant pre-commit guar
     const chain = verifyAuditChain(dir);
     assert.ok(chain.records.some((r) => r.event === 'LANE_AUTO_ESCALATED'));
   });
+
+  it('prevents guard receipt --lane, session start --lane, and pre-edit --reason from bypassing triageChange or CRITICAL auto-escalation', () => {
+    // 1. Pre-edit `stage begin --lane trivial --reason "..."` must NOT suppress auto-escalation when JS/CRITICAL files are edited
+    const preEditBegin = runCLI(
+      ['stage', 'begin', '--lane', 'trivial', '--reason', 'Initial guess before editing', '--title', 'Touch files', '--checkout'],
+      null,
+      dir
+    );
+    assert.equal(preEditBegin.success, true);
+    assert.equal(preEditBegin.stage.session.laneDowngraded, false);
+
+    fs.mkdirSync(path.join(dir, 'src/auth'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'src/auth/jwt.mjs'), 'export const signJwt = () => "tok";\n', 'utf8');
+    assert.equal(git(dir, 'add', 'src/auth/jwt.mjs').status, 0);
+    assert.equal(git(dir, 'commit', '-m', 'feat: add jwt signer').status, 0);
+
+    // 2. `guard receipt --lane trivial` on CRITICAL diff MUST throw/fail closed without signing a receipt
+    assert.throws(
+      () => runCLI(['guard', 'receipt', '--lane', 'trivial', '--reason', 'Attempt bypass'], null, dir),
+      /CRITICAL/
+    );
+
+    // 3. `stage pre-pr` must auto-escalate to `full` despite pre-edit `--reason` and withhold unmeasured receipt
+    const critPrePr = runCLI(['stage', 'pre-pr', '--summary', 'Auth update'], null, dir);
+    assert.equal(critPrePr.stage.lane, 'full');
+    assert.equal(critPrePr.stage.receipt, null);
+
+    // 4. `session start --lane trivial` on an existing CRITICAL diff must also reject downgrade
+    assert.throws(
+      () =>
+        runCLI(
+          ['session', 'start', '--issue', '107', '--branch', preEditBegin.stage.branch, '--lane', 'trivial', '--reason', 'Bypass', '--force'],
+          null,
+          dir
+        ),
+      /CRITICAL/
+    );
+
+    // 5. Even after a valid audited downgrade on a LOW-risk JS file, adding a CRITICAL file forces escalation to `full`
+    assert.equal(git(dir, 'checkout', 'main').status, 0);
+    const lowBegin = runCLI(['stage', 'begin', '--issue', '108', '--title', 'Helper', '--checkout'], null, dir);
+    assert.equal(lowBegin.success, true);
+    fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'src/util.mjs'), 'export const id = (x) => x;\n', 'utf8');
+    assert.equal(git(dir, 'add', 'src/util.mjs').status, 0);
+    assert.equal(git(dir, 'commit', '-m', 'feat: add util').status, 0);
+
+    // `guard receipt --lane trivial` without `--reason` on standard diff must fail
+    assert.throws(
+      () => runCLI(['guard', 'receipt', '--lane', 'trivial'], null, dir),
+      /requires a non-empty --reason/
+    );
+
+    // Audited downgrade on LOW-risk diff succeeds
+    const auditedPrePr = runCLI(
+      ['stage', 'pre-pr', '--lane', 'trivial', '--reason', 'One-liner identity helper'],
+      null,
+      dir
+    );
+    assert.equal(auditedPrePr.stage.lane, 'trivial');
+    assert.ok(auditedPrePr.stage.receipt);
+
+    // Now introduce CRITICAL auth change on same branch -> `guard receipt` (without flags) must escalate to `full` and refuse unmeasured receipt!
+    fs.mkdirSync(path.join(dir, 'src/security'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'src/security/secret.mjs'), 'export const check = () => true;\n', 'utf8');
+    assert.equal(git(dir, 'add', 'src/security/secret.mjs').status, 0);
+    assert.equal(git(dir, 'commit', '-m', 'feat: add security check').status, 0);
+
+    const postCritReceipt = runCLI(['guard', 'receipt'], null, dir);
+    assert.equal(postCritReceipt.success, false);
+    const chain = verifyAuditChain(dir);
+    assert.ok(chain.records.some((r) => r.event === 'LANE_DOWNGRADE_OVERRIDDEN'));
+    assert.ok(chain.records.some((r) => r.event === 'LANE_AUTO_ESCALATED'));
+  });
 });

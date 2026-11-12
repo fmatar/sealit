@@ -28,7 +28,7 @@ flowchart TD
     dossier_mjs["dossier.mjs (2 exports, I=0.6)"]
     product_dag_mjs["product-dag.mjs (9 exports, I=0.44)"]
     readme_sync_mjs["readme-sync.mjs (9 exports, I=0.67)"]
-    session_mjs["session.mjs (15 exports, I=0.69)"]
+    session_mjs["session.mjs (16 exports, I=0.69)"]
     wiki_sync_mjs["wiki-sync.mjs (6 exports, I=0.75)"]
   end
   subgraph Ring2 ["Ring 2: Adapters & Enforcement"]
@@ -110,7 +110,7 @@ flowchart TD
 | `.agent/scripts/lib/dossier.mjs` | 117 | 2 / 3 | `0.6` | `extractExportSignatures` (L7), `generateTicketDossier` (L23) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md` |
 | `.agent/scripts/lib/product-dag.mjs` | 837 | 5 / 4 | `0.44` | `renderCapabilitySpecMarkdown` (L10), `renderProductPrdMarkdown` (L61), `renderProductSrsMarkdown` (L110), `initProductConstitution` (L185), `scaffoldCapabilitySpec` (L387), `parseProductMarkdown` (L563), `planProductDAG` (L637), `controlProductDAG` (L705) +1 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
 | `.agent/scripts/lib/readme-sync.mjs` | 898 | 1 / 2 | `0.67` | `escapeXml` (L105), `slugifyHeadingAnchor` (L114), `detectReadmeArchetype` (L137), `stripArchetypeBlocks` (L182), `renderThemeWordmarkSvg` (L199), `renderVhsDemoTape` (L223), `renderLlmsTxt` (L249), `scaffoldReadme` (L432) +1 more | `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md` |
-| `.agent/scripts/lib/session.mjs` | 792 | 4 / 9 | `0.69` | `getSessionPath` (L17), `getSessionStatus` (L21), `startSession` (L57), `updateSession` (L137), `switchSession` (L209), `listSessions` (L231), `renderDashboard` (L253), `resumeSession` (L290) +7 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Home.md`, `wiki/Skills-Reference.md` |
+| `.agent/scripts/lib/session.mjs` | 868 | 4 / 9 | `0.69` | `getSessionPath` (L17), `getSessionStatus` (L21), `startSession` (L57), `updateSession` (L140), `switchSession` (L214), `listSessions` (L236), `renderDashboard` (L258), `resumeSession` (L295) +8 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Home.md`, `wiki/Skills-Reference.md` |
 | `.agent/scripts/lib/wiki-sync.mjs` | 740 | 2 / 6 | `0.75` | `inspectSourceModule` (L36), `resolveArchlensRing` (L104), `buildWikiCodeMap` (L136), `auditWiki` (L320), `renderCodebaseMapMarkdown` (L519), `syncWiki` (L668) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
 
 ### 🏛️ Ring 2: Adapters & Enforcement
@@ -127,7 +127,7 @@ flowchart TD
 
 | Source Module | Lines | $Ca$ / $Ce$ | Instability ($I$) | Exported AST Symbols (Line #) | Wiki Coverage |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `.agent/scripts/sdlc-engine.mjs` | 2418 | 0 / 16 | `1` | `executeRelease` (L385), `runCLI` (L557), `formatCLIResult` (L2175), `cliExitCode` (L2399) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Home.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
+| `.agent/scripts/sdlc-engine.mjs` | 2438 | 0 / 16 | `1` | `executeRelease` (L387), `runCLI` (L559), `formatCLIResult` (L2195), `cliExitCode` (L2419) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Home.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
 
 
 ---

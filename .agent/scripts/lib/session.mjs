@@ -62,6 +62,7 @@ export function startSession({
   type = 'feat',
   lane = 'full',
   laneReason = null,
+  laneDowngraded = false,
   worktree = null,
   repoRoot = '.',
   force = false
@@ -85,13 +86,15 @@ export function startSession({
   fs.mkdirSync(path.dirname(sessionPath), { recursive: true });
 
   const resolvedLane = Object.prototype.hasOwnProperty.call(SESSION_LANE_RANK, lane) ? lane : 'full';
+  const isDowngraded = Boolean(laneDowngraded);
   const idKey = String(issueId);
   const session = {
     active: true,
     issueId: normalizedIssueId,
     type: type.toLowerCase(),
     lane: resolvedLane,
-    laneReason: laneReason || null,
+    laneReason: isDowngraded && laneReason ? String(laneReason).trim() : null,
+    laneDowngraded: isDowngraded,
     branch: branch || (type === 'hotfix' ? `hotfix/issue-#${issueId}` : `feature/issue-#${issueId}`),
     worktree: worktree || null,
     stage: Number(stage) || 1,
@@ -139,6 +142,7 @@ export function updateSession({
   stageName,
   lane,
   laneReason,
+  laneDowngraded,
   activeSubagents,
   manifestUpdate = {},
   incrementRemediation = false,
@@ -183,6 +187,7 @@ export function updateSession({
   if (stageName !== undefined) session.stageName = stageName;
   if (lane !== undefined && Object.prototype.hasOwnProperty.call(SESSION_LANE_RANK, lane)) session.lane = lane;
   if (laneReason !== undefined) session.laneReason = laneReason;
+  if (laneDowngraded !== undefined) session.laneDowngraded = Boolean(laneDowngraded);
   if (activeSubagents !== undefined) session.activeSubagents = activeSubagents;
   if (incrementRemediation) {
     session.remediationCount = (session.remediationCount || 0) + 1;
@@ -483,6 +488,108 @@ export function receiptInputsFromSession(session, { driftCheckPassed, repoRoot =
 }
 
 /**
+ * Reconciles an explicit `--lane` flag or active session lane against the real git diff:
+ * 1. Explicit `cliLane` always runs through `triageChange` (enforcing `--reason`, recording
+ *    `LANE_DOWNGRADE_OVERRIDDEN`, and blocking `< full` on `CRITICAL` risk).
+ * 2. Any `< full` session with a non-empty diff is re-triaged: `CRITICAL` risk unconditionally
+ *    escalates to `full`, and un-downgraded sessions (`laneDowngraded !== true`) auto-escalate
+ *    whenever `computedLane` outranks the initial pre-edit session lane (`LANE_AUTO_ESCALATED`).
+ */
+export function reconcileSessionLaneWithDiff({
+  session = null,
+  cliLane = null,
+  cliReason = null,
+  diffFiles = null,
+  repoRoot = '.'
+} = {}) {
+  const files = Array.isArray(diffFiles) ? diffFiles : getModifiedFiles('main', repoRoot);
+  const currentLane = Object.prototype.hasOwnProperty.call(SESSION_LANE_RANK, session?.lane) ? session.lane : 'full';
+
+  if (cliLane) {
+    const triaged = triageChange({
+      diffFiles: files,
+      laneOverride: cliLane,
+      reason: cliReason,
+      ticketId: session?.issueId || null,
+      repoRoot
+    });
+    const nextReason = triaged.downgraded ? triaged.reason : null;
+    const nextDowngraded = Boolean(triaged.downgraded);
+    let refreshedSession = session;
+    if (session?.active) {
+      try {
+        refreshedSession = updateSession({
+          lane: triaged.lane,
+          laneReason: nextReason,
+          laneDowngraded: nextDowngraded,
+          repoRoot
+        }).session;
+      } catch {}
+    }
+    return {
+      lane: triaged.lane,
+      laneReason: nextReason,
+      laneDowngraded: nextDowngraded,
+      escalated: false,
+      session: refreshedSession
+    };
+  }
+
+  if (currentLane !== 'full' && files.length > 0) {
+    const realTriage = triageChange({
+      diffFiles: files,
+      ticketId: session?.issueId || null,
+      repoRoot
+    });
+    const mustEscalateCritical = realTriage.riskLevel === 'CRITICAL';
+    const outgrewInitialLane =
+      !session?.laneDowngraded && SESSION_LANE_RANK[realTriage.computedLane] > SESSION_LANE_RANK[currentLane];
+
+    if (mustEscalateCritical || outgrewInitialLane) {
+      const nextLane = mustEscalateCritical ? 'full' : realTriage.computedLane;
+      appendAuditRecord({
+        event: 'LANE_AUTO_ESCALATED',
+        metadata: {
+          issueId: session?.issueId || null,
+          fromLane: currentLane,
+          toLane: nextLane,
+          riskLevel: realTriage.riskLevel,
+          changedLines: realTriage.changedLines,
+          filesCount: realTriage.filesCount
+        },
+        repoRoot
+      });
+      let refreshedSession = session;
+      if (session?.active) {
+        try {
+          refreshedSession = updateSession({
+            lane: nextLane,
+            laneReason: null,
+            laneDowngraded: false,
+            repoRoot
+          }).session;
+        } catch {}
+      }
+      return {
+        lane: nextLane,
+        laneReason: null,
+        laneDowngraded: false,
+        escalated: true,
+        session: refreshedSession
+      };
+    }
+  }
+
+  return {
+    lane: currentLane,
+    laneReason: session?.laneDowngraded ? session.laneReason || null : null,
+    laneDowngraded: Boolean(session?.laneDowngraded),
+    escalated: false,
+    session
+  };
+}
+
+/**
  * Composite Stage Orchestrator (CAP-01)
  * Collapses ~15 granular bookkeeping calls into 3 deterministic lifecycle transitions:
  * - begin: provisions/links ticket (or local L-* ID for trivial lane), starts Stage 2 session, checks out branch, transitions PM -> in-progress
@@ -508,7 +615,8 @@ export function executeCompositeStage({
 
   if (normalizedAction === 'begin') {
     let resolvedLane = 'full';
-    let resolvedLaneReason = laneReason || null;
+    let resolvedLaneReason = null;
+    let resolvedLaneDowngraded = false;
     if (lane) {
       const triaged = triageChange({
         intent: title || summary || '',
@@ -518,7 +626,8 @@ export function executeCompositeStage({
         repoRoot
       });
       resolvedLane = triaged.lane;
-      resolvedLaneReason = triaged.reason || resolvedLaneReason;
+      resolvedLaneDowngraded = Boolean(triaged.downgraded);
+      resolvedLaneReason = triaged.downgraded ? triaged.reason : null;
     }
 
     let resolvedIssueId = issueId ? String(issueId).replace(/^#/, '') : null;
@@ -559,6 +668,7 @@ export function executeCompositeStage({
       type: isLocalTrivial ? 'chore' : type,
       lane: resolvedLane,
       laneReason: resolvedLaneReason,
+      laneDowngraded: resolvedLaneDowngraded,
       worktree,
       repoRoot,
       force: true
@@ -631,49 +741,15 @@ export function executeCompositeStage({
     });
 
     const diffFiles = getModifiedFiles('main', repoRoot);
-    if (lane) {
-      const explicitTriage = triageChange({
-        diffFiles,
-        laneOverride: lane,
-        reason: laneReason,
-        ticketId: updated.session.issueId,
-        repoRoot
-      });
-      updated = updateSession({
-        lane: explicitTriage.lane,
-        laneReason: explicitTriage.reason || laneReason || null,
-        repoRoot
-      });
-    } else if (
-      updated.session.lane &&
-      updated.session.lane !== 'full' &&
-      !updated.session.laneReason &&
-      diffFiles.length > 0
-    ) {
-      const realTriage = triageChange({
-        diffFiles,
-        ticketId: updated.session.issueId,
-        repoRoot
-      });
-      if (SESSION_LANE_RANK[realTriage.computedLane] > SESSION_LANE_RANK[updated.session.lane]) {
-        const previousLane = updated.session.lane;
-        appendAuditRecord({
-          event: 'LANE_AUTO_ESCALATED',
-          metadata: {
-            issueId: updated.session.issueId,
-            fromLane: previousLane,
-            toLane: realTriage.computedLane,
-            riskLevel: realTriage.riskLevel,
-            changedLines: realTriage.changedLines,
-            filesCount: realTriage.filesCount
-          },
-          repoRoot
-        });
-        updated = updateSession({
-          lane: realTriage.computedLane,
-          repoRoot
-        });
-      }
+    const reconciled = reconcileSessionLaneWithDiff({
+      session: updated.session,
+      cliLane: lane,
+      cliReason: laneReason,
+      diffFiles,
+      repoRoot
+    });
+    if (reconciled.session) {
+      updated = { ...updated, session: reconciled.session };
     }
 
     const drift = checkSpecDrift({ ticketId: updated.session.issueId, repoRoot });
