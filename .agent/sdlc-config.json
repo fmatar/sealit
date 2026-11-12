@@ -6,6 +6,10 @@
   "ci": {
     "runsOn": "${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}"
   },
+  "lanes": {
+    "trivialMaxLines": 25,
+    "standardMaxLines": 200
+  },
   "projectManagement": {
     "provider": "github",
     "key": "SDLC",

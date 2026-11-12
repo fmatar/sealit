@@ -41,6 +41,8 @@ flowchart TD
   ADR_003["ADR-003: Shell-Free Command Execution, Least-Privilege Self-Hosted CI, and Bundled Config Schema"]
   _105["Ticket #105 (feature/issue-#105-github-actions-quality-gate-ci-configura)"]
   createdAt__2026_11_12T18_08_28_446Z["createdAt: 2026-11-12T18:08:28.446Z"]
+  ADR_004["ADR-004: Risk-Proportional Execution Lanes, Instant Pre-Commit Guard, and Spec-Drift Precision"]
+  _107["Ticket #107"]
   ADR_COMPACT_v0_3_0["Compacted 8 ADR(s) into SRS.md (v0.3.0)"]
   createdAt__2026_11_03T18_52_42_656Z["createdAt: 2026-11-03T18:52:42.656Z"]
   _SDLC_INIT["Ticket #SDLC-INIT (feature/arch-traceability-governance)"]
@@ -97,6 +99,9 @@ flowchart TD
   CAP_06 -.->|ADR Drift| ADR_002
   _105 -->|triggered_drift_adr| ADR_003
   createdAt__2026_11_12T18_08_28_446Z -.->|ADR Drift| ADR_003
+  _107 -->|triggered_drift_adr| ADR_004
+  CAP_01 -.->|ADR Drift| ADR_004
+  CAP_03 -.->|ADR Drift| ADR_004
   CAP_01 -->|realized_by| ADR_COMPACT_v0_3_0
   CAP_02 -->|realized_by| ADR_COMPACT_v0_3_0
   CAP_03 -->|realized_by| ADR_COMPACT_v0_3_0
@@ -120,6 +125,7 @@ flowchart TD
 | **ADR-001** | 10-30-90 Developer Landing Page README Template and Deterministic README Engine | `technical` | `accepted` | #100 | CAP-11 |
 | **ADR-002** | Config-Driven Dual-Gate Thresholds, Verifiable CLI Telemetry, and SHA-256 Hook Drift Detection | `technical` | `accepted` | #103 | CAP-03, CAP-06 |
 | **ADR-003** | Shell-Free Command Execution, Least-Privilege Self-Hosted CI, and Bundled Config Schema | `technical` | `accepted` | #105 | createdAt: 2026-11-12T18:08:28.446Z |
+| **ADR-004** | Risk-Proportional Execution Lanes, Instant Pre-Commit Guard, and Spec-Drift Precision | `technical` | `accepted` | #107 | CAP-01, CAP-03 |
 
 ---
 
@@ -129,7 +135,7 @@ flowchart TD
 | :--- | :--- | :--- |
 | **CAP-01** | Core Domain & Architecture Foundation | `PLANNED` |
 | **CAP-02** | Shell Injection Remediation & Polyglot Test Runners (#69) | `AMENDED (ADR-006)` |
-| **CAP-03** | Real Coverage/Mutation Parsers & Policy ArchDiff (#70) | `AMENDED (ADR-002)` |
+| **CAP-03** | Real Coverage/Mutation Parsers & Policy ArchDiff (#70) | `AMENDED (ADR-004)` |
 | **CAP-04** | Live Canary Watchdog, Real Proofs & Polyglot Reproduce (#71) | `AMENDED (ADR-002)` |
 | **CAP-05** | Consolidate 14 Skills into 6 Schema-Valid Core Skills (#72) | `AMENDED (ADR-007)` |
 | **CAP-06** | Dogfooding Configuration, Docs Sync & Full Test Suite (#73) | `AMENDED (ADR-002)` |

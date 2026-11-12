@@ -33,10 +33,13 @@ import {
   runDoctor,
   verifyCommitGuard,
   installCIWorkflow,
-  generateConfig
+  generateConfig,
+  checkSpecDrift,
+  verifyAuditChain
 } from '../.agent/scripts/sdlc-engine.mjs';
 import * as coreMod from '../.agent/scripts/lib/core.mjs';
 import * as gitGuardMod from '../.agent/scripts/lib/git-guard.mjs';
+import * as qualityGateMod from '../.agent/scripts/lib/quality-gate.mjs';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..');
 const SCRIPTS_SRC = path.join(REPO_ROOT, '.agent/scripts');
@@ -859,5 +862,354 @@ describe('Issue #105: GitHub Actions quality-gate CI, configurable runners, loca
       remoteProtected: false,
       localProtected: true
     });
+  });
+});
+
+describe('Issue #107: Risk-proportional execution lanes, instant pre-commit guard & spec-drift precision', () => {
+  let dir;
+  beforeEach(() => {
+    dir = makeRepo();
+  });
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('checkSpecDrift guards PRODUCT.md and docs/specs/*.md while exempting non-structural package.json edits', () => {
+    fs.mkdirSync(path.join(dir, 'docs/specs'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'PRODUCT.md'), '# Constitution\n- **INV-01**: Original\n', 'utf8');
+    fs.writeFileSync(path.join(dir, 'docs/specs/cap-01.md'), '# CAP-01\nOriginal spec\n', 'utf8');
+    fs.writeFileSync(
+      path.join(dir, 'package.json'),
+      JSON.stringify({
+        name: 'demo-pkg',
+        version: '0.3.2',
+        description: 'Old desc',
+        scripts: { test: 'node --test' },
+        files: ['bin'],
+        dependencies: { picocolors: '^1.0.0' }
+      }, null, 2),
+      'utf8'
+    );
+    assert.equal(git(dir, 'add', '.').status, 0);
+    assert.equal(git(dir, 'commit', '-m', 'chore: baseline specs and package').status, 0);
+    assert.equal(git(dir, 'checkout', '-b', 'feature/issue-#107-lanes').status, 0);
+
+    // 1. Non-structural package.json change (version, scripts, files, description) -> NO drift trigger
+    fs.writeFileSync(
+      path.join(dir, 'package.json'),
+      JSON.stringify({
+        name: 'demo-pkg',
+        version: '0.4.0',
+        description: 'Updated desc',
+        scripts: { test: 'node --test', lint: 'node --check index.js' },
+        files: ['bin', '.agent/schemas'],
+        dependencies: { picocolors: '^1.0.0' }
+      }, null, 2),
+      'utf8'
+    );
+    const nonStructural = checkSpecDrift({ diffFiles: ['package.json'], ticketId: 107, repoRoot: dir });
+    assert.equal(nonStructural.passed, true);
+    assert.equal(nonStructural.triggers.length, 0);
+
+    // 2. Structural package.json change (dependencies added) -> DEPENDENCY_MANIFEST_MUTATION
+    fs.writeFileSync(
+      path.join(dir, 'package.json'),
+      JSON.stringify({
+        name: 'demo-pkg',
+        version: '0.4.0',
+        dependencies: { picocolors: '^1.0.0', zod: '^3.22.0' }
+      }, null, 2),
+      'utf8'
+    );
+    const structuralPkg = checkSpecDrift({ diffFiles: ['package.json'], ticketId: 107, repoRoot: dir });
+    assert.equal(structuralPkg.passed, false);
+    assert.equal(structuralPkg.triggers[0].category, 'DEPENDENCY_MANIFEST_MUTATION');
+
+    // 3. PRODUCT.md and docs/specs/*.md mutations -> PRODUCT_SPEC_MUTATION until ADR exists
+    fs.writeFileSync(path.join(dir, 'PRODUCT.md'), '# Constitution\n- **INV-01**: Mutated\n', 'utf8');
+    fs.writeFileSync(path.join(dir, 'docs/specs/cap-01.md'), '# CAP-01\nMutated spec\n', 'utf8');
+    const specMut = checkSpecDrift({
+      diffFiles: ['PRODUCT.md', 'docs/specs/cap-01.md'],
+      ticketId: 107,
+      repoRoot: dir
+    });
+    assert.equal(specMut.passed, false);
+    assert.equal(specMut.triggers.length, 2);
+    assert.ok(specMut.triggers.every((t) => t.category === 'PRODUCT_SPEC_MUTATION'));
+
+    // 4. Accepted ADR for ticket #107 governs both PRODUCT_SPEC_MUTATION and DEPENDENCY_MANIFEST_MUTATION
+    createADR({
+      title: 'Govern spec and dependency update',
+      scope: 'technical',
+      ticketId: 107,
+      supersedes: ['CAP-01'],
+      repoRoot: dir
+    });
+    const governed = checkSpecDrift({
+      diffFiles: ['package.json', 'PRODUCT.md', 'docs/specs/cap-01.md'],
+      ticketId: 107,
+      repoRoot: dir
+    });
+    assert.equal(governed.passed, true);
+    assert.ok(governed.linkedADRs.includes('ADR-001'));
+  });
+
+  it('triageChange classifies trivial, standard, and full lanes accurately and audits downward overrides', () => {
+    assert.equal(typeof qualityGateMod.triageChange, 'function');
+    assert.equal(git(dir, 'checkout', '-b', 'feature/issue-#107-triage').status, 0);
+
+    // 1. Trivial docs/CSS diff (<= 25 lines, LOW risk, 0 drift triggers)
+    fs.mkdirSync(path.join(dir, 'docs'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'docs/guide.md'), '# Guide\nFixed a typo.\n', 'utf8');
+    const trivialRes = qualityGateMod.triageChange({
+      diffFiles: ['docs/guide.md'],
+      repoRoot: dir
+    });
+    assert.equal(trivialRes.lane, 'trivial');
+    assert.equal(trivialRes.computedLane, 'trivial');
+    assert.equal(trivialRes.requirements.remoteTicketRequired, false);
+    assert.equal(trivialRes.requirements.coverageRequired, false);
+    assert.equal(trivialRes.requirements.mutationRequired, false);
+    assert.equal(trivialRes.requirements.reviewSubagents, 0);
+
+    // 2. Standard source code diff (<= 200 lines, LOW/MEDIUM risk, 0 drift triggers)
+    fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'src/formatter.mjs'), 'export const fmt = (x) => String(x).trim();\n', 'utf8');
+    const standardRes = qualityGateMod.triageChange({
+      diffFiles: ['src/formatter.mjs'],
+      repoRoot: dir
+    });
+    assert.equal(standardRes.lane, 'standard');
+    assert.equal(standardRes.computedLane, 'standard');
+    assert.equal(standardRes.requirements.coverageRequired, true);
+    assert.equal(standardRes.requirements.mutationRequired, false);
+    assert.equal(standardRes.requirements.reviewSubagents, 1);
+
+    // Upward override standard -> full requires no reason
+    const escalated = qualityGateMod.triageChange({
+      diffFiles: ['src/formatter.mjs'],
+      laneOverride: 'full',
+      repoRoot: dir
+    });
+    assert.equal(escalated.lane, 'full');
+    assert.equal(escalated.overridden, true);
+    assert.equal(escalated.downgraded, false);
+
+    // Downward override standard -> trivial without --reason MUST throw
+    assert.throws(
+      () => qualityGateMod.triageChange({ diffFiles: ['src/formatter.mjs'], laneOverride: 'trivial', repoRoot: dir }),
+      /requires a non-empty --reason/
+    );
+
+    // Downward override with --reason succeeds and appends LANE_DOWNGRADE_OVERRIDDEN to audit chain
+    const downgraded = qualityGateMod.triageChange({
+      diffFiles: ['src/formatter.mjs'],
+      laneOverride: 'trivial',
+      reason: 'Comment-only tweak in JS file',
+      repoRoot: dir
+    });
+    assert.equal(downgraded.lane, 'trivial');
+    assert.equal(downgraded.downgraded, true);
+    assert.equal(downgraded.reason, 'Comment-only tweak in JS file');
+    const chain = verifyAuditChain(dir);
+    assert.equal(chain.valid, true);
+    assert.ok(chain.records.some((r) => r.event === 'LANE_DOWNGRADE_OVERRIDDEN'));
+
+    // 3. CRITICAL risk diff -> full lane; downward override FORBIDDEN even with reason
+    fs.mkdirSync(path.join(dir, 'src/auth'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'src/auth/jwt.mjs'), 'export const verifyJwt = () => true;\n', 'utf8');
+    const criticalRes = qualityGateMod.triageChange({
+      diffFiles: ['src/auth/jwt.mjs'],
+      repoRoot: dir
+    });
+    assert.equal(criticalRes.lane, 'full');
+    assert.equal(criticalRes.riskLevel, 'CRITICAL');
+    assert.throws(
+      () =>
+        qualityGateMod.triageChange({
+          diffFiles: ['src/auth/jwt.mjs'],
+          laneOverride: 'standard',
+          reason: 'Try to skip mutation on auth',
+          repoRoot: dir
+        }),
+      /CRITICAL/
+    );
+
+    // 4. Invalid lane name throws
+    assert.throws(
+      () => qualityGateMod.triageChange({ diffFiles: ['docs/guide.md'], laneOverride: 'turbo', repoRoot: dir }),
+      /Invalid lane/
+    );
+
+    // 5. CLI `triage` command + formatCLIResult
+    const cliTriage = runCLI(['triage', 'docs/guide.md'], null, dir);
+    assert.equal(cliTriage.success, true);
+    assert.equal(cliTriage.triage.lane, 'trivial');
+    assert.match(formatCLIResult(cliTriage, ['triage']), /trivial/i);
+  });
+
+  it('issueGateReceipt and verifyGateReceipt enforce lane-specific receipt contracts for trivial, standard, and full lanes', () => {
+    assert.equal(git(dir, 'checkout', '-b', 'feature/issue-#107-receipts').status, 0);
+    fs.writeFileSync(path.join(dir, 'note.md'), 'hello\n', 'utf8');
+    assert.equal(git(dir, 'add', 'note.md').status, 0);
+    assert.equal(git(dir, 'commit', '-m', 'docs: add note').status, 0);
+
+    // 1. Trivial lane: signs valid receipt with null coverage/mutation & auto-trivial-gate, still requires driftCheckPassed===true
+    const trivialBadDrift = issueGateReceipt({
+      issueId: 'L-1001',
+      branch: 'feature/issue-#107-receipts',
+      lane: 'trivial',
+      repoRoot: dir
+    });
+    assert.equal(trivialBadDrift.success, false);
+    assert.deepEqual(trivialBadDrift.missing, ['driftCheckPassed']);
+
+    const trivialRejectedReview = issueGateReceipt({
+      issueId: 'L-1001',
+      branch: 'feature/issue-#107-receipts',
+      lane: 'trivial',
+      peerReviewApproved: false,
+      driftCheckPassed: true,
+      repoRoot: dir
+    });
+    assert.equal(trivialRejectedReview.success, true);
+    assert.equal(trivialRejectedReview.receipt.peerReviewApproved, false);
+    assert.equal(verifyGateReceipt({ headSha: trivialRejectedReview.receipt.headSha, repoRoot: dir }).valid, false);
+
+    const trivialOk = issueGateReceipt({
+      issueId: 'L-1001',
+      branch: 'feature/issue-#107-receipts',
+      lane: 'trivial',
+      laneReason: 'Docs typo',
+      driftCheckPassed: true,
+      repoRoot: dir
+    });
+    assert.equal(trivialOk.success, true);
+    assert.equal(trivialOk.receipt.lane, 'trivial');
+    assert.equal(trivialOk.receipt.laneReason, 'Docs typo');
+    assert.equal(trivialOk.receipt.coveragePct, null);
+    assert.equal(trivialOk.receipt.mutationPct, null);
+    assert.equal(trivialOk.receipt.docsOnly, false);
+    assert.equal(trivialOk.receipt.mutationStatus, 'trivial-lane');
+    assert.equal(trivialOk.receipt.peerReviewApproved, true);
+    assert.equal(trivialOk.receipt.reviewer, '@auto-trivial-gate');
+    assert.equal(verifyGateReceipt({ headSha: trivialOk.receipt.headSha, repoRoot: dir }).valid, true);
+
+    // 2. Standard lane: requires coveragePct & peerReviewApproved, allows omitted mutationPct ('standard-lane-skipped')
+    const stdMissingCov = issueGateReceipt({
+      issueId: 107,
+      branch: 'feature/issue-#107-receipts',
+      lane: 'standard',
+      peerReviewApproved: true,
+      driftCheckPassed: true,
+      repoRoot: dir
+    });
+    assert.equal(stdMissingCov.success, false);
+    assert.deepEqual(stdMissingCov.missing, ['coveragePct']);
+
+    const stdMissingReview = issueGateReceipt({
+      issueId: 107,
+      branch: 'feature/issue-#107-receipts',
+      lane: 'standard',
+      coveragePct: 88.5,
+      driftCheckPassed: true,
+      repoRoot: dir
+    });
+    assert.equal(stdMissingReview.success, false);
+    assert.deepEqual(stdMissingReview.missing, ['peerReviewApproved']);
+
+    const stdOk = issueGateReceipt({
+      issueId: 107,
+      branch: 'feature/issue-#107-receipts',
+      lane: 'standard',
+      coveragePct: 88.5,
+      peerReviewApproved: true,
+      reviewer: '@std-reviewer',
+      driftCheckPassed: true,
+      repoRoot: dir
+    });
+    assert.equal(stdOk.success, true);
+    assert.equal(stdOk.receipt.lane, 'standard');
+    assert.equal(stdOk.receipt.coveragePct, 88.5);
+    assert.equal(stdOk.receipt.mutationPct, null);
+    assert.equal(stdOk.receipt.mutationStatus, 'standard-lane-skipped');
+    assert.equal(verifyGateReceipt({ headSha: stdOk.receipt.headSha, repoRoot: dir }).valid, true);
+
+    const stdMeasuredMut = issueGateReceipt({
+      issueId: 107,
+      branch: 'feature/issue-#107-receipts',
+      lane: 'standard',
+      coveragePct: 91.0,
+      mutationPct: 64.0,
+      peerReviewApproved: true,
+      reviewer: '@std-reviewer',
+      driftCheckPassed: true,
+      repoRoot: dir
+    });
+    assert.equal(stdMeasuredMut.success, true);
+    assert.equal(stdMeasuredMut.receipt.mutationStatus, 'measured');
+    assert.equal(stdMeasuredMut.receipt.mutationPct, 64.0);
+  });
+
+  it('generateReviewPlan scales subagents (0 trivial, 1 standard, 2-3 full), hooks pre-commit is instant, and stage pre-pr auto-escalates when diff outgrows trivial lane', () => {
+    // 1. Pre-commit hook template omits slow `test --affected-only`
+    const templates = gitGuardMod.buildHookTemplates();
+    assert.match(templates['pre-commit'], /guard pre-commit/);
+    assert.equal(templates['pre-commit'].includes('test --affected-only'), false);
+
+    // 2. Review plan scaling by lane
+    assert.equal(generateReviewPlan({ repoRoot: dir, lane: 'trivial' }).subagentsCount, 0);
+    assert.equal(generateReviewPlan({ repoRoot: dir, lane: 'standard' }).subagentsCount, 1);
+    assert.ok(generateReviewPlan({ repoRoot: dir, lane: 'full' }).subagentsCount >= 2);
+
+    // 3. `stage begin --lane trivial` creates local L-* session on chore/quick-* without workbench HTML bloat
+    const quickBegin = runCLI(
+      ['stage', 'begin', '--lane', 'trivial', '--title', 'Fix typo in docs', '--checkout'],
+      null,
+      dir
+    );
+    assert.equal(quickBegin.success, true);
+    assert.match(String(quickBegin.stage.issueId), /^L-/);
+    assert.equal(quickBegin.stage.branch, 'chore/quick-fix-typo-in-docs');
+    assert.equal(quickBegin.stage.session.lane, 'trivial');
+    assert.equal(fs.existsSync(path.join(dir, '.agent/workbench/index.html')), false);
+
+    // Trivial docs edit stays in trivial lane and signs receipt directly in `stage pre-pr`
+    fs.writeFileSync(path.join(dir, 'README.md'), '# Genesis Repo\nFixed typo.\n', 'utf8');
+    assert.equal(git(dir, 'add', 'README.md').status, 0);
+    assert.equal(git(dir, 'commit', '-m', 'docs: fix typo').status, 0);
+
+    const quickPrePr = runCLI(['stage', 'pre-pr', '--summary', 'Fix typo in docs'], null, dir);
+    assert.equal(quickPrePr.success, true);
+    assert.equal(quickPrePr.stage.lane, 'trivial');
+    assert.ok(quickPrePr.stage.receipt, 'Expected trivial lane stage pre-pr to sign Stage 7 receipt automatically');
+    assert.equal(quickPrePr.stage.receipt.lane, 'trivial');
+    assert.equal(quickPrePr.stage.receipt.mutationStatus, 'trivial-lane');
+
+    // Complete local trivial session cleanly
+    const quickDone = runCLI(['stage', 'complete'], null, dir);
+    assert.equal(quickDone.success, true);
+    assert.equal(quickDone.stage.released, true);
+
+    // 4. Auto-escalation: start trivial, but edit source JS -> pre-pr escalates session to standard and withholds unmeasured receipt
+    assert.equal(git(dir, 'checkout', 'main').status, 0);
+    const sneakyBegin = runCLI(
+      ['stage', 'begin', '--lane', 'trivial', '--title', 'Quick tweak', '--checkout', '--ui'],
+      null,
+      dir
+    );
+    assert.equal(sneakyBegin.success, true);
+    assert.equal(fs.existsSync(path.join(dir, '.agent/workbench/index.html')), true);
+
+    fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'src/logic.mjs'), 'export const compute = (a, b) => a + b;\n', 'utf8');
+    assert.equal(git(dir, 'add', 'src/logic.mjs').status, 0);
+    assert.equal(git(dir, 'commit', '-m', 'feat: add compute logic').status, 0);
+
+    const escalatedPrePr = runCLI(['stage', 'pre-pr', '--summary', 'Added logic'], null, dir);
+    assert.equal(escalatedPrePr.stage.lane, 'standard');
+    assert.equal(escalatedPrePr.stage.receipt, null, 'Escalated standard lane must not auto-sign unmeasured trivial receipt');
+    const chain = verifyAuditChain(dir);
+    assert.ok(chain.records.some((r) => r.event === 'LANE_AUTO_ESCALATED'));
   });
 });

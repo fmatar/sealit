@@ -1167,7 +1167,7 @@ jobs:
 
       const preCommit = fs.readFileSync(path.join(gitDir, 'hooks/pre-commit'), 'utf8');
       const prePush = fs.readFileSync(path.join(gitDir, 'hooks/pre-push'), 'utf8');
-      assert.ok(preCommit.includes('sdlc-engine.mjs test'));
+      assert.ok(preCommit.includes('sdlc-engine.mjs guard pre-commit'));
       assert.ok(prePush.includes('sdlc-engine.mjs gate'));
     });
 
