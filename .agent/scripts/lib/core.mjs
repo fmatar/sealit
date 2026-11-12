@@ -376,16 +376,28 @@ export function hasGitHubRemote(repoRoot = '.') {
 }
 
 /**
- * Returns a unified diff for one file: last commit first, then working tree,
- * and for untracked files a synthetic all-added diff of its content.
+ * Returns a unified diff for one file: branch/commit diff + working tree diff,
+ * and for unignored untracked files a synthetic all-added diff of its content.
  */
 export function gitDiffForFile(file, repoRoot = '.') {
-  const lastCommit = gitOutput(['diff', 'HEAD~1', '--', file], repoRoot);
-  if (lastCommit) return lastCommit;
-  const working = gitOutput(['diff', '--', file], repoRoot);
-  if (working) return working;
+  const committedDiff =
+    gitOutput(['diff', 'origin/main...HEAD', '--', file], repoRoot) ||
+    gitOutput(['diff', 'main...HEAD', '--', file], repoRoot) ||
+    gitOutput(['diff', 'HEAD~1', '--', file], repoRoot) ||
+    '';
+  const working =
+    gitOutput(['diff', 'HEAD', '--', file], repoRoot) ||
+    gitOutput(['diff', '--', file], repoRoot) ||
+    '';
+  if (committedDiff || working) {
+    return [committedDiff, working].filter(Boolean).join('\n');
+  }
   const tracked = gitOutput(['ls-files', '--error-unmatch', '--', file], repoRoot);
   if (tracked === null) {
+    const untrackedUnignored = gitOutput(['ls-files', '--others', '--exclude-standard', '--', file], repoRoot);
+    if (!untrackedUnignored || !untrackedUnignored.trim()) {
+      return '';
+    }
     try {
       const abs = path.resolve(repoRoot, file);
       if (fs.statSync(abs).isFile()) {

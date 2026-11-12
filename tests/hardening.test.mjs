@@ -22,6 +22,7 @@ import {
   parseMutationReport,
   createWorkbenchServer,
   createADR,
+  compactADRs,
   listADRs,
   executeCompositeStage,
   startSession,
@@ -1506,5 +1507,108 @@ describe('Issue #111: Slim npm package (<250 KB), untracked binaries, and single
     const readmeRaw = fs.readFileSync(path.join(REPO_ROOT, 'README.md'), 'utf8');
     assert.equal(pluginManifest.version, pkg.version, '.claude-plugin/plugin.json version must match package.json');
     assert.ok(readmeRaw.includes(`Version-${pkg.version}-`), `README.md badge must match package.json version ${pkg.version}`);
+  });
+
+  it('ignores git rm --cached files covered by .gitignore in gitDiffForFile and auditSecurity while catching unignored secrets', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-111-sec-'));
+    const fakeAwsKey = ['AKIA', 'IOSFODNN7EXAMPLE'].join('');
+    try {
+      git(tmpDir, 'init', '-b', 'main');
+      git(tmpDir, 'config', 'user.email', 'test@example.com');
+      git(tmpDir, 'config', 'user.name', 'Test User');
+
+      fs.mkdirSync(path.join(tmpDir, 'vendor/bin'), { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, 'vendor/bin/fake-binary'), `binary-bytes-${fakeAwsKey}-tail\n`, 'utf8');
+      fs.writeFileSync(path.join(tmpDir, 'README.md'), '# Test\n', 'utf8');
+      git(tmpDir, 'add', '.');
+      git(tmpDir, 'commit', '-m', 'initial commit on main');
+
+      git(tmpDir, 'checkout', '-b', 'feature/test-111');
+      git(tmpDir, 'rm', '--cached', 'vendor/bin/fake-binary');
+      fs.writeFileSync(path.join(tmpDir, '.gitignore'), 'vendor/bin/\n', 'utf8');
+      git(tmpDir, 'add', '.gitignore');
+      git(tmpDir, 'commit', '-m', 'untrack vendor binary');
+
+      fs.writeFileSync(path.join(tmpDir, 'README.md'), '# Test Updated\n', 'utf8');
+      git(tmpDir, 'add', 'README.md');
+      git(tmpDir, 'commit', '-m', 'second commit on branch');
+
+      const diffForIgnored = coreMod.gitDiffForFile('vendor/bin/fake-binary', tmpDir);
+      assert.equal(
+        diffForIgnored.split('\n').some((l) => l.startsWith('+') && !l.startsWith('+++') && l.includes(fakeAwsKey)),
+        false,
+        `gitDiffForFile must not synthesize + lines for gitignored file removed via git rm --cached, got:\n${diffForIgnored}`
+      );
+
+      const cleanSec = qualityGateMod.auditSecurity(tmpDir);
+      assert.equal(cleanSec.secretLeaksCount, 0, `Expected 0 secret leaks for gitignored cached-rm file, got: ${JSON.stringify(cleanSec.secretViolations)}`);
+      assert.equal(cleanSec.passed, true);
+
+      // Verify unignored untracked file with a real secret is still caught
+      fs.writeFileSync(path.join(tmpDir, 'untracked-secret.txt'), `aws_key=${fakeAwsKey}\n`, 'utf8');
+      const dirtySec = qualityGateMod.auditSecurity(tmpDir);
+      assert.equal(dirtySec.passed, false);
+      assert.ok(dirtySec.secretLeaksCount >= 1);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('preserves prior release rows in compactADRs and advances createADR numbering past compacted SRS.md rows', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-111-srs-'));
+    try {
+      fs.mkdirSync(path.join(tmpDir, 'docs/adr'), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpDir, 'docs/SRS.md'),
+        [
+          '# SRS',
+          '',
+          '## Compacted Architectural Decisions',
+          '',
+          '| ID | Title | Scope | Ticket | Supersedes | Compacted In Release | Decision |',
+          '| :--- | :--- | :--- | :--- | :--- | :--- | :--- |',
+          '| `ADR-001` | Legacy v0.3.0 Architecture | `technical` | #63 | CAP-01 | `v0.3.0` | Keep modular lib split. |',
+          '| `ADR-002` | Legacy v0.3.0 Skills | `architectural` | #68 | CAP-05 | `v0.3.0` | Consolidate skills. |',
+          ''
+        ].join('\n'),
+        'utf8'
+      );
+
+      // Even if an in-flight ADR shares ADR-001 from a legacy reset, compacting into v0.4.0 must NOT overwrite the v0.3.0 row
+      fs.writeFileSync(
+        path.join(tmpDir, 'docs/adr/ADR-001-readme-landing.md'),
+        [
+          '---',
+          'id: ADR-001',
+          'title: New v0.4.0 README Template',
+          'status: accepted',
+          'scope: technical',
+          'ticket: #100',
+          'supersedes: CAP-11',
+          'createdAt: 2026-11-12T00:00:00.000Z',
+          '---',
+          '',
+          '# ADR-001: New v0.4.0 README Template',
+          '',
+          '## 2. Decision',
+          'Add 10-30-90 README engine.'
+        ].join('\n'),
+        'utf8'
+      );
+
+      const compactRes = compactADRs({ releaseVersion: 'v0.4.0', repoRoot: tmpDir });
+      assert.equal(compactRes.compactedCount, 1);
+
+      const srsAfter = fs.readFileSync(path.join(tmpDir, 'docs/SRS.md'), 'utf8');
+      assert.match(srsAfter, /\|\s*`ADR-001`\s*\|\s*Legacy v0\.3\.0 Architecture\s*\|.*\|\s*`v0\.3\.0`\s*\|/);
+      assert.match(srsAfter, /\|\s*`ADR-002`\s*\|\s*Legacy v0\.3\.0 Skills\s*\|.*\|\s*`v0\.3\.0`\s*\|/);
+      assert.match(srsAfter, /\|\s*`ADR-001`\s*\|\s*New v0\.4\.0 README Template\s*\|.*\|\s*`v0\.4\.0`\s*\|/);
+
+      // Creating a new ADR when docs/adr/ is empty must advance past max ID in docs/SRS.md (ADR-002 -> ADR-003)
+      const created = createADR({ title: 'Post-Compaction Decision', repoRoot: tmpDir });
+      assert.equal(created.adr.id, 'ADR-003');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });
