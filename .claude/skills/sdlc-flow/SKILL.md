@@ -1,103 +1,66 @@
 ---
 name: sdlc-flow
-description: Master SDLC orchestrator driving end-to-end feature implementation, bug fixes, and releases using composite stage transitions (stage begin, stage pre-pr, stage complete), Kanban synchronization, architectural traceability, Robert Martin TDD, and parallel fork-join subagent peer reviews.
+description: Use when implementing a feature, bug fix, or hotfix end-to-end across branches and PRs. Not for read-only questions or status checks. Drives proportional SDLC lanes.
 allowed-tools: Read, Write, Edit, Bash, Agent
 ---
 
-# 🚀 Agentic SDLC Master Orchestrator (`sdlc-flow`)
+# Agentic SDLC Lifecycle Orchestrator (`sdlc-flow`)
 
-## 1. Mission & Core Invariants
+## When to use / When NOT to use
+- **Use when** shipping a code or documentation change from intake through branch, implementation, PR review, and merge.
+- **Not for** read-only codebase questions, status checks (`sdlc-status`), or macro product bootstrapping (`sdlc-product`).
 
-1. **Zero Direct Pushes (`INV-01`)**: Direct commits, merges, or pushes to `main` or `develop` are blocked by the 4-Layer Git Guard.
-2. **Mandatory Ticket & Composite Session (`INV-02`)**: Every code change is governed by an active ticket session started via `sdlc-engine stage begin`.
-3. **Spec-Drift ADR Discipline (`INV-03`)**: Any change to `PRODUCT.md`, `docs/specs/*.md`, database migrations, or public API contracts requires an accepted ADR (`sdlc-engine adr create`).
-4. **Real Dual-Gate Verification**: All changes must pass unit/integration tests ($\ge 85\%$ diff coverage) and mutation/contract checks ($\ge 80\%$ mutation kill score when configured).
+## Core Invariants
+1. **Zero Direct Pushes (`INV-01`)**: Never commit, merge, or push directly to `main` or `develop`.
+2. **Proportional Session & Gate (`INV-02`)**: Every branch has an active session in `.agent/.sdlc-session.json` and passes the gates for its risk lane (thresholds read from `.agent/sdlc-config.json`).
+3. **Spec-Drift ADR Discipline (`INV-03`)**: Structural changes to `PRODUCT.md`, `docs/specs/*.md`, dependencies, schemas, or API contracts require an accepted ADR via `sdlc-adr`.
 
----
+## Lane behavior (`node .agent/scripts/sdlc-engine.mjs triage`)
+| Lane | Auto-selected when | Required stages |
+| :--- | :--- | :--- |
+| `trivial` | Docs/CSS/copy only, `<= trivialMaxLines` (25), `LOW` risk, `0` drift triggers | `stage begin --lane trivial` (local `L-*` ID) -> edit -> `test --affected-only` -> `stage pre-pr` (auto-signs `trivial` receipt) -> merge -> `stage complete`. |
+| `standard` | Code/bugfix `<= standardMaxLines` (200), `LOW`/`MEDIUM` risk, `0` drift triggers | `stage begin` -> `sdlc-tdd` (`coverage`) -> `stage pre-pr` -> `sdlc-gate` (1 reviewer + `gate` + `review record`) -> merge -> `stage complete`. |
+| `full` | `HIGH`/`CRITICAL` risk, any spec-drift trigger, or `> standardMaxLines` | `stage begin` -> `sdlc-adr` (if drift) -> `sdlc-tdd` (`coverage` + `mutation`) -> `stage pre-pr` -> `sdlc-gate` (2-3 reviewers + `gate --strict` + `review record`) -> merge -> `stage complete`. |
 
-## 2. Streamlined Lifecycle Workflow (`sdlc-engine stage`)
+> Note: `stage pre-pr`, `gate`, and `guard receipt` automatically re-triage the real git diff and escalate `< full` sessions if `CRITICAL` or larger code changes were introduced. Downward overrides require `--lane <lane> --reason "<why>"` (audited in `docs/AUDIT_CHAIN.jsonl`).
 
-```mermaid
-flowchart LR
-    B["1. stage begin\n(Ticket + Branch + Session + PM In-Progress)"] --> T["2. TDD Loop\n(sdlc-tdd: Red -> Green -> Refactor)"]
-    T --> P["3. stage pre-pr\n(Drift + DecisionMap + ArchTrace + Signed Receipt)"]
-    P --> R["4. Review Gate\n(sdlc-gate: Parallel Subagents + Strict Gate)"]
-    R --> C["5. stage complete\n(PR Merge + PM Done + Kanban Sync + Release Lock)"]
-```
+## Steps
 
-### Phase 1: Intake, Branch & Session Initialization (`stage begin`)
-Instead of running separate ticket, branch, session, and Kanban commands, execute the single composite `stage begin` command:
-```bash
-# Existing ticket:
-node .agent/scripts/sdlc-engine.mjs stage begin --issue <id> --title "<short-slug>" --type <feat|fix|hotfix> --checkout
+1. **Triage & Begin (`stage begin`)**:
+   ```bash
+   # Existing ticket:
+   node .agent/scripts/sdlc-engine.mjs stage begin --issue <id> --type <feat|fix|hotfix> --checkout
 
-# Or auto-provision a new ticket and begin immediately:
-node .agent/scripts/sdlc-engine.mjs stage begin --title "<title>" --type <feat|fix> --checkout
-```
-- **Bug / Hotfix Fast-Path**: If `--type fix` or `hotfix`, generate a failing Red reproduction test first:
-  ```bash
-  node .agent/scripts/sdlc-engine.mjs reproduce --error "<stack_trace>" --target "<file>"
-  ```
+   # Trivial docs/style fast-path (no remote issue spam):
+   node .agent/scripts/sdlc-engine.mjs stage begin --lane trivial --title "<short-desc>" --type chore --checkout
+   ```
+   Pass `--ui` only if the user asks for the `.agent/workbench/index.html` architecture widget. For `--type fix|hotfix`, scaffold a failing reproduction test first with `node .agent/scripts/sdlc-engine.mjs reproduce --error "<trace>"`.
 
-### Phase 2: Robert Martin TDD & Clean Code Implementation (`ub-mode` / `sdlc-tdd`)
-Execute the coding cycle adhering strictly to **`ub-mode`** (invoking `/ub-mode`):
-1. **First Make it Work:**
-   - **Model the Domain**: Define pure domain types making illegal states impossible.
-   - **TDD (Red -> Green)**: Write the failing test before changing code; write only minimal code to pass.
-   - **Attack the Premise**: If two fixes sharing a premise fail a gate, isolate and discard the premise.
-   - **Subtract Before You Add**: Simplify or remove complexity before adding new logic.
-2. **Then Make it Right:**
-   - Run affected tests: `node .agent/scripts/sdlc-engine.mjs test --affected-only`
-   - Verify coverage (CRAP < 10, Line Coverage >= 85%): `node .agent/scripts/sdlc-engine.mjs coverage`
-   - Eliminate duplication (Dryer similarity < 0.8) and run mutation tests to kill surviving mutants: `node .agent/scripts/sdlc-engine.mjs mutation`
-3. **Follow Practice:**
-   - Deliver small, ordered, atomic commits explaining *why*, *what changed*, and *how proven*.
+2. **Implement (`ub-mode` + `sdlc-tdd`)**:
+   Follow `ub-mode` (*First Make it Work -> Then Make it Right -> Practice*) and run the lane-appropriate test/coverage/mutation gates in `sdlc-tdd`. If `drift check` triggers, mint an ADR via `sdlc-adr`.
 
-### Phase 3: Pre-PR Verification, Cryptographic Receipt & Live Architecture UI (`stage pre-pr`)
-Once implementation and docs are updated, execute the composite `stage pre-pr` command:
-```bash
-node .agent/scripts/sdlc-engine.mjs stage pre-pr --issue <id> --summary "<architectural_summary>"
-```
-This single command atomically:
-- Advances the session to Stage 6 (`Pull Request & CI`).
-- Evaluates `drift check` (`PRODUCT.md` & `docs/specs/` vs `docs/adr/`).
-- Synchronizes `docs/DECISION_MAP.md` (`decision-graph sync`).
-- Appends architectural traceability to `docs/ARCH_TRACE.md` (`arch trace`).
-- Pushes the feature branch and resolves or creates the GitHub Pull Request (`gh pr view` / `gh pr create`), saving `prNumber` in `.agent/.sdlc-session.json`.
-- Issues the HMAC-SHA256-signed Stage 7 gate receipt if `peerReview` is already recorded in the session (otherwise deferred to Phase 4 `review record`).
-- Builds `.agent/workbench/index.html` (start the live, token-protected workbench yourself with `sdlc-engine serve`).
-- Generates the standardized PR summary.
+3. **Pre-PR Verification (`stage pre-pr`)**:
+   ```bash
+   node .agent/scripts/sdlc-engine.mjs stage pre-pr --issue <id> --summary "<concise-summary>"
+   ```
 
-**Mandatory Inline Architecture UI Presentation**:
-After running `stage begin` or `stage pre-pr`, regenerate `.agent/workbench/index.html` with `node .agent/scripts/sdlc-engine.mjs ui-snapshot`. Claude Code cannot embed HTML inline: tell the user the path of `.agent/workbench/index.html` so they can open it in a browser.
+4. **Review, Receipt & Merge (`sdlc-gate`)**:
+   - In `trivial` lane (if not escalated): `stage pre-pr` already signed the `trivial` receipt; verify CI (`check-ci <pr>`) and merge.
+   - In `standard` or `full` lane: execute `sdlc-gate` (`review plan` -> read-only subagent review -> remediate any blockers -> `gate` / `gate --strict` -> `review record` -> commit & push `docs/AUDIT_CHAIN.jsonl` -> `check-ci <pr>` -> merge).
 
-### Phase 4: Parallel Fork-Join Review & Quality Gate (`sdlc-gate`)
-Dispatch two `Agent` calls in parallel using valid tool arguments:
-- **Call 1 (`PR Peer Reviewer`)**:
-  - `TypeName`: `"research"`
-  - `Role`: `"PR Peer Reviewer"`
-  - `Prompt`: `"Audit git diff against main for Robert Martin test smells, Dual-Gate coverage (>=85%), and clean architecture boundaries. Return a structured review verdict."`
-- **Call 2 (`Architecture & Security Gatekeeper`)**:
-  - `TypeName`: `"research"`
-  - `Role`: `"Architecture & Security Gatekeeper"`
-  - `Prompt`: `"Inspect modified files for security leaks, concentric layer inversions (.archlens/policy.json), and documentation completeness. Return a structured gate report."`
+5. **Complete (`stage complete`)**:
+   ```bash
+   node .agent/scripts/sdlc-engine.mjs stage complete --issue <id> --pr <pr_number>
+   ```
 
-Then run the strict quality gate, sign the Stage 7 receipt, and publish the consolidated 4-section review comment directly onto the GitHub Pull Request:
-```bash
-node .agent/scripts/sdlc-engine.mjs gate --strict
-node .agent/scripts/sdlc-engine.mjs review record \
-  --verdict approve \
-  --reviewer "@sdlc-gate" \
-  --peer-review "<subagent_1_verdict>" \
-  --arch-review "<subagent_2_verdict>"
-```
+## ⚠️ Confirm with user before
+- Provisioning a new remote PM ticket (`stage begin --title` without `--issue` in `standard`/`full` lanes) if no ticket exists yet and intent is ambiguous.
+- Passing `--lane <lower> --reason` to downgrade a computed risk lane.
 
-### Phase 5: Completion & Kanban Synchronization (`stage complete`)
-After PR merge or completion verification, close out the lifecycle with one command:
-```bash
-node .agent/scripts/sdlc-engine.mjs stage complete --issue <id> --pr <pr_number>
-```
-To refresh the full GitHub Issues traceability matrix in `docs/KANBAN.md`:
-```bash
-.agent/scripts/kanban-sync.sh
-```
+## If it fails
+- **`drift check` fails** -> invoke `sdlc-adr` (`adr create`), or await human sign-off on `product`/`contract` scope ADRs.
+- **Reviewer returns `request-changes` or `gate` fails** -> fix root cause via `sdlc-tdd` and re-verify (stop and ask user if 3 remediation retries trip the circuit breaker).
+- **CI check fails on PR** -> inspect failing job logs, fix on branch, re-sign Stage 7 receipt on final `HEAD`, and re-run `check-ci <pr>`.
+
+## Done when
+PR is merged with green CI and a valid Stage 7 receipt on final `HEAD`, and `stage complete` has released the session lock.

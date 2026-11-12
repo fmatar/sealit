@@ -1,8 +1,8 @@
 # 🛠️ Skills & CLI Command Reference
 
-This reference documents the **1 Universal Router (`/sdlc`) + 9 Verb-Driven Skills** (`ADR-004` & `ADR-007`) located in `.agent/skills/` and the complete CLI subcommand table for `.agent/scripts/sdlc-engine.mjs`.
+This reference documents the **11 Canonical Skills — 1 Universal Router (`/sdlc`), 9 Verb-Driven Lifecycle Skills, and `ub-mode`** (`ADR-005`) located in `.agent/skills/` and the complete CLI subcommand table for `.agent/scripts/sdlc-engine.mjs`.
 
-> **Historical Note (`ADR-002` & `ADR-004`)**: Earlier versions of this framework used 14 separate skills (such as `sdlc-init`, `sdlc-kanban`, `sdlc-feature-spec`, `sdlc-tdd-implement`, `sdlc-test-coverage`, `sdlc-docs-wiki`, `sdlc-peer-review`, `sdlc-quality-gate`, `sdlc-release-changelog`, and `sdlc-review-gate`). Those retired skills are automatically pruned by `pruneDeprecatedSkills` in `.agent/scripts/lib/installer.mjs` and replaced by the 10 canonical skills below.
+> **Historical Note (`ADR-002`, `ADR-004`, `ADR-005`)**: Earlier versions of this framework used 14 separate skills (such as `sdlc-init`, `sdlc-kanban`, `sdlc-feature-spec`, `sdlc-tdd-implement`, `sdlc-test-coverage`, `sdlc-docs-wiki`, `sdlc-peer-review`, `sdlc-quality-gate`, `sdlc-release-changelog`, and `sdlc-review-gate`). Those retired skills are automatically pruned by `pruneDeprecatedSkills` in `.agent/scripts/lib/installer.mjs` and replaced by the 11 canonical skills below.
 
 ---
 
@@ -108,6 +108,11 @@ This reference documents the **1 Universal Router (`/sdlc`) + 9 Verb-Driven Skil
   - Inspects AST exports with line numbers and maps modules into `.archlens/policy.json` Concentric Clean Architecture rings with $Ca / Ce / I$ coupling telemetry (`wiki map`).
   - Generates and updates `wiki/Codebase-Map.md` (`wiki sync`).
   - Audits `wiki/*.md` for broken repo paths, retired skill references, unmapped modules, undocumented skills, and invalid Mermaid syntax (`wiki audit --strict`).
+
+### 2.10 `ub-mode` — Robert C. Martin Reduced Principles
+- **Path**: `.agent/skills/ub-mode/SKILL.md`
+- **Capabilities**:
+  - Enforces *First Make it Work* (Laziness Protocol, Foundational Thinking, TDD, Attack the Premise, Subtract Before You Add, Domain/Boundary/Type Discipline), *Then Make it Right* (Fix Root Causes, CRAP < 10, DRY, Mutator, Refactoring), and *Practice* across `trivial`, `standard`, and `full` execution lanes.
 
 ---
 

@@ -5,7 +5,7 @@
 > To refresh this board: `.agent/scripts/kanban-sync.sh`
 
 > **Repository**: `fmatar/agentic-sdlc-framework`  
-> **Last Synced**: `2026-11-12 18:28:21 UTC`
+> **Last Synced**: `2026-11-12 19:32:40 UTC`
 
 ---
 
@@ -13,7 +13,7 @@
 
 | 📥 Backlog | 📋 Ready | ⚡ In Progress | 🔍 In Review | ✅ Done |
 | :--- | :--- | :--- | :--- | :--- |
-|  |  |  | #107: [FEAT] feat: Risk-proportional execution lanes and spec-drift precision |  |
+|  |  |  |  | #107: [FEAT] feat: Risk-proportional execution lanes and spec-drift precision |
 |  |  |  |  | #105: [FEAT] feat: GitHub Actions quality-gate CI, configurable runners, and shell-free execution |
 |  |  |  |  | #103: [FIX] fix: Truthful CLI telemetry, hook drift doctor, and config-driven Dual-Gate baseline |
 |  |  |  | #99: [FIX] fix: Publish consolidated peer review & quality gate comments to GitHub PRs |  |

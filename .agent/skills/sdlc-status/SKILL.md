@@ -1,34 +1,42 @@
 ---
 name: sdlc-status
-description: Displays active SDLC session, 8-stage lifecycle progress, spec-drift check, living KANBAN.md board state, engineering ROI telemetry, and live Architecture Diff UI in one unified view.
-tools: read_file, write_file, edit_file, run_command
+description: "Use when inspecting the active SDLC session, 8-stage progress, spec drift, or audit chain health. Not for modifying code, sessions, or artifacts (strictly read-only)."
+tools: read_file, run_command
 ---
 
-# 📊 Live Session Status, Drift & Architecture Inspector (`sdlc-status`)
+# Read-Only Session, Drift & Audit Status (`sdlc-status`)
 
-## 1. Unified Status Inspection Sequence
+## When to use / When NOT to use
+- **Use when** checking current session stage, active branch/lane, spec-drift status, or Merkle audit ledger health without mutating any files.
+- **Not for** advancing lifecycle stages (`sdlc-flow`), healing repo assets (`sdlc-doctor`), or writing workbench HTML artifacts unless explicitly asked via `/sdlc ui`.
 
-Execute the following commands to assemble a complete real-time snapshot of the repository's active SDLC state:
+## Lane behavior
+| Inspection depth | Commands executed |
+| :--- | :--- |
+| **Quick (default)** | `session dashboard` + `drift check` (2 fast read-only checks). |
+| **Full (`--full`)** | Adds `arch diff`, `audit verify`, and `stats` (labeled as formula estimates). |
+
+## Steps
 
 ```bash
-# 1. Active session & 8-stage ASCII dashboard
-node .agent/scripts/sdlc-engine.mjs session status
+# Quick status (default):
 node .agent/scripts/sdlc-engine.mjs session dashboard
-
-# 2. Check for undeclared spec/contract/architecture drift against PRODUCT.md & docs/adr/
 node .agent/scripts/sdlc-engine.mjs drift check
+
+# Full governance & architecture telemetry (when user asks for full status):
 node .agent/scripts/sdlc-engine.mjs arch diff
-
-# 3. Engineering velocity, ROI & hash-chained audit ledger status
-node .agent/scripts/sdlc-engine.mjs stats
 node .agent/scripts/sdlc-engine.mjs audit verify
-
-# 4. Refresh and launch the live Architecture Diff & Decision Lineage UI (http://localhost:4120)
-node .agent/scripts/sdlc-engine.mjs ui-snapshot
+node .agent/scripts/sdlc-engine.mjs stats
 ```
 
-## 2. Inline Architecture UI Presentation
-Copy `.agent/workbench/index.html` to `<artifactDir>/sdlc-architecture-diff.html` via `write_file` (`UserFacing: true`) and render it inline in your response:
-```markdown
-<agent-embed src="file:///<artifactDir>/sdlc-architecture-diff.html"></agent-embed>
-```
+- **Workbenches (opt-in only)**: SDLC's loopback ledger server runs via `sdlc-engine.mjs serve` (`127.0.0.1:4120`); the separate Archlens Clean Architecture workbench runs on `localhost:8088` when `.archlens/policy.json` is active. Do not generate or embed `.agent/workbench/index.html` during a status check unless requested.
+
+## ⚠️ Confirm with user before
+- None (`sdlc-status` is strictly read-only and never modifies files or remote state).
+
+## If it fails
+- **Corrupted `.agent/.sdlc-session.json` or outdated git hooks** -> recommend running `sdlc-doctor`.
+- **`drift check` or `audit verify` reports errors** -> report the exact finding and suggest `sdlc-adr` or `sdlc-gate`.
+
+## Done when
+A concise read-only summary of active session stage, lane, drift status, and any blockers is presented to the user.

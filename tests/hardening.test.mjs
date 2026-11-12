@@ -35,7 +35,11 @@ import {
   installCIWorkflow,
   generateConfig,
   checkSpecDrift,
-  verifyAuditChain
+  verifyAuditChain,
+  CANONICAL_SDLC_SKILLS,
+  provisionAgentIntegrations,
+  auditSkills,
+  parseFrontmatter
 } from '../.agent/scripts/sdlc-engine.mjs';
 import * as coreMod from '../.agent/scripts/lib/core.mjs';
 import * as gitGuardMod from '../.agent/scripts/lib/git-guard.mjs';
@@ -1285,5 +1289,158 @@ describe('Issue #107: Risk-proportional execution lanes, instant pre-commit guar
     const chain = verifyAuditChain(dir);
     assert.ok(chain.records.some((r) => r.event === 'LANE_DOWNGRADE_OVERRIDDEN'));
     assert.ok(chain.records.some((r) => r.event === 'LANE_AUTO_ESCALATED'));
+  });
+});
+
+describe('Issue #109: Right-sized canonical skills, Claude unified packaging, and Cursor native skills', () => {
+  let dir;
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-skills-109-'));
+  });
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('enforces <=200-char Use-when/Not-for descriptions, zero hardcoded approve verdicts, and clean SkillSpector audit across all 11 canonical skills', () => {
+    assert.equal(CANONICAL_SDLC_SKILLS.length, 11);
+    assert.ok(CANONICAL_SDLC_SKILLS.includes('ub-mode'), 'ub-mode must be part of CANONICAL_SDLC_SKILLS');
+
+    const skillAudit = auditSkills(REPO_ROOT);
+    assert.equal(skillAudit.skillsAudited, 11);
+    assert.equal(skillAudit.totalFindings, 0);
+    assert.equal(skillAudit.success, true);
+
+    for (const skillId of CANONICAL_SDLC_SKILLS) {
+      const skillPath = path.join(REPO_ROOT, '.agent/skills', skillId, 'SKILL.md');
+      assert.equal(fs.existsSync(skillPath), true, `Missing canonical skill ${skillId}`);
+      const raw = fs.readFileSync(skillPath, 'utf8');
+      const { frontmatter, body } = parseFrontmatter(raw);
+
+      assert.equal(frontmatter.name, skillId, `${skillId} frontmatter name mismatch`);
+      assert.ok(
+        frontmatter.description && frontmatter.description.length > 0 && frontmatter.description.length <= 200,
+        `${skillId} description must be 1..200 chars (got ${frontmatter.description?.length || 0}): "${frontmatter.description}"`
+      );
+      assert.match(frontmatter.description, /\bUse when\b/, `${skillId} description must specify 'Use when' trigger`);
+      assert.match(frontmatter.description, /\bNot for\b/, `${skillId} description must specify 'Not for' anti-trigger`);
+      assert.equal(
+        /--verdict\s+approve\b/.test(body),
+        false,
+        `${skillId} must derive review verdict from blockers rather than hardcoding '--verdict approve'`
+      );
+    }
+
+    // Specific router & skill right-sizing invariants
+    const routerRaw = fs.readFileSync(path.join(REPO_ROOT, '.agent/skills/sdlc/SKILL.md'), 'utf8');
+    assert.match(routerRaw, /stage begin --issue/);
+    assert.match(routerRaw, /\/sdlc quick/);
+    assert.match(routerRaw, /\/sdlc triage/);
+    assert.match(routerRaw, /sdlc-engine\.mjs doctor`\s*\|/);
+    assert.match(routerRaw, /sdlc-engine\.mjs serve`\s*\|/);
+
+    const gateRaw = fs.readFileSync(path.join(REPO_ROOT, '.agent/skills/sdlc-gate/SKILL.md'), 'utf8');
+    assert.match(gateRaw, /review plan/);
+    assert.match(gateRaw, /--verdict <approve\|request-changes>/);
+
+    const statusParsed = parseFrontmatter(fs.readFileSync(path.join(REPO_ROOT, '.agent/skills/sdlc-status/SKILL.md'), 'utf8'));
+    assert.equal(statusParsed.frontmatter.tools.includes('write_file'), false, 'sdlc-status must be read-only');
+    assert.equal(statusParsed.frontmatter.tools.includes('edit_file'), false, 'sdlc-status must be read-only');
+
+    const wikiRaw = fs.readFileSync(path.join(REPO_ROOT, '.agent/skills/sdlc-wiki/SKILL.md'), 'utf8');
+    assert.equal(wikiRaw.includes('.agent/gate-receipts.jsonl'), false, 'sdlc-wiki must remain repo-agnostic');
+
+    for (const guardedSkill of ['sdlc-doctor', 'sdlc-product', 'sdlc-release']) {
+      const content = fs.readFileSync(path.join(REPO_ROOT, '.agent/skills', guardedSkill, 'SKILL.md'), 'utf8');
+      assert.ok(content.includes('⚠️ Confirm with user before'), `${guardedSkill} must include confirmation gate`);
+    }
+  });
+
+  it('verifies every sdlc-engine.mjs subcommand referenced across all 11 SKILL.md files exists in sdlc-engine.mjs', () => {
+    const engineSrc = fs.readFileSync(path.join(REPO_ROOT, '.agent/scripts/sdlc-engine.mjs'), 'utf8');
+    const validCommands = new Set(['help', 'install']);
+    for (const m of engineSrc.matchAll(/case\s+'([a-z0-9-]+)'\s*:/g)) {
+      validCommands.add(m[1]);
+    }
+
+    let checkedReferences = 0;
+    for (const skillId of CANONICAL_SDLC_SKILLS) {
+      const raw = fs.readFileSync(path.join(REPO_ROOT, '.agent/skills', skillId, 'SKILL.md'), 'utf8');
+      for (const m of raw.matchAll(/sdlc-engine\.mjs\s+([a-z0-9-]+)/g)) {
+        const subcmd = m[1];
+        checkedReferences++;
+        assert.ok(
+          validCommands.has(subcmd),
+          `Skill '${skillId}' references unknown sdlc-engine.mjs subcommand '${subcmd}'`
+        );
+      }
+    }
+    assert.ok(checkedReferences >= 25, `Expected at least 25 verified CLI command references (got ${checkedReferences})`);
+  });
+
+  it('removes duplicate .claude/commands/sdlc*.md, syncs plugin.json version from package.json, and installs real .cursor/skills/<id>/SKILL.md', () => {
+    // Seed legacy duplicate .claude/commands/sdlc*.md and a user-authored command that must be preserved
+    const legacyCmdDir = path.join(dir, '.claude/commands');
+    fs.mkdirSync(legacyCmdDir, { recursive: true });
+    fs.writeFileSync(path.join(legacyCmdDir, 'sdlc.md'), 'legacy duplicate router command\n', 'utf8');
+    fs.writeFileSync(path.join(legacyCmdDir, 'sdlc-flow.md'), 'legacy duplicate flow command\n', 'utf8');
+    fs.writeFileSync(path.join(legacyCmdDir, 'ub-mode.md'), 'legacy duplicate ub-mode command\n', 'utf8');
+    fs.writeFileSync(path.join(legacyCmdDir, 'custom-deploy.md'), 'user custom command\n', 'utf8');
+
+    const res = provisionAgentIntegrations({
+      agents: ['claude', 'cursor'],
+      targetDir: dir,
+      global: false,
+      packageRoot: REPO_ROOT
+    });
+    assert.equal(res.skillsCount, 11);
+
+    // 1. Legacy canonical .claude/commands/*.md pruned; custom command preserved; zero new .claude/commands/<skill>.md created
+    assert.equal(fs.existsSync(path.join(legacyCmdDir, 'sdlc.md')), false);
+    assert.equal(fs.existsSync(path.join(legacyCmdDir, 'sdlc-flow.md')), false);
+    assert.equal(fs.existsSync(path.join(legacyCmdDir, 'ub-mode.md')), false);
+    assert.equal(fs.existsSync(path.join(legacyCmdDir, 'custom-deploy.md')), true);
+
+    // 2. All 11 .claude/skills/<id>/SKILL.md + Cowork .zip + .cursor/skills/<id>/SKILL.md + .cursor/rules/<id>.mdc exist
+    for (const skillId of CANONICAL_SDLC_SKILLS) {
+      assert.equal(fs.existsSync(path.join(dir, '.claude/commands', `${skillId}.md`)), false);
+      const claudeSkillPath = path.join(dir, '.claude/skills', skillId, 'SKILL.md');
+      assert.equal(fs.existsSync(claudeSkillPath), true, `Missing Claude skill ${skillId}`);
+      const claudeParsed = parseFrontmatter(fs.readFileSync(claudeSkillPath, 'utf8'));
+      assert.match(claudeParsed.frontmatter.description, /\bUse when\b/);
+
+      assert.equal(fs.existsSync(path.join(dir, '.claude/cowork', `${skillId}.zip`)), true);
+
+      const cursorSkillPath = path.join(dir, '.cursor/skills', skillId, 'SKILL.md');
+      assert.equal(fs.existsSync(cursorSkillPath), true, `Missing Cursor native skill ${skillId}`);
+      const cursorRaw = fs.readFileSync(cursorSkillPath, 'utf8');
+      const cursorParsed = parseFrontmatter(cursorRaw);
+      assert.equal(cursorParsed.frontmatter.name, skillId);
+      assert.match(cursorParsed.frontmatter.description, /\bUse when\b/);
+      assert.equal(/\b(read_file|write_file|edit_file|run_command|invoke_subagent)\b/.test(cursorRaw), false);
+
+      assert.equal(fs.existsSync(path.join(dir, '.cursor/rules', `${skillId}.mdc`)), true);
+    }
+
+    // 3. .claude-plugin/plugin.json dynamically matches package.json version and omits duplicate "commands"
+    const pkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'));
+    const pluginManifest = JSON.parse(fs.readFileSync(path.join(dir, '.claude-plugin/plugin.json'), 'utf8'));
+    assert.equal(pluginManifest.version, pkg.version);
+    assert.equal(pluginManifest.skills, './.claude/skills');
+    assert.equal(pluginManifest.commands, undefined);
+
+    // 4. Global install also provisions ~/.cursor/skills/<id>/SKILL.md and avoids ~/.claude/commands/<id>.md
+    const fakeHome = path.join(dir, 'fake-home');
+    fs.mkdirSync(path.join(fakeHome, '.claude/commands'), { recursive: true });
+    fs.writeFileSync(path.join(fakeHome, '.claude/commands/sdlc.md'), 'stale global cmd\n', 'utf8');
+    provisionAgentIntegrations({
+      agents: ['claude', 'cursor'],
+      global: true,
+      homeDir: fakeHome,
+      packageRoot: REPO_ROOT
+    });
+    assert.equal(fs.existsSync(path.join(fakeHome, '.claude/commands/sdlc.md')), false);
+    assert.equal(fs.existsSync(path.join(fakeHome, '.claude/skills/ub-mode/SKILL.md')), true);
+    assert.equal(fs.existsSync(path.join(fakeHome, '.cursor/skills/sdlc-flow/SKILL.md')), true);
+    assert.equal(fs.existsSync(path.join(fakeHome, '.cursor/skills/ub-mode/SKILL.md')), true);
   });
 });

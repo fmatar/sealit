@@ -54,7 +54,7 @@ describe('Kanban Scripts & Consolidated 6-Skill Schema Validation', () => {
     assert.ok(scriptCode.includes('Traceability Matrix'));
   });
 
-  it('verifies 1 Router + 9 Verb Skills (10 canonical skills) exist in .agent/skills/ with valid tool schemas (ADR-004 & ADR-007)', () => {
+  it('verifies 1 Router + 9 Verb Skills + ub-mode (11 canonical skills) exist in .agent/skills/ with valid tool schemas (ADR-005)', () => {
     const expectedSkills = [
       'sdlc',
       'sdlc-adr',
@@ -65,12 +65,13 @@ describe('Kanban Scripts & Consolidated 6-Skill Schema Validation', () => {
       'sdlc-release',
       'sdlc-status',
       'sdlc-tdd',
-      'sdlc-wiki'
+      'sdlc-wiki',
+      'ub-mode'
     ];
     const skillsDir = path.resolve('.agent/skills');
     const actualSkills = fs
       .readdirSync(skillsDir)
-      .filter((f) => f.startsWith('sdlc') && fs.statSync(path.join(skillsDir, f)).isDirectory())
+      .filter((f) => (f.startsWith('sdlc') || f === 'ub-mode') && fs.statSync(path.join(skillsDir, f)).isDirectory())
       .sort();
 
     assert.deepEqual(actualSkills, expectedSkills);
@@ -86,15 +87,20 @@ describe('Kanban Scripts & Consolidated 6-Skill Schema Validation', () => {
       const descLine = content.split('\n').find((line) => line.startsWith('description:')) || '';
       assert.ok(!descLine.includes(' #'), `${skillName} description must not contain unquoted YAML # comment character`);
       assert.ok(content.includes('read_file'), `${skillName} must declare read_file tool`);
-      assert.ok(content.includes('write_file'), `${skillName} must declare write_file tool`);
-      assert.ok(content.includes('edit_file'), `${skillName} must declare edit_file tool`);
+      if (skillName === 'sdlc-status') {
+        assert.ok(!content.includes('write_file'), 'sdlc-status must remain read-only without write_file');
+        assert.ok(!content.includes('edit_file'), 'sdlc-status must remain read-only without edit_file');
+      } else {
+        assert.ok(content.includes('write_file'), `${skillName} must declare write_file tool`);
+        assert.ok(content.includes('edit_file'), `${skillName} must declare edit_file tool`);
+      }
       assert.ok(!content.includes('view_file'), `${skillName} must not contain legacy view_file tool`);
       assert.ok(!content.includes('write_to_file'), `${skillName} must not contain legacy write_to_file tool`);
       assert.ok(!content.includes('replace_file_content'), `${skillName} must not contain legacy replace_file_content tool`);
     }
 
     const auditRes = auditSkills(process.cwd());
-    assert.equal(auditRes.success, true, 'All 9 skills must pass SkillSpector static rules (RP1, AS3, FM1/FM2)');
+    assert.equal(auditRes.success, true, 'All 11 canonical skills must pass SkillSpector static rules (RP1, AS3, FM1/FM2)');
     assert.equal(auditRes.totalFindings, 0);
     assert.equal(auditRes.maxScore, 0);
   });
