@@ -1459,3 +1459,52 @@ describe('Issue #109: Right-sized canonical skills, Claude unified packaging, an
     assert.equal(fs.existsSync(path.join(fakeHome, '.cursor/skills/ub-mode/SKILL.md')), true);
   });
 });
+
+// ===========================================================================
+// Issue #111: Slim npm package (<250 KB), untracked binaries, single workbench & v0.4.0 sync
+// ===========================================================================
+describe('Issue #111: Slim npm package (<250 KB), untracked binaries, and single workbench', () => {
+  it('keeps npm pack tarball under 250 KB with all 11 canonical skills and zero third-party binaries', () => {
+    const packOut = execFileSync('npm', ['pack', '--dry-run', '--json'], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    const [packInfo] = JSON.parse(packOut);
+    assert.ok(packInfo.size < 250_000, `Expected npm tarball < 250 KB, got ${packInfo.size} bytes`);
+    assert.ok(packInfo.unpackedSize < 1_000_000, `Expected unpacked size < 1 MB, got ${packInfo.unpackedSize} bytes`);
+
+    const packedPaths = packInfo.files.map((f) => f.path);
+    for (const skillId of CANONICAL_SDLC_SKILLS) {
+      assert.ok(
+        packedPaths.includes(`.agent/skills/${skillId}/SKILL.md`),
+        `npm tarball must include .agent/skills/${skillId}/SKILL.md`
+      );
+    }
+    assert.equal(
+      packedPaths.some((p) => p.includes('impeccable') || p.includes('scripts/bin')),
+      false,
+      'npm tarball must not ship impeccable assets or native binaries'
+    );
+  });
+
+  it('untracks native skill binaries in git, removes abandoned workbench/, and aligns manifest/plugin/README versions', () => {
+    const trackedBins = execFileSync('git', ['ls-files', '*scripts/bin*'], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8'
+    }).trim();
+    assert.equal(trackedBins, '', `Expected zero tracked native binaries in git index, got:\n${trackedBins}`);
+
+    const gitignoreRaw = fs.readFileSync(path.join(REPO_ROOT, '.gitignore'), 'utf8');
+    assert.match(gitignoreRaw, /\*\*\/skills\/\*\/scripts\/bin\//);
+
+    assert.equal(fs.existsSync(path.join(REPO_ROOT, 'workbench')), false, 'Duplicate SvelteKit workbench/ prototype must be removed');
+    assert.equal(fs.existsSync(path.join(REPO_ROOT, '.agent/scripts/lib/workbench-server.mjs')), true);
+
+    const pkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'));
+    const pluginManifest = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, '.claude-plugin/plugin.json'), 'utf8'));
+    const readmeRaw = fs.readFileSync(path.join(REPO_ROOT, 'README.md'), 'utf8');
+    assert.equal(pluginManifest.version, pkg.version, '.claude-plugin/plugin.json version must match package.json');
+    assert.ok(readmeRaw.includes(`Version-${pkg.version}-`), `README.md badge must match package.json version ${pkg.version}`);
+  });
+});

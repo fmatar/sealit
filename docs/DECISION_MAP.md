@@ -34,19 +34,10 @@ flowchart TD
   SPEC_10["SPEC-10 (docs/specs/cap-10-unified-multi-provider-ticket-engine-issue-templ.md)"]
   CAP_11["CAP-11: Technical Writer Skill (`sdlc-wiki`) & Archlens AST-to-Wiki Sync (#90)"]
   SPEC_11["SPEC-11 (docs/specs/cap-11-technical-writer-archlens-wiki-sync.md)"]
-  ADR_001["ADR-001: 10-30-90 Developer Landing Page README Template and Deterministic README Engine"]
-  _100["Ticket #100 (feature/issue-#100-10-30-90-readme-template-engine)"]
-  ADR_002["ADR-002: Config-Driven Dual-Gate Thresholds, Verifiable CLI Telemetry, and SHA-256 Hook Drift Detection"]
-  _103["Ticket #103 (feature/issue-#103-truthful-cli-telemetry-hook-drift-doctor)"]
-  ADR_003["ADR-003: Shell-Free Command Execution, Least-Privilege Self-Hosted CI, and Bundled Config Schema"]
-  _105["Ticket #105 (feature/issue-#105-github-actions-quality-gate-ci-configura)"]
-  createdAt__2026_11_12T18_08_28_446Z["createdAt: 2026-11-12T18:08:28.446Z"]
-  ADR_004["ADR-004: Risk-Proportional Execution Lanes, Instant Pre-Commit Guard, and Spec-Drift Precision"]
-  _107["Ticket #107 (feature/issue-#107-risk-proportional-execution-lanes-and-sp)"]
-  ADR_005["ADR-005: Right-Size Canonical Skills Suite and Native Claude and Cursor Skill Packaging"]
-  _109["Ticket #109 (feature/issue-#109-right-size-all-sdlc-skills-and-upgrade-c)"]
   ADR_COMPACT_v0_3_0["Compacted 8 ADR(s) into SRS.md (v0.3.0)"]
   createdAt__2026_11_03T18_52_42_656Z["createdAt: 2026-11-03T18:52:42.656Z"]
+  ADR_COMPACT_v0_4_0["Compacted 6 ADR(s) into SRS.md (v0.4.0)"]
+  createdAt__2026_11_12T18_08_28_446Z["createdAt: 2026-11-12T18:08:28.446Z"]
   _SDLC_INIT["Ticket #SDLC-INIT (feature/arch-traceability-governance)"]
   _24["Ticket #24 (feature/issue-#24-api-contract-drift-sentinel)"]
   _25["Ticket #25 (feature/issue-#25-bug-reproduce-generator)"]
@@ -67,6 +58,11 @@ flowchart TD
   _95["Ticket #95 (feature/issue-#95-implement-adr-lifecycle-compaction-and-f)"]
   _97["Ticket #97 (feature/issue-#97-fix-claude-desktop-skills)"]
   _99["Ticket #99 (feature/issue-#99-publish-consolidated-peer-review-quality)"]
+  _100["Ticket #100 (feature/issue-#100-10-30-90-readme-template-engine)"]
+  _103["Ticket #103 (feature/issue-#103-truthful-cli-telemetry-hook-drift-doctor)"]
+  _105["Ticket #105 (feature/issue-#105-github-actions-quality-gate-ci-configura)"]
+  _107["Ticket #107 (feature/issue-#107-risk-proportional-execution-lanes-and-sp)"]
+  _109["Ticket #109 (feature/issue-#109-right-size-all-sdlc-skills-and-upgrade-c)"]
   CAP_01 -->|specified_by| SPEC_01
   CAP_02 -->|specified_by| SPEC_02
   CAP_03 -->|specified_by| SPEC_03
@@ -94,20 +90,6 @@ flowchart TD
   CAP_11 -->|depends_on| CAP_03
   CAP_11 -->|depends_on| CAP_05
   CAP_11 -->|depends_on| CAP_08
-  _100 -->|triggered_drift_adr| ADR_001
-  CAP_11 -.->|ADR Drift| ADR_001
-  _103 -->|triggered_drift_adr| ADR_002
-  CAP_03 -.->|ADR Drift| ADR_002
-  CAP_06 -.->|ADR Drift| ADR_002
-  _105 -->|triggered_drift_adr| ADR_003
-  createdAt__2026_11_12T18_08_28_446Z -.->|ADR Drift| ADR_003
-  _107 -->|triggered_drift_adr| ADR_004
-  CAP_01 -.->|ADR Drift| ADR_004
-  CAP_03 -.->|ADR Drift| ADR_004
-  _109 -->|triggered_drift_adr| ADR_005
-  CAP_05 -.->|ADR Drift| ADR_005
-  CAP_07 -.->|ADR Drift| ADR_005
-  CAP_08 -.->|ADR Drift| ADR_005
   CAP_01 -->|realized_by| ADR_COMPACT_v0_3_0
   CAP_02 -->|realized_by| ADR_COMPACT_v0_3_0
   CAP_03 -->|realized_by| ADR_COMPACT_v0_3_0
@@ -120,6 +102,14 @@ flowchart TD
   CAP_10 -->|realized_by| ADR_COMPACT_v0_3_0
   CAP_11 -->|realized_by| ADR_COMPACT_v0_3_0
   createdAt__2026_11_03T18_52_42_656Z -->|realized_by| ADR_COMPACT_v0_3_0
+  CAP_11 -->|realized_by| ADR_COMPACT_v0_4_0
+  CAP_03 -->|realized_by| ADR_COMPACT_v0_4_0
+  CAP_06 -->|realized_by| ADR_COMPACT_v0_4_0
+  createdAt__2026_11_12T18_08_28_446Z -->|realized_by| ADR_COMPACT_v0_4_0
+  CAP_01 -->|realized_by| ADR_COMPACT_v0_4_0
+  CAP_05 -->|realized_by| ADR_COMPACT_v0_4_0
+  CAP_07 -->|realized_by| ADR_COMPACT_v0_4_0
+  CAP_08 -->|realized_by| ADR_COMPACT_v0_4_0
 ```
 
 ---
@@ -128,11 +118,7 @@ flowchart TD
 
 | ADR ID | Decision Title | Scope | Status | Triggered By | Supersedes / Amends |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **ADR-001** | 10-30-90 Developer Landing Page README Template and Deterministic README Engine | `technical` | `accepted` | #100 | CAP-11 |
-| **ADR-002** | Config-Driven Dual-Gate Thresholds, Verifiable CLI Telemetry, and SHA-256 Hook Drift Detection | `technical` | `accepted` | #103 | CAP-03, CAP-06 |
-| **ADR-003** | Shell-Free Command Execution, Least-Privilege Self-Hosted CI, and Bundled Config Schema | `technical` | `accepted` | #105 | createdAt: 2026-11-12T18:08:28.446Z |
-| **ADR-004** | Risk-Proportional Execution Lanes, Instant Pre-Commit Guard, and Spec-Drift Precision | `technical` | `accepted` | #107 | CAP-01, CAP-03 |
-| **ADR-005** | Right-Size Canonical Skills Suite and Native Claude and Cursor Skill Packaging | `technical` | `accepted` | #109 | CAP-05, CAP-07, CAP-08 |
+| *None* | No architectural drift ADRs recorded yet | - | - | - | - |
 
 ---
 
@@ -145,9 +131,9 @@ flowchart TD
 | **CAP-03** | Real Coverage/Mutation Parsers & Policy ArchDiff (#70) | `AMENDED (ADR-004)` |
 | **CAP-04** | Live Canary Watchdog, Real Proofs & Polyglot Reproduce (#71) | `AMENDED (ADR-002)` |
 | **CAP-05** | Consolidate 14 Skills into 6 Schema-Valid Core Skills (#72) | `AMENDED (ADR-005)` |
-| **CAP-06** | Dogfooding Configuration, Docs Sync & Full Test Suite (#73) | `AMENDED (ADR-002)` |
+| **CAP-06** | Dogfooding Configuration, Docs Sync & Full Test Suite (#73) | `AMENDED (ADR-006)` |
 | **CAP-07** | Native `npx` Multi-Agent Interactive Installer & Legacy Installer Removal (#75) | `AMENDED (ADR-005)` |
-| **CAP-08** | `/sdlc` Universal Command Router & 9 Verb-Driven Skills (#81) | `AMENDED (ADR-005)` |
+| **CAP-08** | `/sdlc` Universal Command Router & 9 Verb-Driven Skills (#81) | `AMENDED (ADR-006)` |
 | **CAP-09** | Two-Tier PRD & IEEE 29148 SRS Specification Engine (#84) | `PLANNED` |
 | **CAP-10** | Unified Multi-Provider Ticket Engine & Issue Templates (#86) | `PLANNED` |
 | **CAP-11** | Technical Writer Skill (`sdlc-wiki`) & Archlens AST-to-Wiki Sync (#90) | `AMENDED (ADR-001)` |
