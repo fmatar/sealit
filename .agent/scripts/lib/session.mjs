@@ -1,17 +1,18 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { fileExists, readFileSafe } from './core.mjs';
+import { fileExists, readFileSafe, getModifiedFiles } from './core.mjs';
 import { createPMIssue, transitionPMState, syncKanbanBoard, ensurePullRequest } from './pm-provider.mjs';
 import { checkSpecDrift } from './adr-drift.mjs';
 import { syncDecisionMapMarkdown } from './decision-graph.mjs';
 import { recordArchTrace } from './arch-trace.mjs';
-import { issueGateReceipt } from './audit-chain.mjs';
-import { generatePRSummary } from './quality-gate.mjs';
+import { issueGateReceipt, appendAuditRecord } from './audit-chain.mjs';
+import { generatePRSummary, triageChange } from './quality-gate.mjs';
 import { generateArchitectureWidget, ensureWorkbenchRunning } from './workbench-server.mjs';
 import { auditWiki } from './wiki-sync.mjs';
 
 const SESSION_FILE = '.sdlc-session.json';
+const SESSION_LANE_RANK = { trivial: 0, standard: 1, full: 2 };
 
 export function getSessionPath(repoRoot = '.') {
   return path.resolve(repoRoot, '.agent', SESSION_FILE);
@@ -59,6 +60,9 @@ export function startSession({
   stage = 1,
   stageName = 'Intake & Specification',
   type = 'feat',
+  lane = 'full',
+  laneReason = null,
+  laneDowngraded = false,
   worktree = null,
   repoRoot = '.',
   force = false
@@ -72,7 +76,8 @@ export function startSession({
     );
   }
 
-  if (current.active && current.session?.issueId !== Number(issueId) && !worktree && !force) {
+  const normalizedIssueId = Number(issueId) || issueId;
+  if (current.active && String(current.session?.issueId) !== String(normalizedIssueId) && !worktree && !force) {
     throw new Error(
       `Active SDLC workflow session already in progress for issue #${current.session.issueId} on branch ${current.session.branch}. To run concurrent tasks, use Git Worktree isolation (--worktree <path>) or subagent Workspace: 'branch'.`
     );
@@ -80,11 +85,16 @@ export function startSession({
 
   fs.mkdirSync(path.dirname(sessionPath), { recursive: true });
 
+  const resolvedLane = Object.prototype.hasOwnProperty.call(SESSION_LANE_RANK, lane) ? lane : 'full';
+  const isDowngraded = Boolean(laneDowngraded);
   const idKey = String(issueId);
   const session = {
     active: true,
-    issueId: Number(issueId) || issueId,
+    issueId: normalizedIssueId,
     type: type.toLowerCase(),
+    lane: resolvedLane,
+    laneReason: isDowngraded && laneReason ? String(laneReason).trim() : null,
+    laneDowngraded: isDowngraded,
     branch: branch || (type === 'hotfix' ? `hotfix/issue-#${issueId}` : `feature/issue-#${issueId}`),
     worktree: worktree || null,
     stage: Number(stage) || 1,
@@ -130,6 +140,9 @@ export function startSession({
 export function updateSession({
   stage,
   stageName,
+  lane,
+  laneReason,
+  laneDowngraded,
   activeSubagents,
   manifestUpdate = {},
   incrementRemediation = false,
@@ -158,7 +171,7 @@ export function updateSession({
       session.manifest.checkpoints[`stage${nextStage}`] = new Date().toISOString();
     }
 
-    if (session.issueId) {
+    if (session.issueId && !String(session.issueId).startsWith('L-')) {
       let stageState = 'in-progress';
       if (nextStage === 1) stageState = 'ready';
       else if (nextStage >= 2 && nextStage <= 5) stageState = 'in-progress';
@@ -172,6 +185,9 @@ export function updateSession({
   }
 
   if (stageName !== undefined) session.stageName = stageName;
+  if (lane !== undefined && Object.prototype.hasOwnProperty.call(SESSION_LANE_RANK, lane)) session.lane = lane;
+  if (laneReason !== undefined) session.laneReason = laneReason;
+  if (laneDowngraded !== undefined) session.laneDowngraded = Boolean(laneDowngraded);
   if (activeSubagents !== undefined) session.activeSubagents = activeSubagents;
   if (incrementRemediation) {
     session.remediationCount = (session.remediationCount || 0) + 1;
@@ -442,6 +458,8 @@ function parsePct(value) {
  */
 export function receiptInputsFromSession(session, { driftCheckPassed, repoRoot = '.' } = {}) {
   const manifest = session?.manifest || {};
+  const lane = Object.prototype.hasOwnProperty.call(SESSION_LANE_RANK, session?.lane) ? session.lane : 'full';
+  const laneReason = session?.laneReason || null;
   const isDocsOnly = Boolean(manifest.docsOnly);
   const coveragePct = isDocsOnly
     ? null
@@ -449,7 +467,7 @@ export function receiptInputsFromSession(session, { driftCheckPassed, repoRoot =
   let mutationPct = isDocsOnly
     ? null
     : parsePct(manifest.mutationScore ?? manifest.mutationPct ?? manifest.mutation);
-  if (mutationPct === undefined && !isDocsOnly) {
+  if (mutationPct === undefined && !isDocsOnly && lane === 'full') {
     try {
       const cfg = JSON.parse(readFileSafe(path.resolve(repoRoot, '.agent/sdlc-config.json')) || '{}');
       const mods = Array.isArray(cfg.modules) ? cfg.modules : [];
@@ -458,6 +476,8 @@ export function receiptInputsFromSession(session, { driftCheckPassed, repoRoot =
   }
   const review = manifest.peerReview;
   return {
+    lane,
+    laneReason,
     coveragePct,
     mutationPct,
     docsOnly: isDocsOnly ? true : undefined,
@@ -468,10 +488,112 @@ export function receiptInputsFromSession(session, { driftCheckPassed, repoRoot =
 }
 
 /**
+ * Reconciles an explicit `--lane` flag or active session lane against the real git diff:
+ * 1. Explicit `cliLane` always runs through `triageChange` (enforcing `--reason`, recording
+ *    `LANE_DOWNGRADE_OVERRIDDEN`, and blocking `< full` on `CRITICAL` risk).
+ * 2. Any `< full` session with a non-empty diff is re-triaged: `CRITICAL` risk unconditionally
+ *    escalates to `full`, and un-downgraded sessions (`laneDowngraded !== true`) auto-escalate
+ *    whenever `computedLane` outranks the initial pre-edit session lane (`LANE_AUTO_ESCALATED`).
+ */
+export function reconcileSessionLaneWithDiff({
+  session = null,
+  cliLane = null,
+  cliReason = null,
+  diffFiles = null,
+  repoRoot = '.'
+} = {}) {
+  const files = Array.isArray(diffFiles) ? diffFiles : getModifiedFiles('main', repoRoot);
+  const currentLane = Object.prototype.hasOwnProperty.call(SESSION_LANE_RANK, session?.lane) ? session.lane : 'full';
+
+  if (cliLane) {
+    const triaged = triageChange({
+      diffFiles: files,
+      laneOverride: cliLane,
+      reason: cliReason,
+      ticketId: session?.issueId || null,
+      repoRoot
+    });
+    const nextReason = triaged.downgraded ? triaged.reason : null;
+    const nextDowngraded = Boolean(triaged.downgraded);
+    let refreshedSession = session;
+    if (session?.active) {
+      try {
+        refreshedSession = updateSession({
+          lane: triaged.lane,
+          laneReason: nextReason,
+          laneDowngraded: nextDowngraded,
+          repoRoot
+        }).session;
+      } catch {}
+    }
+    return {
+      lane: triaged.lane,
+      laneReason: nextReason,
+      laneDowngraded: nextDowngraded,
+      escalated: false,
+      session: refreshedSession
+    };
+  }
+
+  if (currentLane !== 'full' && files.length > 0) {
+    const realTriage = triageChange({
+      diffFiles: files,
+      ticketId: session?.issueId || null,
+      repoRoot
+    });
+    const mustEscalateCritical = realTriage.riskLevel === 'CRITICAL';
+    const outgrewInitialLane =
+      !session?.laneDowngraded && SESSION_LANE_RANK[realTriage.computedLane] > SESSION_LANE_RANK[currentLane];
+
+    if (mustEscalateCritical || outgrewInitialLane) {
+      const nextLane = mustEscalateCritical ? 'full' : realTriage.computedLane;
+      appendAuditRecord({
+        event: 'LANE_AUTO_ESCALATED',
+        metadata: {
+          issueId: session?.issueId || null,
+          fromLane: currentLane,
+          toLane: nextLane,
+          riskLevel: realTriage.riskLevel,
+          changedLines: realTriage.changedLines,
+          filesCount: realTriage.filesCount
+        },
+        repoRoot
+      });
+      let refreshedSession = session;
+      if (session?.active) {
+        try {
+          refreshedSession = updateSession({
+            lane: nextLane,
+            laneReason: null,
+            laneDowngraded: false,
+            repoRoot
+          }).session;
+        } catch {}
+      }
+      return {
+        lane: nextLane,
+        laneReason: null,
+        laneDowngraded: false,
+        escalated: true,
+        session: refreshedSession
+      };
+    }
+  }
+
+  return {
+    lane: currentLane,
+    laneReason: session?.laneDowngraded ? session.laneReason || null : null,
+    laneDowngraded: Boolean(session?.laneDowngraded),
+    escalated: false,
+    session
+  };
+}
+
+/**
  * Composite Stage Orchestrator (CAP-01)
  * Collapses ~15 granular bookkeeping calls into 3 deterministic lifecycle transitions:
- * - begin: provisions/links ticket, starts Stage 2 session, checks out feature branch, transitions PM -> in-progress
- * - pre-pr: advances to Stage 6, runs Spec-Drift check, syncs DECISION_MAP.md, records ArchTrace, issues signed gate receipt from measured values, builds PR summary
+ * - begin: provisions/links ticket (or local L-* ID for trivial lane), starts Stage 2 session, checks out branch, transitions PM -> in-progress
+ * - pre-pr: re-triages actual git diff (auto-escalating trivial/standard when outgrown), runs Spec-Drift check, syncs DECISION_MAP.md, records ArchTrace, issues signed gate receipt from measured values, builds PR summary
  * - complete: advances to Stage 8, transitions PM -> done, syncs KANBAN.md, and releases session lock
  */
 export function executeCompositeStage({
@@ -479,6 +601,9 @@ export function executeCompositeStage({
   issueId = null,
   title = null,
   type = 'feat',
+  lane = null,
+  laneReason = null,
+  withUi = false,
   branch = null,
   worktree = null,
   prNumber = null,
@@ -489,15 +614,35 @@ export function executeCompositeStage({
   const normalizedAction = String(action || 'begin').toLowerCase();
 
   if (normalizedAction === 'begin') {
-    let resolvedIssueId = issueId ? String(issueId).replace(/^#/, '') : null;
-    if (!resolvedIssueId) {
-      const created = createPMIssue({
-        title: title || 'Automated SDLC Task',
-        type,
-        body: summary || title || 'Provisioned via sdlc-engine stage begin',
+    let resolvedLane = 'full';
+    let resolvedLaneReason = null;
+    let resolvedLaneDowngraded = false;
+    if (lane) {
+      const triaged = triageChange({
+        intent: title || summary || '',
+        laneOverride: lane,
+        reason: laneReason,
+        ticketId: issueId,
         repoRoot
       });
-      resolvedIssueId = String(created.issueId || '1').replace(/^#/, '');
+      resolvedLane = triaged.lane;
+      resolvedLaneDowngraded = Boolean(triaged.downgraded);
+      resolvedLaneReason = triaged.downgraded ? triaged.reason : null;
+    }
+
+    let resolvedIssueId = issueId ? String(issueId).replace(/^#/, '') : null;
+    if (!resolvedIssueId) {
+      if (resolvedLane === 'trivial') {
+        resolvedIssueId = `L-${Date.now().toString().slice(-6)}`;
+      } else {
+        const created = createPMIssue({
+          title: title || 'Automated SDLC Task',
+          type,
+          body: summary || title || 'Provisioned via sdlc-engine stage begin',
+          repoRoot
+        });
+        resolvedIssueId = String(created.issueId || '1').replace(/^#/, '');
+      }
     }
 
     const slug = (title || 'sdlc-task')
@@ -505,16 +650,25 @@ export function executeCompositeStage({
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '')
       .slice(0, 40);
-    const prefix = type === 'hotfix' ? 'hotfix' : 'feature';
+    const isLocalTrivial = resolvedLane === 'trivial' && String(resolvedIssueId).startsWith('L-');
+    const prefix = type === 'hotfix' ? 'hotfix' : isLocalTrivial ? 'chore' : 'feature';
     const targetBranch =
-      branch || (title ? `${prefix}/issue-#${resolvedIssueId}-${slug}` : `${prefix}/issue-#${resolvedIssueId}`);
+      branch ||
+      (isLocalTrivial
+        ? `chore/quick-${slug}`
+        : title
+          ? `${prefix}/issue-#${resolvedIssueId}-${slug}`
+          : `${prefix}/issue-#${resolvedIssueId}`);
 
     const started = startSession({
       issueId: resolvedIssueId,
       branch: targetBranch,
       stage: 2,
       stageName: 'Architecture & Branch Creation',
-      type,
+      type: isLocalTrivial ? 'chore' : type,
+      lane: resolvedLane,
+      laneReason: resolvedLaneReason,
+      laneDowngraded: resolvedLaneDowngraded,
       worktree,
       repoRoot,
       force: true
@@ -526,22 +680,31 @@ export function executeCompositeStage({
       } catch {}
     }
 
-    try {
-      transitionPMState({ issueId: resolvedIssueId, state: 'in-progress', repoRoot });
-    } catch {}
+    if (!isLocalTrivial) {
+      try {
+        transitionPMState({ issueId: resolvedIssueId, state: 'in-progress', repoRoot });
+      } catch {}
+    }
 
-    const wb = ensureWorkbenchRunning({ repoRoot });
-    const uiWidget = generateArchitectureWidget({ repoRoot });
+    let workbenchUrl = null;
+    let widgetPath = null;
+    if (withUi) {
+      const wb = ensureWorkbenchRunning({ repoRoot });
+      const uiWidget = generateArchitectureWidget({ repoRoot });
+      workbenchUrl = wb.url;
+      widgetPath = uiWidget.widgetPath;
+    }
 
     return {
       success: true,
       action: 'begin',
       issueId: resolvedIssueId,
       branch: targetBranch,
+      lane: resolvedLane,
       stage: 2,
       session: started.session,
-      workbenchUrl: wb.url,
-      widgetPath: uiWidget.widgetPath
+      workbenchUrl,
+      widgetPath
     };
   }
 
@@ -556,6 +719,8 @@ export function executeCompositeStage({
     if (!current.active && resolvedIssueId) {
       startSession({
         issueId: resolvedIssueId,
+        lane: lane || 'full',
+        laneReason,
         stage: 5,
         stageName: 'Docs & Showcase',
         repoRoot,
@@ -569,13 +734,25 @@ export function executeCompositeStage({
       repoRoot
     });
 
-    const updated = updateSession({
+    let updated = updateSession({
       stage: 6,
       stageName: 'Pull Request & CI',
       repoRoot
     });
 
-    const drift = checkSpecDrift({ repoRoot });
+    const diffFiles = getModifiedFiles('main', repoRoot);
+    const reconciled = reconcileSessionLaneWithDiff({
+      session: updated.session,
+      cliLane: lane,
+      cliReason: laneReason,
+      diffFiles,
+      repoRoot
+    });
+    if (reconciled.session) {
+      updated = { ...updated, session: reconciled.session };
+    }
+
+    const drift = checkSpecDrift({ ticketId: updated.session.issueId, repoRoot });
     const wikiAudit = auditWiki(repoRoot);
     const decisionMap = syncDecisionMapMarkdown(repoRoot);
     const trace = recordArchTrace({
@@ -602,21 +779,32 @@ export function executeCompositeStage({
     }
 
     const prSummary = generatePRSummary({ issueId: updated.session.issueId, repoRoot });
+    const idTag = String(updated.session.issueId).startsWith('L-')
+      ? String(updated.session.issueId)
+      : `#${updated.session.issueId}`;
     const prRes = ensurePullRequest({
       issueId: updated.session.issueId,
       branch: updated.session.branch,
       title: summary
-        ? `${updated.session.type || 'feat'}(#${updated.session.issueId}): ${summary}`
-        : `${updated.session.type || 'feat'}(#${updated.session.issueId}): ${updated.session.branch || 'SDLC Delivery'}`,
+        ? `${updated.session.type || 'feat'}(${idTag}): ${summary}`
+        : `${updated.session.type || 'feat'}(${idTag}): ${updated.session.branch || 'SDLC Delivery'}`,
       body: prSummary.markdown,
       repoRoot
     });
-    const wb = ensureWorkbenchRunning({ repoRoot });
-    const uiWidget = generateArchitectureWidget({ repoRoot });
+
+    let workbenchUrl = null;
+    let widgetPath = null;
+    if (withUi) {
+      const wb = ensureWorkbenchRunning({ repoRoot });
+      const uiWidget = generateArchitectureWidget({ repoRoot });
+      workbenchUrl = wb.url;
+      widgetPath = uiWidget.widgetPath;
+    }
 
     return {
       success: Boolean(prePrPassed),
       action: 'pre-pr',
+      lane: updated.session.lane || 'full',
       receiptError,
       issueId: updated.session.issueId,
       prNumber: prRes.prNumber || updated.session.manifest?.prNumber || null,
@@ -629,8 +817,8 @@ export function executeCompositeStage({
       traceEntry: trace.entry,
       receipt,
       prSummary,
-      workbenchUrl: wb.url,
-      widgetPath: uiWidget.widgetPath
+      workbenchUrl,
+      widgetPath
     };
   }
 
@@ -641,6 +829,7 @@ export function executeCompositeStage({
       : current.session?.issueId
         ? String(current.session.issueId)
         : null;
+    const isLocalTrivial = resolvedIssueId && String(resolvedIssueId).startsWith('L-');
 
     if (current.active) {
       updateSession({
@@ -651,15 +840,17 @@ export function executeCompositeStage({
       });
     }
 
-    if (resolvedIssueId) {
+    if (resolvedIssueId && !isLocalTrivial) {
       try {
         transitionPMState({ issueId: resolvedIssueId, state: 'done', repoRoot });
       } catch {}
     }
 
-    try {
-      syncKanbanBoard(repoRoot);
-    } catch {}
+    if (!isLocalTrivial) {
+      try {
+        syncKanbanBoard(repoRoot);
+      } catch {}
+    }
 
     const released = releaseSession(repoRoot, resolvedIssueId);
 

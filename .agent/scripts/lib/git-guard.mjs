@@ -185,11 +185,9 @@ if git diff --cached --quiet; then
   exit 0
 fi
 
-if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
-  node .agent/scripts/sdlc-engine.mjs guard pre-commit
-  # Advisory only: affected tests never block a commit (the pre-push gate does).
-  node .agent/scripts/sdlc-engine.mjs test --affected-only >/dev/null 2>&1 || true
-fi
+  if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
+    node .agent/scripts/sdlc-engine.mjs guard pre-commit
+  fi
 `;
 
   const preMergeCommitHook = `#!/usr/bin/env bash

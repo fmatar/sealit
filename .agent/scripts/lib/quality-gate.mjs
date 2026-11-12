@@ -17,7 +17,7 @@ import {
 import { getSessionStatus } from './session.mjs';
 import { createTicket, scaffoldIssueTemplates } from './pm-provider.mjs';
 import { appendAuditRecord } from './audit-chain.mjs';
-import { auditContractDrift } from './adr-drift.mjs';
+import { auditContractDrift, checkSpecDrift } from './adr-drift.mjs';
 import { installHooks, inspectHooksHealth } from './git-guard.mjs';
 import { scaffoldArchlensPolicy } from './arch-trace.mjs';
 import { provisionAgentIntegrations } from './installer.mjs';
@@ -722,6 +722,201 @@ export function assessRisk(diffFiles = [], repoRoot = '.') {
   };
 }
 
+export const VALID_LANES = ['trivial', 'standard', 'full'];
+export const LANE_RANK = { trivial: 0, standard: 1, full: 2 };
+
+const TRIVIAL_DOC_STYLE_EXTS = new Set(['.md', '.mdx', '.txt', '.rst', '.css', '.scss', '.svg']);
+
+function isTrivialEligibleFile(filePath) {
+  const norm = String(filePath).replace(/\\/g, '/').toLowerCase();
+  if (
+    norm === 'product.md' ||
+    norm.endsWith('/product.md') ||
+    norm === 'docs/prd.md' ||
+    norm.endsWith('/docs/prd.md') ||
+    norm === 'docs/srs.md' ||
+    norm.endsWith('/docs/srs.md') ||
+    norm.startsWith('docs/specs/') ||
+    norm.includes('/docs/specs/') ||
+    norm.startsWith('docs/adr/') ||
+    norm.includes('/docs/adr/')
+  ) {
+    return false;
+  }
+  return TRIVIAL_DOC_STYLE_EXTS.has(path.extname(norm));
+}
+
+function countChangedLines(files, baseBranch = 'main', repoRoot = '.') {
+  if (!files || files.length === 0) return 0;
+  const numstatMap = new Map();
+  const numstatOut =
+    gitOutput(['diff', '--numstat', `origin/${baseBranch}`], repoRoot) ??
+    gitOutput(['diff', '--numstat', baseBranch], repoRoot) ??
+    gitOutput(['diff', '--numstat', 'HEAD'], repoRoot) ??
+    '';
+
+  for (const line of numstatOut.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const parts = trimmed.split(/\t+/);
+    if (parts.length >= 3) {
+      const added = Number.parseInt(parts[0], 10) || 0;
+      const deleted = Number.parseInt(parts[1], 10) || 0;
+      const rel = parts.slice(2).join('\t').replace(/\\/g, '/');
+      numstatMap.set(rel, added + deleted);
+    }
+  }
+
+  let total = 0;
+  for (const f of files) {
+    const norm = String(f).replace(/\\/g, '/');
+    if (numstatMap.has(norm)) {
+      total += numstatMap.get(norm);
+    } else {
+      const full = path.resolve(repoRoot, norm);
+      if (fileExists(full)) {
+        const raw = readFileSafe(full) || '';
+        total += raw ? raw.split('\n').length : 0;
+      }
+    }
+  }
+  return total;
+}
+
+/**
+ * Classifies a change into one of three risk-proportional execution lanes:
+ * - `trivial`: docs/CSS/comments <= trivialMaxLines (default 25), LOW risk, 0 drift triggers
+ * - `standard`: normal feature/bugfix <= standardMaxLines (default 200), LOW/MEDIUM risk, 0 drift triggers
+ * - `full`: HIGH/CRITICAL risk, any spec-drift trigger, or > standardMaxLines changed lines
+ */
+export function triageChange({
+  diffFiles = [],
+  intent = '',
+  laneOverride = null,
+  reason = null,
+  baseBranch = 'main',
+  ticketId = null,
+  repoRoot = '.'
+} = {}) {
+  let trivialMaxLines = 25;
+  let standardMaxLines = 200;
+  const cfgPath = path.resolve(repoRoot, '.agent/sdlc-config.json');
+  if (fileExists(cfgPath)) {
+    try {
+      const cfg = JSON.parse(readFileSafe(cfgPath) || '{}');
+      if (Number(cfg?.lanes?.trivialMaxLines) > 0) trivialMaxLines = Number(cfg.lanes.trivialMaxLines);
+      if (Number(cfg?.lanes?.standardMaxLines) > 0) standardMaxLines = Number(cfg.lanes.standardMaxLines);
+    } catch {}
+  }
+
+  const normOverride = laneOverride ? String(laneOverride).trim().toLowerCase() : null;
+  if (normOverride && !VALID_LANES.includes(normOverride)) {
+    throw new Error(`Invalid lane '${laneOverride}'. Expected one of: ${VALID_LANES.join(', ')}.`);
+  }
+
+  const files = diffFiles.length > 0 ? diffFiles : getModifiedFiles(baseBranch, repoRoot);
+  const changedLines = countChangedLines(files, baseBranch, repoRoot);
+  const risk = files.length > 0 ? assessRisk(files, repoRoot) : { score: 0, riskLevel: 'LOW', totalFiles: 0, factors: [] };
+  const drift =
+    files.length > 0
+      ? checkSpecDrift({ diffFiles: files, baseBranch, ticketId, repoRoot })
+      : { passed: true, triggers: [] };
+
+  let computedLane = 'standard';
+  let docsOrStyleOnly = false;
+
+  if (files.length === 0) {
+    const cleanIntent = String(intent || '');
+    if (/\b(auth|jwt|crypto|secret|security|migration|flyway|schema|ddl|breaking|release)\b/i.test(cleanIntent)) {
+      computedLane = 'full';
+    } else if (/\b(typo|spelling|readme|comment|copy|css|padding|color|badge|docs?-only|link fix)\b/i.test(cleanIntent)) {
+      computedLane = 'trivial';
+      docsOrStyleOnly = true;
+    } else {
+      computedLane = 'standard';
+    }
+  } else {
+    docsOrStyleOnly = files.every(isTrivialEligibleFile);
+    if (risk.riskLevel === 'CRITICAL' || risk.riskLevel === 'HIGH' || drift.triggers.length > 0 || changedLines > standardMaxLines) {
+      computedLane = 'full';
+    } else if (docsOrStyleOnly && changedLines <= trivialMaxLines && risk.riskLevel === 'LOW') {
+      computedLane = 'trivial';
+    } else {
+      computedLane = 'standard';
+    }
+  }
+
+  let effectiveLane = computedLane;
+  let overridden = false;
+  let downgraded = false;
+  const cleanReason = reason && String(reason).trim() ? String(reason).trim() : null;
+
+  if (normOverride && normOverride !== computedLane) {
+    if (LANE_RANK[normOverride] > LANE_RANK[computedLane]) {
+      effectiveLane = normOverride;
+      overridden = true;
+    } else if (files.length === 0 && computedLane !== 'full') {
+      // Pre-edit triage at `stage begin`: allow explicit lane selection without a downgrade audit,
+      // because `stage pre-pr` and `gate` automatically re-triage the actual diff before merge.
+      effectiveLane = normOverride;
+      overridden = true;
+    } else {
+      if (risk.riskLevel === 'CRITICAL') {
+        throw new Error('Cannot downgrade execution lane below full for CRITICAL risk changes.');
+      }
+      if (!cleanReason) {
+        throw new Error(
+          `Downgrading execution lane from '${computedLane}' to '${normOverride}' requires a non-empty --reason for the audit ledger.`
+        );
+      }
+      appendAuditRecord({
+        event: 'LANE_DOWNGRADE_OVERRIDDEN',
+        metadata: {
+          fromLane: computedLane,
+          toLane: normOverride,
+          reason: cleanReason,
+          riskLevel: risk.riskLevel,
+          changedLines,
+          filesCount: files.length
+        },
+        repoRoot
+      });
+      effectiveLane = normOverride;
+      overridden = true;
+      downgraded = true;
+    }
+  }
+
+  return {
+    lane: effectiveLane,
+    computedLane,
+    overridden,
+    downgraded,
+    reason: cleanReason,
+    riskLevel: risk.riskLevel,
+    riskScore: risk.score,
+    changedLines,
+    filesCount: files.length,
+    docsOrStyleOnly,
+    driftTriggersCount: drift.triggers.length,
+    thresholds: { trivialMaxLines, standardMaxLines },
+    requirements: {
+      remoteTicketRequired: effectiveLane !== 'trivial',
+      coverageRequired: effectiveLane !== 'trivial',
+      mutationRequired: effectiveLane === 'full',
+      reviewSubagents:
+        effectiveLane === 'trivial'
+          ? 0
+          : effectiveLane === 'standard'
+            ? 1
+            : risk.riskLevel === 'CRITICAL' || risk.riskLevel === 'HIGH'
+              ? 3
+              : 2,
+      strictGate: effectiveLane === 'full'
+    }
+  };
+}
+
 export function generatePRSummary({ issueId = null, repoRoot = '.' } = {}) {
   const current = getSessionStatus(repoRoot);
   const activeSess = current.session;
@@ -1313,13 +1508,51 @@ export function resolveAdHocTargets(files = [], modules = [], repoRoot = '.') {
   };
 }
 
-export function generateReviewPlan({ repoRoot = '.' } = {}) {
+export function generateReviewPlan({ repoRoot = '.', lane = null } = {}) {
   const current = getSessionStatus(repoRoot);
   const activeSess = current.session;
   const issueId = activeSess?.issueId || 'N/A';
   const branch = activeSess?.branch || 'current-branch';
   const diffFiles = getModifiedFiles('main', repoRoot);
   const risk = assessRisk(diffFiles, repoRoot);
+  const resolvedLane = VALID_LANES.includes(lane)
+    ? lane
+    : VALID_LANES.includes(activeSess?.lane)
+      ? activeSess.lane
+      : 'full';
+
+  if (resolvedLane === 'trivial') {
+    return {
+      issueId,
+      branch,
+      lane: 'trivial',
+      riskLevel: risk.riskLevel,
+      subagentsCount: 0,
+      payload: { Subagents: [] }
+    };
+  }
+
+  if (resolvedLane === 'standard') {
+    const subagents = [
+      {
+        TypeName: 'research',
+        Role: 'PR Peer & Architecture Reviewer',
+        Prompt: `Follow sdlc-gate review guidelines. Audit git diff against main on branch ${branch} for issue #${issueId} (standard lane, risk: ${risk.riskLevel}, modified files: ${diffFiles.length}).
+1. Audit logic correctness, Robert Martin test smells (no assertion-free tests), and F.I.R.S.T. isolation.
+2. Verify coverage metrics against .agent/sdlc-config.json thresholds.
+3. Inspect modified files for hardcoded secrets, unsafe shell interpolation, concentric layer inversions (.archlens/policy.json), and undeclared spec drift.
+4. Return a structured read-only verdict (verdict: approve | request-changes, blockers, notes) so the orchestrator can publish it via review record.`
+      }
+    ];
+    return {
+      issueId,
+      branch,
+      lane: 'standard',
+      riskLevel: risk.riskLevel,
+      subagentsCount: subagents.length,
+      payload: { Subagents: subagents }
+    };
+  }
 
   const subagents = [
     {
@@ -1357,6 +1590,7 @@ export function generateReviewPlan({ repoRoot = '.' } = {}) {
   return {
     issueId,
     branch,
+    lane: 'full',
     riskLevel: risk.riskLevel,
     subagentsCount: subagents.length,
     payload
@@ -1666,6 +1900,10 @@ export function generateConfig(repoRoot = '.') {
     profile: modules.length > 1 ? 'polyglot-monorepo' : 'standard',
     ci: {
       runsOn: "${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}"
+    },
+    lanes: {
+      trivialMaxLines: 25,
+      standardMaxLines: 200
     },
     projectManagement: {
       provider: pm.provider,

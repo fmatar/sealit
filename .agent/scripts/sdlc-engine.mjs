@@ -37,6 +37,7 @@ import {
 import {
   AUDIT_LEDGER_FILE,
   GENESIS_HASH,
+  VALID_RECEIPT_LANES,
   calculateRecordHash,
   appendAuditRecord,
   verifyAuditChain,
@@ -135,6 +136,7 @@ import {
   startSession,
   updateSession,
   receiptInputsFromSession,
+  reconcileSessionLaneWithDiff,
   switchSession,
   listSessions,
   renderDashboard,
@@ -163,6 +165,9 @@ import {
   exportAgentRules,
   scaffoldReproductionTest,
   assessRisk,
+  VALID_LANES,
+  LANE_RANK,
+  triageChange,
   generatePRSummary,
   findAffectedTests,
   findAffectededTests,
@@ -237,6 +242,7 @@ export {
   clearGateCache,
   AUDIT_LEDGER_FILE,
   GENESIS_HASH,
+  VALID_RECEIPT_LANES,
   calculateRecordHash,
   appendAuditRecord,
   verifyAuditChain,
@@ -311,6 +317,7 @@ export {
   startSession,
   updateSession,
   receiptInputsFromSession,
+  reconcileSessionLaneWithDiff,
   switchSession,
   listSessions,
   renderDashboard,
@@ -333,6 +340,9 @@ export {
   exportAgentRules,
   scaffoldReproductionTest,
   assessRisk,
+  VALID_LANES,
+  LANE_RANK,
+  triageChange,
   generatePRSummary,
   findAffectedTests,
   findAffectededTests,
@@ -693,15 +703,40 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
     }
 
     case 'gate': {
+      let cliLane = null;
+      let cliReason = null;
+      for (let i = 1; i < args.length; i++) {
+        if (args[i] === '--lane' && args[i + 1]) cliLane = args[++i];
+        else if (args[i].startsWith('--lane=')) cliLane = args[i].slice('--lane='.length);
+        else if (args[i] === '--reason' && args[i + 1]) cliReason = args[++i];
+        else if (args[i].startsWith('--reason=')) cliReason = args[i].slice('--reason='.length);
+      }
+
+      const sessStatus = getSessionStatus(repoRoot);
+      const gateDiffFiles = getModifiedFiles('main', repoRoot);
+      const reconciled = reconcileSessionLaneWithDiff({
+        session: sessStatus.session,
+        cliLane,
+        cliReason,
+        diffFiles: gateDiffFiles,
+        repoRoot
+      });
+      const effectiveLane = reconciled.lane;
+      result.lane = effectiveLane;
+      const isStrict = args.includes('--strict');
+
       for (const mod of config.modules) {
         const hit = getGateCacheHit({ checkType: 'gate', modulePath: mod.path, repoRoot });
-        if (hit.hit && !args.includes('--no-cache') && !args.includes('--strict')) {
+        if (hit.hit && !args.includes('--no-cache') && !isStrict) {
           console.log(`⚡ [${mod.name}] SHA-256 Quality Gate Cache Hit (${hit.treeHash.slice(0, 10)})`);
           continue;
         }
         const cwd = path.resolve(repoRoot, mod.path);
         if (mod.commands.lint) runConfiguredCommand(mod.commands.lint, { stdio: 'inherit', cwd });
         if (mod.commands.build) runConfiguredCommand(mod.commands.build, { stdio: 'inherit', cwd });
+        if (effectiveLane === 'trivial' && !isStrict) {
+          continue;
+        }
         const covReport = measureCoverage(mod, repoRoot);
         result.coverageReport = covReport;
         if (!covReport.passed) {
@@ -715,7 +750,6 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         recordGateCache({ checkType: 'gate', modulePath: mod.path, result: { passed: true, coverage: covReport.formatted }, repoRoot });
       }
 
-      const isStrict = args.includes('--strict');
       if (isStrict) {
         const modifiedFiles = getModifiedFiles('main', repoRoot);
         result.risk = assessRisk(modifiedFiles, repoRoot);
@@ -969,6 +1003,8 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         let cliMutation = undefined;
         const docsOnly = args.includes('--docs-only') ? true : undefined;
         let cliReviewer = undefined;
+        let cliLane = undefined;
+        let cliLaneReason = undefined;
         for (let i = 2; i < args.length; i++) {
           if ((args[i] === '--coverage' || args[i] === '--coverage-pct') && args[i + 1]) {
             const v = args[++i];
@@ -978,14 +1014,36 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
             cliMutation = v === 'null' ? null : Number.parseFloat(String(v).replace('%', ''));
           } else if (args[i] === '--reviewer' && args[i + 1]) {
             cliReviewer = args[++i];
+          } else if (args[i] === '--lane' && args[i + 1]) {
+            cliLane = args[++i];
+          } else if (args[i].startsWith('--lane=')) {
+            cliLane = args[i].slice('--lane='.length);
+          } else if (args[i] === '--reason' && args[i + 1]) {
+            cliLaneReason = args[++i];
+          } else if (args[i].startsWith('--reason=')) {
+            cliLaneReason = args[i].slice('--reason='.length);
           }
         }
-        const drift = checkSpecDrift({ ticketId: sess.session.issueId, repoRoot });
-        const sessionInputs = receiptInputsFromSession(sess.session, { driftCheckPassed: Boolean(drift.passed), repoRoot });
+        const reconciled = reconcileSessionLaneWithDiff({
+          session: sess.session,
+          cliLane: cliLane || null,
+          cliReason: cliLaneReason || null,
+          repoRoot
+        });
+        const effectiveSession = reconciled.session || {
+          ...sess.session,
+          lane: reconciled.lane,
+          laneReason: reconciled.laneReason,
+          laneDowngraded: reconciled.laneDowngraded
+        };
+        const drift = checkSpecDrift({ ticketId: effectiveSession.issueId, repoRoot });
+        const sessionInputs = receiptInputsFromSession(effectiveSession, { driftCheckPassed: Boolean(drift.passed), repoRoot });
         result.receipt = issueGateReceipt({
-          issueId: sess.session.issueId,
-          branch: sess.session.branch,
+          issueId: effectiveSession.issueId,
+          branch: effectiveSession.branch,
           ...sessionInputs,
+          lane: reconciled.lane,
+          laneReason: reconciled.laneReason,
           ...(cliCoverage !== undefined ? { coveragePct: cliCoverage } : {}),
           ...(cliMutation !== undefined ? { mutationPct: cliMutation } : {}),
           ...(docsOnly ? { docsOnly: true, coveragePct: null, mutationPct: null } : {}),
@@ -1014,6 +1072,9 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       let issueId = null,
         title = null,
         type = 'feat',
+        lane = null,
+        laneReason = null,
+        withUi = false,
         branch = null,
         worktree = null,
         prNumber = null,
@@ -1026,6 +1087,11 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         else if (args[i].startsWith('--title=')) title = args[i].split('=')[1];
         else if (args[i] === '--type' && args[i + 1]) type = args[++i];
         else if (args[i].startsWith('--type=')) type = args[i].split('=')[1];
+        else if (args[i] === '--lane' && args[i + 1]) lane = args[++i];
+        else if (args[i].startsWith('--lane=')) lane = args[i].slice('--lane='.length);
+        else if (args[i] === '--reason' && args[i + 1]) laneReason = args[++i];
+        else if (args[i].startsWith('--reason=')) laneReason = args[i].slice('--reason='.length);
+        else if (args[i] === '--ui') withUi = true;
         else if (args[i] === '--branch' && args[i + 1]) branch = args[++i];
         else if (args[i] === '--worktree' && args[i + 1]) worktree = args[++i];
         else if (args[i] === '--pr' && args[i + 1]) prNumber = args[++i];
@@ -1038,6 +1104,9 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         issueId,
         title,
         type,
+        lane,
+        laneReason,
+        withUi,
         branch,
         worktree,
         prNumber,
@@ -1049,8 +1118,14 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       result.success = stageRes.success;
       if (stageRes.action === 'pre-pr') {
         if (stageRes.receipt) {
+          const covLabel =
+            stageRes.receipt.coveragePct === null
+              ? stageRes.receipt.docsOnly
+                ? 'docs-only'
+                : stageRes.receipt.lane || 'n/a'
+              : `${stageRes.receipt.coveragePct}%`;
           console.log(
-            `🧾 Signed gate receipt ${stageRes.receipt.receiptId}: coverage ${stageRes.receipt.coveragePct}%, mutation ${stageRes.receipt.mutationPct ?? stageRes.receipt.mutationStatus}, reviewer ${stageRes.receipt.reviewer || 'n/a'}`
+            `🧾 Signed gate receipt ${stageRes.receipt.receiptId}: coverage ${covLabel}, mutation ${stageRes.receipt.mutationPct ?? stageRes.receipt.mutationStatus}, reviewer ${stageRes.receipt.reviewer || 'n/a'}`
           );
         } else if (!stageRes.success) {
           console.error(`🛑 stage pre-pr: no gate receipt issued. ${stageRes.receiptError || ''}`);
@@ -1089,6 +1164,8 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
           stage = 1,
           stageName = 'Intake & Specification',
           type = 'feat',
+          cliLane = null,
+          laneReason = null,
           worktree = null,
           force = false;
         for (let i = 2; i < args.length; i++) {
@@ -1097,10 +1174,41 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
           else if (args[i] === '--stage' && args[i + 1]) stage = args[++i];
           else if (args[i] === '--name' && args[i + 1]) stageName = args[++i];
           else if (args[i] === '--type' && args[i + 1]) type = args[++i];
+          else if (args[i] === '--lane' && args[i + 1]) cliLane = args[++i];
+          else if (args[i].startsWith('--lane=')) cliLane = args[i].slice('--lane='.length);
+          else if (args[i] === '--reason' && args[i + 1]) laneReason = args[++i];
+          else if (args[i].startsWith('--reason=')) laneReason = args[i].slice('--reason='.length);
           else if (args[i] === '--worktree' && args[i + 1]) worktree = args[++i];
           else if (args[i] === '--force') force = true;
         }
-        const sessionRes = startSession({ issueId, branch, stage, stageName, type, worktree, repoRoot, force });
+        let resolvedLane = 'full';
+        let resolvedReason = null;
+        let resolvedDowngraded = false;
+        if (cliLane) {
+          const triaged = triageChange({
+            intent: stageName || '',
+            laneOverride: cliLane,
+            reason: laneReason,
+            ticketId: issueId,
+            repoRoot
+          });
+          resolvedLane = triaged.lane;
+          resolvedReason = triaged.downgraded ? triaged.reason : null;
+          resolvedDowngraded = Boolean(triaged.downgraded);
+        }
+        const sessionRes = startSession({
+          issueId,
+          branch,
+          stage,
+          stageName,
+          type,
+          lane: resolvedLane,
+          laneReason: resolvedReason,
+          laneDowngraded: resolvedDowngraded,
+          worktree,
+          repoRoot,
+          force
+        });
         return { ...result, ...sessionRes };
       }
       if (sub === 'update') {
@@ -1600,7 +1708,12 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       const sub = args[1] || 'plan';
       result.subcommand = sub;
       if (sub === 'plan') {
-        result.reviewPlan = generateReviewPlan({ repoRoot });
+        let planLane = null;
+        for (let i = 2; i < args.length; i++) {
+          if (args[i] === '--lane' && args[i + 1]) planLane = args[++i];
+          else if (args[i].startsWith('--lane=')) planLane = args[i].slice('--lane='.length);
+        }
+        result.reviewPlan = generateReviewPlan({ repoRoot, lane: planLane });
         return result;
       }
       if (sub === 'record') {
@@ -1659,15 +1772,27 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         let issuedReceipt = null;
         if (verdict === 'approve' && sessRes?.session) {
           try {
-            const drift = checkSpecDrift({ ticketId: sessRes.session.issueId, repoRoot });
-            const sessionInputs = receiptInputsFromSession(sessRes.session, {
+            const reconciled = reconcileSessionLaneWithDiff({
+              session: sessRes.session,
+              repoRoot
+            });
+            const effectiveSession = reconciled.session || {
+              ...sessRes.session,
+              lane: reconciled.lane,
+              laneReason: reconciled.laneReason,
+              laneDowngraded: reconciled.laneDowngraded
+            };
+            const drift = checkSpecDrift({ ticketId: effectiveSession.issueId, repoRoot });
+            const sessionInputs = receiptInputsFromSession(effectiveSession, {
               driftCheckPassed: Boolean(drift.passed),
               repoRoot
             });
             const recRes = issueGateReceipt({
-              issueId: sessRes.session.issueId,
-              branch: sessRes.session.branch,
+              issueId: effectiveSession.issueId,
+              branch: effectiveSession.branch,
               ...sessionInputs,
+              lane: reconciled.lane,
+              laneReason: reconciled.laneReason,
               reviewer,
               repoRoot
             });
@@ -1784,6 +1909,34 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         return result;
       }
       result.success = false;
+      return result;
+    }
+
+    case 'triage': {
+      let laneOverride = null;
+      let reason = null;
+      let intent = '';
+      let baseBranch = 'main';
+      const files = [];
+      for (let i = 1; i < args.length; i++) {
+        if (args[i] === '--lane' && args[i + 1]) laneOverride = args[++i];
+        else if (args[i].startsWith('--lane=')) laneOverride = args[i].slice('--lane='.length);
+        else if (args[i] === '--reason' && args[i + 1]) reason = args[++i];
+        else if (args[i].startsWith('--reason=')) reason = args[i].slice('--reason='.length);
+        else if ((args[i] === '--intent' || args[i] === '--title') && args[i + 1]) intent = args[++i];
+        else if (args[i] === '--base' && args[i + 1]) baseBranch = args[++i];
+        else if (!args[i].startsWith('-')) files.push(args[i]);
+      }
+      const sess = getSessionStatus(repoRoot);
+      result.triage = triageChange({
+        diffFiles: files,
+        intent,
+        laneOverride,
+        reason,
+        baseBranch,
+        ticketId: sess.session?.issueId || null,
+        repoRoot
+      });
       return result;
     }
 
@@ -1995,7 +2148,8 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         '  hooks install | protect [main develop] | ci-workflow  Install 4-Layer Git hooks, branch protection, or CI workflow',
         '',
         'Lifecycle & Sessions:',
-        '  stage <begin|pre-pr|complete> [--issue <id>] [--title "<slug>"] [--type <feat|fix|hotfix>] [--checkout]',
+        '  triage [files...] [--intent "<desc>"] [--lane <trivial|standard|full>] [--reason "<why>"]',
+        '  stage <begin|pre-pr|complete> [--issue <id>] [--title "<slug>"] [--lane <trivial|standard|full>] [--checkout] [--ui]',
         '  session <status|dashboard|list|start|update|switch|resume|release>',
         '  ticket <create|transition|comment|sync|templates>     Manage GitHub, Linear, Jira, or local KANBAN.md tickets',
         '  pm <status|sync|transition|comment|templates>         Project management provider operations',
@@ -2060,7 +2214,7 @@ export function formatCLIResult(res, args = []) {
       if (!res.status?.active || !s) {
         return 'ℹ️ SDLC Session Status: IDLE (no active session).';
       }
-      return `📍 Active SDLC Session #${s.issueId} | Branch: ${s.branch} | Stage: ${s.stage}/8 (${s.stageName}) | Remediations: ${s.remediationCount || 0}/${s.maxRemediations || 3}`;
+      return `📍 Active SDLC Session #${s.issueId} | Lane: ${s.lane || 'full'} | Branch: ${s.branch} | Stage: ${s.stage}/8 (${s.stageName}) | Remediations: ${s.remediationCount || 0}/${s.maxRemediations || 3}`;
     }
     if (sub === 'list') {
       const ids = Object.keys(res.sessions || {});
@@ -2077,17 +2231,25 @@ export function formatCLIResult(res, args = []) {
   if (cmd === 'stage' && res.stage) {
     const st = res.stage;
     if (st.action === 'begin') {
-      return `🚀 Stage Begin (#${st.issueId}): branch '${st.branch}' | Stage ${st.stage}/8 | UI Snapshot: ${st.widgetPath || '.agent/workbench/index.html'}`;
+      const uiPart = st.widgetPath ? ` | UI Snapshot: ${st.widgetPath}` : '';
+      return `🚀 Stage Begin (${String(st.issueId).startsWith('L-') ? st.issueId : '#' + st.issueId} | lane=${st.lane || 'full'}): branch '${st.branch}' | Stage ${st.stage}/8${uiPart}`;
     }
     if (st.action === 'pre-pr') {
       const driftStatus = st.drift?.passed ? 'PASS' : 'FAIL';
       const wikiStatus = st.wikiAudit?.passed ? 'PASS' : 'FAIL';
       const prLabel = st.prNumber ? ` | PR=#${st.prNumber}` : '';
-      return `📦 Stage Pre-PR (#${st.issueId})${prLabel}: Drift=${driftStatus} | Wiki=${wikiStatus} | Receipt=${st.receipt?.receiptId || 'PENDING_REVIEW'} | UI Snapshot: ${st.widgetPath || '.agent/workbench/index.html'}`;
+      const uiPart = st.widgetPath ? ` | UI Snapshot: ${st.widgetPath}` : '';
+      return `📦 Stage Pre-PR (${String(st.issueId).startsWith('L-') ? st.issueId : '#' + st.issueId} | lane=${st.lane || 'full'})${prLabel}: Drift=${driftStatus} | Wiki=${wikiStatus} | Receipt=${st.receipt?.receiptId || 'PENDING_REVIEW'}${uiPart}`;
     }
     if (st.action === 'complete') {
-      return `🏁 Stage Complete (#${st.issueId}): Stage ${st.stage}/8 | Kanban synchronized | Session released: ${Boolean(st.released)}`;
+      return `🏁 Stage Complete (${String(st.issueId).startsWith('L-') ? st.issueId : '#' + st.issueId}): Stage ${st.stage}/8 | Kanban synchronized | Session released: ${Boolean(st.released)}`;
     }
+  }
+
+  if (cmd === 'triage' && res.triage) {
+    const t = res.triage;
+    const overrideNote = t.overridden ? ` (computed: ${t.computedLane}${t.reason ? `, reason: ${t.reason}` : ''})` : '';
+    return `🧭 Triage: lane=${t.lane}${overrideNote} | risk=${t.riskLevel} | files=${t.filesCount} | lines=${t.changedLines} | reviewers=${t.requirements.reviewSubagents}`;
   }
 
   if (cmd === 'drift' && res.drift) {

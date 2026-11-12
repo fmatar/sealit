@@ -413,11 +413,81 @@ export function compactADRs({ releaseVersion = 'baseline', dryRun = false, repoR
   };
 }
 
+const STRUCTURAL_PACKAGE_JSON_KEYS = [
+  'dependencies',
+  'devDependencies',
+  'peerDependencies',
+  'optionalDependencies',
+  'bundledDependencies',
+  'bundleDependencies',
+  'overrides',
+  'resolutions',
+  'workspaces',
+  'engines',
+  'type',
+  'exports',
+  'main',
+  'module',
+  'bin'
+];
+
+function canonicalizeJsonValue(val) {
+  if (Array.isArray(val)) return val.map(canonicalizeJsonValue);
+  if (val && typeof val === 'object') {
+    const out = {};
+    for (const k of Object.keys(val).sort()) {
+      out[k] = canonicalizeJsonValue(val[k]);
+    }
+    return out;
+  }
+  return val;
+}
+
+function hasStructuralPackageJsonMutation(relFile, baseBranch = 'main', repoRoot = '.') {
+  const rel = String(relFile).replace(/\\/g, '/');
+  const fullPath = path.resolve(repoRoot, rel);
+  if (!fileExists(fullPath)) return true;
+
+  let currentPkg;
+  try {
+    currentPkg = JSON.parse(readFileSafe(fullPath) || '');
+  } catch {
+    return true;
+  }
+  if (!currentPkg || typeof currentPkg !== 'object') return true;
+
+  let baseRaw =
+    gitOutput(['show', `origin/${baseBranch}:${rel}`], repoRoot) ??
+    gitOutput(['show', `${baseBranch}:${rel}`], repoRoot) ??
+    gitOutput(['show', `HEAD~1:${rel}`], repoRoot);
+
+  if (baseRaw === null) {
+    const porcelain = (gitOutput(['status', '--porcelain', '--', rel], repoRoot) || '').trim();
+    if (porcelain && !porcelain.startsWith('??') && !porcelain.startsWith('A')) {
+      baseRaw = gitOutput(['show', `HEAD:${rel}`], repoRoot);
+    }
+  }
+
+  if (!baseRaw) return true;
+
+  let basePkg;
+  try {
+    basePkg = JSON.parse(baseRaw);
+  } catch {
+    return true;
+  }
+  if (!basePkg || typeof basePkg !== 'object') return true;
+
+  return STRUCTURAL_PACKAGE_JSON_KEYS.some(
+    (key) => JSON.stringify(canonicalizeJsonValue(basePkg[key])) !== JSON.stringify(canonicalizeJsonValue(currentPkg[key]))
+  );
+}
+
 /**
  * Dual-Enforced Spec-Drift Sentinel:
  * Inspects git diff for structural changes (manifest dependencies, API contracts,
- * DB schema migrations, or Mermaid C4 architecture diagrams). If mutated without
- * an accompanying accepted ADR linked to the active ticket, blocks the gate.
+ * DB schema migrations, PRODUCT.md / capability specs, or Mermaid C4 architecture diagrams).
+ * If mutated without an accompanying accepted ADR linked to the active ticket, blocks the gate.
  */
 export function checkSpecDrift({
   diffFiles = [],
@@ -429,9 +499,12 @@ export function checkSpecDrift({
   const triggers = [];
 
   for (const file of files) {
-    const lower = file.toLowerCase();
-    if (
-      lower.endsWith('package.json') ||
+    const lower = file.replace(/\\/g, '/').toLowerCase();
+    if (lower === 'package.json' || lower.endsWith('/package.json')) {
+      if (hasStructuralPackageJsonMutation(file, baseBranch, repoRoot)) {
+        triggers.push({ file, category: 'DEPENDENCY_MANIFEST_MUTATION', reason: 'Package manifest structural or dependency field modified' });
+      }
+    } else if (
       lower.endsWith('pom.xml') ||
       lower.endsWith('cargo.toml') ||
       lower.endsWith('pyproject.toml') ||
@@ -452,6 +525,12 @@ export function checkSpecDrift({
       triggers.push({ file, category: 'C4_ARCHITECTURE_BOUNDARY_SHIFT', reason: 'Architecture diagram or concentric layer policy modified' });
     } else if (lower === 'docs/prd.md' || lower.endsWith('/docs/prd.md') || lower === 'docs/srs.md' || lower.endsWith('/docs/srs.md')) {
       triggers.push({ file, category: 'PRD_SRS_CONTRACT_MUTATION', reason: 'Macro PRD or IEEE 29148 SRS specification modified' });
+    } else if (
+      lower === 'product.md' ||
+      lower.endsWith('/product.md') ||
+      ((lower.startsWith('docs/specs/') || lower.includes('/docs/specs/')) && lower.endsWith('.md'))
+    ) {
+      triggers.push({ file, category: 'PRODUCT_SPEC_MUTATION', reason: 'Product constitution (PRODUCT.md) or capability specification modified' });
     }
   }
 
