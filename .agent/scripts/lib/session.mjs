@@ -1,7 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { fileExists, readFileSafe, getModifiedFiles } from './core.mjs';
+import {
+  fileExists,
+  readFileSafe,
+  getModifiedFiles,
+  normalizeTicketId,
+  parseTicketId,
+  writeFileAtomic
+} from './core.mjs';
 import { createPMIssue, transitionPMState, syncKanbanBoard, ensurePullRequest } from './pm-provider.mjs';
 import { checkSpecDrift } from './adr-drift.mjs';
 import { syncDecisionMapMarkdown } from './decision-graph.mjs';
@@ -211,12 +218,22 @@ export function updateSession({
   return { success: true, session, registry };
 }
 
+function findSessionKey(sessions, targetIssueId) {
+  if (!sessions || typeof sessions !== 'object') return null;
+  if (targetIssueId === null || targetIssueId === undefined) return null;
+  const rawKey = String(targetIssueId);
+  if (Object.prototype.hasOwnProperty.call(sessions, rawKey)) return rawKey;
+  const normTarget = normalizeTicketId(targetIssueId);
+  if (!normTarget) return null;
+  return Object.keys(sessions).find((k) => normalizeTicketId(k) === normTarget) || null;
+}
+
 export function switchSession(targetIssueId, repoRoot = '.') {
   const sessionPath = getSessionPath(repoRoot);
   const current = getSessionStatus(repoRoot);
-  const idKey = String(targetIssueId);
+  const idKey = findSessionKey(current.sessions, targetIssueId);
 
-  if (!current.sessions || !current.sessions[idKey]) {
+  if (!idKey || !current.sessions?.[idKey]) {
     throw new Error(
       `Session for ticket #${targetIssueId} does not exist in registry. Active sessions: ${Object.keys(current.sessions || {}).join(', ')}`
     );
@@ -228,7 +245,7 @@ export function switchSession(targetIssueId, repoRoot = '.') {
     sessions: current.sessions
   };
 
-  fs.writeFileSync(sessionPath, JSON.stringify(registry, null, 2), 'utf8');
+  writeFileAtomic(sessionPath, JSON.stringify(registry, null, 2));
   console.log(`🔀 Switched active session to ticket #${targetSession.issueId} (Branch: ${targetSession.branch})`);
   return { success: true, activeSessionId: targetSession.issueId, session: targetSession };
 }
@@ -236,9 +253,11 @@ export function switchSession(targetIssueId, repoRoot = '.') {
 export function listSessions(repoRoot = '.') {
   const current = getSessionStatus(repoRoot);
   const list = [];
+  const normActive = normalizeTicketId(current.activeSessionId);
 
   if (current.sessions) {
     for (const [id, sess] of Object.entries(current.sessions)) {
+      const normId = normalizeTicketId(id);
       list.push({
         issueId: sess.issueId,
         type: sess.type,
@@ -246,7 +265,7 @@ export function listSessions(repoRoot = '.') {
         worktree: sess.worktree,
         stage: sess.stage,
         stageName: sess.stageName,
-        isActive: Number(id) === Number(current.activeSessionId),
+        isActive: normId !== null && normId === normActive,
         remediations: `${sess.remediationCount || 0}/${sess.maxRemediations || 3}`
       });
     }
@@ -322,10 +341,11 @@ export function releaseSession(repoRoot = '.', issueId = null) {
     return { success: true, released: false };
   }
 
-  const targetId = issueId || current.activeSessionId;
+  const targetId = issueId ?? current.activeSessionId;
+  const matchedKey = findSessionKey(current.sessions, targetId);
 
-  if (current.sessions && targetId && current.sessions[String(targetId)]) {
-    const targetSession = current.sessions[String(targetId)];
+  if (current.sessions && matchedKey && current.sessions[matchedKey]) {
+    const targetSession = current.sessions[matchedKey];
     if (targetSession.worktree && fileExists(path.resolve(repoRoot, targetSession.worktree))) {
       try {
         console.log(`🌲 Pruning Git worktree: ${targetSession.worktree}...`);
@@ -335,7 +355,7 @@ export function releaseSession(repoRoot = '.', issueId = null) {
       } catch {}
     }
 
-    delete current.sessions[String(targetId)];
+    delete current.sessions[matchedKey];
     const remainingKeys = Object.keys(current.sessions);
 
     if (remainingKeys.length === 0) {
@@ -345,13 +365,17 @@ export function releaseSession(repoRoot = '.', issueId = null) {
       return { success: true, released: true, remainingSessions: 0 };
     }
 
-    const nextActiveId = Number(remainingKeys[0]);
+    const nextActiveId = parseTicketId(remainingKeys[0]) ?? remainingKeys[0];
     const registry = {
       activeSessionId: nextActiveId,
       sessions: current.sessions
     };
-    fs.writeFileSync(sessionPath, JSON.stringify(registry, null, 2), 'utf8');
+    writeFileAtomic(sessionPath, JSON.stringify(registry, null, 2));
     return { success: true, released: true, activeSessionId: nextActiveId, remainingSessions: remainingKeys.length };
+  }
+
+  if (issueId !== null && issueId !== undefined) {
+    return { success: false, released: false, error: `Session for ticket #${issueId} not found.` };
   }
 
   try {
@@ -684,9 +708,7 @@ export function executeCompositeStage({
     });
 
     if (checkoutBranch && fileExists(path.resolve(repoRoot, '.git'))) {
-      try {
-        execFileSync('git', ['checkout', '-B', targetBranch], { cwd: repoRoot, stdio: 'pipe' });
-      } catch {}
+      execFileSync('git', ['checkout', '-B', targetBranch, '--'], { cwd: repoRoot, stdio: 'pipe' });
     }
 
     if (!isLocalId) {
@@ -749,7 +771,7 @@ export function executeCompositeStage({
       repoRoot
     });
 
-    const diffFiles = getModifiedFiles('main', repoRoot);
+    const diffFiles = getModifiedFiles(null, repoRoot);
     const reconciled = reconcileSessionLaneWithDiff({
       session: updated.session,
       cliLane: lane,

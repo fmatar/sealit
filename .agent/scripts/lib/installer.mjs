@@ -820,12 +820,23 @@ export function provisionAgentIntegrations({
         // Provision Claude plugin manifest so Claude Code & Cowork can load skills via plugin picker
         const pluginManifestPath = path.join(absTarget, '.claude-plugin', 'plugin.json');
         fs.mkdirSync(path.dirname(pluginManifestPath), { recursive: true });
+        let existingPluginManifest = {};
+        if (fileExists(pluginManifestPath)) {
+          try {
+            const parsedPlugin = JSON.parse(readFileSafe(pluginManifestPath) || '{}');
+            if (parsedPlugin && typeof parsedPlugin === 'object' && !Array.isArray(parsedPlugin)) {
+              existingPluginManifest = { ...parsedPlugin };
+            }
+          } catch {}
+        }
         const pluginManifest = {
-          name: 'agentic-sdlc',
+          ...existingPluginManifest,
+          name: existingPluginManifest.name || 'agentic-sdlc',
           version: getFrameworkVersion(packageRoot),
           description:
+            existingPluginManifest.description ||
             'Agentic SDLC Framework — Universal /sdlc router and 9 lifecycle skills for Claude Code & Cowork',
-          skills: './.claude/skills'
+          skills: existingPluginManifest.skills || './.claude/skills'
         };
         fs.writeFileSync(pluginManifestPath, JSON.stringify(pluginManifest, null, 2) + '\n', 'utf8');
         filesCreated.push('.claude-plugin/plugin.json');
@@ -891,17 +902,27 @@ export function provisionAgentIntegrations({
       filesCreated.push(global ? '~/.grok/GROK.md' : 'GROK.md');
 
       const grokSettingsPath = path.join(grokRoot, 'settings.json');
+      let existingGrok = {};
+      if (fileExists(grokSettingsPath)) {
+        try {
+          const parsedGrok = JSON.parse(readFileSafe(grokSettingsPath) || '{}');
+          if (parsedGrok && typeof parsedGrok === 'object' && !Array.isArray(parsedGrok)) {
+            existingGrok = { ...parsedGrok };
+          }
+        } catch {}
+      }
       fs.writeFileSync(
         grokSettingsPath,
         JSON.stringify(
           {
+            ...existingGrok,
             instructionsFile: global ? '~/.grok/GROK.md' : 'GROK.md',
             skillsDirectory: global ? '~/.grok/skills' : '.grok/skills',
-            engineCommand: 'node .agent/scripts/sdlc-engine.mjs'
+            engineCommand: existingGrok.engineCommand || 'node .agent/scripts/sdlc-engine.mjs'
           },
           null,
           2
-        ),
+        ) + '\n',
         'utf8'
       );
       filesCreated.push(global ? '~/.grok/settings.json' : '.grok/settings.json');
@@ -982,7 +1003,9 @@ export function provisionAgentIntegrations({
 async function promptMultiSelect(title, subtitle, items) {
   return new Promise((resolve) => {
     let cursor = 0;
-    const selected = new Set(items.filter((i) => i.defaultSelected).map((_, idx) => idx));
+    const selected = new Set(
+      items.map((i, idx) => (i.defaultSelected ? idx : -1)).filter((idx) => idx !== -1)
+    );
 
     const render = (first = false) => {
       if (!first) {
@@ -1246,6 +1269,11 @@ export function installFramework({
     } else {
       destSkills = path.join(homeDir, `.${selectedIds[0]}/skills`);
       destScripts = path.join(homeDir, `.${selectedIds[0]}/scripts`);
+      fs.mkdirSync(destSkills, { recursive: true });
+      fs.mkdirSync(destScripts, { recursive: true });
+      if (path.resolve(srcScripts) !== path.resolve(destScripts)) {
+        copyDirRecursive(srcScripts, destScripts);
+      }
     }
   } else {
     fs.mkdirSync(absTarget, { recursive: true });

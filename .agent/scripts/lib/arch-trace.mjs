@@ -1,12 +1,23 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileExists, readFileSafe, inspectArchlens, getModifiedFiles, gitOutput, gitDiffForFile } from './core.mjs';
+import {
+  fileExists,
+  readFileSafe,
+  inspectArchlens,
+  getModifiedFiles,
+  gitOutput,
+  getUnifiedDiffByFile,
+  resolveDefaultBaseBranch,
+  resolveInsideRepo,
+  parseTicketId
+} from './core.mjs';
 import { getSessionStatus } from './session.mjs';
 
 export function checkArchDiff(repoRoot = '.') {
   console.log('🏛️ Auditing Git Diff for Architectural Ring Layer Inversions...');
   const archInfo = inspectArchlens(repoRoot);
-  const diffFiles = getModifiedFiles('main', repoRoot);
+  const baseRef = resolveDefaultBaseBranch(repoRoot);
+  const diffFiles = getModifiedFiles(baseRef, repoRoot);
 
   if (!archInfo.installed) {
     return {
@@ -52,23 +63,40 @@ export function checkArchDiff(repoRoot = '.') {
     } catch {}
   }
 
+  const workspaceRoots = new Set(
+    policyLayers
+      .flatMap((l) => l.paths)
+      .map((p) => String(p || '').replace(/^\/+/, '').split('/')[0].toLowerCase())
+      .filter(Boolean)
+  );
+
   const matchPolicyLayer = (targetStr, fromFile = null) => {
     let normalized = String(targetStr || '').replace(/\\/g, '/');
+    const isDottedPkg = fromFile !== null && /^[a-z0-9_]+(\.[a-z0-9_]+)+$/i.test(normalized) && !normalized.includes('/');
     if (fromFile && normalized.startsWith('.')) {
       const fromDir = path.posix.dirname(String(fromFile).replace(/\\/g, '/'));
       normalized = path.posix.normalize(path.posix.join(fromDir, normalized));
+    } else if (fromFile && !normalized.startsWith('/') && !isDottedPkg) {
+      const firstSeg = normalized.toLowerCase().split('/')[0];
+      if (!workspaceRoots.has(firstSeg)) return null;
     }
     const lower = normalized.toLowerCase();
+    const dotSegs = isDottedPkg ? new Set(lower.split('.')) : null;
     for (const layer of policyLayers) {
       if (
-        layer.paths.some(
-          (p) =>
-            p &&
-            (lower.includes(`/${p}/`) ||
-              lower.startsWith(`${p}/`) ||
-              lower === p ||
-              lower.includes(p))
-        )
+        layer.paths.some((raw) => {
+          const p = String(raw || '').toLowerCase().replace(/^\/+|\/+$/g, '');
+          if (!p) return false;
+          if (dotSegs) {
+            return lower === p || lower.startsWith(`${p}.`) || dotSegs.has(p);
+          }
+          return (
+            lower === p ||
+            lower.startsWith(`${p}/`) ||
+            lower.endsWith(`/${p}`) ||
+            lower.includes(`/${p}/`)
+          );
+        })
       ) {
         return layer;
       }
@@ -77,59 +105,66 @@ export function checkArchDiff(repoRoot = '.') {
   };
 
   const violations = [];
+  const diffsByFile = getUnifiedDiffByFile(baseRef, repoRoot, diffFiles);
   const addedImportRegex =
-    /^\+\s*(import\s+.*from\s+['"]([^'"]+)['"]|import\s+['"]([^'"]+)['"]|import\s+([a-zA-Z0-9_.]+);)/;
+    /(?:^|\n)\s*(?:import|export)\s+(?:type\s+)?(?:[^;'"]*\s+from\s+)?['"]([^'"]+)['"]|(?:^|\n)\s*import\s+([a-zA-Z0-9_.]+)\s*;/g;
 
   for (const file of diffFiles) {
     try {
-      const diffOutput = gitDiffForFile(file, repoRoot);
+      const diffOutput = diffsByFile.get(file) || '';
+      if (!diffOutput) continue;
 
       const sourceLayer = matchPolicyLayer(file);
-      const lines = diffOutput.split('\n');
-      for (const line of lines) {
-        if (!line.startsWith('+') || line.startsWith('+++')) continue;
-        const match = line.match(addedImportRegex);
-        if (match) {
-          const importedPath = match[2] || match[3] || match[4] || '';
-          const targetLayer = matchPolicyLayer(importedPath, file);
+      const addedCode = diffOutput
+        .split('\n')
+        .filter((line) => line.startsWith('+') && !line.startsWith('+++'))
+        .map((line) => line.slice(1))
+        .join('\n');
+      if (!addedCode.trim()) continue;
 
-          let policyViolated = false;
-          if (sourceLayer && targetLayer && sourceLayer.name.toLowerCase() !== targetLayer.name.toLowerCase()) {
-            if (Array.isArray(sourceLayer.allowedDependencies)) {
-              policyViolated = !sourceLayer.allowedDependencies.includes(targetLayer.name.toLowerCase());
-            } else {
-              policyViolated = targetLayer.index > sourceLayer.index;
-            }
+      let match;
+      addedImportRegex.lastIndex = 0;
+      while ((match = addedImportRegex.exec(addedCode)) !== null) {
+        const importedPath = match[1] || match[2] || '';
+        const lineText = match[0].trim().replace(/\s+/g, ' ');
+        const targetLayer = matchPolicyLayer(importedPath, file);
+
+        let policyViolated = false;
+        if (sourceLayer && targetLayer && sourceLayer.name.toLowerCase() !== targetLayer.name.toLowerCase()) {
+          if (Array.isArray(sourceLayer.allowedDependencies)) {
+            policyViolated = !sourceLayer.allowedDependencies.includes(targetLayer.name.toLowerCase());
+          } else {
+            policyViolated = targetLayer.index > sourceLayer.index;
           }
+        }
 
-          const isDomainFile =
-            file.toLowerCase().includes('domain') ||
-            file.toLowerCase().includes('entity') ||
-            file.toLowerCase().includes('entities');
-          const importsOuter =
-            importedPath.toLowerCase().includes('controller') ||
-            importedPath.toLowerCase().includes('resource') ||
-            importedPath.toLowerCase().includes('infra') ||
-            importedPath.toLowerCase().includes('database') ||
-            importedPath.toLowerCase().includes('web');
+        const isDomainFile =
+          file.toLowerCase().includes('domain') ||
+          file.toLowerCase().includes('entity') ||
+          file.toLowerCase().includes('entities');
+        const importsOuter =
+          importedPath.toLowerCase().includes('controller') ||
+          importedPath.toLowerCase().includes('resource') ||
+          importedPath.toLowerCase().includes('infra') ||
+          importedPath.toLowerCase().includes('database') ||
+          importedPath.toLowerCase().includes('web');
 
-          if (policyViolated) {
-            violations.push({
-              file,
-              line: line.trim(),
-              imported: importedPath,
-              sourceLayer: sourceLayer.name,
-              targetLayer: targetLayer.name,
-              rule: `Concentric Layer Inversion (${sourceLayer.name} -> ${targetLayer.name}): Inner ring '${sourceLayer.name}' cannot import '${targetLayer.name}' per .archlens/policy.json`
-            });
-          } else if (isDomainFile && importsOuter) {
-            violations.push({
-              file,
-              line: line.trim(),
-              imported: importedPath,
-              rule: 'Concentric Layer Inversion: Core Domain entity directly importing outer ring layer'
-            });
-          }
+        if (policyViolated) {
+          violations.push({
+            file,
+            line: lineText,
+            imported: importedPath,
+            sourceLayer: sourceLayer.name,
+            targetLayer: targetLayer.name,
+            rule: `Concentric Layer Inversion (${sourceLayer.name} -> ${targetLayer.name}): Inner ring '${sourceLayer.name}' cannot import '${targetLayer.name}' per .archlens/policy.json`
+          });
+        } else if (policyLayers.length === 0 && isDomainFile && importsOuter) {
+          violations.push({
+            file,
+            line: lineText,
+            imported: importedPath,
+            rule: 'Concentric Layer Inversion: Core Domain entity directly importing outer ring layer'
+          });
         }
       }
     } catch {}
@@ -163,6 +198,17 @@ export function parseMermaidDiagram(content) {
   const lines = content.split('\n');
   let currentSubgraph = null;
 
+  const parseNodeToken = (rawToken) => {
+    const token = String(rawToken || '').trim().replace(/;$/, '');
+    const m = token.match(
+      /^([A-Za-z0-9_\-\.]+)\s*(?:\(\["?([^"\]]+)"?\]\)|\[\("?([^")]+)"?\)\]|\[\["?([^"\]]+)"?\]\]|\{\{"?([^"}]+)"?\}\}|\["?([^"\]]+)"?\]|\("?([^")]+)"?\)|\{"?([^"}]+)"?\})?/
+    );
+    if (!m) return null;
+    const id = m[1];
+    const label = (m[2] || m[3] || m[4] || m[5] || m[6] || m[7] || m[8] || id).trim();
+    return { id, label };
+  };
+
   for (const rawLine of lines) {
     const line = rawLine.trim();
     if (!line || line.startsWith('%%') || line.startsWith('flowchart') || line.startsWith('graph')) {
@@ -180,41 +226,35 @@ export function parseMermaidDiagram(content) {
       continue;
     }
 
-    const edgeRegex =
-      /([A-Za-z0-9_\-\.]+)(?:\["?([^"\]]+)"?\])?\s*(-->|-.->|==>)(?:\|([^|]+)\|)?\s*([A-Za-z0-9_\-\.]+)(?:\["?([^"\]]+)"?\])?/;
-    const edgeMatch = line.match(edgeRegex);
-    if (edgeMatch) {
-      const fromId = edgeMatch[1];
-      const fromLabel = edgeMatch[2] || fromId;
-      const arrow = edgeMatch[3];
-      const edgeLabel = edgeMatch[4] ? edgeMatch[4].trim() : '';
-      const toId = edgeMatch[5];
-      const toLabel = edgeMatch[6] || toId;
-
-      if (!nodes.has(fromId)) {
-        nodes.set(fromId, { id: fromId, label: fromLabel, subgraph: currentSubgraph?.id || null });
+    if (/-->|-.->|==>/.test(line)) {
+      const parts = line.split(/\s*(-->|-.->|==>)(?:\|([^|]+)\|)?\s*/);
+      let prevNode = parseNodeToken(parts[0]);
+      if (prevNode && !nodes.has(prevNode.id)) {
+        nodes.set(prevNode.id, { id: prevNode.id, label: prevNode.label, subgraph: currentSubgraph?.id || null });
       }
-      if (!nodes.has(toId)) {
-        nodes.set(toId, { id: toId, label: toLabel, subgraph: currentSubgraph?.id || null });
+      for (let i = 1; i + 2 < parts.length; i += 3) {
+        const arrow = parts[i];
+        const edgeLabel = parts[i + 1] ? parts[i + 1].trim() : '';
+        const nextNode = parseNodeToken(parts[i + 2]);
+        if (prevNode && nextNode) {
+          if (!nodes.has(nextNode.id)) {
+            nodes.set(nextNode.id, { id: nextNode.id, label: nextNode.label, subgraph: currentSubgraph?.id || null });
+          }
+          edges.push({
+            from: prevNode.id,
+            to: nextNode.id,
+            type: arrow,
+            label: edgeLabel
+          });
+          prevNode = nextNode;
+        }
       }
-
-      edges.push({
-        from: fromId,
-        to: toId,
-        type: arrow,
-        label: edgeLabel
-      });
       continue;
     }
 
-    const nodeRegex = /^([A-Za-z0-9_\-\.]+)\["?([^"\]]+)"?\]/;
-    const nodeMatch = line.match(nodeRegex);
-    if (nodeMatch) {
-      const id = nodeMatch[1];
-      const label = nodeMatch[2] || id;
-      if (!nodes.has(id)) {
-        nodes.set(id, { id, label, subgraph: currentSubgraph?.id || null });
-      }
+    const single = parseNodeToken(line);
+    if (single && !nodes.has(single.id) && (line.includes('[') || line.includes('(') || line.includes('{'))) {
+      nodes.set(single.id, { id: single.id, label: single.label, subgraph: currentSubgraph?.id || null });
     }
   }
 
@@ -269,8 +309,26 @@ export function recordArchTrace({
 
   const commitSha = (gitOutput(['rev-parse', '--short', 'HEAD'], repoRoot) || '').trim() || 'UNCOMMITTED';
 
+  const extractMermaidFromContent = (diagFile, text) => {
+    if (!text || typeof text !== 'string') return { nodes: [], edges: [], subgraphs: [] };
+    const isMarkdown = diagFile.endsWith('.md') || diagFile.endsWith('.markdown');
+    if (!isMarkdown) return parseMermaidDiagram(text);
+    const fencedRe = /```mermaid\s*\r?\n([\s\S]*?)```/g;
+    const mergedNodes = new Map();
+    const mergedEdges = [];
+    const mergedSubgraphs = [];
+    let match;
+    while ((match = fencedRe.exec(text)) !== null) {
+      const g = parseMermaidDiagram(match[1]);
+      for (const n of g.nodes) mergedNodes.set(n.id, n);
+      mergedEdges.push(...g.edges);
+      mergedSubgraphs.push(...g.subgraphs);
+    }
+    return { nodes: Array.from(mergedNodes.values()), edges: mergedEdges, subgraphs: mergedSubgraphs };
+  };
+
   const candidateDiagrams = diagramPath
-    ? [path.resolve(repoRoot, diagramPath)]
+    ? [resolveInsideRepo(repoRoot, diagramPath)].filter((f) => fs.existsSync(f))
     : [
         path.resolve(repoRoot, 'docs/architecture/system.mmd'),
         path.resolve(repoRoot, 'docs/specs/architecture.mmd'),
@@ -294,8 +352,8 @@ export function recordArchTrace({
       prevContent = '';
     }
 
-    const currentGraph = parseMermaidDiagram(content);
-    const prevGraph = parseMermaidDiagram(prevContent);
+    const currentGraph = extractMermaidFromContent(diag, content);
+    const prevGraph = extractMermaidFromContent(diag, prevContent);
     const diff = diffMermaidGraphs(prevGraph, currentGraph);
 
     if (diff.hasChanges || !prevContent) {
@@ -307,13 +365,20 @@ export function recordArchTrace({
     }
   }
 
-  const modifiedFiles = getModifiedFiles('main', repoRoot);
+  const modifiedFiles = getModifiedFiles(null, repoRoot);
   const archDiff = checkArchDiff(repoRoot);
+  const normalizedTicket = parseTicketId(issueId);
+  const ticketLabel =
+    normalizedTicket === null
+      ? 'N/A'
+      : typeof normalizedTicket === 'number'
+        ? `#${normalizedTicket}`
+        : String(normalizedTicket);
 
   const entry = {
     id: `trace-${Date.now()}`,
     timestamp,
-    ticket: `#${issueId}`,
+    ticket: ticketLabel,
     branch,
     commitSha,
     reason,
@@ -350,7 +415,7 @@ This document maintains an immutable audit log of all architectural transformati
       : `Files modified (${modifiedFiles.length})`;
 
   const statusBadge = entry.status === 'PASSED' ? '✅ PASSED' : `⚠️ ${entry.archlensViolations} VIOLATIONS`;
-  const mdRow = `| ${entry.timestamp.split('T')[0]} ${entry.timestamp.split('T')[1].slice(0, 5)} | [${entry.ticket}](https://github.com/org/repo/issues/${issueId}) | \`${entry.branch}\` | \`${entry.commitSha}\` | ${reason.replace(/\|/g, '/')} | ${diagSummary} | ${statusBadge} |\n`;
+  const mdRow = `| ${entry.timestamp.split('T')[0]} ${entry.timestamp.split('T')[1].slice(0, 5)} | \`${entry.ticket}\` | \`${entry.branch}\` | \`${entry.commitSha}\` | ${reason.replace(/\|/g, '/')} | ${diagSummary} | ${statusBadge} |\n`;
 
   fs.appendFileSync(traceMdPath, mdRow, 'utf8');
   console.log(`📝 Appended architectural trace entry to ${traceMdPath} and ${jsonlPath}`);
