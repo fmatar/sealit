@@ -4,6 +4,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 concurrency:
   group: enforce-branch-flow-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -14,11 +17,14 @@ jobs:
     runs-on: ${{ vars.SDLC_RUNS_ON || 'local-agentic-sdlc-framework' }}
     steps:
       - name: Validate Pull Request Source Branch
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
         run: |
-          echo "Target branch (base): ${{ github.base_ref }}"
-          echo "Source branch (head): ${{ github.head_ref }}"
-          if [ "${{ github.head_ref }}" != "develop" ]; then
-            echo "::error::Branch policy violation: Pull requests targeting 'main' must originate exclusively from 'develop'. Direct merges from '${{ github.head_ref }}' into 'main' are forbidden."
+          echo "Target branch (base): $BASE_REF"
+          echo "Source branch (head): $HEAD_REF"
+          if [ "$HEAD_REF" != "develop" ]; then
+            echo "::error::Branch policy violation: Pull requests targeting 'main' must originate exclusively from 'develop'. Direct merges from '$HEAD_REF' into 'main' are forbidden."
             exit 1
           fi
           echo "Branch policy validated: PR targeting 'main' originates from 'develop'."

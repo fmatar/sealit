@@ -2497,7 +2497,8 @@ describe('Governance Hardening: release, stage begin, ADR approval, diff review 
     assert.ok(fs.existsSync(path.join(dir, '.github/workflows/release.yml')));
 
     const branchFlowYaml = fs.readFileSync(path.join(dir, '.github/workflows/enforce-branch-flow.yml'), 'utf8');
-    assert.match(branchFlowYaml, /github\.head_ref.*!=.*develop/);
+    assert.match(branchFlowYaml, /HEAD_REF:\s*\${{\s*github\.head_ref\s*}}/);
+    assert.match(branchFlowYaml, /\$HEAD_REF.*!=.*develop/);
     assert.match(branchFlowYaml, /Branch policy violation/);
 
     const releaseYaml = fs.readFileSync(path.join(dir, '.github/workflows/release.yml'), 'utf8');

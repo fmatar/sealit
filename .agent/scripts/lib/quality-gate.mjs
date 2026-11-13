@@ -472,9 +472,11 @@ jobs:
 
       - name: Enforce Branch Flow Policy
         if: github.event_name == 'pull_request' && github.base_ref == 'main'
+        env:
+          HEAD_REF: \${{ github.head_ref }}
         run: |
-          if [ "\${{ github.head_ref }}" != "develop" ]; then
-            echo "::error::Branch policy violation: Pull requests targeting 'main' must originate exclusively from 'develop'. Direct merges from '\${{ github.head_ref }}' into 'main' are forbidden."
+          if [ "\$HEAD_REF" != "develop" ]; then
+            echo "::error::Branch policy violation: Pull requests targeting 'main' must originate exclusively from 'develop'. Direct merges from '\$HEAD_REF' into 'main' are forbidden."
             exit 1
           fi
           echo "Branch policy validated: PR targeting 'main' originates from 'develop'."
@@ -522,6 +524,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 concurrency:
   group: enforce-branch-flow-\${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -532,11 +537,14 @@ jobs:
     runs-on: ${runsOnYaml}
     steps:
       - name: Validate Pull Request Source Branch
+        env:
+          BASE_REF: \${{ github.base_ref }}
+          HEAD_REF: \${{ github.head_ref }}
         run: |
-          echo "Target branch (base): \${{ github.base_ref }}"
-          echo "Source branch (head): \${{ github.head_ref }}"
-          if [ "\${{ github.head_ref }}" != "develop" ]; then
-            echo "::error::Branch policy violation: Pull requests targeting 'main' must originate exclusively from 'develop'. Direct merges from '\${{ github.head_ref }}' into 'main' are forbidden."
+          echo "Target branch (base): \$BASE_REF"
+          echo "Source branch (head): \$HEAD_REF"
+          if [ "\$HEAD_REF" != "develop" ]; then
+            echo "::error::Branch policy violation: Pull requests targeting 'main' must originate exclusively from 'develop'. Direct merges from '\$HEAD_REF' into 'main' are forbidden."
             exit 1
           fi
           echo "Branch policy validated: PR targeting 'main' originates from 'develop'."
@@ -614,15 +622,17 @@ jobs:
       - name: Extract Release Notes from CHANGELOG.md
         if: steps.version_check.outputs.tag_exists == 'false'
         id: release_notes
+        env:
+          VERSION: \${{ steps.version_check.outputs.version }}
+          TAG: \${{ steps.version_check.outputs.tag }}
         run: |
-          VERSION="\${{ steps.version_check.outputs.version }}"
           awk -v ver="\$VERSION" '
             \$0 ~ "^## \\\\[" ver "\\\\]" { found=1; next }
             found && /^## \\[/ { exit }
             found { print }
           ' CHANGELOG.md > release-notes.md || true
           if [ ! -s release-notes.md ]; then
-            echo "### Release \${{ steps.version_check.outputs.tag }}" > release-notes.md
+            echo "### Release \$TAG" > release-notes.md
             echo "Production release triggered by merging 'develop' into 'main'." >> release-notes.md
           fi
           cat release-notes.md
@@ -631,9 +641,9 @@ jobs:
         if: steps.version_check.outputs.tag_exists == 'false'
         env:
           GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+          TAG: \${{ steps.version_check.outputs.tag }}
+          VERSION: \${{ steps.version_check.outputs.version }}
         run: |
-          TAG="\${{ steps.version_check.outputs.tag }}"
-          VERSION="\${{ steps.version_check.outputs.version }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -a "\$TAG" -m "Release \$TAG"
