@@ -6,7 +6,7 @@
 
 - [README.md](./README.md): 10-30-90 developer landing page, proportional workflows (`trivial` / `standard` / `full`), and 90-second Quickstart
 - [wiki/Home.md](./wiki/Home.md): Project Wiki overview, proportional execution lanes, 8-stage lifecycle summary, and sitemap
-- [wiki/Skills-Reference.md](./wiki/Skills-Reference.md): Complete reference for the 10 canonical skills (`/sdlc` router and 9 verb skills) and all `sdlc-engine.mjs` CLI subcommands
+- [wiki/Skills-Reference.md](./wiki/Skills-Reference.md): Complete reference for the 10 canonical `sdlc*` skills (`/sdlc` router and 9 verb skills, decoupled from standalone coding-persona skills per `ADR-011`) and all `sdlc-engine.mjs` CLI subcommands
 - [wiki/Architecture.md](./wiki/Architecture.md): Concentric Clean Architecture rings (`.archlens/policy.json`), SHA-256 Gate Cache, 4-Layer Git Guard, and Clearinghouse Ledger UI (`workbench-server.mjs`)
 - [wiki/Codebase-Map.md](./wiki/Codebase-Map.md): Deterministic AST module inventory, coupling metrics ($Ca$, $Ce$, $I$), and capability mapping
 - [wiki/Traceability.md](./wiki/Traceability.md): Multi-provider PM sync, HMAC-SHA256 gate receipts, and Merkle audit ledger (`docs/AUDIT_CHAIN.jsonl`)

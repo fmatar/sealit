@@ -14,7 +14,7 @@ description: "Use when onboarding a repo, diagnosing hook or session errors, or 
 | :--- | :--- | :--- |
 | **Diagnose (default)** | Read-only (`0` writes) | `node .agent/scripts/sdlc-engine.mjs doctor` + `skill-audit` |
 | **Auto-Heal** | Workspace writes | `node .agent/scripts/sdlc-engine.mjs doctor --fix` (heals `KANBAN.md`, `.archlens/policy.json`, SHA-256 verified `.git/hooks/*`, and `.github/workflows/sdlc-quality-gate.yml`) |
-| **Agent Install** | Local or `~/` writes | `install` or `interop export` across selected AI coding agents |
+| **Agent Install** | Local or `~/` writes (`sdlc*` only) | `install` or `interop export` across selected AI coding agents (provisions the 10 `sdlc*` skills and prunes retired `sdlc-*` skills while leaving standalone user/third-party skills untouched) |
 
 ## Steps
 

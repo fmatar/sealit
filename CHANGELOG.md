@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **Strict `sdlc*` Namespace Isolation & Coding-Persona Skill Decoupling (`#118`, `ADR-011`)**: Restricted `DEPRECATED_SDLC_SKILLS` in `.agent/scripts/lib/installer.mjs` exclusively to retired `sdlc-*` framework skills (`14` entries) so `install`, `install --global`, and `interop export` never delete or modify standalone personal or third-party skills in local or `~/` agent directories; documented workflow-vs-persona decoupling and `sdlc*` namespace isolation across skills (`sdlc-doctor`, `sdlc-flow`, `sdlc-tdd`), `README.md`, `wiki/`, `PRODUCT.md`, `docs/PRD.md`, `docs/SRS.md`, and `docs/specs/`.
 - **Standardized 10-Skill Suite, Neutralized Engineering Terminology & Compact `How It Works` Diagram (`#116`, `ADR-010`)**: Consolidated `CANONICAL_SDLC_SKILLS` onto the 10 SDLC skills (`sdlc` router + 9 lifecycle verb skills) with automatic local and global pruning of retired skill directories/rules/Cowork bundles, standardized code/skill/wiki/spec terminology on author-neutral Red-Green-Refactor TDD and Concentric Clean Architecture phrasing, removed Archlens links from page footers, and redesigned the `README.md` `## How It Works` and `wiki/Traceability.md` diagrams as compact vertical `flowchart TD` graphs that fit GitHub page width cleanly.
 
 ## [0.4.0] - 2026-11-12

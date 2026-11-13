@@ -33,7 +33,7 @@ node .agent/scripts/sdlc-engine.mjs skill-audit
    ```
 2. **Spec & ADR Alignment (`INV-03`)**: If modifying `PRODUCT.md`, `docs/specs/*.md`, `docs/PRD.md`, `docs/SRS.md`, structural dependency manifests, or CLI contracts, mint an ADR with `/sdlc-adr` (`node .agent/scripts/sdlc-engine.mjs adr create`).
 3. **Red-Green-Refactor TDD & Clean Architecture (`/sdlc-tdd`)**: Write a failing Red test first, implement minimal Green domain logic adhering to [Archlens](https://github.com/fmatar/archlens) Concentric Clean Architecture rings (`.archlens/policy.json`), and refactor.
-4. **Documentation & Multi-Agent Sync (`/sdlc-wiki`)**: When changing `.agent/skills/` or engine exports, sync multi-agent artifacts (`node .agent/scripts/sdlc-engine.mjs interop export --agent gemini,claude,cursor`) and refresh `wiki/Codebase-Map.md` (`npm run wiki:sync`).
+4. **Documentation & Multi-Agent Sync (`/sdlc-wiki`)**: When changing `.agent/skills/` or engine exports, sync multi-agent artifacts (`node .agent/scripts/sdlc-engine.mjs interop export --agent gemini,claude,cursor` — strictly scoped to `sdlc*` so standalone skills are untouched) and refresh `wiki/Codebase-Map.md` (`npm run wiki:sync`).
 5. **Strict Quality Gate & Parallel Review (`/sdlc-gate`)**: Run `node .agent/scripts/sdlc-engine.mjs gate --strict`, record the subagent peer-review verdict (`review record`), and ensure GitHub Actions CI (`SDLC Quality Gate`) passes before merging.
 
 ## 🐛 Bug Reports & Feature Requests

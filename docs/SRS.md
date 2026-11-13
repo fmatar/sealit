@@ -19,10 +19,10 @@ End-to-end spec-driven autonomous software development lifecycle with risk-propo
 | `CAP-02` | Shell Injection Remediation & Polyglot Test Runners (#69) | [`docs/specs/cap-02-security-polyglot-runners.md`](../docs/specs/cap-02-security-polyglot-runners.md) | `None` | `AMENDED (ADR-006)` |
 | `CAP-03` | Real Coverage/Mutation Parsers & Policy ArchDiff (#70) | [`docs/specs/cap-03-real-dual-gate-archdiff.md`](../docs/specs/cap-03-real-dual-gate-archdiff.md) | `CAP-01, CAP-02` | `AMENDED (ADR-004)` |
 | `CAP-04` | Live Canary Watchdog, Real Proofs & Polyglot Reproduce (#71) | [`docs/specs/cap-04-live-probes-reproduce.md`](../docs/specs/cap-04-live-probes-reproduce.md) | `CAP-02` | `AMENDED (ADR-002)` |
-| `CAP-05` | Consolidate Legacy Skills into Schema-Valid Core Skills (#72) | [`docs/specs/cap-05-skill-consolidation.md`](../docs/specs/cap-05-skill-consolidation.md) | `CAP-03, CAP-04` | `AMENDED (ADR-005)` |
+| `CAP-05` | Consolidate Legacy Skills into Schema-Valid Core Skills (#72) | [`docs/specs/cap-05-skill-consolidation.md`](../docs/specs/cap-05-skill-consolidation.md) | `CAP-03, CAP-04` | `AMENDED (ADR-011)` |
 | `CAP-06` | Dogfooding Configuration, Docs Sync & Full Test Suite (#73) | [`docs/specs/cap-06-dogfood-docs-tests.md`](../docs/specs/cap-06-dogfood-docs-tests.md) | `CAP-05` | `AMENDED (ADR-009)` |
-| `CAP-07` | Native `npx` Multi-Agent Interactive Installer & Legacy Installer Removal (#75) | [`docs/specs/cap-07-npx-multi-agent-installer.md`](../docs/specs/cap-07-npx-multi-agent-installer.md) | `CAP-06` | `AMENDED (ADR-005)` |
-| `CAP-08` | `/sdlc` Universal Command Router & 9 Verb-Driven Skills (#81) | [`docs/specs/cap-08-command-verb-skills-router.md`](../docs/specs/cap-08-command-verb-skills-router.md) | `CAP-05, CAP-07` | `AMENDED (ADR-006)` |
+| `CAP-07` | Native `npx` Multi-Agent Interactive Installer & Legacy Installer Removal (#75) | [`docs/specs/cap-07-npx-multi-agent-installer.md`](../docs/specs/cap-07-npx-multi-agent-installer.md) | `CAP-06` | `AMENDED (ADR-011)` |
+| `CAP-08` | `/sdlc` Universal Command Router & 9 Verb-Driven Skills (#81) | [`docs/specs/cap-08-command-verb-skills-router.md`](../docs/specs/cap-08-command-verb-skills-router.md) | `CAP-05, CAP-07` | `AMENDED (ADR-011)` |
 | `CAP-09` | Two-Tier PRD & IEEE 29148 SRS Specification Engine (#84) | [`docs/specs/cap-09-prd-srs-specification-engine.md`](../docs/specs/cap-09-prd-srs-specification-engine.md) | `CAP-05, CAP-08` | `AMENDED (ADR-006)` |
 | `CAP-10` | Unified Multi-Provider Ticket Engine & Issue Templates (#86) | [`docs/specs/cap-10-unified-multi-provider-ticket-engine-issue-templ.md`](../docs/specs/cap-10-unified-multi-provider-ticket-engine-issue-templ.md) | `CAP-02, CAP-09` | `AMENDED (ADR-006)` |
 | `CAP-11` | Technical Writer Skill (`sdlc-wiki`) & Archlens AST-to-Wiki Sync (#90) | [`docs/specs/cap-11-technical-writer-archlens-wiki-sync.md`](../docs/specs/cap-11-technical-writer-archlens-wiki-sync.md) | `CAP-03, CAP-05, CAP-08` | `AMENDED (ADR-009)` |
@@ -49,7 +49,7 @@ flowchart TB
 
 ## 3. Specific Requirements (IEEE 29148)
 ### 3.1 External Interface Requirements
-- **3.1.1 Agent Slash-Command Interface**: 10 Canonical Skills — 1 Universal Router (`/sdlc`) + 9 Verb Skills (`/sdlc-flow`, `/sdlc-product`, `/sdlc-doctor`, `/sdlc-status`, `/sdlc-tdd`, `/sdlc-gate`, `/sdlc-adr`, `/sdlc-wiki`, `/sdlc-release`).
+- **3.1.1 Agent Slash-Command Interface**: 10 Canonical Skills — 1 Universal Router (`/sdlc`) + 9 Verb Skills (`/sdlc-flow`, `/sdlc-product`, `/sdlc-doctor`, `/sdlc-status`, `/sdlc-tdd`, `/sdlc-gate`, `/sdlc-adr`, `/sdlc-wiki`, `/sdlc-release`), strictly isolated to the `sdlc*` namespace so standalone coding-persona and design skills coexist untouched (`ADR-011`).
 - **3.1.2 CLI & NPX Interface**: `npx --yes github:fmatar/agentic-sdlc-framework install` interactive ANSI TUI wizard and `node .agent/scripts/sdlc-engine.mjs <command>`.
 - **3.1.3 HTTP & Visual Workbench Interface**: Authenticated local loopback server (`http://127.0.0.1:4120`) in `.agent/scripts/lib/workbench-server.mjs` serving `/api/arch-diff`, `/widget`, and inline `<agent-embed>` snapshots, paired with [Archlens](https://github.com/fmatar/archlens) (`http://localhost:8088`).
 

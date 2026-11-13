@@ -117,7 +117,7 @@ flowchart TD
 | Source Module | Lines | $Ca$ / $Ce$ | Instability ($I$) | Exported AST Symbols (Line #) | Wiki Coverage |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | `.agent/scripts/lib/arch-trace.mjs` | 427 | 6 / 2 | `0.25` | `checkArchDiff` (L6), `parseMermaidDiagram` (L156), `diffMermaidGraphs` (L228), `recordArchTrace` (L252), `scaffoldArchlensPolicy` (L366) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
-| `.agent/scripts/lib/installer.mjs` | 1477 | 3 / 4 | `0.57` | `DEPRECATED_SDLC_SKILLS` (L10), `CANONICAL_SDLC_SKILLS` (L28), `ARCHLENS_SKILL_PACKAGE` (L41), `DEFAULT_GITIGNORE_ENTRIES` (L43), `upsertGitignore` (L53), `pinArchlensMcpConfigs` (L67), `SUPPORTED_AGENTS` (L83), `getFrameworkVersion` (L151) +18 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md` |
+| `.agent/scripts/lib/installer.mjs` | 1482 | 3 / 4 | `0.57` | `DEPRECATED_SDLC_SKILLS` (L10), `CANONICAL_SDLC_SKILLS` (L27), `ARCHLENS_SKILL_PACKAGE` (L40), `DEFAULT_GITIGNORE_ENTRIES` (L42), `upsertGitignore` (L52), `pinArchlensMcpConfigs` (L66), `SUPPORTED_AGENTS` (L82), `getFrameworkVersion` (L150) +18 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md` |
 | `.agent/scripts/lib/quality-gate.mjs` | 2045 | 2 / 8 | `0.8` | `runDoctor` (L25), `generateRegressionProof` (L137), `monitorCanaryHealthAndWatchdog` (L298), `installCIWorkflow` (L411), `exportAgentRules` (L516), `scaffoldReproductionTest` (L533), `assessRisk` (L651), `VALID_LANES` (L725) +21 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md` |
 | `.agent/scripts/lib/session.mjs` | 868 | 4 / 9 | `0.69` | `getSessionPath` (L17), `getSessionStatus` (L21), `startSession` (L57), `updateSession` (L140), `switchSession` (L214), `listSessions` (L236), `renderDashboard` (L258), `resumeSession` (L295) +8 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Home.md`, `wiki/Skills-Reference.md` |
 | `.agent/scripts/lib/wiki-sync.mjs` | 749 | 2 / 6 | `0.75` | `inspectSourceModule` (L36), `resolveArchlensRing` (L104), `buildWikiCodeMap` (L138), `auditWiki` (L326), `renderCodebaseMapMarkdown` (L526), `syncWiki` (L677) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
@@ -157,10 +157,10 @@ flowchart TD
 | **CAP-02** | Shell Injection Remediation & Polyglot Test Runners (#69) | `docs/specs/cap-02-security-polyglot-runners.md` | `AMENDED (ADR-006)` | None |
 | **CAP-03** | Real Coverage/Mutation Parsers & Policy ArchDiff (#70) | `docs/specs/cap-03-real-dual-gate-archdiff.md` | `AMENDED (ADR-004)` | CAP-01, CAP-02 |
 | **CAP-04** | Live Canary Watchdog, Real Proofs & Polyglot Reproduce (#71) | `docs/specs/cap-04-live-probes-reproduce.md` | `AMENDED (ADR-002)` | CAP-02 |
-| **CAP-05** | Consolidate 14 Skills into 6 Schema-Valid Core Skills (#72) | `docs/specs/cap-05-skill-consolidation.md` | `AMENDED (ADR-010)` | CAP-03, CAP-04 |
+| **CAP-05** | Consolidate 14 Skills into 6 Schema-Valid Core Skills (#72) | `docs/specs/cap-05-skill-consolidation.md` | `AMENDED (ADR-011)` | CAP-03, CAP-04 |
 | **CAP-06** | Dogfooding Configuration, Docs Sync & Full Test Suite (#73) | `docs/specs/cap-06-dogfood-docs-tests.md` | `AMENDED (ADR-009)` | CAP-05 |
-| **CAP-07** | Native `npx` Multi-Agent Interactive Installer & Legacy Installer Removal (#75) | `docs/specs/cap-07-npx-multi-agent-installer.md` | `AMENDED (ADR-010)` | CAP-06 |
-| **CAP-08** | `/sdlc` Universal Command Router & 9 Verb-Driven Skills (#81) | `docs/specs/cap-08-command-verb-skills-router.md` | `AMENDED (ADR-010)` | CAP-05, CAP-07 |
+| **CAP-07** | Native `npx` Multi-Agent Interactive Installer & Legacy Installer Removal (#75) | `docs/specs/cap-07-npx-multi-agent-installer.md` | `AMENDED (ADR-011)` | CAP-06 |
+| **CAP-08** | `/sdlc` Universal Command Router & 9 Verb-Driven Skills (#81) | `docs/specs/cap-08-command-verb-skills-router.md` | `AMENDED (ADR-011)` | CAP-05, CAP-07 |
 | **CAP-09** | Two-Tier PRD & IEEE 29148 SRS Specification Engine (#84) | `docs/specs/cap-09-prd-srs-specification-engine.md` | `AMENDED (ADR-006)` | CAP-05, CAP-08 |
 | **CAP-10** | Unified Multi-Provider Ticket Engine & Issue Templates (#86) | `docs/specs/cap-10-unified-multi-provider-ticket-engine-issue-templ.md` | `AMENDED (ADR-006)` | CAP-02, CAP-09 |
 | **CAP-11** | Technical Writer Skill (`sdlc-wiki`) & Archlens AST-to-Wiki Sync (#90) | `docs/specs/cap-11-technical-writer-archlens-wiki-sync.md` | `AMENDED (ADR-010)` | CAP-03, CAP-05, CAP-08 |
@@ -173,6 +173,7 @@ flowchart TD
 | :--- | :--- | :--- | :--- | :--- |
 | **ADR-009** | Align README, Wiki, PRD and SRS Documentation with v0.4.0 Architecture and Archlens Links | `technical` | `accepted` | CAP-06, CAP-11 |
 | **ADR-010** | Standardize on 10 Canonical SDLC Skills, Neutralize Engineering Terminology, and Compact README Workflow Diagram | `technical` | `accepted` | CAP-05, CAP-07, CAP-08, CAP-11 |
+| **ADR-011** | Strict sdlc Namespace Isolation and Decoupling from Standalone Coding-Persona Skills | `technical` | `accepted` | CAP-05, CAP-07, CAP-08, ADR-010 |
 
 ---
 

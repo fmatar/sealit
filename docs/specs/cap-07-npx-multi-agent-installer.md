@@ -2,7 +2,7 @@
 
 - **Capability ID**: `CAP-07`
 - **Specification ID**: `SPEC-07`
-- **Superseding ADR**: `ADR-003`
+- **Superseding ADR**: `ADR-003`, `ADR-010`, `ADR-011`
 
 ## 1. Problem Statement & User Value
 
@@ -24,11 +24,11 @@ that launches a professional terminal wizard to select their AI coding tools (**
    - Supports non-interactive flags: `--agents <csv|all>`, `--global` / `-g`, `--local [dir]` / `--target <dir>`, `--with-archlens`, `--with-hooks`, `--with-ci`, `--skip-detect`, `--yes` / `-y`.
 3. **Native Multi-Agent Adapter Generation (`SUPPORTED_AGENTS`)**:
    - `gemini`: `.agent/skills/<skill>/SKILL.md`, `.agent/scripts/*`, `AGENTS.md` (or `~/.gemini/config/skills/` in `--global` mode).
-   - `claude`: `.claude/skills/<skill>/SKILL.md`, `.claude/commands/<skill>.md`, `.claude/settings.json`, `CLAUDE.md` (or `~/.claude/` in `--global` mode).
-   - `cursor`: `.cursor/rules/agentic-sdlc.mdc`, `.cursor/rules/<skill>.mdc`, `.cursorrules`.
+   - `claude`: `.claude/skills/<skill>/SKILL.md`, `.claude/cowork/<skill>.zip`, `.claude-plugin/plugin.json`, `.claude/settings.json`, `CLAUDE.md` (or `~/.claude/` in `--global` mode).
+   - `cursor`: `.cursor/skills/<skill>/SKILL.md`, `.cursor/rules/agentic-sdlc.mdc`, `.cursor/rules/<skill>.mdc`, `.cursorrules` (or `~/.cursor/` in `--global` mode).
    - `grok`: `.grok/skills/<skill>/SKILL.md`, `.grok/settings.json`, `GROK.md` (or `~/.grok/` in `--global` mode).
    - `windsurf`: `.windsurf/rules/agentic-sdlc.md`, `.windsurf/workflows/<skill>.md`, `.windsurfrules`.
    - `copilot`: `.github/copilot-instructions.md`, `.github/prompts/<skill>.prompt.md`, `AGENTS.md`.
-4. **Legacy Installer Removal & Deprecated Skill Pruning**:
+4. **Legacy Installer Removal, Deprecated `sdlc-*` Pruning & Namespace Isolation (`ADR-011`)**:
    - `install.sh` and `install.java` are removed from the repository.
-   - `pruneDeprecatedSkills` automatically removes the 12 deprecated pre-`v0.1.0` `sdlc-*` directories from target skill directories.
+   - `pruneDeprecatedSkills` automatically removes the 14 deprecated `sdlc-*` framework skills (`DEPRECATED_SDLC_SKILLS`) from target local and global skill directories while strictly leaving all non-`sdlc*` standalone user/third-party skills untouched.

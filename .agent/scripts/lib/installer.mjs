@@ -21,8 +21,7 @@ export const DEPRECATED_SDLC_SKILLS = [
   'sdlc-release-changelog',
   'sdlc-review-gate',
   'sdlc-tdd-implement',
-  'sdlc-test-coverage',
-  'ub-mode'
+  'sdlc-test-coverage'
 ];
 
 export const CANONICAL_SDLC_SKILLS = [
@@ -186,6 +185,7 @@ _Governed by Concentric Clean Architecture, Risk-Proportional Lanes & Config-Dri
 - \`/sdlc-adr\`: Mint, approve, or compact Spec-Drift ADRs (\`adr compact\`) and synchronize \`docs/DECISION_MAP.md\`.
 - \`/sdlc-wiki\`: 10-30-90 \`README.md\` landing page & AST-to-Wiki synchronization (\`readme audit\`, \`wiki sync\`).
 - \`/sdlc-release\`: ADR compaction into \`docs/SRS.md\`, Docs/Wiki sync, SemVer tagging, regression proofs, and canary watchdog.
+- **Strict \`sdlc*\` Namespace Isolation**: \`sdlc*\` skills govern delivery mechanics and verification only (decoupled from standalone coding-persona or design skills); \`install\` and \`interop export\` never modify or delete non-\`sdlc*\` skills.
 `;
 
 /**
@@ -1255,7 +1255,12 @@ export function installFramework({
     prePruned.push(...pruneDeprecatedSkills(path.join(absTarget, '.agents/skills')));
 
     if (path.resolve(srcSkills) !== path.resolve(destSkills)) {
-      copyDirRecursive(srcSkills, destSkills);
+      for (const skillId of CANONICAL_SDLC_SKILLS) {
+        const srcSkillDir = path.join(srcSkills, skillId);
+        if (fileExists(srcSkillDir)) {
+          copyDirRecursive(srcSkillDir, path.join(destSkills, skillId));
+        }
+      }
     }
     if (path.resolve(srcScripts) !== path.resolve(destScripts)) {
       copyDirRecursive(srcScripts, destScripts);

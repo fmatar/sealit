@@ -12,7 +12,7 @@ description: "Use when writing tests, reproducing bugs, or checking coverage and
 ## TDD Discipline & Anti-Patterns
 1. **Red -> Green -> Refactor**: Write a minimal failing behavioral test first, write the smallest production change to pass, then remove duplication (`CRAP < 10`) and respect Concentric Clean Architecture boundaries (`.archlens/policy.json`).
 2. **Zero Test Smells**: No assertion-free "smoke" tests, no trivial getter/setter tests, no deep mock wiring when domain fakes/values work, and strict **F.I.R.S.T.** isolation (temp dirs, ephemeral ports, zero network reliance).
-3. **Config-Driven Thresholds**: Coverage (`thresholds.diffCoverage`) and mutation (`thresholds.mutationScore`) bars come strictly from `.agent/sdlc-config.json` — never assume hardcoded numbers.
+3. **Config-Driven Thresholds & Style Independence**: Coverage (`thresholds.diffCoverage`) and mutation (`thresholds.mutationScore`) bars come strictly from `.agent/sdlc-config.json` — never assume hardcoded numbers. `sdlc-tdd` enforces verification mechanics only and composes cleanly with any standalone coding-style skill or team convention without requiring one.
 
 ## Lane behavior
 | Lane | Required test & gate commands |
