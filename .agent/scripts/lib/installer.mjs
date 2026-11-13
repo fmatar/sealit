@@ -91,10 +91,9 @@ export const SUPPORTED_AGENTS = [
   {
     id: 'claude',
     name: 'Anthropic Claude Code & Cowork',
-    badge: '.claude/skills + .claude/commands + .claude/cowork/*.zip + CLAUDE.md',
+    badge: '.claude/skills + .claude/cowork/*.zip + .claude-plugin/plugin.json + CLAUDE.md',
     localPaths: [
       '.claude/skills/<skill>/SKILL.md',
-      '.claude/commands/<skill>.md',
       '.claude/cowork/<skill>.zip',
       '.claude/settings.json',
       '.claude-plugin/plugin.json',
@@ -102,7 +101,6 @@ export const SUPPORTED_AGENTS = [
     ],
     globalPaths: [
       '~/.claude/skills/<skill>/SKILL.md',
-      '~/.claude/commands/<skill>.md',
       '~/.claude/cowork/<skill>.zip'
     ],
     defaultSelected: true
@@ -110,9 +108,17 @@ export const SUPPORTED_AGENTS = [
   {
     id: 'cursor',
     name: 'Cursor IDE',
-    badge: '.cursor/rules/*.mdc + .cursorrules',
-    localPaths: ['.cursor/rules/agentic-sdlc.mdc', '.cursor/rules/<skill>.mdc', '.cursorrules'],
-    globalPaths: ['~/.cursor/rules/agentic-sdlc.mdc'],
+    badge: '.cursor/skills + .cursor/rules/*.mdc + .cursorrules',
+    localPaths: [
+      '.cursor/skills/<skill>/SKILL.md',
+      '.cursor/rules/agentic-sdlc.mdc',
+      '.cursor/rules/<skill>.mdc',
+      '.cursorrules'
+    ],
+    globalPaths: [
+      '~/.cursor/skills/<skill>/SKILL.md',
+      '~/.cursor/rules/agentic-sdlc.mdc'
+    ],
     defaultSelected: true
   },
   {
@@ -141,34 +147,45 @@ export const SUPPORTED_AGENTS = [
   }
 ];
 
+export function getFrameworkVersion(packageRoot = null) {
+  try {
+    const root = packageRoot || path.resolve(import.meta.dirname, '../../..');
+    const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+    if (pkg && pkg.version) return String(pkg.version);
+  } catch {}
+  return '0.0.1';
+}
+
 export const CONSTITUTIONAL_RULES_SUMMARY = `# Agentic SDLC Framework Invariants & Autonomous Rules
-_Generated automatically by @fmatar/agentic-sdlc (Universal Engine v0.1.0)_
-_Adheres strictly to Robert C. Martin Clean Code & Clean Architecture_
+_Generated automatically by @fmatar/agentic-sdlc (Universal Engine v${getFrameworkVersion()})_
+_Governed by Concentric Clean Architecture, Risk-Proportional Lanes & Config-Driven Dual-Gate TDD_
 
 ## 1. Zero Direct Pushes (4-Layer Git Guard — INV-01)
 - Direct git commits, merges, or pushes to \`develop\` or \`main\` are STRICTLY FORBIDDEN.
 - Every commit requires an active session in \`.agent/.sdlc-session.json\` matching the current branch (\`node .agent/scripts/sdlc-engine.mjs stage begin\`).
-- Every merge into \`main\` requires a signed Stage 7 SHA-256 Merkle Gate Receipt in \`docs/AUDIT_CHAIN.jsonl\`.
+- Every merge into \`main\` requires a signed Stage 7 HMAC-SHA256 Merkle Gate Receipt in \`docs/AUDIT_CHAIN.jsonl\`.
 
-## 2. PRODUCT.md Constitution & Spec Drift ADR Protocol (INV-03)
-- Full-spec project handovers synthesize \`PRODUCT.md\` (\`CAP-XX\`, \`INV-XX\`, \`SPEC-XX\`) starting at Genesis Ticket \`#1\`.
-- Any mutation to dependencies, C4 architecture boundaries, DB schemas, or API contracts MUST be accompanied by an ADR (\`node .agent/scripts/sdlc-engine.mjs adr create\`).
-
-## 3. Robert Martin TDD & Dual-Gate Quality Verification (INV-02)
-- Diff coverage threshold: >= 85% line and branch coverage.
-- Mutation kill score: >= 80% using PITest, Stryker, mutmut, or cargo-mutants.
+## 2. Active Session & Config-Driven Dual-Gate Quality Verification (INV-02)
+- Diff coverage and mutation kill thresholds are governed by \`.agent/sdlc-config.json\` (measured from real coverage and mutation reports on disk).
 - Concentric ring Clean Architecture compliance: zero outer-layer imports into domain entities (\`.archlens/policy.json\`).
+- Zero shell interpolation of untrusted inputs (\`INV-04\`).
 
-## 4. Universal Router + 8 Verb Skills Suite (ADR-004)
+## 3. PRODUCT.md Constitution & Spec Drift ADR Protocol (INV-03)
+- Full-spec project handovers synthesize \`PRODUCT.md\` (\`CAP-XX\`, \`INV-XX\`, \`SPEC-XX\`) starting at Genesis Ticket \`#1\`.
+- Any mutation to \`PRODUCT.md\`, \`docs/specs/\`, dependencies, C4 architecture boundaries, DB schemas, or API contracts MUST be accompanied by an ADR (\`node .agent/scripts/sdlc-engine.mjs adr create\`).
+
+## 4. Universal Router + Lifecycle Skills Suite (10 Canonical Skills)
 - \`/sdlc\`: Universal 1:1 subcommand router (\`/sdlc doctor\`, \`/sdlc begin #id\`, \`/sdlc status\`, \`/sdlc drift\`, \`/sdlc pre-pr\`, \`/sdlc gate\`, \`/sdlc kanban\`, \`/sdlc ui\`).
-- \`/sdlc-flow\`: End-to-end ticket autopilot (\`stage begin\` -> TDD -> \`stage pre-pr\` -> parallel review -> \`stage complete\`).
+- \`/sdlc-flow\`: End-to-end ticket orchestrator (\`stage begin\` -> TDD -> \`stage pre-pr\` -> review -> \`stage complete\`).
 - \`/sdlc-product\`: Constitutional \`PRODUCT.md\` autopilot, \`docs/specs/\` architect, and topological DAG waves.
-- \`/sdlc-doctor\`: Stack detection, \`doctor --fix\`, 4-Layer Git hooks, \`.archlens/policy.json\`, and multi-agent installer.
-- \`/sdlc-status\`: Active session, 8-stage progress, drift check, \`KANBAN.md\` state, and live Architecture Diff UI.
-- \`/sdlc-tdd\`: Robert Martin Red-Green-Refactor TDD, polyglot test runners, and real coverage/mutation report parsers.
-- \`/sdlc-gate\`: Parallel fork-join PR review subagents, \`gate --strict\`, and Stage 7 SHA-256 Merkle Gate Receipt.
+- \`/sdlc-doctor\`: Stack detection, \`doctor --fix\`, SHA-256 verified 4-Layer Git hooks, \`.archlens/policy.json\`, and multi-agent installer.
+- \`/sdlc-status\`: Active session, 8-stage progress, drift check, \`KANBAN.md\` state, and Architecture Diff snapshot.
+- \`/sdlc-tdd\`: Red-Green-Refactor TDD, polyglot test runners, and real coverage/mutation report parsers.
+- \`/sdlc-gate\`: Risk-tiered PR review subagents, \`gate --strict\`, and Stage 7 HMAC-SHA256 Merkle Gate Receipt.
 - \`/sdlc-adr\`: Mint, approve, or compact Spec-Drift ADRs (\`adr compact\`) and synchronize \`docs/DECISION_MAP.md\`.
-- \`/sdlc-release\`: ADR compaction into \`docs/SRS.md\`, README/Docs/Wiki sync, SemVer tagging, regression proofs, and live canary watchdog.
+- \`/sdlc-wiki\`: 10-30-90 \`README.md\` landing page & AST-to-Wiki synchronization (\`readme audit\`, \`wiki sync\`).
+- \`/sdlc-release\`: ADR compaction into \`docs/SRS.md\`, Docs/Wiki sync, SemVer tagging, regression proofs, and canary watchdog.
+- **Strict \`sdlc*\` Namespace Isolation**: \`sdlc*\` skills govern delivery mechanics and verification only (decoupled from standalone coding-persona or design skills); \`install\` and \`interop export\` never modify or delete non-\`sdlc*\` skills.
 `;
 
 /**
@@ -238,8 +255,9 @@ export function toClaudeSkill(sk) {
     )
   );
   const description = toClaudeDialect(fm.description || sk.description || sk.id);
+  const yamlDesc = /[:#]/.test(description) ? JSON.stringify(description) : description;
   const body = toClaudeDialect(parsed.body || sk.body || '');
-  const lines = ['---', `name: ${fm.name || sk.id}`, `description: ${description}`];
+  const lines = ['---', `name: ${fm.name || sk.id}`, `description: ${yamlDesc}`];
   if (allowedTools.length) lines.push(`allowed-tools: ${allowedTools.join(', ')}`);
   lines.push('---', '', body, '');
   return { id: sk.id, description, body, allowedTools, markdown: lines.join('\n') };
@@ -309,6 +327,13 @@ export function pruneDeprecatedSkills(skillsDir) {
       try {
         fs.unlinkSync(candidateMdc);
         pruned.push(`${deprecated}.mdc`);
+      } catch {}
+    }
+    const candidateZip = path.join(skillsDir, `${deprecated}.zip`);
+    if (fileExists(candidateZip)) {
+      try {
+        fs.unlinkSync(candidateZip);
+        pruned.push(`${deprecated}.zip`);
       } catch {}
     }
   }
@@ -601,6 +626,7 @@ export function adaptSkillForAgent(skill, agentId = 'claude') {
     skillMarkdown,
     coworkSkillMarkdown,
     commandMarkdown,
+    description: safeDesc,
     body
   };
 }
@@ -707,12 +733,17 @@ export function provisionAgentIntegrations({
     prunedSkills.push(...pruneDeprecatedSkills(path.join(homeDir, '.gemini/config/skills')));
     prunedSkills.push(...pruneDeprecatedSkills(path.join(homeDir, '.claude/skills')));
     prunedSkills.push(...pruneDeprecatedSkills(path.join(homeDir, '.claude/commands')));
+    prunedSkills.push(...pruneDeprecatedSkills(path.join(homeDir, '.claude/cowork')));
+    prunedSkills.push(...pruneDeprecatedSkills(path.join(homeDir, '.cursor/skills')));
+    prunedSkills.push(...pruneDeprecatedSkills(path.join(homeDir, '.cursor/rules')));
     prunedSkills.push(...pruneDeprecatedSkills(path.join(homeDir, '.grok/skills')));
   } else {
     prunedSkills.push(...pruneDeprecatedSkills(path.join(absTarget, '.agent/skills')));
     prunedSkills.push(...pruneDeprecatedSkills(path.join(absTarget, '.agents/skills')));
     prunedSkills.push(...pruneDeprecatedSkills(path.join(absTarget, '.claude/skills')));
     prunedSkills.push(...pruneDeprecatedSkills(path.join(absTarget, '.claude/commands')));
+    prunedSkills.push(...pruneDeprecatedSkills(path.join(absTarget, '.claude/cowork')));
+    prunedSkills.push(...pruneDeprecatedSkills(path.join(absTarget, '.cursor/skills')));
     prunedSkills.push(...pruneDeprecatedSkills(path.join(absTarget, '.grok/skills')));
     prunedSkills.push(...pruneDeprecatedSkills(path.join(absTarget, '.cursor/rules')));
     prunedSkills.push(...pruneDeprecatedSkills(path.join(absTarget, '.windsurf/workflows')));
@@ -742,8 +773,25 @@ export function provisionAgentIntegrations({
       const claudeCommandsDir = path.join(claudeRoot, 'commands');
       const claudeCoworkDir = path.join(claudeRoot, 'cowork');
       fs.mkdirSync(claudeSkillsDir, { recursive: true });
-      fs.mkdirSync(claudeCommandsDir, { recursive: true });
       fs.mkdirSync(claudeCoworkDir, { recursive: true });
+
+      // Remove legacy duplicate .claude/commands/<skill>.md files while preserving user-authored commands
+      if (fileExists(claudeCommandsDir)) {
+        for (const canonicalId of CANONICAL_SDLC_SKILLS) {
+          const dupCmdPath = path.join(claudeCommandsDir, `${canonicalId}.md`);
+          if (fileExists(dupCmdPath)) {
+            try {
+              fs.unlinkSync(dupCmdPath);
+              prunedSkills.push(`${canonicalId}.md`);
+            } catch {}
+          }
+        }
+        try {
+          if (fs.readdirSync(claudeCommandsDir).length === 0) {
+            fs.rmdirSync(claudeCommandsDir);
+          }
+        } catch {}
+      }
 
       for (const sk of skills) {
         const adapted = adaptSkillForAgent(sk, 'claude');
@@ -751,10 +799,6 @@ export function provisionAgentIntegrations({
         fs.mkdirSync(path.dirname(skillFile), { recursive: true });
         fs.writeFileSync(skillFile, adapted.skillMarkdown, 'utf8');
         filesCreated.push(global ? `~/.claude/skills/${sk.id}/SKILL.md` : `.claude/skills/${sk.id}/SKILL.md`);
-
-        const cmdFile = path.join(claudeCommandsDir, `${sk.id}.md`);
-        fs.writeFileSync(cmdFile, adapted.commandMarkdown, 'utf8');
-        filesCreated.push(global ? `~/.claude/commands/${sk.id}.md` : `.claude/commands/${sk.id}.md`);
 
         const zipFile = path.join(claudeCoworkDir, `${sk.id}.zip`);
         fs.writeFileSync(zipFile, createSkillZipBuffer(sk.id, adapted.coworkSkillMarkdown));
@@ -775,10 +819,10 @@ export function provisionAgentIntegrations({
         fs.mkdirSync(path.dirname(pluginManifestPath), { recursive: true });
         const pluginManifest = {
           name: 'agentic-sdlc',
-          version: '0.1.0',
-          description: 'Agentic SDLC Framework — Universal /sdlc router and 9 lifecycle skills for Claude Code & Cowork',
-          skills: './.claude/skills',
-          commands: './.claude/commands'
+          version: getFrameworkVersion(packageRoot),
+          description:
+            'Agentic SDLC Framework — Universal /sdlc router and 9 lifecycle skills for Claude Code & Cowork',
+          skills: './.claude/skills'
         };
         fs.writeFileSync(pluginManifestPath, JSON.stringify(pluginManifest, null, 2) + '\n', 'utf8');
         filesCreated.push('.claude-plugin/plugin.json');
@@ -786,9 +830,13 @@ export function provisionAgentIntegrations({
     }
 
     if (agentId === 'cursor') {
+      const cursorSkillsDir = global
+        ? path.join(homeDir, '.cursor/skills')
+        : path.join(absTarget, '.cursor/skills');
       const cursorRulesDir = global
         ? path.join(homeDir, '.cursor/rules')
         : path.join(absTarget, '.cursor/rules');
+      fs.mkdirSync(cursorSkillsDir, { recursive: true });
       fs.mkdirSync(cursorRulesDir, { recursive: true });
 
       const masterMdc = path.join(cursorRulesDir, 'agentic-sdlc.mdc');
@@ -801,10 +849,15 @@ export function provisionAgentIntegrations({
 
       for (const sk of skills) {
         const adapted = adaptSkillForAgent(sk, 'cursor');
+        const cursorSkillFile = path.join(cursorSkillsDir, sk.id, 'SKILL.md');
+        fs.mkdirSync(path.dirname(cursorSkillFile), { recursive: true });
+        fs.writeFileSync(cursorSkillFile, adapted.coworkSkillMarkdown, 'utf8');
+        filesCreated.push(global ? `~/.cursor/skills/${sk.id}/SKILL.md` : `.cursor/skills/${sk.id}/SKILL.md`);
+
         const skillMdc = path.join(cursorRulesDir, `${sk.id}.mdc`);
         fs.writeFileSync(
           skillMdc,
-          `---\ndescription: ${sk.description}\nglobs: *\nalwaysApply: false\n---\n\n${adapted.body}\n`,
+          `---\ndescription: ${JSON.stringify(adapted.description || sk.description)}\nglobs: *\nalwaysApply: false\n---\n\n${adapted.body}\n`,
           'utf8'
         );
         filesCreated.push(global ? `~/.cursor/rules/${sk.id}.mdc` : `.cursor/rules/${sk.id}.mdc`);
@@ -868,7 +921,11 @@ export function provisionAgentIntegrations({
         for (const sk of skills) {
           const adapted = adaptSkillForAgent(sk, 'windsurf');
           const wfPath = path.join(wsWorkflowsDir, `${sk.id}.md`);
-          fs.writeFileSync(wfPath, `---\ndescription: ${sk.description}\n---\n\n${adapted.body}\n`, 'utf8');
+          fs.writeFileSync(
+            wfPath,
+            `---\ndescription: ${JSON.stringify(adapted.description || sk.description)}\n---\n\n${adapted.body}\n`,
+            'utf8'
+          );
           filesCreated.push(`.windsurf/workflows/${sk.id}.md`);
         }
 
@@ -892,7 +949,7 @@ export function provisionAgentIntegrations({
         const promptFile = path.join(promptsDir, `${sk.id}.prompt.md`);
         fs.writeFileSync(
           promptFile,
-          `---\nmode: 'agent'\ndescription: '${sk.description.replace(/'/g, "''")}'\n---\n\n${adapted.body}\n`,
+          `---\nmode: 'agent'\ndescription: '${(adapted.description || sk.description).replace(/'/g, "''")}'\n---\n\n${adapted.body}\n`,
           'utf8'
         );
         filesCreated.push(global ? `~/.github/prompts/${sk.id}.prompt.md` : `.github/prompts/${sk.id}.prompt.md`);
@@ -1035,9 +1092,10 @@ async function promptSingleSelect(title, items) {
 }
 
 export async function runInteractiveWizard() {
+  const ver = getFrameworkVersion();
   console.log('\n\x1b[1m\x1b[35m╭──────────────────────────────────────────────────────────────────────────╮\x1b[0m');
-  console.log('\x1b[1m\x1b[35m│\x1b[0m   ⚡ \x1b[1mAGENTIC SDLC FRAMEWORK — INTERACTIVE MULTI-AGENT INSTALLER (v0.1.0)\x1b[0m  \x1b[1m\x1b[35m│\x1b[0m');
-  console.log('\x1b[1m\x1b[35m│\x1b[0m   \x1b[2m6 Consolidated Skills • Dual-Gate TDD • 4-Layer Git Guard • Archlens\x1b[0m   \x1b[1m\x1b[35m│\x1b[0m');
+  console.log(`\x1b[1m\x1b[35m│\x1b[0m   ⚡ \x1b[1mAGENTIC SDLC FRAMEWORK — INTERACTIVE MULTI-AGENT INSTALLER (v${ver})\x1b[0m  \x1b[1m\x1b[35m│\x1b[0m`);
+  console.log('\x1b[1m\x1b[35m│\x1b[0m   \x1b[2mUniversal /sdlc Router • Dual-Gate TDD • 4-Layer Git Guard • Archlens\x1b[0m  \x1b[1m\x1b[35m│\x1b[0m');
   console.log('\x1b[1m\x1b[35m╰──────────────────────────────────────────────────────────────────────────╯\x1b[0m\n');
 
   const agents = await promptMultiSelect(
@@ -1156,6 +1214,7 @@ export function installFramework({
   const absTarget = path.resolve(repoRoot, targetDir);
   const srcSkills = path.join(packageRoot, '.agent/skills');
   const srcScripts = path.join(packageRoot, '.agent/scripts');
+  const srcSchemas = path.join(packageRoot, '.agent/schemas');
   const srcTemplates = path.join(packageRoot, 'docs/templates');
 
   let destSkills;
@@ -1189,16 +1248,25 @@ export function installFramework({
     fs.mkdirSync(absTarget, { recursive: true });
     destSkills = path.join(absTarget, '.agent/skills');
     destScripts = path.join(absTarget, '.agent/scripts');
+    const destSchemas = path.join(absTarget, '.agent/schemas');
     const destTemplates = path.join(absTarget, 'docs/templates');
 
     prePruned.push(...pruneDeprecatedSkills(destSkills));
     prePruned.push(...pruneDeprecatedSkills(path.join(absTarget, '.agents/skills')));
 
     if (path.resolve(srcSkills) !== path.resolve(destSkills)) {
-      copyDirRecursive(srcSkills, destSkills);
+      for (const skillId of CANONICAL_SDLC_SKILLS) {
+        const srcSkillDir = path.join(srcSkills, skillId);
+        if (fileExists(srcSkillDir)) {
+          copyDirRecursive(srcSkillDir, path.join(destSkills, skillId));
+        }
+      }
     }
     if (path.resolve(srcScripts) !== path.resolve(destScripts)) {
       copyDirRecursive(srcScripts, destScripts);
+    }
+    if (fileExists(srcSchemas) && path.resolve(srcSchemas) !== path.resolve(destSchemas)) {
+      copyDirRecursive(srcSchemas, destSchemas);
     }
     if (fileExists(srcTemplates) && path.resolve(srcTemplates) !== path.resolve(destTemplates)) {
       copyDirRecursive(srcTemplates, destTemplates);
@@ -1336,7 +1404,7 @@ export function parseInstallArgs(args = [], repoRoot = '.') {
 
 export function printInstallerHelp() {
   console.log(`
-⚡ Agentic SDLC Framework — Universal Multi-Agent Installer (v0.1.0)
+⚡ Agentic SDLC Framework — Universal Multi-Agent Installer (v${getFrameworkVersion()})
 
 Usage:
   npx github:fmatar/agentic-sdlc-framework install [options]

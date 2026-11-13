@@ -1,15 +1,28 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileExists, readFileSafe, getModifiedFiles, gitOutput } from './core.mjs';
+import { fileExists, readFileSafe, getModifiedFiles, gitOutput, gitDiffForFile } from './core.mjs';
 import { appendDecisionEvent, syncDecisionMapMarkdown } from './decision-graph.mjs';
 import { appendAuditRecord } from './audit-chain.mjs';
+
+function normalizeTicketId(val) {
+  if (val === null || val === undefined || val === '' || val === 'N/A') return null;
+  const clean = String(val).trim().replace(/^#/, '');
+  if (!clean || clean === 'N/A') return null;
+  return /^\d+$/.test(clean) ? Number(clean) : clean;
+}
+
+function formatTicketRef(val) {
+  const norm = normalizeTicketId(val);
+  if (norm === null) return 'N/A';
+  return typeof norm === 'number' ? `#${norm}` : String(norm);
+}
 
 function patchProductMdWithADR(repoRoot, adr) {
   const productPath = path.resolve(repoRoot, 'PRODUCT.md');
   if (!fileExists(productPath)) return false;
 
   let content = readFileSafe(productPath) || '';
-  const row = `| ${adr.id} | ${adr.title} | \`${adr.scope}\` | \`${adr.status}\` | #${adr.ticketId || 'N/A'} | ${(adr.supersedes || []).join(', ') || 'None'} |`;
+  const row = `| ${adr.id} | ${adr.title} | \`${adr.scope}\` | \`${adr.status}\` | ${formatTicketRef(adr.ticketId)} | ${(adr.supersedes || []).join(', ') || 'None'} |`;
 
   // Update existing row if ADR ID already listed
   const rowRegex = new RegExp(`^\\|\\s*${adr.id}\\s*\\|.*$`, 'm');
@@ -55,7 +68,7 @@ export function listADRs(repoRoot = '.') {
     const title = (raw.match(/^title:\s*(.+)$/m) || raw.match(/^#\s+(.+)$/m) || [null, id])[1].trim();
     const status = (raw.match(/^status:\s*(.+)$/m) || [null, 'accepted'])[1].trim();
     const scope = (raw.match(/^scope:\s*(.+)$/m) || [null, 'technical'])[1].trim();
-    const ticketMatch = raw.match(/^ticket:\s*#?(\d+)/m);
+    const ticketMatch = raw.match(/^ticket:\s*(.+)$/m);
     const supersedesRaw = (raw.match(/^supersedes:\s*(.+)$/m) || [null, ''])[1].trim();
     const supersedes = supersedesRaw ? supersedesRaw.split(',').map((s) => s.trim()).filter(Boolean) : [];
     const createdAt = (raw.match(/^createdAt:\s*(.+)$/m) || [null, ''])[1].trim();
@@ -65,7 +78,7 @@ export function listADRs(repoRoot = '.') {
       title,
       status,
       scope,
-      ticketId: ticketMatch ? Number(ticketMatch[1]) : null,
+      ticketId: ticketMatch ? normalizeTicketId(ticketMatch[1]) : null,
       supersedes,
       createdAt,
       file: `docs/adr/${file}`,
@@ -77,6 +90,24 @@ export function listADRs(repoRoot = '.') {
   return adrs;
 }
 
+function getMaxExistingAdrNumber(repoRoot, existingAdrs = []) {
+  let maxNum = 0;
+  for (const adr of existingAdrs) {
+    const m = String(adr.id || '').match(/^ADR-(\d+)$/i);
+    if (m) maxNum = Math.max(maxNum, Number(m[1]));
+  }
+  const srsPath = path.resolve(repoRoot, 'docs/SRS.md');
+  if (fileExists(srsPath)) {
+    const srsRaw = readFileSafe(srsPath) || '';
+    const rowRegex = /^\|\s*`?ADR-(\d+)`?\s*\|/gm;
+    let rm;
+    while ((rm = rowRegex.exec(srsRaw)) !== null) {
+      maxNum = Math.max(maxNum, Number(rm[1]));
+    }
+  }
+  return maxNum;
+}
+
 export function createADR({
   title,
   scope = 'technical',
@@ -85,14 +116,14 @@ export function createADR({
   context = 'Implementation revealed new technical or product constraints.',
   decision = 'Updated architectural approach.',
   consequences = 'Downstream specs and tickets updated accordingly.',
-  autoAccept = null,
+  autoAccept = false,
   repoRoot = '.'
 } = {}) {
   const adrDir = path.resolve(repoRoot, 'docs/adr');
   fs.mkdirSync(adrDir, { recursive: true });
 
   const existing = listADRs(repoRoot);
-  const nextNum = existing.length + 1;
+  const nextNum = getMaxExistingAdrNumber(repoRoot, existing) + 1;
   const adrId = `ADR-${String(nextNum).padStart(3, '0')}`;
   const slug = String(title || 'decision')
     .toLowerCase()
@@ -101,8 +132,10 @@ export function createADR({
     .slice(0, 48);
 
   const normScope = String(scope).toLowerCase() === 'product' || String(scope).toLowerCase() === 'contract' ? 'product' : 'technical';
-  const shouldAccept = autoAccept !== null ? !!autoAccept : normScope === 'technical';
+  const shouldAccept = Boolean(autoAccept);
   const status = shouldAccept ? 'accepted' : 'pending_approval';
+  const normTicket = normalizeTicketId(ticketId);
+  const ticketRef = formatTicketRef(normTicket);
   const createdAt = new Date().toISOString();
   const supList = Array.isArray(supersedes) ? supersedes : String(supersedes || '').split(',').map((s) => s.trim()).filter(Boolean);
 
@@ -115,7 +148,7 @@ id: ${adrId}
 title: ${title}
 status: ${status}
 scope: ${normScope}
-ticket: ${ticketId ? '#' + ticketId : 'N/A'}
+ticket: ${ticketRef}
 supersedes: ${supList.join(', ')}
 createdAt: ${createdAt}
 ---
@@ -124,7 +157,7 @@ createdAt: ${createdAt}
 
 - **Status**: \`${status}\`
 - **Blast Radius / Scope**: \`${normScope}\`
-- **Triggered By Ticket**: ${ticketId ? '#' + ticketId : 'N/A'}
+- **Triggered By Ticket**: ${ticketRef}
 - **Supersedes / Amends**: ${supList.join(', ') || 'None'}
 
 ## 1. Context & Spec Drift Trigger
@@ -144,7 +177,7 @@ ${consequences}
     title,
     status,
     scope: normScope,
-    ticketId,
+    ticketId: normTicket,
     supersedes: supList,
     createdAt,
     file: relativePath
@@ -158,8 +191,8 @@ ${consequences}
     label: `${adrId}: ${title}`,
     category: 'ADR',
     status,
-    ticketId,
-    linksTo: [...supList, ...(ticketId ? [`#${ticketId}`] : [])],
+    ticketId: normTicket,
+    linksTo: [...supList, ...(normTicket !== null ? [ticketRef] : [])],
     metadata: { scope: normScope, file: relativePath, decision },
     repoRoot
   });
@@ -292,15 +325,18 @@ export function compactADRs({ releaseVersion = 'baseline', dryRun = false, repoR
     let srsContent = readFileSafe(srsPath) || '';
     const rows = adrs.map((a) => {
       const summary = extractDecisionSummary(a);
-      const ticketCell = a.ticketId ? `#${a.ticketId}` : 'N/A';
+      const ticketCell = formatTicketRef(a.ticketId);
       const supCell = (a.supersedes || []).join(', ') || 'None';
       return `| \`${a.id}\` | ${a.title.replace(/\|/g, '/')} | \`${a.scope}\` | ${ticketCell} | ${supCell} | \`${releaseVersion}\` | ${summary} |`;
     });
 
     if (srsContent.includes('## Compacted Architectural Decisions')) {
+      const escRel = String(releaseVersion).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       for (const row of rows) {
         const idMatch = row.match(/^\|\s*`(ADR-\d+)`/);
-        const existingRowRegex = idMatch ? new RegExp(`^\\|\\s*\`?${idMatch[1]}\`?\\s*\\|.*$`, 'm') : null;
+        const existingRowRegex = idMatch
+          ? new RegExp(`^\\|\\s*\`?${idMatch[1]}\`?\\s*\\|(?:[^|\\n]*\\|){4}\\s*\`?${escRel}\`?\\s*\\|.*$`, 'm')
+          : null;
         if (existingRowRegex && existingRowRegex.test(srsContent)) {
           srsContent = srsContent.replace(existingRowRegex, row);
         } else {
@@ -413,11 +449,81 @@ export function compactADRs({ releaseVersion = 'baseline', dryRun = false, repoR
   };
 }
 
+const STRUCTURAL_PACKAGE_JSON_KEYS = [
+  'dependencies',
+  'devDependencies',
+  'peerDependencies',
+  'optionalDependencies',
+  'bundledDependencies',
+  'bundleDependencies',
+  'overrides',
+  'resolutions',
+  'workspaces',
+  'engines',
+  'type',
+  'exports',
+  'main',
+  'module',
+  'bin'
+];
+
+function canonicalizeJsonValue(val) {
+  if (Array.isArray(val)) return val.map(canonicalizeJsonValue);
+  if (val && typeof val === 'object') {
+    const out = {};
+    for (const k of Object.keys(val).sort()) {
+      out[k] = canonicalizeJsonValue(val[k]);
+    }
+    return out;
+  }
+  return val;
+}
+
+function hasStructuralPackageJsonMutation(relFile, baseBranch = 'main', repoRoot = '.') {
+  const rel = String(relFile).replace(/\\/g, '/');
+  const fullPath = path.resolve(repoRoot, rel);
+  if (!fileExists(fullPath)) return true;
+
+  let currentPkg;
+  try {
+    currentPkg = JSON.parse(readFileSafe(fullPath) || '');
+  } catch {
+    return true;
+  }
+  if (!currentPkg || typeof currentPkg !== 'object') return true;
+
+  let baseRaw =
+    gitOutput(['show', `origin/${baseBranch}:${rel}`], repoRoot) ??
+    gitOutput(['show', `${baseBranch}:${rel}`], repoRoot) ??
+    gitOutput(['show', `HEAD~1:${rel}`], repoRoot);
+
+  if (baseRaw === null) {
+    const porcelain = (gitOutput(['status', '--porcelain', '--', rel], repoRoot) || '').trim();
+    if (porcelain && !porcelain.startsWith('??') && !porcelain.startsWith('A')) {
+      baseRaw = gitOutput(['show', `HEAD:${rel}`], repoRoot);
+    }
+  }
+
+  if (!baseRaw) return true;
+
+  let basePkg;
+  try {
+    basePkg = JSON.parse(baseRaw);
+  } catch {
+    return true;
+  }
+  if (!basePkg || typeof basePkg !== 'object') return true;
+
+  return STRUCTURAL_PACKAGE_JSON_KEYS.some(
+    (key) => JSON.stringify(canonicalizeJsonValue(basePkg[key])) !== JSON.stringify(canonicalizeJsonValue(currentPkg[key]))
+  );
+}
+
 /**
  * Dual-Enforced Spec-Drift Sentinel:
  * Inspects git diff for structural changes (manifest dependencies, API contracts,
- * DB schema migrations, or Mermaid C4 architecture diagrams). If mutated without
- * an accompanying accepted ADR linked to the active ticket, blocks the gate.
+ * DB schema migrations, PRODUCT.md / capability specs, or Mermaid C4 architecture diagrams).
+ * If mutated without an accompanying accepted ADR linked to the active ticket, blocks the gate.
  */
 export function checkSpecDrift({
   diffFiles = [],
@@ -429,9 +535,12 @@ export function checkSpecDrift({
   const triggers = [];
 
   for (const file of files) {
-    const lower = file.toLowerCase();
-    if (
-      lower.endsWith('package.json') ||
+    const lower = file.replace(/\\/g, '/').toLowerCase();
+    if (lower === 'package.json' || lower.endsWith('/package.json')) {
+      if (hasStructuralPackageJsonMutation(file, baseBranch, repoRoot)) {
+        triggers.push({ file, category: 'DEPENDENCY_MANIFEST_MUTATION', reason: 'Package manifest structural or dependency field modified' });
+      }
+    } else if (
       lower.endsWith('pom.xml') ||
       lower.endsWith('cargo.toml') ||
       lower.endsWith('pyproject.toml') ||
@@ -452,6 +561,12 @@ export function checkSpecDrift({
       triggers.push({ file, category: 'C4_ARCHITECTURE_BOUNDARY_SHIFT', reason: 'Architecture diagram or concentric layer policy modified' });
     } else if (lower === 'docs/prd.md' || lower.endsWith('/docs/prd.md') || lower === 'docs/srs.md' || lower.endsWith('/docs/srs.md')) {
       triggers.push({ file, category: 'PRD_SRS_CONTRACT_MUTATION', reason: 'Macro PRD or IEEE 29148 SRS specification modified' });
+    } else if (
+      lower === 'product.md' ||
+      lower.endsWith('/product.md') ||
+      ((lower.startsWith('docs/specs/') || lower.includes('/docs/specs/')) && lower.endsWith('.md'))
+    ) {
+      triggers.push({ file, category: 'PRODUCT_SPEC_MUTATION', reason: 'Product constitution (PRODUCT.md) or capability specification modified' });
     }
   }
 
@@ -465,18 +580,43 @@ export function checkSpecDrift({
     };
   }
 
-  // Check if an ADR is present in the diff or already registered in docs/adr/ for this ticketId
+  // Check if an accepted ADR is present in the diff or registered in docs/adr/ for this ticketId,
+  // while failing closed if any ADR in the diff or matching ticketId is still pending_approval or rejected.
+  const normDiffSet = new Set(
+    files.map((f) =>
+      String(f || '')
+        .replace(/\\/g, '/')
+        .replace(/^\.\//, '')
+    )
+  );
   const allAdrs = listADRs(repoRoot);
-  const diffHasAdr = files.some((f) => f.includes('docs/adr/ADR-') && f.endsWith('.md'));
-  const matchingAdrs = allAdrs.filter((a) => {
-    const matchesTicket = ticketId ? Number(a.ticketId) === Number(ticketId) : true;
-    const isAccepted = a.status === 'accepted';
-    return isAccepted && (matchesTicket || diffHasAdr);
+  const normQueryTicket = normalizeTicketId(ticketId);
+  const blockingAdrs = allAdrs.filter((a) => {
+    const adrInDiff = normDiffSet.has(a.file);
+    const normAdrTicket = normalizeTicketId(a.ticketId);
+    const matchesTicket = normQueryTicket !== null && String(normAdrTicket) === String(normQueryTicket);
+    return (adrInDiff || matchesTicket) && (a.status === 'pending_approval' || a.status === 'rejected');
   });
+
+  const matchingAdrs =
+    blockingAdrs.length > 0
+      ? []
+      : allAdrs.filter((a) => {
+          if (a.status !== 'accepted') return false;
+          const adrInDiff = normDiffSet.has(a.file);
+          if (normQueryTicket !== null) {
+            const normAdrTicket = normalizeTicketId(a.ticketId);
+            const matchesTicket = String(normAdrTicket) === String(normQueryTicket);
+            return matchesTicket || adrInDiff;
+          }
+          return adrInDiff;
+        });
 
   // Also allow ADR Compaction diffs (where docs/adr/ADR-*.md files were compacted into docs/SRS.md and recorded in AUDIT_CHAIN.jsonl)
   let isAdrCompaction = false;
-  if (matchingAdrs.length === 0) {
+  const compactionOnlyTriggers =
+    triggers.length > 0 && triggers.every((t) => t.file === 'PRODUCT.md' || t.file === 'docs/SRS.md');
+  if (blockingAdrs.length === 0 && matchingAdrs.length === 0 && allAdrs.length === 0 && compactionOnlyTriggers) {
     const auditChainPath = path.resolve(repoRoot, 'docs/AUDIT_CHAIN.jsonl');
     const auditRaw = fileExists(auditChainPath) ? readFileSafe(auditChainPath) || '' : '';
     const hasCompactedAuditRecord = auditRaw.includes('"event":"ADR_BATCH_COMPACTED"');
@@ -485,23 +625,38 @@ export function checkSpecDrift({
     );
     const srsPath = path.resolve(repoRoot, 'docs/SRS.md');
     const srsHasCompactedTable = fileExists(srsPath) && (readFileSafe(srsPath) || '').includes('## Compacted Architectural Decisions');
-    if (hasCompactedAuditRecord && (diffDeletesAdr || srsHasCompactedTable)) {
+    const auditDiff = gitDiffForFile('docs/AUDIT_CHAIN.jsonl', repoRoot) || '';
+    const diffAddsCompactionEvent = auditDiff
+      .split('\n')
+      .some((line) => line.startsWith('+') && !line.startsWith('+++') && line.includes('"event":"ADR_BATCH_COMPACTED"'));
+    if (
+      hasCompactedAuditRecord &&
+      srsHasCompactedTable &&
+      (diffDeletesAdr || (normDiffSet.has('docs/SRS.md') && diffAddsCompactionEvent))
+    ) {
       isAdrCompaction = true;
     }
   }
 
-  const passed = matchingAdrs.length > 0 || isAdrCompaction;
+  const passed = blockingAdrs.length === 0 && (matchingAdrs.length > 0 || isAdrCompaction);
   const linkedIds = matchingAdrs.length > 0 ? matchingAdrs.map((a) => a.id) : isAdrCompaction ? ['ADR_BATCH_COMPACTED'] : [];
+  const blockingSummary = blockingAdrs.map((a) => `${a.id} (${a.status})`).join(', ');
 
   return {
     passed,
     hasUndeclaredDrift: !passed,
     triggers,
     linkedADRs: linkedIds,
-    remediationCommand: `node .agent/scripts/sdlc-engine.mjs adr create --title "<decision>" --scope <technical|product> --ticket ${ticketId || '<id>'} --supersedes CAP-01`,
+    blockingADRs: blockingAdrs.map((a) => a.id),
+    remediationCommand:
+      blockingAdrs.length > 0
+        ? `node .agent/scripts/sdlc-engine.mjs adr decide --id ${blockingAdrs[0].id} --status approve --by "@reviewer" --reason "<rationale>"`
+        : `node .agent/scripts/sdlc-engine.mjs adr create --title "<decision>" --scope <technical|product> --ticket ${ticketId || '<id>'} --supersedes CAP-01`,
     message: passed
       ? `Spec drift verified and governed by ${linkedIds.join(', ')}.`
-      : `UNDECLARED_SPEC_DRIFT: ${triggers.length} structural mutation(s) detected without a linked accepted ADR in docs/adr/.`
+      : blockingAdrs.length > 0
+        ? `UNAPPROVED_ADR_DRIFT: ADR(s) ${blockingSummary} require explicit approval via 'adr decide --status approve' before drift check passes.`
+        : `UNDECLARED_SPEC_DRIFT: ${triggers.length} structural mutation(s) detected without a linked accepted ADR in docs/adr/.`
   };
 }
 

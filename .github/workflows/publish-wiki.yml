@@ -5,40 +5,43 @@ on:
     branches:
       - main
     paths:
-      - 'wiki/**'
+      - "wiki/**"
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    runs-on: ${{ vars.SDLC_RUNS_ON || 'local-agentic-sdlc-framework' }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Sync Wiki
+        env:
+          WIKI_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WIKI_REPO: ${{ github.repository }}
         run: |
-          # Set up git config
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          set -euo pipefail
+          WIKI_DIR="$(mktemp -d "${RUNNER_TEMP:-/tmp}/wiki.XXXXXX")"
+          trap 'rm -rf "$WIKI_DIR"' EXIT
 
-          # Clone the wiki repository
           echo "Cloning GitHub Wiki repository..."
-          if ! git clone "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.wiki.git" /tmp/wiki 2>/dev/null; then
-            echo "::error title=Wiki Repository Not Initialized::The wiki git repository for ${{ github.repository }} does not exist yet. To initialize it, navigate to https://github.com/${{ github.repository }}/wiki in your browser and click 'Create the first page'. Once initialized, re-run this workflow."
+          if ! git clone "https://x-access-token:${WIKI_TOKEN}@github.com/${WIKI_REPO}.wiki.git" "$WIKI_DIR" 2>/dev/null; then
+            echo "::error title=Wiki Repository Not Initialized::The wiki git repository for ${WIKI_REPO} does not exist yet. To initialize it, navigate to https://github.com/${WIKI_REPO}/wiki in your browser and click 'Create the first page'. Once initialized, re-run this workflow."
             exit 1
           fi
 
-          # Copy all files from our wiki directory to the wiki repository
-          cp -r wiki/* /tmp/wiki/
+          git -C "$WIKI_DIR" config user.name "github-actions[bot]"
+          git -C "$WIKI_DIR" config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Commit and push changes
-          cd /tmp/wiki
-          git add .
-          if git diff-index --quiet HEAD; then
+          cp -r wiki/* "$WIKI_DIR"/
+
+          git -C "$WIKI_DIR" add .
+          if git -C "$WIKI_DIR" diff-index --quiet HEAD; then
             echo "No changes to commit. Wiki is up to date."
           else
-            git commit -m "docs: auto-publish wiki from repository"
-            git push origin HEAD:master
+            git -C "$WIKI_DIR" commit -m "docs: auto-publish wiki from repository"
+            git -C "$WIKI_DIR" push origin HEAD:master
           fi

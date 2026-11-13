@@ -1,87 +1,67 @@
 ---
 name: sdlc-product
-description: End-to-end spec-driven Product Autopilot and Feature Specification architect. Synthesizes raw specs into PRODUCT.md (CAP-XX, INV-XX, SPEC-XX), authors PRDs/SRS/C4/ADRs in docs/specs/, provisions templated tickets, and orchestrates topological DAG execution waves.
+description: Use when bootstrapping PRODUCT.md from a raw spec, authoring CAP-XX specs, or planning DAG ticket waves. Not for implementing a single existing ticket (use sdlc-flow).
 allowed-tools: Read, Write, Edit, Bash, Agent
 ---
 
-# 🏛️ Spec-Driven Product Autopilot & Feature Architect (`sdlc-product`)
+# Spec-Driven Product Autopilot & Feature Architect (`sdlc-product`)
 
-## 1. Purpose & Scope
+## When to use / When NOT to use
+- **Use when** initializing `PRODUCT.md` (`INV-XX`, `CAP-XX`), authoring a capability specification (`docs/specs/cap-XX-*.md`), or planning topological DAG ticket waves.
+- **Not for** coding an already-specified ticket (`sdlc-flow`), minting standalone ADRs (`sdlc-adr`), or writing `README.md` / `wiki/` prose (`sdlc-wiki`).
 
-`sdlc-product` combines product-level constitutional governance (`PRODUCT.md`) with formal feature specification (`docs/specs/`, C4 diagrams, ADRs, and templated issue creation):
-1. **Full Product Handover**: Synthesizes raw requirements into a canonical `PRODUCT.md` constitution (`INV-XX`, `CAP-XX`, `ADR-XXX`), creates functional specs in `docs/specs/`, and schedules topological execution waves.
-2. **Single Feature Specification**: Authors PRDs, SRS contracts, C4 Mermaid diagrams, and ADRs for individual features and provisions linked tickets.
+## Lane behavior (Execution Modes)
+| Mode | When to choose | Scope |
+| :--- | :--- | :--- |
+| **Single Capability** | Adding or refining one `CAP-XX` feature | Clarify open questions -> `product spec --cap CAP-XX` -> `ticket create` (skip macro bootstrap). |
+| **Full Product Handover** | New repo or multi-capability epic | Clarify ambiguities -> `product init` -> `product spec` per capability -> `product plan` preview -> confirm -> `product plan --provision` -> `dossier generate`. |
 
----
+## Steps
 
-## 2. Constitutional Product Lifecycle
+1. **Clarify Before Authoring**:
+   If inputs, non-goals, or domain invariants are ambiguous in the user's brief, ask concise clarifying questions before generating specs.
 
-```mermaid
-flowchart TD
-    Raw["📝 Raw Spec / Feature Request"] --> Init["🏛️ PRODUCT.md Constitution\n(INV-XX, CAP-XX, SPEC-XX)"]
-    Init --> Specs["📐 Functional Specs & C4 Diagrams\n(docs/specs/cap-XX-*.md)"]
-    Specs --> Plan["🌊 Topological DAG Waves\n(sdlc-engine product plan --provision)"]
-    Plan --> WaveExec["⚡ Execute Wave Tickets\n(sdlc-flow: stage begin -> pre-pr -> complete)"]
-    WaveExec --> Drift{"Spec Drift?"}
-    Drift -->|Technical Scope| TechADR["⚡ Auto-Accept Technical ADR\n(docs/adr/ADR-00X.md)"]
-    Drift -->|Product / Contract Scope| ProdADR["🛑 Pending Approval ADR"]
-    TechADR --> Map["🗺️ Sync Causal Decision Graph\n(docs/DECISION_MAP.md)"]
-```
-
-### Step 1: Initialize or Update Two-Tier Product Specifications (`PRODUCT.md`, `docs/PRD.md`, `docs/SRS.md`, `README.md` & `docs/specs/`)
-- **Macro Product Bootstrap (`PRODUCT.md` + `docs/PRD.md` + `docs/SRS.md` + `README.md`)**:
-  Initialize `PRODUCT.md`, macro Product Requirements (`docs/PRD.md`), IEEE 29148 Software Requirements (`docs/SRS.md`), initial capability specs, and the 10–30–90 Developer Landing Page (`README.md`, `docs/logo-*.svg`, `llms.txt` from `docs/templates/README_TEMPLATE.md`) if not present:
-  ```bash
-  node .agent/scripts/sdlc-engine.mjs product init --title "<Product Title>" --vision "<Vision>"
-  node .agent/scripts/sdlc-engine.mjs readme init --archetype <auto|cli|sdk|platform> --title "<Product Title>" --hook "<One-sentence positioning hook>"
-  ```
-- **Per-Capability Specification (`docs/specs/cap-XX-<slug>.md`)**:
-  For each new or updated capability (`CAP-XX`), scaffold or refine its unified specification file combining **PRD Slice** (Problem, Scope/Non-Goals, UX flows), **IEEE 29148 SRS Slice** (`Inputs`, `Processing`, `Outputs`, NFRs), and **C4 Mermaid Diagram**, while automatically syncing `PRODUCT.md`, `docs/PRD.md`, and `docs/SRS.md`:
-  ```bash
-  node .agent/scripts/sdlc-engine.mjs product spec \
-    --cap CAP-XX \
-    --title "<Capability Title>" \
-    --problem "<User Problem & Value>" \
-    --inputs "<Validated Inputs>" \
-    --processing "<Domain Processing>" \
-    --outputs "<Outputs & Artifacts>" \
-    --depends-on "<CAP-YY,CAP-ZZ>"
-  ```
-
-### Step 2: Plan Topological Execution Waves & Provision Tickets
-Compute the dependency DAG across capabilities and provision tickets in your PM provider (GitHub Issues, Jira, Linear, or `docs/KANBAN.md`):
-```bash
-node .agent/scripts/sdlc-engine.mjs product plan --provision
-```
-Or create an individual templated feature/bug ticket directly:
-```bash
-node .agent/scripts/sdlc-engine.mjs ticket create --title "<Title>" --type <feat|fix> --problem "<Problem>" --solution "<Solution>"
-```
-
-### Step 3: Context-Compressed Subagent Dossiers
-Before dispatching parallel wave tickets, generate a compact (~500-token) context dossier containing only the linked `CAP-XX` spec, active `INV-XX` invariants, accepted ADRs, and exported file signatures:
-```bash
-node .agent/scripts/sdlc-engine.mjs dossier generate --issue <id> --cap <CAP-XX> <target_files...>
-```
-
-### Step 4: Spec-Drift Sentinel & Dual-Tier ADR Governance
-Whenever `PRODUCT.md`, `docs/specs/*.md`, dependency manifests, or API contracts change:
-1. Mint an Architectural Decision Record (`ADR-00X`):
+2. **Bootstrap Constitution or Author Capability Spec**:
    ```bash
-   node .agent/scripts/sdlc-engine.mjs adr create \
-     --title "<Decision Title>" \
-     --scope <technical|architectural|product|contract> \
-     --ticket <id> \
-     --supersedes "<CAP-XX>" \
-     --context "<Triggering reason>" \
-     --decision "<Chosen architecture>" \
-     --consequences "<Downstream impact>"
+   # Full Product Handover only (creates PRODUCT.md, docs/PRD.md, docs/SRS.md):
+   node .agent/scripts/sdlc-engine.mjs product init --title "<Product Title>" --vision "<Vision>"
+
+   # Single Capability or per-capability slice (non-destructively updates PRD.md & SRS.md):
+   node .agent/scripts/sdlc-engine.mjs product spec \
+     --cap CAP-XX \
+     --title "<Capability Title>" \
+     --problem "<User Problem>" \
+     --inputs "<Validated Inputs>" \
+     --processing "<Domain Rules>" \
+     --outputs "<Outputs & Contracts>" \
+     --depends-on "<CAP-YY>"
    ```
-2. Verify zero undeclared drift, refresh `docs/DECISION_MAP.md`, and generate the interactive Architecture & Decision Lineage UI snapshot:
+
+3. **Preview & Provision Topological Waves (or Single Ticket)**:
    ```bash
-   node .agent/scripts/sdlc-engine.mjs drift check
-   node .agent/scripts/sdlc-engine.mjs decision-graph sync
-   node .agent/scripts/sdlc-engine.mjs ui-snapshot
+   # 1. Always preview DAG waves first (read-only plan, zero remote issues created):
+   node .agent/scripts/sdlc-engine.mjs product plan
+
+   # 2. After user confirms wave plan, provision tickets in GitHub/Linear/Jira/KANBAN.md:
+   node .agent/scripts/sdlc-engine.mjs product plan --provision
+
+   # Or create a single ticket directly:
+   node .agent/scripts/sdlc-engine.mjs ticket create --title "<Title>" --type <feat|fix> --problem "<Problem>" --solution "<Solution>"
    ```
-3. **Inline UI Presentation**:
-   Regenerate `.agent/workbench/index.html` with `node .agent/scripts/sdlc-engine.mjs ui-snapshot`. Claude Code cannot embed HTML inline: tell the user the path of `.agent/workbench/index.html` so they can open it in a browser.
+
+4. **Compile Compact Subagent Dossiers (`~500` tokens per wave ticket)**:
+   ```bash
+   node .agent/scripts/sdlc-engine.mjs dossier generate --issue <id> --cap <CAP-XX> <target_files...>
+   ```
+   Execute wave tickets in topological wave order via `sdlc-flow` (for parallel tickets within the same wave, isolate each worker in its own git worktree or `Workspace: "branch"`). If an existing spec changes, record an ADR via `sdlc-adr`. Run `ui-snapshot` only when the user requests the visual DAG/lineage view.
+
+## ⚠️ Confirm with user before
+- Running `product plan --provision` (creates multiple remote issues across the DAG at once — always show the `product plan` preview first).
+- Passing `--force` to `product spec` (overwrites hand-edited `docs/specs/cap-XX-*.md`).
+
+## If it fails
+- **Cycle detected in `product plan`** -> inspect `--depends-on` edges in `PRODUCT.md` and break the circular dependency.
+- **Spec-drift check fails on existing repo** -> invoke `sdlc-adr` to record the constitutional amendment.
+
+## Done when
+`PRODUCT.md` and `docs/specs/cap-XX-*.md` parse cleanly via `product status`, `drift check` passes, and approved tickets/dossiers are ready for `sdlc-flow`.

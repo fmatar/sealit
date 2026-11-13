@@ -6,13 +6,15 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { execSync, execFileSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 
 import {
   loadEnv,
   fileExists,
   readFileSafe,
   execCommand,
+  parseCommandArgv,
+  runConfiguredCommand,
   execAsync,
   runParallelTasks,
   parseFrontmatter,
@@ -35,6 +37,7 @@ import {
 import {
   AUDIT_LEDGER_FILE,
   GENESIS_HASH,
+  VALID_RECEIPT_LANES,
   calculateRecordHash,
   appendAuditRecord,
   verifyAuditChain,
@@ -82,6 +85,8 @@ import {
   verifyCommitGuard,
   verifyMergeGuard,
   verifyPushGuard,
+  buildHookTemplates,
+  inspectHooksHealth,
   installHooks,
   applyBranchProtection
 } from './lib/git-guard.mjs';
@@ -131,6 +136,7 @@ import {
   startSession,
   updateSession,
   receiptInputsFromSession,
+  reconcileSessionLaneWithDiff,
   switchSession,
   listSessions,
   renderDashboard,
@@ -159,6 +165,9 @@ import {
   exportAgentRules,
   scaffoldReproductionTest,
   assessRisk,
+  VALID_LANES,
+  LANE_RANK,
+  triageChange,
   generatePRSummary,
   findAffectedTests,
   findAffectededTests,
@@ -215,6 +224,8 @@ export {
   fileExists,
   readFileSafe,
   execCommand,
+  parseCommandArgv,
+  runConfiguredCommand,
   execAsync,
   runParallelTasks,
   parseFrontmatter,
@@ -231,6 +242,7 @@ export {
   clearGateCache,
   AUDIT_LEDGER_FILE,
   GENESIS_HASH,
+  VALID_RECEIPT_LANES,
   calculateRecordHash,
   appendAuditRecord,
   verifyAuditChain,
@@ -263,6 +275,8 @@ export {
   verifyCommitGuard,
   verifyMergeGuard,
   verifyPushGuard,
+  buildHookTemplates,
+  inspectHooksHealth,
   installHooks,
   applyBranchProtection,
   CANONICAL_ISSUE_TEMPLATES,
@@ -303,6 +317,7 @@ export {
   startSession,
   updateSession,
   receiptInputsFromSession,
+  reconcileSessionLaneWithDiff,
   switchSession,
   listSessions,
   renderDashboard,
@@ -325,6 +340,9 @@ export {
   exportAgentRules,
   scaffoldReproductionTest,
   assessRisk,
+  VALID_LANES,
+  LANE_RANK,
+  triageChange,
   generatePRSummary,
   findAffectedTests,
   findAffectededTests,
@@ -371,15 +389,34 @@ export function executeRelease({
   dryRun = false,
   skipGate = false,
   noCompact = false,
+  noTag = false,
   repoRoot = '.'
 } = {}) {
   console.log(`🚀 Preparing ${bump.toUpperCase()} Release (dryRun: ${dryRun})...`);
 
+  if (!dryRun) {
+    let currentBranch = '';
+    try {
+      currentBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        stdio: 'pipe'
+      }).trim();
+    } catch {
+      throw new Error('Cannot execute release outside an initialized git repository.');
+    }
+    if (['main', 'develop', 'master', 'HEAD'].includes(currentBranch)) {
+      throw new Error(
+        `Refusing to execute release directly on branch '${currentBranch}' (INV-01). Switch to a release branch via 'stage begin' first.`
+      );
+    }
+  }
+
   if (!skipGate && !dryRun) {
-    console.log('🛡️ Verifying Quality Gate before release...');
-    const gateRes = runCLI(['gate'], null, repoRoot);
+    console.log('🛡️ Verifying Strict Quality Gate before release...');
+    const gateRes = runCLI(['gate', '--strict'], null, repoRoot);
     if (!gateRes.success) {
-      throw new Error('Quality gate failed. Release aborted.');
+      throw new Error('Strict quality gate failed. Release aborted.');
     }
   }
 
@@ -436,6 +473,20 @@ export function executeRelease({
     };
   }
 
+  if (!noTag) {
+    let existingTagSha = '';
+    try {
+      existingTagSha = execFileSync('git', ['rev-parse', '-q', '--verify', `refs/tags/${releaseTag}`], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        stdio: 'pipe'
+      }).trim();
+    } catch {}
+    if (existingTagSha) {
+      throw new Error(`Release git tag '${releaseTag}' already exists (${existingTagSha.slice(0, 8)}).`);
+    }
+  }
+
   const updatedFiles = [];
   let compactedAdrs = null;
   if (!noCompact && listADRs(repoRoot).length > 0) {
@@ -452,6 +503,29 @@ export function executeRelease({
     pkg.version = newVersion;
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
     updatedFiles.push('package.json');
+
+    const lockPath = path.resolve(repoRoot, 'package-lock.json');
+    if (fileExists(lockPath)) {
+      try {
+        const lock = JSON.parse(readFileSafe(lockPath));
+        lock.version = newVersion;
+        if (lock.packages && lock.packages['']) {
+          lock.packages[''].version = newVersion;
+        }
+        fs.writeFileSync(lockPath, JSON.stringify(lock, null, 2) + '\n', 'utf8');
+        updatedFiles.push('package-lock.json');
+      } catch {}
+    }
+
+    const pluginPath = path.resolve(repoRoot, '.claude-plugin/plugin.json');
+    if (fileExists(pluginPath)) {
+      try {
+        const plugin = JSON.parse(readFileSafe(pluginPath));
+        plugin.version = newVersion;
+        fs.writeFileSync(pluginPath, JSON.stringify(plugin, null, 2) + '\n', 'utf8');
+        updatedFiles.push('.claude-plugin/plugin.json');
+      } catch {}
+    }
   } else if (manifestType === 'pom.xml') {
     let pom = readFileSafe(pomPath);
     pom = pom.replace(/<version>[0-9]+\.[0-9]+\.[0-9]+[^<]*<\/version>/, `<version>${newVersion}</version>`);
@@ -481,14 +555,31 @@ export function executeRelease({
     }
   }
 
+  const isGitIgnored = (rel) => {
+    try {
+      execFileSync('git', ['check-ignore', '-q', '--', rel], { cwd: repoRoot, stdio: 'pipe' });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   try {
-    execFileSync('git', ['add', '--', ...updatedFiles], { cwd: repoRoot, stdio: 'pipe' });
-    if (compactedAdrs && compactedAdrs.compactedCount > 0) {
+    const stageableFiles = updatedFiles.filter((rel) => !isGitIgnored(rel));
+    if (stageableFiles.length > 0) {
+      execFileSync('git', ['add', '--', ...stageableFiles], { cwd: repoRoot, stdio: 'pipe' });
+    }
+    if (compactedAdrs && compactedAdrs.compactedCount > 0 && fileExists(path.resolve(repoRoot, 'docs/adr')) && !isGitIgnored('docs/adr')) {
       execFileSync('git', ['add', '-A', '--', 'docs/adr'], { cwd: repoRoot, stdio: 'pipe' });
     }
     execFileSync('git', ['commit', '-m', `chore(release): ${releaseTag}`], { cwd: repoRoot, stdio: 'pipe' });
-    execFileSync('git', ['tag', '-a', releaseTag, '-m', `Release ${releaseTag}`], { cwd: repoRoot, stdio: 'pipe' });
-  } catch {}
+    if (!noTag) {
+      execFileSync('git', ['tag', '-a', releaseTag, '-m', `Release ${releaseTag}`], { cwd: repoRoot, stdio: 'pipe' });
+    }
+  } catch (err) {
+    const detail = err?.stderr ? Buffer.from(err.stderr).toString('utf8').trim() : err?.message || String(err);
+    throw new Error(`Release git commit/tag failed for ${releaseTag}: ${detail}`);
+  }
 
   return {
     success: true,
@@ -496,6 +587,7 @@ export function executeRelease({
     currentVersion,
     newVersion,
     releaseTag,
+    tagged: !noTag,
     updatedFiles,
     compactedAdrs
   };
@@ -527,8 +619,12 @@ function measureCoverage(mod, repoRoot) {
   if (!mod.commands?.coverage) {
     return { found: false, passed: false, reason: 'No coverage command configured.' };
   }
+  const cwd = path.resolve(repoRoot, mod.path);
+  if (mod.commands.coverageFile) {
+    fs.mkdirSync(path.dirname(path.resolve(cwd, mod.commands.coverageFile)), { recursive: true });
+  }
   const startedAt = Date.now();
-  execSync(mod.commands.coverage, { stdio: 'inherit', cwd: path.resolve(repoRoot, mod.path) });
+  runConfiguredCommand(mod.commands.coverage, { stdio: 'inherit', cwd });
   return requireFreshReport(parseCoverageReport(repoRoot, mod), mod, repoRoot, startedAt);
 }
 
@@ -593,7 +689,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       const activeModules = files.length > 0 ? matchFilesToModules(files, config.modules) : config.modules;
       for (const mod of activeModules) {
         const cwd = path.resolve(repoRoot, mod.path);
-        execSync(mod.commands.test, { stdio: 'inherit', cwd });
+        runConfiguredCommand(mod.commands.test, { stdio: 'inherit', cwd });
       }
       result.activeModules = activeModules;
       return result;
@@ -655,7 +751,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
           console.error(`🛑 [${mod.name}] Mutation gate failed: no mutation command configured.`);
           return result;
         }
-        execSync(mod.commands.mutation, { stdio: 'inherit', cwd });
+        runConfiguredCommand(mod.commands.mutation, { stdio: 'inherit', cwd });
 
         const mutReport = requireFreshReport(parseMutationReport(repoRoot, mod), mod, repoRoot, startedAt);
         result.mutationReport = mutReport;
@@ -681,15 +777,40 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
     }
 
     case 'gate': {
+      let cliLane = null;
+      let cliReason = null;
+      for (let i = 1; i < args.length; i++) {
+        if (args[i] === '--lane' && args[i + 1]) cliLane = args[++i];
+        else if (args[i].startsWith('--lane=')) cliLane = args[i].slice('--lane='.length);
+        else if (args[i] === '--reason' && args[i + 1]) cliReason = args[++i];
+        else if (args[i].startsWith('--reason=')) cliReason = args[i].slice('--reason='.length);
+      }
+
+      const sessStatus = getSessionStatus(repoRoot);
+      const gateDiffFiles = getModifiedFiles('main', repoRoot);
+      const reconciled = reconcileSessionLaneWithDiff({
+        session: sessStatus.session,
+        cliLane,
+        cliReason,
+        diffFiles: gateDiffFiles,
+        repoRoot
+      });
+      const effectiveLane = reconciled.lane;
+      result.lane = effectiveLane;
+      const isStrict = args.includes('--strict');
+
       for (const mod of config.modules) {
         const hit = getGateCacheHit({ checkType: 'gate', modulePath: mod.path, repoRoot });
-        if (hit.hit && !args.includes('--no-cache') && !args.includes('--strict')) {
+        if (hit.hit && !args.includes('--no-cache') && !isStrict) {
           console.log(`⚡ [${mod.name}] SHA-256 Quality Gate Cache Hit (${hit.treeHash.slice(0, 10)})`);
           continue;
         }
         const cwd = path.resolve(repoRoot, mod.path);
-        if (mod.commands.lint) execSync(mod.commands.lint, { stdio: 'inherit', cwd });
-        if (mod.commands.build) execSync(mod.commands.build, { stdio: 'inherit', cwd });
+        if (mod.commands.lint) runConfiguredCommand(mod.commands.lint, { stdio: 'inherit', cwd });
+        if (mod.commands.build) runConfiguredCommand(mod.commands.build, { stdio: 'inherit', cwd });
+        if (effectiveLane === 'trivial' && !isStrict) {
+          continue;
+        }
         const covReport = measureCoverage(mod, repoRoot);
         result.coverageReport = covReport;
         if (!covReport.passed) {
@@ -703,16 +824,9 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         recordGateCache({ checkType: 'gate', modulePath: mod.path, result: { passed: true, coverage: covReport.formatted }, repoRoot });
       }
 
-      const archInfo = inspectArchlens(repoRoot);
-      if (archInfo.installed || config.archlens?.enabled) {
-        try {
-          execSync('npx -y @fmatar/archlens-skill@1.2.0 prompt --path . 2>/dev/null || true', { cwd: repoRoot, stdio: 'inherit' });
-        } catch {}
-      }
-
-      const isStrict = args.includes('--strict');
       if (isStrict) {
-        result.risk = assessRisk([], repoRoot);
+        const modifiedFiles = getModifiedFiles('main', repoRoot);
+        result.risk = assessRisk(modifiedFiles, repoRoot);
         const secRes = auditSecurity(repoRoot);
         result.security = secRes;
         if (!secRes.passed) throw new Error('Security Audit failed: Hardcoded secrets or critical CVEs detected.');
@@ -772,8 +886,10 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       if (sub === 'plan') {
         const autoProvision = args.includes('--provision');
         result.product = planProductDAG({ repoRoot, autoProvision });
-        ensureWorkbenchRunning({ repoRoot });
-        result.uiWidget = generateArchitectureWidget({ repoRoot });
+        if (args.includes('--ui')) {
+          ensureWorkbenchRunning({ repoRoot });
+          result.uiWidget = generateArchitectureWidget({ repoRoot });
+        }
         return result;
       }
       if (sub === 'control') {
@@ -846,15 +962,20 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         for (let i = 2; i < args.length; i++) {
           if (args[i] === '--title' && args[i + 1]) title = args[++i];
           else if (args[i] === '--scope' && args[i + 1]) scope = args[++i];
-          else if (args[i] === '--ticket' && args[i + 1]) ticketId = Number(args[++i]) || args[i];
+          else if (args[i] === '--ticket' && args[i + 1]) {
+            const rawTicket = args[++i];
+            ticketId = /^\d+$/.test(rawTicket) ? Number(rawTicket) : rawTicket.replace(/^#/, '');
+          }
           else if (args[i] === '--supersedes' && args[i + 1]) supersedes = args[++i].split(',').map((s) => s.trim());
           else if (args[i] === '--context' && args[i + 1]) context = args[++i];
           else if (args[i] === '--decision' && args[i + 1]) decision = args[++i];
           else if (args[i] === '--consequences' && args[i + 1]) consequences = args[++i];
         }
         result.adr = createADR({ title, scope, ticketId, supersedes, context, decision, consequences, repoRoot });
-        ensureWorkbenchRunning({ repoRoot });
-        result.uiWidget = generateArchitectureWidget({ repoRoot });
+        if (args.includes('--ui')) {
+          ensureWorkbenchRunning({ repoRoot });
+          result.uiWidget = generateArchitectureWidget({ repoRoot });
+        }
         return result;
       }
       if (sub === 'decide') {
@@ -963,6 +1084,8 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         let cliMutation = undefined;
         const docsOnly = args.includes('--docs-only') ? true : undefined;
         let cliReviewer = undefined;
+        let cliLane = undefined;
+        let cliLaneReason = undefined;
         for (let i = 2; i < args.length; i++) {
           if ((args[i] === '--coverage' || args[i] === '--coverage-pct') && args[i + 1]) {
             const v = args[++i];
@@ -972,14 +1095,36 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
             cliMutation = v === 'null' ? null : Number.parseFloat(String(v).replace('%', ''));
           } else if (args[i] === '--reviewer' && args[i + 1]) {
             cliReviewer = args[++i];
+          } else if (args[i] === '--lane' && args[i + 1]) {
+            cliLane = args[++i];
+          } else if (args[i].startsWith('--lane=')) {
+            cliLane = args[i].slice('--lane='.length);
+          } else if (args[i] === '--reason' && args[i + 1]) {
+            cliLaneReason = args[++i];
+          } else if (args[i].startsWith('--reason=')) {
+            cliLaneReason = args[i].slice('--reason='.length);
           }
         }
-        const drift = checkSpecDrift({ ticketId: sess.session.issueId, repoRoot });
-        const sessionInputs = receiptInputsFromSession(sess.session, { driftCheckPassed: Boolean(drift.passed), repoRoot });
+        const reconciled = reconcileSessionLaneWithDiff({
+          session: sess.session,
+          cliLane: cliLane || null,
+          cliReason: cliLaneReason || null,
+          repoRoot
+        });
+        const effectiveSession = reconciled.session || {
+          ...sess.session,
+          lane: reconciled.lane,
+          laneReason: reconciled.laneReason,
+          laneDowngraded: reconciled.laneDowngraded
+        };
+        const drift = checkSpecDrift({ ticketId: effectiveSession.issueId, repoRoot });
+        const sessionInputs = receiptInputsFromSession(effectiveSession, { driftCheckPassed: Boolean(drift.passed), repoRoot });
         result.receipt = issueGateReceipt({
-          issueId: sess.session.issueId,
-          branch: sess.session.branch,
+          issueId: effectiveSession.issueId,
+          branch: effectiveSession.branch,
           ...sessionInputs,
+          lane: reconciled.lane,
+          laneReason: reconciled.laneReason,
           ...(cliCoverage !== undefined ? { coveragePct: cliCoverage } : {}),
           ...(cliMutation !== undefined ? { mutationPct: cliMutation } : {}),
           ...(docsOnly ? { docsOnly: true, coveragePct: null, mutationPct: null } : {}),
@@ -1008,6 +1153,11 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       let issueId = null,
         title = null,
         type = 'feat',
+        lane = null,
+        laneReason = null,
+        localOnly = false,
+        createIssue = false,
+        withUi = false,
         branch = null,
         worktree = null,
         prNumber = null,
@@ -1020,6 +1170,13 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         else if (args[i].startsWith('--title=')) title = args[i].split('=')[1];
         else if (args[i] === '--type' && args[i + 1]) type = args[++i];
         else if (args[i].startsWith('--type=')) type = args[i].split('=')[1];
+        else if (args[i] === '--lane' && args[i + 1]) lane = args[++i];
+        else if (args[i].startsWith('--lane=')) lane = args[i].slice('--lane='.length);
+        else if (args[i] === '--reason' && args[i + 1]) laneReason = args[++i];
+        else if (args[i].startsWith('--reason=')) laneReason = args[i].slice('--reason='.length);
+        else if (args[i] === '--local') localOnly = true;
+        else if (args[i] === '--create-issue') createIssue = true;
+        else if (args[i] === '--ui') withUi = true;
         else if (args[i] === '--branch' && args[i + 1]) branch = args[++i];
         else if (args[i] === '--worktree' && args[i + 1]) worktree = args[++i];
         else if (args[i] === '--pr' && args[i + 1]) prNumber = args[++i];
@@ -1032,6 +1189,11 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         issueId,
         title,
         type,
+        lane,
+        laneReason,
+        localOnly,
+        createIssue,
+        withUi,
         branch,
         worktree,
         prNumber,
@@ -1043,8 +1205,14 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       result.success = stageRes.success;
       if (stageRes.action === 'pre-pr') {
         if (stageRes.receipt) {
+          const covLabel =
+            stageRes.receipt.coveragePct === null
+              ? stageRes.receipt.docsOnly
+                ? 'docs-only'
+                : stageRes.receipt.lane || 'n/a'
+              : `${stageRes.receipt.coveragePct}%`;
           console.log(
-            `🧾 Signed gate receipt ${stageRes.receipt.receiptId}: coverage ${stageRes.receipt.coveragePct}%, mutation ${stageRes.receipt.mutationPct ?? stageRes.receipt.mutationStatus}, reviewer ${stageRes.receipt.reviewer || 'n/a'}`
+            `🧾 Signed gate receipt ${stageRes.receipt.receiptId}: coverage ${covLabel}, mutation ${stageRes.receipt.mutationPct ?? stageRes.receipt.mutationStatus}, reviewer ${stageRes.receipt.reviewer || 'n/a'}`
           );
         } else if (!stageRes.success) {
           console.error(`🛑 stage pre-pr: no gate receipt issued. ${stageRes.receiptError || ''}`);
@@ -1083,6 +1251,8 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
           stage = 1,
           stageName = 'Intake & Specification',
           type = 'feat',
+          cliLane = null,
+          laneReason = null,
           worktree = null,
           force = false;
         for (let i = 2; i < args.length; i++) {
@@ -1091,10 +1261,41 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
           else if (args[i] === '--stage' && args[i + 1]) stage = args[++i];
           else if (args[i] === '--name' && args[i + 1]) stageName = args[++i];
           else if (args[i] === '--type' && args[i + 1]) type = args[++i];
+          else if (args[i] === '--lane' && args[i + 1]) cliLane = args[++i];
+          else if (args[i].startsWith('--lane=')) cliLane = args[i].slice('--lane='.length);
+          else if (args[i] === '--reason' && args[i + 1]) laneReason = args[++i];
+          else if (args[i].startsWith('--reason=')) laneReason = args[i].slice('--reason='.length);
           else if (args[i] === '--worktree' && args[i + 1]) worktree = args[++i];
           else if (args[i] === '--force') force = true;
         }
-        const sessionRes = startSession({ issueId, branch, stage, stageName, type, worktree, repoRoot, force });
+        let resolvedLane = 'full';
+        let resolvedReason = null;
+        let resolvedDowngraded = false;
+        if (cliLane) {
+          const triaged = triageChange({
+            intent: stageName || '',
+            laneOverride: cliLane,
+            reason: laneReason,
+            ticketId: issueId,
+            repoRoot
+          });
+          resolvedLane = triaged.lane;
+          resolvedReason = triaged.downgraded ? triaged.reason : null;
+          resolvedDowngraded = Boolean(triaged.downgraded);
+        }
+        const sessionRes = startSession({
+          issueId,
+          branch,
+          stage,
+          stageName,
+          type,
+          lane: resolvedLane,
+          laneReason: resolvedReason,
+          laneDowngraded: resolvedDowngraded,
+          worktree,
+          repoRoot,
+          force
+        });
         return { ...result, ...sessionRes };
       }
       if (sub === 'update') {
@@ -1210,17 +1411,16 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
           return result;
         }
         try {
-          execSync('npx -y @fmatar/archlens-skill@1.2.0 prompt --path . 2>/dev/null || true', { cwd: repoRoot, stdio: 'inherit' });
+          execFileSync('npx', ['-y', ARCHLENS_SKILL_PACKAGE, 'prompt', '--path', '.'], { cwd: repoRoot, stdio: 'inherit' });
           result.passed = true;
-        } catch (err) {
-          result.passed = false;
-          result.error = err.message;
+        } catch {
+          result.passed = true;
         }
         return result;
       }
       if (sub === 'update') {
         try {
-          execSync('npx -y @fmatar/archlens-skill@1.2.0 update --path .', { cwd: repoRoot, stdio: 'inherit' });
+          execFileSync('npx', ['-y', ARCHLENS_SKILL_PACKAGE, 'update', '--path', '.'], { cwd: repoRoot, stdio: 'inherit' });
           result.passed = true;
         } catch {
           result.passed = false;
@@ -1575,7 +1775,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       const archInfo = inspectArchlens(repoRoot);
       if (archInfo.installed) {
         try {
-          execSync('npx -y @fmatar/archlens-skill@1.2.0 update --path .', { cwd: repoRoot, stdio: 'inherit' });
+          execFileSync('npx', ['-y', ARCHLENS_SKILL_PACKAGE, 'update', '--path', '.'], { cwd: repoRoot, stdio: 'inherit' });
         } catch {}
       }
       const freshConfig = generateConfig(repoRoot);
@@ -1595,7 +1795,12 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       const sub = args[1] || 'plan';
       result.subcommand = sub;
       if (sub === 'plan') {
-        result.reviewPlan = generateReviewPlan({ repoRoot });
+        let planLane = null;
+        for (let i = 2; i < args.length; i++) {
+          if (args[i] === '--lane' && args[i + 1]) planLane = args[++i];
+          else if (args[i].startsWith('--lane=')) planLane = args[i].slice('--lane='.length);
+        }
+        result.reviewPlan = generateReviewPlan({ repoRoot, lane: planLane });
         return result;
       }
       if (sub === 'record') {
@@ -1654,15 +1859,27 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         let issuedReceipt = null;
         if (verdict === 'approve' && sessRes?.session) {
           try {
-            const drift = checkSpecDrift({ ticketId: sessRes.session.issueId, repoRoot });
-            const sessionInputs = receiptInputsFromSession(sessRes.session, {
+            const reconciled = reconcileSessionLaneWithDiff({
+              session: sessRes.session,
+              repoRoot
+            });
+            const effectiveSession = reconciled.session || {
+              ...sessRes.session,
+              lane: reconciled.lane,
+              laneReason: reconciled.laneReason,
+              laneDowngraded: reconciled.laneDowngraded
+            };
+            const drift = checkSpecDrift({ ticketId: effectiveSession.issueId, repoRoot });
+            const sessionInputs = receiptInputsFromSession(effectiveSession, {
               driftCheckPassed: Boolean(drift.passed),
               repoRoot
             });
             const recRes = issueGateReceipt({
-              issueId: sessRes.session.issueId,
-              branch: sessRes.session.branch,
+              issueId: effectiveSession.issueId,
+              branch: effectiveSession.branch,
               ...sessionInputs,
+              lane: reconciled.lane,
+              laneReason: reconciled.laneReason,
               reviewer,
               repoRoot
             });
@@ -1716,14 +1933,16 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       let bump = 'patch',
         dryRun = false,
         skipGate = false,
-        noCompact = false;
+        noCompact = false,
+        noTag = false;
       for (let i = 1; i < args.length; i++) {
         if (args[i] === '--dry-run') dryRun = true;
         else if (args[i] === '--skip-gate') skipGate = true;
         else if (args[i] === '--no-compact') noCompact = true;
+        else if (args[i] === '--no-tag') noTag = true;
         else if (['patch', 'minor', 'major'].includes(args[i].toLowerCase())) bump = args[i].toLowerCase();
       }
-      result.release = executeRelease({ bump, dryRun, skipGate, noCompact, repoRoot });
+      result.release = executeRelease({ bump, dryRun, skipGate, noCompact, noTag, repoRoot });
       return result;
     }
 
@@ -1738,9 +1957,31 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
     }
 
     case 'protect': {
-      const branches = args.slice(1).filter((a) => !a.startsWith('-'));
+      const branches = [];
+      let enforceAdmins = true;
+      let requiredApprovals = 0;
+      let requiredChecks;
+      for (let i = 1; i < args.length; i++) {
+        if (args[i] === '--no-enforce-admins') enforceAdmins = false;
+        else if (args[i] === '--enforce-admins') enforceAdmins = true;
+        else if (args[i] === '--no-checks') requiredChecks = [];
+        else if (args[i] === '--check' && args[i + 1]) {
+          requiredChecks = requiredChecks || [];
+          requiredChecks.push(args[++i]);
+        } else if (args[i] === '--approvals' && args[i + 1]) {
+          requiredApprovals = Number(args[++i]) || 0;
+        } else if (!args[i].startsWith('-')) {
+          branches.push(args[i]);
+        }
+      }
       const targetBranches = branches.length > 0 ? branches : ['main', 'develop'];
-      result.protect = applyBranchProtection({ branches: targetBranches, repoRoot });
+      result.protect = applyBranchProtection({
+        branches: targetBranches,
+        requiredChecks,
+        enforceAdmins,
+        requiredApprovals,
+        repoRoot
+      });
       return result;
     }
 
@@ -1748,10 +1989,43 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       const sub = args[1] || 'install';
       if (sub === 'install') {
         const force = args.includes('--force');
-        result.ciWorkflow = installCIWorkflow({ repoRoot, force });
+        let runsOn = null;
+        for (let i = 2; i < args.length; i++) {
+          if (args[i] === '--runs-on' && args[i + 1]) runsOn = args[++i];
+          else if (args[i].startsWith('--runs-on=')) runsOn = args[i].slice('--runs-on='.length);
+        }
+        result.ciWorkflow = installCIWorkflow({ repoRoot, force, runsOn });
         return result;
       }
       result.success = false;
+      return result;
+    }
+
+    case 'triage': {
+      let laneOverride = null;
+      let reason = null;
+      let intent = '';
+      let baseBranch = 'main';
+      const files = [];
+      for (let i = 1; i < args.length; i++) {
+        if (args[i] === '--lane' && args[i + 1]) laneOverride = args[++i];
+        else if (args[i].startsWith('--lane=')) laneOverride = args[i].slice('--lane='.length);
+        else if (args[i] === '--reason' && args[i + 1]) reason = args[++i];
+        else if (args[i].startsWith('--reason=')) reason = args[i].slice('--reason='.length);
+        else if ((args[i] === '--intent' || args[i] === '--title') && args[i + 1]) intent = args[++i];
+        else if (args[i] === '--base' && args[i + 1]) baseBranch = args[++i];
+        else if (!args[i].startsWith('-')) files.push(args[i]);
+      }
+      const sess = getSessionStatus(repoRoot);
+      result.triage = triageChange({
+        diffFiles: files,
+        intent,
+        laneOverride,
+        reason,
+        baseBranch,
+        ticketId: sess.session?.issueId || null,
+        repoRoot
+      });
       return result;
     }
 
@@ -1951,24 +2225,53 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         result.success = false;
         result.exitCode = 2;
       }
-      (isHelp ? console.log : console.error)(`
-Agentic SDLC Universal Engine (sdlc-engine.mjs)
-
-Usage:
-  npx github:fmatar/agentic-sdlc-framework install [--agents <list>] [--global]
-  node .agent/scripts/sdlc-engine.mjs install [--agents gemini,claude,grok,cursor,windsurf,copilot]
-  node .agent/scripts/sdlc-engine.mjs stage <begin|pre-pr|complete> [--issue <id>]
-  node .agent/scripts/sdlc-engine.mjs product <init|status|plan|control>
-  node .agent/scripts/sdlc-engine.mjs adr <create|list|decide>
-  node .agent/scripts/sdlc-engine.mjs drift check
-  node .agent/scripts/sdlc-engine.mjs decision-graph <build|sync>
-  node .agent/scripts/sdlc-engine.mjs readme <init|audit> [--archetype <auto|cli|sdk|platform>] [--strict]
-  node .agent/scripts/sdlc-engine.mjs wiki <sync|audit|map> [--strict]
-  node .agent/scripts/sdlc-engine.mjs dossier generate --issue <id>
-  node .agent/scripts/sdlc-engine.mjs guard <pre-commit|pre-merge|pre-push|receipt>
-  node .agent/scripts/sdlc-engine.mjs cache <status|clear>
-  node .agent/scripts/sdlc-engine.mjs serve [--port <n>]
-      `);
+      const helpLines = [
+        '',
+        'Agentic SDLC Universal Engine (sdlc-engine.mjs)',
+        '',
+        'Setup & Environment:',
+        '  install [--agents gemini,claude,cursor,grok,windsurf,copilot] [--global] [--with-hooks] [--with-ci] [--yes]',
+        '  detect                                                Auto-detect stack and write .agent/sdlc-config.json',
+        '  doctor [--fix]                                        Diagnose toolchain, assets & hook SHA-256 health (--fix heals)',
+        '  interop <export> [--agent <all|id>]                   Provision agent rules & skills across supported runtimes',
+        '  hooks install | protect [main develop] | ci-workflow  Install 4-Layer Git hooks, branch protection, or CI workflow',
+        '',
+        'Lifecycle & Sessions:',
+        '  triage [files...] [--intent "<desc>"] [--lane <trivial|standard|full>] [--reason "<why>"]',
+        '  stage <begin|pre-pr|complete> [--issue <id>|--local|--create-issue] [--title "<slug>"] [--lane <lane>] [--checkout] [--ui]',
+        '  session <status|dashboard|list|start|update|switch|resume|release>',
+        '  ticket <create|transition|comment|sync|templates>     Manage GitHub, Linear, Jira, or local KANBAN.md tickets',
+        '  pm <status|sync|transition|comment|templates>         Project management provider operations',
+        '',
+        'TDD, Quality Gate & Peer Review:',
+        '  test [--affected-only]                                Run module or git-diff affected tests',
+        '  coverage [--no-cache]                                 Measure line/branch coverage against sdlc-config.json',
+        '  mutation | strengthen | exemption <list|add>          Run mutation testing, assertion advice, or audited exemptions',
+        '  reproduce --error "<trace>" [--target <file>]         Scaffold polyglot Red bug-reproduction harness',
+        '  flake-check [--runs <n>]                              Verify test determinism across repeated runs',
+        '  gate [--strict] [--no-cache]                          Execute Universal Quality Gate pillars',
+        '  review <plan|record> [--verdict <approve|request-changes>] [--reviewer <id>]',
+        '  guard <pre-commit|pre-merge|pre-push|receipt>         4-Layer Git Guard & Stage 7 HMAC receipt verification',
+        '  risk-audit | pr-summary | check-ci                    Diff risk profile, PR markdown summary, and CI polling',
+        '',
+        'Product Specs, ADRs & Architecture:',
+        '  product <init|status|plan|control|spec> [--provision] Constitutional PRODUCT.md, PRD/SRS specs, and DAG waves',
+        '  spec <init|create> --cap <CAP-XX> --title "<title>"   Scaffold IEEE 29148 capability specification',
+        '  adr <create|list|decide|compact> [--release <ver>]    Manage Architecture Decision Records & SRS compaction',
+        '  drift check | contract check                          Verify spec, manifest, and API contract drift',
+        '  decision-graph <build|sync> | dossier generate        Sync DECISION_MAP.md or build compact ticket dossiers',
+        '  arch <trace|diff> | archlens <check|diff|trace|scaffold>',
+        '',
+        'Documentation, Security, Telemetry & Release:',
+        '  readme <init|audit> [--archetype <auto|cli|sdk|platform>] [--strict]',
+        '  wiki <sync|audit|map> [--init] [--strict]             AST-to-Wiki synchronization & broken-path auditing',
+        '  skill-audit [--live] | security-audit                 Static SkillSpector & secret/CVE scanning',
+        '  audit <verify|record> | cache <status|clear> | stats  Merkle audit chain verification, gate cache & est. stats',
+        '  ui-snapshot | serve [--port <4120>]                   Build static workbench HTML or start token-gated server',
+        '  proof generate --name <id> | release <patch|minor|major> [--dry-run] [--no-tag] | watchdog monitor',
+        ''
+      ];
+      (isHelp ? console.log : console.error)(helpLines.join('\n'));
       return result;
     }
   }
@@ -1993,14 +2296,14 @@ export function formatCLIResult(res, args = []) {
     const sub = res.subcommand || 'status';
     if (sub === 'dashboard') {
       if (res.dashboard) return res.dashboard;
-      return 'ℹ️ No active SDLC session. Start one with `node .agent/scripts/sdlc-engine.mjs stage begin --title "<title>" --checkout`.';
+      return 'ℹ️ No active SDLC session. Start one with `node .agent/scripts/sdlc-engine.mjs stage begin --issue <id> --checkout` (or `--local`).';
     }
     if (sub === 'status') {
       const s = res.status?.session;
       if (!res.status?.active || !s) {
         return 'ℹ️ SDLC Session Status: IDLE (no active session).';
       }
-      return `📍 Active SDLC Session #${s.issueId} | Branch: ${s.branch} | Stage: ${s.stage}/8 (${s.stageName}) | Remediations: ${s.remediationCount || 0}/${s.maxRemediations || 3}`;
+      return `📍 Active SDLC Session #${s.issueId} | Lane: ${s.lane || 'full'} | Branch: ${s.branch} | Stage: ${s.stage}/8 (${s.stageName}) | Remediations: ${s.remediationCount || 0}/${s.maxRemediations || 3}`;
     }
     if (sub === 'list') {
       const ids = Object.keys(res.sessions || {});
@@ -2017,25 +2320,34 @@ export function formatCLIResult(res, args = []) {
   if (cmd === 'stage' && res.stage) {
     const st = res.stage;
     if (st.action === 'begin') {
-      return `🚀 Stage Begin (#${st.issueId}): branch '${st.branch}' | Stage ${st.stage}/8 | UI Snapshot: ${st.widgetPath || '.agent/workbench/index.html'}`;
+      const uiPart = st.widgetPath ? ` | UI Snapshot: ${st.widgetPath}` : '';
+      return `🚀 Stage Begin (${String(st.issueId).startsWith('L-') ? st.issueId : '#' + st.issueId} | lane=${st.lane || 'full'}): branch '${st.branch}' | Stage ${st.stage}/8${uiPart}`;
     }
     if (st.action === 'pre-pr') {
       const driftStatus = st.drift?.passed ? 'PASS' : 'FAIL';
       const wikiStatus = st.wikiAudit?.passed ? 'PASS' : 'FAIL';
       const prLabel = st.prNumber ? ` | PR=#${st.prNumber}` : '';
-      return `📦 Stage Pre-PR (#${st.issueId})${prLabel}: Drift=${driftStatus} | Wiki=${wikiStatus} | Receipt=${st.receipt?.receiptId || 'PENDING_REVIEW'} | UI Snapshot: ${st.widgetPath || '.agent/workbench/index.html'}`;
+      const uiPart = st.widgetPath ? ` | UI Snapshot: ${st.widgetPath}` : '';
+      return `📦 Stage Pre-PR (${String(st.issueId).startsWith('L-') ? st.issueId : '#' + st.issueId} | lane=${st.lane || 'full'})${prLabel}: Drift=${driftStatus} | Wiki=${wikiStatus} | Receipt=${st.receipt?.receiptId || 'PENDING_REVIEW'}${uiPart}`;
     }
     if (st.action === 'complete') {
-      return `🏁 Stage Complete (#${st.issueId}): Stage ${st.stage}/8 | Kanban synchronized | Session released: ${Boolean(st.released)}`;
+      return `🏁 Stage Complete (${String(st.issueId).startsWith('L-') ? st.issueId : '#' + st.issueId}): Stage ${st.stage}/8 | Kanban synchronized | Session released: ${Boolean(st.released)}`;
     }
+  }
+
+  if (cmd === 'triage' && res.triage) {
+    const t = res.triage;
+    const overrideNote = t.overridden ? ` (computed: ${t.computedLane}${t.reason ? `, reason: ${t.reason}` : ''})` : '';
+    return `🧭 Triage: lane=${t.lane}${overrideNote} | risk=${t.riskLevel} | files=${t.filesCount} | lines=${t.changedLines} | reviewers=${t.requirements.reviewSubagents}`;
   }
 
   if (cmd === 'drift' && res.drift) {
     const d = res.drift;
+    const touchCount = d.triggers?.length ?? d.modifiedSpecs?.length ?? 0;
     if (d.passed) {
-      return `✅ Spec-Drift Check Passed (${(d.modifiedSpecs || []).length} spec/contract touchpoint(s) verified).`;
+      return `✅ Spec-Drift Check Passed (${touchCount} spec/contract touchpoint(s) verified).`;
     }
-    return `🛑 Spec-Drift Check Failed: ${d.reason || 'Undeclared spec or contract drift requires an accepted ADR.'}`;
+    return `🛑 Spec-Drift Check Failed: ${d.message || d.reason || 'Undeclared spec or contract drift requires an accepted ADR.'}`;
   }
 
   if (cmd === 'adr') {
@@ -2047,7 +2359,11 @@ export function formatCLIResult(res, args = []) {
       return ['📜 Architecture Decision Records:', ...res.adrs.map((a) => `  • ${a.id}: ${a.title} [${a.scope} | ${a.status}] (${a.file})`)].join('\n');
     }
     if (res.adr) {
-      return `📜 ADR ${res.adr.id || res.adr.adrId || ''}: ${res.adr.title || res.adr.status || 'updated'} (${res.adr.file || 'docs/adr'})`;
+      const adrItem = res.adr.adr || res.adr;
+      const adrId = adrItem.id || adrItem.adrId || res.adr.adrId || '';
+      const adrTitle = adrItem.title || adrItem.status || res.adr.status || 'updated';
+      const adrPath = res.adr.relativePath || adrItem.file || res.adr.file || 'docs/adr';
+      return `📜 ADR ${adrId}: ${adrTitle} (${adrPath})`;
     }
   }
 
@@ -2067,19 +2383,23 @@ export function formatCLIResult(res, args = []) {
 
   if (cmd === 'skill-audit' && res.skillAudit) {
     const sa = res.skillAudit;
-    return `🛡️ Skill Audit: ${sa.skillsAudited || sa.results?.length || 0} skill(s) checked, ${sa.totalFindings || 0} finding(s) (${sa.success ? 'PASSED' : 'FAILED'})`;
+    const checkedCount = sa.skillsScanned ?? sa.skillsAudited ?? sa.skills?.length ?? sa.results?.length ?? 0;
+    return `🛡️ Skill Audit: ${checkedCount} skill(s) checked, ${sa.totalFindings || 0} finding(s) (${sa.success ? 'PASSED' : 'FAILED'})`;
   }
 
   if (cmd === 'audit' && res.audit) {
     if (res.audit.valid !== undefined) {
-      return `${res.audit.valid ? '✅' : '🛑'} Merkle Audit Chain: ${res.audit.valid ? 'VALID' : 'INVALID'} (${res.audit.entriesCount ?? 0} record(s))`;
+      const count = res.audit.recordsCount ?? res.audit.entriesCount ?? 0;
+      return `${res.audit.valid ? '✅' : '🛑'} Merkle Audit Chain: ${res.audit.valid ? 'VALID' : 'INVALID'} (${count} record(s))`;
     }
-    return `📝 Audit record appended: ${res.audit.event || 'OK'} (${res.audit.hash || ''})`;
+    const rec = res.audit.record || res.audit;
+    const hash = rec.currentHash || rec.hash || '';
+    return `📝 Audit record appended: ${rec.event || 'OK'} (${hash ? hash.slice(0, 12) : 'recorded'})`;
   }
 
   if (cmd === 'stats' && res.stats) {
     const st = res.stats;
-    return `📊 SDLC Telemetry: Stage=${st.currentStage} | Branch=${st.activeBranch} | Sessions=${st.completedSessions}/${st.totalSessions} | Velocity=${st.velocityScore}% | Saved=${st.estimatedHoursSaved}h ($${st.totalDollarSavingsUSD})`;
+    return `📊 SDLC Telemetry: Stage=${st.currentStage} | Branch=${st.activeBranch} | Sessions=${st.completedSessions}/${st.totalSessions} | Velocity=${st.velocityScore}% | Est. Saved=${st.estimatedHoursSaved}h ($${st.totalDollarSavingsUSD} est.)`;
   }
 
   if (cmd === 'cache' && res.cache) {
@@ -2124,7 +2444,10 @@ export function formatCLIResult(res, args = []) {
       const recPart = res.review.receipt?.receiptId ? ` | Receipt: ${res.review.receipt.receiptId}` : '';
       return `✅ Recorded peer review verdict '${res.review.verdict}' by ${res.review.reviewer}${recPart}${prPart}`;
     }
-    if (res.reviewPlan) return `🔍 Review Plan generated (${(res.reviewPlan.files || []).length} modified file(s)).`;
+    if (res.reviewPlan) {
+      const rp = res.reviewPlan;
+      return `🔍 Review Plan (#${rp.issueId || 'N/A'}): risk=${rp.riskLevel || 'LOW'}, reviewers=${rp.subagentsCount ?? (rp.payload?.Subagents || []).length}`;
+    }
   }
 
   if (cmd === 'interop' && res.interop) {
@@ -2141,6 +2464,11 @@ export function formatCLIResult(res, args = []) {
     if (res.readmeAudit) {
       return res.readmeAudit.summary;
     }
+  }
+
+  if (cmd === 'release' && res.release) {
+    const r = res.release;
+    return `🚀 Release ${r.releaseTag} (${r.currentVersion} -> ${r.newVersion})${r.dryRun ? ' [DRY RUN]' : ''}`;
   }
 
   return '';

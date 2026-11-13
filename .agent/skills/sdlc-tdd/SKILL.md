@@ -1,61 +1,51 @@
 ---
 name: sdlc-tdd
-description: Guides Robert C. Martin Test-Driven Development (Red-Green-Refactor, Transformation Priority Premise, F.I.R.S.T. isolation) and executes real Dual-Gate test coverage (>= 85%) and mutation testing (>= 80%) across polyglot stacks.
+description: "Use when writing tests, reproducing bugs, or checking coverage and mutation gates. Not for pure prose edits. Enforces Red-Green-Refactor TDD using sdlc-config.json bars."
 tools: read_file, write_file, edit_file, run_command
 ---
 
-# 🧪 Robert Martin TDD & Dual-Gate Verification (`sdlc-tdd`)
+# Test-Driven Development & Dual-Gate Runner (`sdlc-tdd`)
 
-## 1. The Three Laws of TDD & Transformation Priority Premise (TPP)
+## When to use / When NOT to use
+- **Use when** adding behavioral tests, reproducing defects from stack traces, or measuring test coverage and mutation kill scores.
+- **Not for** pure documentation, copy, or CSS-only changes with no executable behavior (`trivial` lane).
 
-1. **First Law (Red)**: Write a failing unit test before writing production code.
-2. **Second Law (Red Constraint)**: Write no more of a unit test than is sufficient to fail.
-3. **Third Law (Green)**: Write no more production code than is sufficient to pass the failing test, evolving logic from specific to generic (`nil -> constant -> scalar -> conditional -> iteration`).
-4. **Refactor**: Eliminate duplication, enforce Single Responsibility Principle (SRP), and apply Dependency Inversion (ports & adapters) before starting the next cycle.
+## TDD Discipline & Anti-Patterns
+1. **Red -> Green -> Refactor**: Write a minimal failing behavioral test first, write the smallest production change to pass, then remove duplication (`CRAP < 10`) and respect Concentric Clean Architecture boundaries (`.archlens/policy.json`).
+2. **Zero Test Smells**: No assertion-free "smoke" tests, no trivial getter/setter tests, no deep mock wiring when domain fakes/values work, and strict **F.I.R.S.T.** isolation (temp dirs, ephemeral ports, zero network reliance).
+3. **Config-Driven Thresholds & Style Independence**: Coverage (`thresholds.diffCoverage`) and mutation (`thresholds.mutationScore`) bars come strictly from `.agent/sdlc-config.json` — never assume hardcoded numbers. `sdlc-tdd` enforces verification mechanics only and composes cleanly with any standalone coding-style skill or team convention without requiring one.
 
----
+## Lane behavior
+| Lane | Required test & gate commands |
+| :--- | :--- |
+| `trivial` | No new test required for pure docs/CSS; run `node .agent/scripts/sdlc-engine.mjs test --affected-only` to confirm zero regressions. |
+| `standard` | Red-Green-Refactor unit/integration tests + `node .agent/scripts/sdlc-engine.mjs coverage` (SHA-256 cached when tree unchanged). |
+| `full` | Red-Green-Refactor + `coverage --no-cache` + `mutation` (when `thresholds.mutationScore !== null`) + `flake-check --runs 3`. |
 
-## 2. Zero-Tolerance Test Anti-Patterns
+## Steps
 
-- **No Assertion-Free Tests ("Smoke Screen")**: Every test must assert a specific behavioral outcome (`assert.equal`, `assert.deepEqual`, `assertEquals`), never just calling a method to inflate line coverage.
-- **No Trivial Accessor Tests**: Do not write tests solely for plain getters/setters or framework boilerplate.
-- **No Mock Abuse**: Prefer lightweight in-memory fakes or real domain objects over deeply nested mocks that test mock wiring instead of business rules.
-- **F.I.R.S.T. Isolation**: Tests must be Fast, Independent, Repeatable (ephemeral ports/temp dirs), Self-Validating, and Timely.
-- **ub-mode Alignment**: Adhere to Robert C. Martin's reduced principles (`ub-mode`): First Make it Work (Laziness Protocol, Subtract Before You Add, Attack the Premise), Then Make it Right (CRAP < 10, DRY < 0.8, Mutation kill >= 80%), and Follow Practice.
-
----
-
-## 3. Polyglot Dual-Gate Execution Commands
-
-### Step 1: Fast Affected-Only Test Loop
-During Red-Green-Refactor cycles, run only the tests affected by your git diff:
 ```bash
+# 1. (Bug/Hotfix) Scaffold a failing reproduction harness from an error/stack trace
+node .agent/scripts/sdlc-engine.mjs reproduce --error "<stack_trace>" --target "<file>"
+
+# 2. Fast inner loop on affected tests during Red-Green-Refactor
 node .agent/scripts/sdlc-engine.mjs test --affected-only
-```
 
-### Step 2: Gate 1 — Real Coverage Verification ($\ge 85\%$)
-Execute the stack-aware coverage runner and parser (`coverage-summary.json`, `lcov.info`, `jacoco.csv`, `coverage.xml`, `coverage.out`):
-```bash
-node .agent/scripts/sdlc-engine.mjs coverage --no-cache
-```
-The engine parses the generated coverage artifact on disk, verifies it meets `thresholds.diffCoverage` ($85\%$), and records the measured percentage in `.agent/.sdlc-session.json`.
+# 3. Gate 1: Measure real coverage and record in .agent/.sdlc-session.json
+node .agent/scripts/sdlc-engine.mjs coverage
 
-### Step 3: Gate 2 — Mutation Testing & Strengthening ($\ge 80\%$)
-Execute mutation testing (Stryker, PITest, `mutmut`, `cargo-mutants`) and parse the resulting mutation report:
-```bash
+# 4. Gate 2 (full lane): Run mutation testing & inspect surviving mutants
 node .agent/scripts/sdlc-engine.mjs mutation
-```
-If a mutant survives, generate targeted assertion advice:
-```bash
 node .agent/scripts/sdlc-engine.mjs strengthen --type <ConditionalsBoundary|NegateCondition|Math|VoidMethodCall|EmptyReturn> --file <path>
 ```
-If a surviving mutant is a verified compiler/logging artifact, record an audited exemption:
-```bash
-node .agent/scripts/sdlc-engine.mjs exemption add --mutant "<id>" --file "<path>" --reason "<justification>"
-```
 
-### Step 4: Flake Resistance Check
-Verify zero non-deterministic timing or shared-state flakes across repeated runs:
-```bash
-node .agent/scripts/sdlc-engine.mjs flake-check --runs 5
-```
+## ⚠️ Confirm with user before
+- Recording a mutant exemption (`node .agent/scripts/sdlc-engine.mjs exemption add --mutant "<id>" --file "<path>" --reason "<why>"`) for anything other than a verified logging/compiler artifact.
+
+## If it fails
+- **Coverage below `thresholds.diffCoverage`** -> add behavioral edge-case tests on uncovered branches; never add assertionless calls.
+- **Mutation score below `thresholds.mutationScore`** -> run `strengthen` on surviving mutants and tighten boundary/return assertions.
+- **No test runner configured in repo** -> run `sdlc-doctor` (`detect`) to configure `.agent/sdlc-config.json`.
+
+## Done when
+All tests pass deterministically and the lane's configured coverage (and mutation, in `full` lane) thresholds are recorded in `.agent/.sdlc-session.json`.

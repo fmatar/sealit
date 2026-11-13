@@ -5,7 +5,7 @@
 > To refresh this board: `.agent/scripts/kanban-sync.sh`
 
 > **Repository**: `fmatar/agentic-sdlc-framework`  
-> **Last Synced**: `2026-11-06 19:14:07 UTC`
+> **Last Synced**: `2026-11-12 20:23:06 UTC`
 
 ---
 
@@ -13,10 +13,18 @@
 
 | 📥 Backlog | 📋 Ready | ⚡ In Progress | 🔍 In Review | ✅ Done |
 | :--- | :--- | :--- | :--- | :--- |
-|  |  |  | #99: [FIX] fix: Publish consolidated peer review & quality gate comments to GitHub PRs |  |
-|  |  |  |  | #97: [FIX] fix: fix-claude-desktop-skills |
-|  |  |  |  | #95: [FEAT] feat: Implement ADR lifecycle compaction and fix 6 field-tested engine bugs |
-|  |  |  |  | #94: [FIX] fix: Fix Claude Cowork skill provisioning, non-destructive CLAUDE.md/settings.json, and CLI output |
+|  |  |  | #120: [FEAT] feat: Reset release baseline to version 0.0.1 |  |
+|  |  |  | #118: [FEAT] feat: Decouple SDLC skill namespace from standalone coding-persona skills and document separation of concerns |  |
+|  |  |  | #116: [FEAT] feat: Standardize on 10 canonical skills, neutral terminology, clean footers, and GitHub-width workflow diagram |  |
+|  |  |  | #114: [FEAT] feat: Refresh README.md, Wiki & SRS documentation with Archlens links |  |
+|  |  |  | [#111 chore: Slim npm package (<250 KB), retire duplicate SvelteKit workbench, sync docs, and release v0.4.0](https://github.com/fmatar/agentic-sdlc-framework/issues/111) |  |
+|  |  |  |  | [#107 feat: Risk-proportional execution lanes and spec-drift precision](https://github.com/fmatar/agentic-sdlc-framework/issues/107) |
+|  |  |  |  | [#105 feat: GitHub Actions quality-gate CI, configurable runners, and shell-free execution](https://github.com/fmatar/agentic-sdlc-framework/issues/105) |
+|  |  |  |  | [#103 fix: Truthful CLI telemetry, hook drift doctor, and config-driven Dual-Gate baseline](https://github.com/fmatar/agentic-sdlc-framework/issues/103) |
+|  |  |  |  | [#99 fix: Publish consolidated peer review & quality gate comments to GitHub PRs](https://github.com/fmatar/agentic-sdlc-framework/issues/99) |
+|  |  |  |  | [#97 fix: fix-claude-desktop-skills](https://github.com/fmatar/agentic-sdlc-framework/issues/97) |
+|  |  |  |  | [#95 feat: Implement ADR lifecycle compaction and fix 6 field-tested engine bugs](https://github.com/fmatar/agentic-sdlc-framework/issues/95) |
+|  |  |  |  | [#94 fix: Fix Claude Cowork skill provisioning, non-destructive CLAUDE.md/settings.json, and CLI output](https://github.com/fmatar/agentic-sdlc-framework/issues/94) |
 |  |  |  |  | [#91 fix: Harden gates: exit codes, injection, receipts, fail-closed gates, workbench auth](https://github.com/fmatar/agentic-sdlc-framework/issues/91) |
 |  |  |  |  | [#90 feat: skillspector-security-audit](https://github.com/fmatar/agentic-sdlc-framework/issues/90) |
 |  |  |  |  | [#88 fix: skillspector-zero-findings-and-skill-audit](https://github.com/fmatar/agentic-sdlc-framework/issues/88) |
@@ -54,6 +62,15 @@
 
 | Issue | Status | Priority | Component | Milestone | Spec / Contract |
 | :--- | :--- | :--- | :--- | :--- | :--- |
+| [#111 chore: Slim npm package (<250 KB), retire duplicate SvelteKit workbench, sync docs, and release v0.4.0](https://github.com/fmatar/agentic-sdlc-framework/issues/111) | `status:in-review` | P2 - Medium | General | — | — |
+| [#109 feat: Right-size all sdlc skills and upgrade Claude and Cursor integrations](https://github.com/fmatar/agentic-sdlc-framework/issues/109) | `status:done` | P2 - Medium | General | — | — |
+| [#107 feat: Risk-proportional execution lanes and spec-drift precision](https://github.com/fmatar/agentic-sdlc-framework/issues/107) | `status:done` | P2 - Medium | General | — | — |
+| [#105 feat: GitHub Actions quality-gate CI, configurable runners, and shell-free execution](https://github.com/fmatar/agentic-sdlc-framework/issues/105) | `status:done` | P2 - Medium | General | — | — |
+| [#103 fix: Truthful CLI telemetry, hook drift doctor, and config-driven Dual-Gate baseline](https://github.com/fmatar/agentic-sdlc-framework/issues/103) | `status:done` | P2 - Medium | General | — | — |
+| [#99 fix: Publish consolidated peer review & quality gate comments to GitHub PRs](https://github.com/fmatar/agentic-sdlc-framework/issues/99) | `status:done` | P2 - Medium | General | — | — |
+| [#97 fix: fix-claude-desktop-skills](https://github.com/fmatar/agentic-sdlc-framework/issues/97) | `status:done` | P2 - Medium | General | — | — |
+| [#95 feat: Implement ADR lifecycle compaction and fix 6 field-tested engine bugs](https://github.com/fmatar/agentic-sdlc-framework/issues/95) | `status:done` | P2 - Medium | General | — | — |
+| [#94 fix: Fix Claude Cowork skill provisioning, non-destructive CLAUDE.md/settings.json, and CLI output](https://github.com/fmatar/agentic-sdlc-framework/issues/94) | `status:done` | P2 - Medium | General | — | — |
 | [#91 fix: Harden gates: exit codes, injection, receipts, fail-closed gates, workbench auth](https://github.com/fmatar/agentic-sdlc-framework/issues/91) | `status:done` | P2 - Medium | General | — | — |
 | [#90 feat: skillspector-security-audit](https://github.com/fmatar/agentic-sdlc-framework/issues/90) | `status:done` | P2 - Medium | General | — | — |
 | [#88 fix: skillspector-zero-findings-and-skill-audit](https://github.com/fmatar/agentic-sdlc-framework/issues/88) | `status:done` | P2 - Medium | General | — | — |
@@ -91,5 +108,5 @@
 * `status:backlog` - Triaged, in queue for specification.
 * `status:ready` - Specification approved (`sdlc-product`), ready for engineering.
 * `status:in-progress` - Active branch and TDD implementation underway.
-* `status:in-review` - Pull Request open, peer review (`sdlc-review-gate`) & quality gate active.
+* `status:in-review` - Pull Request open, peer review (`sdlc-gate`) & quality gate active.
 * `status:done` - Merged, verified, and closed.

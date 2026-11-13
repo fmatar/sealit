@@ -2,9 +2,6 @@
 node_modules/
 coverage/
 .nyc_output/
-workbench/.svelte-kit/
-workbench/build/
-workbench/node_modules/
 
 # Agentic SDLC Ephemeral Cache, Local Locks & Secrets
 .env
@@ -14,6 +11,7 @@ workbench/node_modules/
 .agent/.sdlc-session.json
 .agent/.receipt-key
 .agent/skills/*/scripts/bin/
+**/skills/*/scripts/bin/
 .agent/workbench/index.html
 .agent/arch-trace.jsonl
 docs/ARCH_TRACE.md

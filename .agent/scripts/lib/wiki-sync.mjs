@@ -14,19 +14,19 @@ const DEFAULT_ENGINE_RING_MAP = {
   'core.mjs': { ring: 'Ring 0: Domain Core & Primitives', index: 0 },
   'cache.mjs': { ring: 'Ring 0: Domain Core & Primitives', index: 0 },
   'audit-chain.mjs': { ring: 'Ring 0: Domain Core & Primitives', index: 0 },
-  'decision-graph.mjs': { ring: 'Ring 1: Application & Governance', index: 1 },
-  'product-dag.mjs': { ring: 'Ring 1: Application & Governance', index: 1 },
+  'decision-graph.mjs': { ring: 'Ring 0: Domain Core & Primitives', index: 0 },
+  'pm-provider.mjs': { ring: 'Ring 1: Application & Governance', index: 1 },
   'adr-drift.mjs': { ring: 'Ring 1: Application & Governance', index: 1 },
+  'product-dag.mjs': { ring: 'Ring 1: Application & Governance', index: 1 },
   'dossier.mjs': { ring: 'Ring 1: Application & Governance', index: 1 },
-  'session.mjs': { ring: 'Ring 1: Application & Governance', index: 1 },
-  'arch-trace.mjs': { ring: 'Ring 1: Application & Governance', index: 1 },
-  'wiki-sync.mjs': { ring: 'Ring 1: Application & Governance', index: 1 },
   'readme-sync.mjs': { ring: 'Ring 1: Application & Governance', index: 1 },
-  'git-guard.mjs': { ring: 'Ring 2: Adapters & Enforcement', index: 2 },
-  'pm-provider.mjs': { ring: 'Ring 2: Adapters & Enforcement', index: 2 },
-  'quality-gate.mjs': { ring: 'Ring 2: Adapters & Enforcement', index: 2 },
+  'git-guard.mjs': { ring: 'Ring 1: Application & Governance', index: 1 },
+  'arch-trace.mjs': { ring: 'Ring 2: Adapters & Enforcement', index: 2 },
   'installer.mjs': { ring: 'Ring 2: Adapters & Enforcement', index: 2 },
+  'wiki-sync.mjs': { ring: 'Ring 2: Adapters & Enforcement', index: 2 },
   'workbench-server.mjs': { ring: 'Ring 2: Adapters & Enforcement', index: 2 },
+  'quality-gate.mjs': { ring: 'Ring 2: Adapters & Enforcement', index: 2 },
+  'session.mjs': { ring: 'Ring 2: Adapters & Enforcement', index: 2 },
   'sdlc-engine.mjs': { ring: 'Ring 3: CLI Router & Entrypoint', index: 3 }
 };
 
@@ -102,20 +102,22 @@ export function inspectSourceModule(filePath, repoRoot = '.') {
  * and fallback Clean Architecture conventions.
  */
 export function resolveArchlensRing(relPath, policy = null) {
-  const base = path.basename(relPath);
-  if (DEFAULT_ENGINE_RING_MAP[base]) {
-    return DEFAULT_ENGINE_RING_MAP[base];
-  }
-
-  const lower = relPath.toLowerCase();
+  const lower = relPath.replace(/\\/g, '/').toLowerCase();
   if (policy && Array.isArray(policy.layers)) {
     for (let i = 0; i < policy.layers.length; i++) {
       const layer = policy.layers[i];
-      const paths = (layer.paths || [layer.name]).filter(Boolean).map((p) => String(p).toLowerCase());
-      if (paths.some((p) => lower.startsWith(`${p}/`) || lower.includes(`/${p}/`) || lower === p)) {
+      const paths = (layer.paths || [layer.name])
+        .filter(Boolean)
+        .map((p) => String(p).replace(/\\/g, '/').toLowerCase());
+      if (paths.some((p) => lower === p || lower.startsWith(`${p}/`) || lower.includes(`/${p}/`))) {
         return { ring: `Ring ${i}: ${layer.name}`, index: i };
       }
     }
+  }
+
+  const base = path.basename(relPath);
+  if (DEFAULT_ENGINE_RING_MAP[base]) {
+    return DEFAULT_ENGINE_RING_MAP[base];
   }
 
   if (lower.includes('domain') || lower.includes('entity') || lower.includes('core')) {
@@ -264,7 +266,7 @@ export function buildWikiCodeMap(repoRoot = '.') {
   if (fileExists(skillsDir) && fs.statSync(skillsDir).isDirectory()) {
     const dirs = fs
       .readdirSync(skillsDir, { withFileTypes: true })
-      .filter((d) => d.isDirectory() && d.name.startsWith('sdlc'))
+      .filter((d) => d.isDirectory() && (d.name.startsWith('sdlc') || CANONICAL_SDLC_SKILLS.includes(d.name)))
       .map((d) => d.name)
       .sort();
     for (const sName of dirs) {
@@ -299,6 +301,9 @@ export function buildWikiCodeMap(repoRoot = '.') {
     ...a,
     documentedIn: wikiPages.filter((w) => w.content.includes(a.id)).map((w) => w.path)
   }));
+  const srsPath = path.join(absRoot, 'docs/SRS.md');
+  const hasCompactedAdrs =
+    fileExists(srsPath) && (readFileSafe(srsPath) || '').includes('## Compacted Architectural Decisions');
 
   return {
     title: policy?.title || path.basename(absRoot),
@@ -309,6 +314,7 @@ export function buildWikiCodeMap(repoRoot = '.') {
     skills,
     capabilities,
     adrs,
+    hasCompactedAdrs,
     wikiPages: wikiPages.map(({ content: _c, ...rest }) => rest)
   };
 }
@@ -389,9 +395,10 @@ export function auditWiki(repoRoot = '.', { strict = false } = {}) {
           candidatePath.startsWith('.agent/dossiers') ||
           candidatePath.startsWith('.agent/sdlc-session') ||
           candidatePath.startsWith('.agent/.sdlc-session') ||
+          candidatePath.startsWith('.agent/.cache') ||
+          candidatePath.startsWith('.agent/.receipt-key') ||
           candidatePath.startsWith('.agent/sdlc-gate-cache') ||
           candidatePath.startsWith('.agent/sdlc-exemptions') ||
-          candidatePath.startsWith('.agent/gate-receipts') ||
           candidatePath.startsWith('.agent/arch-trace') ||
           candidatePath.startsWith('.agent/decision-graph') ||
           candidatePath.startsWith('.agent/product-dag-state') ||
@@ -590,19 +597,21 @@ ${rows}
               `| **${a.id}** | ${a.title} | \`${a.scope}\` | \`${a.status}\` | ${(a.supersedes || []).join(', ') || 'None'} |`
           )
           .join('\n')
-      : '| `ADR-001` | Initial Architecture | `technical` | `accepted` | `CAP-01` |';
+      : codeMap.hasCompactedAdrs
+        ? '| *None* | *Compacted into `docs/SRS.md`* | - | - | - |'
+        : '| `ADR-001` | Initial Architecture | `technical` | `accepted` | `CAP-01` |';
 
   return `# 🗺️ Codebase-to-Wiki Traceability & Archlens Ring Map
 
 > **Deterministic AST & Clean Architecture Inventory**  
-> Generated and verified by \`node .agent/scripts/sdlc-engine.mjs wiki sync\` (\`sdlc-wiki\`) and governed by \`.archlens/policy.json\`.  
+> Generated and verified by \`node .agent/scripts/sdlc-engine.mjs wiki sync\` (\`sdlc-wiki\`) and governed by [Archlens](https://github.com/fmatar/archlens) (\`.archlens/policy.json\`).  
 > Every module, exported symbol, concentric ring boundary, skill, capability (\`CAP-XX\`), and decision record (\`ADR-00X\`) is mapped below.
 
 ---
 
 ## 1. Archlens Concentric Ring Dependency Graph
 
-In accordance with Robert C. Martin's **Clean Architecture** and \`.archlens/policy.json\`, dependencies point strictly inward toward **Ring 0 (Domain Core & Primitives)**.
+In accordance with Concentric **Clean Architecture** and [Archlens](https://github.com/fmatar/archlens) (\`.archlens/policy.json\`), dependencies point strictly inward toward **${codeMap.rings[0]?.name || 'Ring 0: Domain Core & Primitives'}**.
 
 - **Afferent Coupling ($Ca$)**: Number of modules that depend on this module (inward stability).
 - **Efferent Coupling ($Ce$)**: Number of modules this module depends on (outward fan-out).
@@ -694,7 +703,7 @@ export function syncWiki({ repoRoot = '.', generateMissing = false } = {}) {
       },
       {
         name: 'Architecture.md',
-        title: '# 🏗️ System Architecture\n\nConcentric Clean Architecture governed by `.archlens/policy.json`.\n'
+        title: '# 🏗️ System Architecture\n\nConcentric Clean Architecture governed by [Archlens](https://github.com/fmatar/archlens) (`.archlens/policy.json`).\n'
       },
       {
         name: 'Skills-Reference.md',

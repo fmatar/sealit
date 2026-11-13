@@ -295,7 +295,7 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
   // =========================================================================
   // 3. Dual-Enforced Spec Drift Sentinel & ADR Lifecycle
   // =========================================================================
-  describe('3. Spec-Drift Sentinel & ADR Lifecycle (Technical Auto-Accept vs Product Approval)', () => {
+  describe('3. Spec-Drift Sentinel & ADR Lifecycle (Explicit Approval Across All Scopes)', () => {
     it('flags UNDECLARED_SPEC_DRIFT when dependencies, contracts, or C4 diagrams change without a linked ADR', () => {
       initTempGitRepo(tmpDir);
       initProductConstitution({
@@ -325,7 +325,7 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
       assert.ok(driftRes.triggers.length >= 4);
       assert.ok(driftRes.triggers.some((t) => t.category === 'PRD_SRS_CONTRACT_MUTATION'));
 
-      // Now mint a linked technical ADR for ticket #12
+      // Now mint a linked technical ADR for ticket #12 (starts pending_approval until explicitly approved)
       const adrRes = createADR({
         title: 'Adopt Redis Streams & v2 Endpoint',
         scope: 'technical',
@@ -338,7 +338,7 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
       });
 
       assert.equal(adrRes.success, true);
-      assert.equal(adrRes.adr.status, 'accepted');
+      assert.equal(adrRes.adr.status, 'pending_approval');
       assert.equal(adrRes.adr.id, 'ADR-001');
       assert.equal(fs.existsSync(adrRes.filePath), true);
 
@@ -346,7 +346,24 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
       const productRaw = fs.readFileSync(path.join(tmpDir, 'PRODUCT.md'), 'utf8');
       assert.ok(productRaw.includes('ADR-001'));
 
-      // Re-run drift sentinel with the ADR present in diff -> passes!
+      // Drift check stays false while ADR-001 is pending_approval
+      const driftPending = checkSpecDrift({
+        diffFiles: ['package.json', 'openapi.json', adrRes.relativePath],
+        ticketId: 12,
+        repoRoot: tmpDir
+      });
+      assert.equal(driftPending.passed, false);
+
+      // Approve ADR-001 -> drift check passes!
+      const approvedTech = decideADR({
+        adrId: adrRes.adr.id,
+        action: 'approve',
+        reviewer: '@fady',
+        reason: 'Approved technical ADR for ticket #12',
+        repoRoot: tmpDir
+      });
+      assert.equal(approvedTech.adr.status, 'accepted');
+
       const driftAfter = checkSpecDrift({
         diffFiles: ['package.json', 'openapi.json', adrRes.relativePath],
         ticketId: 12,
@@ -405,12 +422,19 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
         repoRoot: tmpDir
       });
 
-      createADR({
+      const dossierAdr = createADR({
         title: 'Use Stripe PaymentIntents',
         scope: 'technical',
         ticketId: 7,
         supersedes: ['CAP-01'],
         decision: 'Use PaymentIntents API with idempotency keys.',
+        repoRoot: tmpDir
+      });
+      decideADR({
+        adrId: dossierAdr.adr.id,
+        action: 'approve',
+        reviewer: '@fady',
+        reason: 'Approved PaymentIntents ADR',
         repoRoot: tmpDir
       });
 
@@ -637,7 +661,10 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
         tmpDir
       );
       assert.equal(adrCli.command, 'adr');
-      assert.equal(adrCli.adr.adr.status, 'accepted');
+      assert.equal(adrCli.adr.adr.status, 'pending_approval');
+
+      const decCli = runCLI(['adr', 'decide', adrCli.adr.adr.id, 'approve'], null, tmpDir);
+      assert.equal(decCli.adr.adr.status, 'accepted');
 
       const dgCli = runCLI(['decision-graph', 'sync'], null, tmpDir);
       assert.equal(dgCli.command, 'decision-graph');
@@ -880,6 +907,7 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
 
       assert.equal(SUPPORTED_AGENTS.length, 6);
       assert.equal(CANONICAL_SDLC_SKILLS.length, 10);
+      assert.ok(CANONICAL_SDLC_SKILLS.every((id) => id.startsWith('sdlc')));
       assert.ok(DEPRECATED_SDLC_SKILLS.includes('sdlc-kanban'));
       assert.ok(DEPRECATED_SDLC_SKILLS.includes('sdlc-init'));
       assert.ok(DEPRECATED_SDLC_SKILLS.includes('sdlc-review-gate'));
@@ -922,14 +950,15 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
       assert.equal(cliRes.installed.skillsCount, 10);
       assert.ok(cliRes.installed.prunedSkills.includes('sdlc-kanban'));
 
-      // Deprecated skill removed, custom skill preserved, 6 canonical skills present
+      // Deprecated skill removed, custom skill preserved, 10 canonical skills present across runtimes
       assert.equal(fs.existsSync(legacySkillDir), false);
       assert.equal(fs.existsSync(customSkillDir), true);
       for (const s of CANONICAL_SDLC_SKILLS) {
         assert.equal(fs.existsSync(path.join(tmpDir, '.agent/skills', s, 'SKILL.md')), true);
         assert.equal(fs.existsSync(path.join(tmpDir, '.claude/skills', s, 'SKILL.md')), true);
-        assert.equal(fs.existsSync(path.join(tmpDir, '.claude/commands', `${s}.md`)), true);
+        assert.equal(fs.existsSync(path.join(tmpDir, '.claude/commands', `${s}.md`)), false);
         assert.equal(fs.existsSync(path.join(tmpDir, '.grok/skills', s, 'SKILL.md')), true);
+        assert.equal(fs.existsSync(path.join(tmpDir, '.cursor/skills', s, 'SKILL.md')), true);
         assert.equal(fs.existsSync(path.join(tmpDir, '.cursor/rules', `${s}.mdc`)), true);
         assert.equal(fs.existsSync(path.join(tmpDir, '.windsurf/workflows', `${s}.md`)), true);
         assert.equal(fs.existsSync(path.join(tmpDir, '.github/prompts', `${s}.prompt.md`)), true);
@@ -1221,13 +1250,14 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
         'Must allow sdlc-engine.mjs execution'
       );
 
-      // 3. All 10 Claude skills, commands, and Cowork .zip bundles have clean frontmatter and zero Antigravity tool names
+      // 3. All 11 Claude, Cursor, and Grok skills and Cowork .zip bundles have clean frontmatter and zero Antigravity tool names
       for (const skillId of CANONICAL_SDLC_SKILLS) {
         const claudeSkill = fs.readFileSync(path.join(tmpDir, '.claude/skills', skillId, 'SKILL.md'), 'utf8');
-        const claudeCmd = fs.readFileSync(path.join(tmpDir, '.claude/commands', `${skillId}.md`), 'utf8');
+        const cursorSkill = fs.readFileSync(path.join(tmpDir, '.cursor/skills', skillId, 'SKILL.md'), 'utf8');
         const grokSkill = fs.readFileSync(path.join(tmpDir, '.grok/skills', skillId, 'SKILL.md'), 'utf8');
+        assert.equal(fs.existsSync(path.join(tmpDir, '.claude/commands', `${skillId}.md`)), false, 'Must not emit duplicate .claude/commands');
 
-        for (const content of [claudeSkill, claudeCmd, grokSkill]) {
+        for (const content of [claudeSkill, cursorSkill, grokSkill]) {
           assert.equal(/^tools:/m.test(content), false, `${skillId} must not include Antigravity tools: frontmatter`);
           assert.equal(content.includes('<agent-embed'), false, `${skillId} must not include <agent-embed>`);
           assert.equal(content.includes('<artifactDir>'), false, `${skillId} must not include <artifactDir>`);
@@ -1236,10 +1266,6 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
 
         assert.ok(claudeSkill.includes('allowed-tools:'), `${skillId} must include allowed-tools in SKILL.md frontmatter`);
         assert.equal(claudeSkill.includes('user-invocable:'), false, `${skillId} must not have non-standard user-invocable in SKILL.md`);
-        assert.ok(claudeCmd.includes('allowed-tools:'), `${skillId} command must include allowed-tools in frontmatter`);
-        if (skillId === 'sdlc') {
-          assert.ok(claudeCmd.includes('argument-hint: <subcommand> [args]'), 'sdlc command must have argument-hint');
-        }
 
         // Cowork account-level skill .zip bundle exists and starts with PK\x03\x04 ZIP signature containing <skillId>/SKILL.md
         const zipPath = path.join(tmpDir, '.claude/cowork', `${skillId}.zip`);
@@ -1418,7 +1444,7 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
         decision: 'Support real-time T+0 settlement cutoff.',
         repoRoot: tmpDir
       });
-      assert.equal(adr1.adr.status, 'accepted');
+      assert.equal(adr1.adr.status, 'pending_approval');
       assert.equal(adr2.adr.status, 'pending_approval');
 
       const graphBefore = buildDecisionGraph(tmpDir);
@@ -1451,7 +1477,8 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
         'compactADRs must abort when any ADR is pending_approval'
       );
 
-      // Approve ADR-002 via CLI decide command
+      // Approve ADR-001 and ADR-002 via CLI decide command
+      runCLI(['adr', 'decide', 'ADR-001', 'approve'], null, tmpDir);
       runCLI(['adr', 'decide', 'ADR-002', 'approve'], null, tmpDir);
 
       // Dry-run compaction leaves ADR files on disk
@@ -1600,13 +1627,21 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
       }
 
       // Also verify executeRelease automatically compacts in-flight ADRs when cutting a release
+      execFileSync('git', ['checkout', '-q', '-b', 'chore/release-v1.1.0'], { cwd: tmpDir });
       fs.writeFileSync(path.join(tmpDir, 'package.json'), JSON.stringify({ name: 'quantum', version: '1.0.0' }, null, 2));
-      createADR({
+      const relAdr = createADR({
         title: 'Release Auto-Compacted Decision',
         scope: 'technical',
         ticketId: 30,
         supersedes: ['CAP-01'],
         decision: 'Compact me automatically on release.',
+        repoRoot: tmpDir
+      });
+      decideADR({
+        adrId: relAdr.adr.id,
+        action: 'approve',
+        reviewer: '@fady',
+        reason: 'Approved before release cut',
         repoRoot: tmpDir
       });
       assert.equal(listADRs(tmpDir).length, 1);

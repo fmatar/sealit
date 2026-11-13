@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { execSync, execFileSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 
 export const AUDIT_LEDGER_FILE = 'docs/AUDIT_CHAIN.jsonl';
 export const GENESIS_HASH = '0000000000000000000000000000000000000000000000000000000000000000';
@@ -194,10 +194,14 @@ export function verifyReceiptSignature(receipt, key) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
+export const VALID_RECEIPT_LANES = ['trivial', 'standard', 'full'];
+
 export function issueGateReceipt({
   issueId,
   branch,
   headSha = null,
+  lane = 'full',
+  laneReason = null,
   coveragePct,
   coverage,
   mutationPct,
@@ -208,16 +212,23 @@ export function issueGateReceipt({
   driftCheckPassed,
   repoRoot = '.'
 } = {}) {
+  const resolvedLane = VALID_RECEIPT_LANES.includes(lane) ? lane : 'full';
+  const isTrivialLane = resolvedLane === 'trivial';
+  const isStandardLane = resolvedLane === 'standard';
   const rawCov = coveragePct !== undefined ? coveragePct : coverage;
   const rawMut = mutationPct !== undefined ? mutationPct : mutationScore;
-  const resolvedDocsOnly = docsOnly !== undefined ? Boolean(docsOnly) : rawCov === null && rawMut === null;
-  const resolvedCoverage = resolvedDocsOnly && rawCov === undefined ? null : rawCov;
-  const resolvedMutation = resolvedDocsOnly && rawMut === undefined ? null : rawMut;
+  const resolvedDocsOnly = docsOnly !== undefined ? Boolean(docsOnly) : !isTrivialLane && rawCov === null && rawMut === null;
+  const resolvedCoverage = (resolvedDocsOnly || isTrivialLane) && rawCov === undefined ? null : rawCov;
+  const resolvedMutation = (resolvedDocsOnly || isTrivialLane || isStandardLane) && rawMut === undefined ? null : rawMut;
+  const resolvedPeerReview = isTrivialLane && peerReviewApproved === undefined ? true : peerReviewApproved;
+  const resolvedReviewer = reviewer || (isTrivialLane ? '@auto-trivial-gate' : null);
 
   const missing = [];
-  if (!resolvedDocsOnly && !Number.isFinite(resolvedCoverage)) missing.push('coveragePct');
-  if (!resolvedDocsOnly && resolvedMutation !== null && !Number.isFinite(resolvedMutation)) missing.push('mutationPct');
-  if (typeof peerReviewApproved !== 'boolean') missing.push('peerReviewApproved');
+  if (!resolvedDocsOnly && !isTrivialLane && !Number.isFinite(resolvedCoverage)) missing.push('coveragePct');
+  if (!resolvedDocsOnly && !isTrivialLane && !isStandardLane && resolvedMutation !== null && !Number.isFinite(resolvedMutation)) {
+    missing.push('mutationPct');
+  }
+  if (typeof resolvedPeerReview !== 'boolean') missing.push('peerReviewApproved');
   if (typeof driftCheckPassed !== 'boolean') missing.push('driftCheckPassed');
   if (missing.length > 0) {
     return {
@@ -241,20 +252,33 @@ export function issueGateReceipt({
     ? crypto.createHash('sha256').update(fs.readFileSync(productMdPath, 'utf8')).digest('hex')
     : null;
 
+  const mutationStatus = resolvedDocsOnly
+    ? 'docs-only'
+    : isTrivialLane && resolvedMutation === null
+      ? 'trivial-lane'
+      : isStandardLane && resolvedMutation === null
+        ? 'standard-lane-skipped'
+        : resolvedMutation === null
+          ? 'not-configured'
+          : 'measured';
+
   const key = loadReceiptKey(repoRoot, { create: true });
+  const issueRef = String(issueId).startsWith('L-') ? String(issueId) : `#${issueId}`;
   const payload = {
-    receiptId: `GATE-RECEIPT-#${issueId}-${resolvedSha.slice(0, 8)}`,
+    receiptId: `GATE-RECEIPT-${issueRef}-${resolvedSha.slice(0, 8)}`,
     issueId: Number(issueId) || issueId,
     branch: branch || 'feature/unknown',
     headSha: resolvedSha,
     productMdHash,
     stage: 7,
+    lane: resolvedLane,
+    ...(laneReason ? { laneReason } : {}),
     coveragePct: resolvedCoverage,
     mutationPct: resolvedMutation,
     docsOnly: resolvedDocsOnly,
-    mutationStatus: resolvedDocsOnly ? 'docs-only' : resolvedMutation === null ? 'not-configured' : 'measured',
-    peerReviewApproved,
-    reviewer,
+    mutationStatus,
+    peerReviewApproved: resolvedPeerReview,
+    reviewer: resolvedReviewer,
     driftCheckPassed,
     issuedAt: new Date().toISOString()
   };

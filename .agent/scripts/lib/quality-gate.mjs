@@ -1,13 +1,24 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { execSync, execFileSync } from 'node:child_process';
-import { fileExists, readFileSafe, parseFrontmatter, inspectArchlens, detectPMProvider, getModifiedFiles, gitDiffForFile } from './core.mjs';
+import { execFileSync } from 'node:child_process';
+import {
+  fileExists,
+  readFileSafe,
+  parseFrontmatter,
+  inspectArchlens,
+  detectPMProvider,
+  getModifiedFiles,
+  gitDiffForFile,
+  gitOutput,
+  parseCommandArgv,
+  runConfiguredCommand
+} from './core.mjs';
 import { getSessionStatus } from './session.mjs';
 import { createTicket, scaffoldIssueTemplates } from './pm-provider.mjs';
 import { appendAuditRecord } from './audit-chain.mjs';
-import { auditContractDrift } from './adr-drift.mjs';
-import { installHooks } from './git-guard.mjs';
+import { auditContractDrift, checkSpecDrift } from './adr-drift.mjs';
+import { installHooks, inspectHooksHealth } from './git-guard.mjs';
 import { scaffoldArchlensPolicy } from './arch-trace.mjs';
 import { provisionAgentIntegrations } from './installer.mjs';
 
@@ -17,17 +28,17 @@ export function runDoctor(repoRoot = '.', { fix = false } = {}) {
   console.log('================================================================');
 
   const tools = [
-    { name: 'Git CLI', cmd: 'git --version', minReq: 'git version' },
-    { name: 'Node.js Runtime', cmd: 'node --version', minReq: 'v' },
-    { name: 'Skills CLI (npx skills)', cmd: 'npx skills --version', minReq: '1.' },
-    { name: 'GitHub CLI (gh)', cmd: 'gh --version', minReq: 'gh version' },
-    { name: 'Docker Engine', cmd: 'docker --version', minReq: 'Docker version' }
+    { name: 'Git CLI', bin: 'git', args: ['--version'], minReq: 'git version' },
+    { name: 'Node.js Runtime', bin: 'node', args: ['--version'], minReq: 'v' },
+    { name: 'Skills CLI (npx skills)', bin: 'npx', args: ['skills', '--version'], minReq: '1.' },
+    { name: 'GitHub CLI (gh)', bin: 'gh', args: ['--version'], minReq: 'gh version' },
+    { name: 'Docker Engine', bin: 'docker', args: ['--version'], minReq: 'Docker version' }
   ];
 
   const toolResults = [];
   for (const t of tools) {
     try {
-      const out = execSync(t.cmd, { stdio: 'pipe', encoding: 'utf8' }).trim().split('\n')[0];
+      const out = execFileSync(t.bin, t.args, { stdio: 'pipe', encoding: 'utf8' }).trim().split('\n')[0];
       toolResults.push({ name: t.name, status: true, version: out });
     } catch {
       toolResults.push({ name: t.name, status: false, version: 'Not found / Not installed' });
@@ -68,9 +79,21 @@ export function runDoctor(repoRoot = '.', { fix = false } = {}) {
     console.log('  ✔ Active Sessions: Clean (no stale session locks detected)');
   }
 
+  let hooks = inspectHooksHealth(repoRoot);
+  if (hooks.isGitRepo) {
+    console.log('\n🪝 Git Guard Hooks:');
+    if (hooks.upToDate) {
+      console.log('  ✔ 4-Layer Git Hooks  : Installed & SHA-256 template-verified');
+    } else if (!hooks.installed) {
+      console.log(`  ⚠ 4-Layer Git Hooks  : Missing [${hooks.missingHooks.join(', ')}]`);
+    } else {
+      console.log(`  ⚠ 4-Layer Git Hooks  : Outdated [${hooks.outdatedHooks.join(', ')}] — run doctor --fix or hooks install`);
+    }
+  }
+
   const autoFixed = [];
   if (fix) {
-    console.log('\n🛠️ Running Doctor Auto-Fix for Missing Framework Assets...');
+    console.log('\n🛠️ Running Doctor Auto-Fix for Missing or Outdated Framework Assets...');
     for (const a of assetResults) {
       if (!a.status) {
         if (a.path === 'docs/KANBAN.md') {
@@ -86,8 +109,9 @@ export function runDoctor(repoRoot = '.', { fix = false } = {}) {
       }
     }
 
-    if (fs.existsSync(path.resolve(repoRoot, '.git')) && !fs.existsSync(path.resolve(repoRoot, '.git/hooks/pre-push'))) {
+    if (hooks.isGitRepo && !hooks.upToDate) {
       installHooks({ repoRoot });
+      hooks = inspectHooksHealth(repoRoot);
       autoFixed.push('git-hooks');
     }
     if (!fs.existsSync(path.resolve(repoRoot, '.github/workflows/sdlc-quality-gate.yml'))) {
@@ -104,6 +128,7 @@ export function runDoctor(repoRoot = '.', { fix = false } = {}) {
     healthy: allPassed,
     toolchain: toolResults,
     assets: assetResults,
+    hooks,
     sessionStatus,
     autoFixed
   };
@@ -239,7 +264,7 @@ ${uiRows}
 ---
 
 ### 🛡️ Cryptographic Proof Attestation
-- **Zero-Regression Guarantee:** Verified against Robert Martin clean architecture boundaries and backward-compatible contracts.
+- **Zero-Regression Guarantee:** Verified against Concentric Clean Architecture boundaries and backward-compatible contracts.
 - **Audit Verification:** Signed into project audit trail.
 `;
 
@@ -337,7 +362,7 @@ export function monitorCanaryHealthAndWatchdog({
     );
     if (rollbackCommand) {
       try {
-        rollbackOutput = execSync(rollbackCommand, { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' });
+        rollbackOutput = runConfiguredCommand(rollbackCommand, { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' });
         rollbackExecuted = true;
       } catch (err) {
         rollbackOutput = err.message;
@@ -383,7 +408,7 @@ export function monitorCanaryHealthAndWatchdog({
   };
 }
 
-export function installCIWorkflow({ repoRoot = '.', force = false } = {}) {
+export function installCIWorkflow({ repoRoot = '.', force = false, runsOn = null } = {}) {
   console.log('⚙️ Scaffolding GitHub Actions Quality Gate CI/CD Workflow...');
   const workflowDir = path.resolve(repoRoot, '.github/workflows');
   fs.mkdirSync(workflowDir, { recursive: true });
@@ -394,6 +419,34 @@ export function installCIWorkflow({ repoRoot = '.', force = false } = {}) {
     return { success: true, created: false, path: workflowPath, reason: 'Already exists' };
   }
 
+  let configuredRunsOn = runsOn;
+  if (!configuredRunsOn) {
+    const cfgPath = path.resolve(repoRoot, '.agent/sdlc-config.json');
+    if (fileExists(cfgPath)) {
+      try {
+        const cfg = JSON.parse(readFileSafe(cfgPath) || '{}');
+        if (cfg?.ci?.runsOn) {
+          configuredRunsOn = cfg.ci.runsOn;
+        }
+      } catch {}
+    }
+  }
+
+  let runsOnYaml = "${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}";
+  if (Array.isArray(configuredRunsOn) && configuredRunsOn.length > 0) {
+    for (const item of configuredRunsOn) {
+      if (/[\r\n]/.test(String(item))) {
+        throw new Error('Invalid ci.runsOn entry: newline characters are not permitted.');
+      }
+    }
+    runsOnYaml = `[${configuredRunsOn.map((item) => JSON.stringify(String(item))).join(', ')}]`;
+  } else if (typeof configuredRunsOn === 'string' && configuredRunsOn.trim()) {
+    if (/[\r\n]/.test(configuredRunsOn)) {
+      throw new Error('Invalid ci.runsOn value: newline characters are not permitted.');
+    }
+    runsOnYaml = configuredRunsOn.trim();
+  }
+
   const workflowContent = `name: SDLC Quality Gate
 
 on:
@@ -402,21 +455,32 @@ on:
   pull_request:
     branches: [ main, develop ]
 
+permissions:
+  contents: read
+
 jobs:
   quality-gate:
     name: Universal Quality Gate, Spec-Drift & Merkle Receipt Defense
-    runs-on: ubuntu-latest
+    runs-on: ${runsOnYaml}
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Setup Node.js Runtime
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: 'lts/*'
+
+      - name: Install Dependencies
+        run: |
+          if [ -f "package-lock.json" ]; then
+            npm ci --no-audit --no-fund
+          elif [ -f "package.json" ]; then
+            npm install --no-audit --no-fund
+          fi
 
       - name: Detect SDLC Stack & Configure Environment
         run: |
@@ -429,7 +493,8 @@ jobs:
           if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
             node .agent/scripts/sdlc-engine.mjs drift check
             node .agent/scripts/sdlc-engine.mjs audit verify
-            node .agent/scripts/sdlc-engine.mjs gate
+            node .agent/scripts/sdlc-engine.mjs skill-audit
+            node .agent/scripts/sdlc-engine.mjs gate --strict
           elif npm run | grep -q 'gate'; then
             npm run gate
           else
@@ -443,6 +508,7 @@ jobs:
   return {
     success: true,
     created: true,
+    runsOn: runsOnYaml,
     path: workflowPath
   };
 }
@@ -490,7 +556,7 @@ export function scaffoldReproductionTest({
   let testContent = '';
 
   const headerComment = `/**
- * MANDATORY BUG REPRODUCTION HARNESS (Robert Martin Red-Green-Refactor)
+ * MANDATORY BUG REPRODUCTION HARNESS (Red-Green-Refactor TDD)
  * Target Source: ${guessedTarget}
  * Stack / Error Trace:
  * ${cleanTrace.split('\n').map((l) => ' * ' + l).join('\n')}
@@ -517,7 +583,7 @@ public class ${className} {
     language = 'python';
     testFileName = `test_reproduce_${baseName.toLowerCase()}_${stamp}.py`;
     testContent = `"""
-MANDATORY BUG REPRODUCTION HARNESS (Robert Martin Red-Green-Refactor)
+MANDATORY BUG REPRODUCTION HARNESS (Red-Green-Refactor TDD)
 Target Source: ${guessedTarget}
 Bug Reproduction Harness: ${baseName}
 Trace: ${firstLine}
@@ -656,6 +722,201 @@ export function assessRisk(diffFiles = [], repoRoot = '.') {
   };
 }
 
+export const VALID_LANES = ['trivial', 'standard', 'full'];
+export const LANE_RANK = { trivial: 0, standard: 1, full: 2 };
+
+const TRIVIAL_DOC_STYLE_EXTS = new Set(['.md', '.mdx', '.txt', '.rst', '.css', '.scss', '.svg']);
+
+function isTrivialEligibleFile(filePath) {
+  const norm = String(filePath).replace(/\\/g, '/').toLowerCase();
+  if (
+    norm === 'product.md' ||
+    norm.endsWith('/product.md') ||
+    norm === 'docs/prd.md' ||
+    norm.endsWith('/docs/prd.md') ||
+    norm === 'docs/srs.md' ||
+    norm.endsWith('/docs/srs.md') ||
+    norm.startsWith('docs/specs/') ||
+    norm.includes('/docs/specs/') ||
+    norm.startsWith('docs/adr/') ||
+    norm.includes('/docs/adr/')
+  ) {
+    return false;
+  }
+  return TRIVIAL_DOC_STYLE_EXTS.has(path.extname(norm));
+}
+
+function countChangedLines(files, baseBranch = 'main', repoRoot = '.') {
+  if (!files || files.length === 0) return 0;
+  const numstatMap = new Map();
+  const numstatOut =
+    gitOutput(['diff', '--numstat', `origin/${baseBranch}`], repoRoot) ??
+    gitOutput(['diff', '--numstat', baseBranch], repoRoot) ??
+    gitOutput(['diff', '--numstat', 'HEAD'], repoRoot) ??
+    '';
+
+  for (const line of numstatOut.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const parts = trimmed.split(/\t+/);
+    if (parts.length >= 3) {
+      const added = Number.parseInt(parts[0], 10) || 0;
+      const deleted = Number.parseInt(parts[1], 10) || 0;
+      const rel = parts.slice(2).join('\t').replace(/\\/g, '/');
+      numstatMap.set(rel, added + deleted);
+    }
+  }
+
+  let total = 0;
+  for (const f of files) {
+    const norm = String(f).replace(/\\/g, '/');
+    if (numstatMap.has(norm)) {
+      total += numstatMap.get(norm);
+    } else {
+      const full = path.resolve(repoRoot, norm);
+      if (fileExists(full)) {
+        const raw = readFileSafe(full) || '';
+        total += raw ? raw.split('\n').length : 0;
+      }
+    }
+  }
+  return total;
+}
+
+/**
+ * Classifies a change into one of three risk-proportional execution lanes:
+ * - `trivial`: docs/CSS/comments <= trivialMaxLines (default 25), LOW risk, 0 drift triggers
+ * - `standard`: normal feature/bugfix <= standardMaxLines (default 200), LOW/MEDIUM risk, 0 drift triggers
+ * - `full`: HIGH/CRITICAL risk, any spec-drift trigger, or > standardMaxLines changed lines
+ */
+export function triageChange({
+  diffFiles = [],
+  intent = '',
+  laneOverride = null,
+  reason = null,
+  baseBranch = 'main',
+  ticketId = null,
+  repoRoot = '.'
+} = {}) {
+  let trivialMaxLines = 25;
+  let standardMaxLines = 200;
+  const cfgPath = path.resolve(repoRoot, '.agent/sdlc-config.json');
+  if (fileExists(cfgPath)) {
+    try {
+      const cfg = JSON.parse(readFileSafe(cfgPath) || '{}');
+      if (Number(cfg?.lanes?.trivialMaxLines) > 0) trivialMaxLines = Number(cfg.lanes.trivialMaxLines);
+      if (Number(cfg?.lanes?.standardMaxLines) > 0) standardMaxLines = Number(cfg.lanes.standardMaxLines);
+    } catch {}
+  }
+
+  const normOverride = laneOverride ? String(laneOverride).trim().toLowerCase() : null;
+  if (normOverride && !VALID_LANES.includes(normOverride)) {
+    throw new Error(`Invalid lane '${laneOverride}'. Expected one of: ${VALID_LANES.join(', ')}.`);
+  }
+
+  const files = diffFiles.length > 0 ? diffFiles : getModifiedFiles(baseBranch, repoRoot);
+  const changedLines = countChangedLines(files, baseBranch, repoRoot);
+  const risk = files.length > 0 ? assessRisk(files, repoRoot) : { score: 0, riskLevel: 'LOW', totalFiles: 0, factors: [] };
+  const drift =
+    files.length > 0
+      ? checkSpecDrift({ diffFiles: files, baseBranch, ticketId, repoRoot })
+      : { passed: true, triggers: [] };
+
+  let computedLane = 'standard';
+  let docsOrStyleOnly = false;
+
+  if (files.length === 0) {
+    const cleanIntent = String(intent || '');
+    if (/\b(auth|jwt|crypto|secret|security|migration|flyway|schema|ddl|breaking|release)\b/i.test(cleanIntent)) {
+      computedLane = 'full';
+    } else if (/\b(typo|spelling|readme|comment|copy|css|padding|color|badge|docs?-only|link fix)\b/i.test(cleanIntent)) {
+      computedLane = 'trivial';
+      docsOrStyleOnly = true;
+    } else {
+      computedLane = 'standard';
+    }
+  } else {
+    docsOrStyleOnly = files.every(isTrivialEligibleFile);
+    if (risk.riskLevel === 'CRITICAL' || risk.riskLevel === 'HIGH' || drift.triggers.length > 0 || changedLines > standardMaxLines) {
+      computedLane = 'full';
+    } else if (docsOrStyleOnly && changedLines <= trivialMaxLines && risk.riskLevel === 'LOW') {
+      computedLane = 'trivial';
+    } else {
+      computedLane = 'standard';
+    }
+  }
+
+  let effectiveLane = computedLane;
+  let overridden = false;
+  let downgraded = false;
+  const cleanReason = reason && String(reason).trim() ? String(reason).trim() : null;
+
+  if (normOverride && normOverride !== computedLane) {
+    if (LANE_RANK[normOverride] > LANE_RANK[computedLane]) {
+      effectiveLane = normOverride;
+      overridden = true;
+    } else if (files.length === 0 && computedLane !== 'full') {
+      // Pre-edit triage at `stage begin`: allow explicit lane selection without a downgrade audit,
+      // because `stage pre-pr` and `gate` automatically re-triage the actual diff before merge.
+      effectiveLane = normOverride;
+      overridden = true;
+    } else {
+      if (risk.riskLevel === 'CRITICAL') {
+        throw new Error('Cannot downgrade execution lane below full for CRITICAL risk changes.');
+      }
+      if (!cleanReason) {
+        throw new Error(
+          `Downgrading execution lane from '${computedLane}' to '${normOverride}' requires a non-empty --reason for the audit ledger.`
+        );
+      }
+      appendAuditRecord({
+        event: 'LANE_DOWNGRADE_OVERRIDDEN',
+        metadata: {
+          fromLane: computedLane,
+          toLane: normOverride,
+          reason: cleanReason,
+          riskLevel: risk.riskLevel,
+          changedLines,
+          filesCount: files.length
+        },
+        repoRoot
+      });
+      effectiveLane = normOverride;
+      overridden = true;
+      downgraded = true;
+    }
+  }
+
+  return {
+    lane: effectiveLane,
+    computedLane,
+    overridden,
+    downgraded,
+    reason: cleanReason,
+    riskLevel: risk.riskLevel,
+    riskScore: risk.score,
+    changedLines,
+    filesCount: files.length,
+    docsOrStyleOnly,
+    driftTriggersCount: drift.triggers.length,
+    thresholds: { trivialMaxLines, standardMaxLines },
+    requirements: {
+      remoteTicketRequired: effectiveLane !== 'trivial',
+      coverageRequired: effectiveLane !== 'trivial',
+      mutationRequired: effectiveLane === 'full',
+      reviewSubagents:
+        effectiveLane === 'trivial'
+          ? 0
+          : effectiveLane === 'standard'
+            ? 1
+            : risk.riskLevel === 'CRITICAL' || risk.riskLevel === 'HIGH'
+              ? 3
+              : 2,
+      strictGate: effectiveLane === 'full'
+    }
+  };
+}
+
 export function generatePRSummary({ issueId = null, repoRoot = '.' } = {}) {
   const current = getSessionStatus(repoRoot);
   const activeSess = current.session;
@@ -667,13 +928,11 @@ export function generatePRSummary({ issueId = null, repoRoot = '.' } = {}) {
   const risk = assessRisk(diffFiles, repoRoot);
   const archInfo = inspectArchlens(repoRoot);
 
-  let statSummary = '';
-  try {
-    statSummary = execSync('git diff --stat HEAD~1 2>/dev/null || git diff --stat 2>/dev/null || true', {
-      cwd: repoRoot,
-      encoding: 'utf8'
-    }).trim();
-  } catch {}
+  const statSummary = (
+    gitOutput(['diff', '--stat', 'HEAD~1'], repoRoot) ||
+    gitOutput(['diff', '--stat'], repoRoot) ||
+    ''
+  ).trim();
 
   const covReport = activeSess?.manifest?.coverageReport || null;
   const mutReport = activeSess?.manifest?.mutationScore || null;
@@ -1133,11 +1392,27 @@ export function auditSecurity(repoRoot = '.') {
   }
 
   let packageAuditPassed = true;
-  if (fileExists(path.resolve(repoRoot, 'package.json'))) {
+  let packageAuditStatus = 'not-applicable';
+  if (
+    fileExists(path.resolve(repoRoot, 'package.json')) &&
+    (fileExists(path.resolve(repoRoot, 'package-lock.json')) || fileExists(path.resolve(repoRoot, 'npm-shrinkwrap.json')))
+  ) {
     try {
-      execSync('npm audit --audit-level=high 2>&1', { cwd: repoRoot, stdio: 'pipe' });
-    } catch {
-      packageAuditPassed = false;
+      execFileSync('npm', ['audit', '--audit-level=high', '--json'], { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' });
+      packageAuditStatus = 'clean';
+    } catch (err) {
+      const stdout = String(err?.stdout || '');
+      let parsed = null;
+      try {
+        parsed = JSON.parse(stdout);
+      } catch {}
+      const vulns = parsed?.metadata?.vulnerabilities;
+      if (vulns && Number(vulns.high || 0) + Number(vulns.critical || 0) > 0) {
+        packageAuditPassed = false;
+        packageAuditStatus = 'vulnerable';
+      } else {
+        packageAuditStatus = 'skipped-offline';
+      }
     }
   }
 
@@ -1148,6 +1423,7 @@ export function auditSecurity(repoRoot = '.') {
     secretLeaksCount: secretViolations.length,
     secretViolations,
     packageAuditPassed,
+    packageAuditStatus,
     recommendation: clean ? 'Ready to push.' : 'Resolve hardcoded secrets and high-severity dependencies.'
   };
 }
@@ -1232,32 +1508,118 @@ export function resolveAdHocTargets(files = [], modules = [], repoRoot = '.') {
   };
 }
 
-export function generateReviewPlan({ repoRoot = '.' } = {}) {
+export function generateReviewPlan({ repoRoot = '.', lane = null, maxDiffChars = 40000 } = {}) {
   const current = getSessionStatus(repoRoot);
   const activeSess = current.session;
   const issueId = activeSess?.issueId || 'N/A';
   const branch = activeSess?.branch || 'current-branch';
   const diffFiles = getModifiedFiles('main', repoRoot);
   const risk = assessRisk(diffFiles, repoRoot);
+  const resolvedLane = VALID_LANES.includes(lane)
+    ? lane
+    : VALID_LANES.includes(activeSess?.lane)
+      ? activeSess.lane
+      : 'full';
+
+  const baseSha =
+    (gitOutput(['merge-base', 'origin/main', 'HEAD'], repoRoot) ||
+      gitOutput(['merge-base', 'main', 'HEAD'], repoRoot) ||
+      '').trim() || null;
+  const headSha = (gitOutput(['rev-parse', 'HEAD'], repoRoot) || '').trim() || null;
+  const diffStat = (
+    gitOutput(['diff', '--stat', 'origin/main...HEAD'], repoRoot) ||
+    gitOutput(['diff', '--stat', 'main...HEAD'], repoRoot) ||
+    gitOutput(['diff', '--stat', 'HEAD~1'], repoRoot) ||
+    ''
+  ).trim();
+  const rawDiff = diffFiles
+    .map((file) => gitDiffForFile(file, repoRoot))
+    .filter(Boolean)
+    .join('\n');
+  const budget = Math.max(1024, Number(maxDiffChars) || 40000);
+  const diffTruncated = rawDiff.length > budget;
+  const diff = diffTruncated
+    ? `${rawDiff.slice(0, budget)}\n... [diff truncated at ${budget} chars; inspect full files via read_file]`
+    : rawDiff;
+
+  const filesLabel = diffFiles.length > 0 ? diffFiles.join(', ') : 'none';
+  const issueRef = String(issueId).startsWith('L-') || issueId === 'N/A' ? String(issueId) : `#${issueId}`;
+  const diffContextBlock = [
+    `Base SHA: ${baseSha || 'main'} | HEAD SHA: ${headSha || 'working-tree'}`,
+    `Modified files (${diffFiles.length}): ${filesLabel}`,
+    ...(diffStat ? [`Diff Stat:\n${diffStat}`] : []),
+    `Unified Diff:\n\`\`\`diff\n${diff || '(no diff hunks detected)'}\n\`\`\``
+  ].join('\n');
+
+  if (resolvedLane === 'trivial') {
+    return {
+      issueId,
+      branch,
+      lane: 'trivial',
+      riskLevel: risk.riskLevel,
+      baseSha,
+      headSha,
+      modifiedFiles: diffFiles,
+      diffStat,
+      diff,
+      diffTruncated,
+      subagentsCount: 0,
+      payload: { Subagents: [] }
+    };
+  }
+
+  if (resolvedLane === 'standard') {
+    const subagents = [
+      {
+        TypeName: 'research',
+        Role: 'PR Peer & Architecture Reviewer',
+        Prompt: `Follow sdlc-gate review guidelines. Audit git diff against main on branch ${branch} for ticket ${issueRef} (standard lane, risk: ${risk.riskLevel}).
+1. Audit logic correctness, behavioral test smells (no assertion-free tests), and F.I.R.S.T. isolation.
+2. Verify coverage metrics against .agent/sdlc-config.json thresholds.
+3. Inspect modified files for hardcoded secrets, unsafe shell interpolation, concentric layer inversions (.archlens/policy.json), and undeclared spec drift.
+4. Return a structured read-only verdict (verdict: approve | request-changes, blockers, notes) so the orchestrator can publish it via review record.
+
+${diffContextBlock}`
+      }
+    ];
+    return {
+      issueId,
+      branch,
+      lane: 'standard',
+      riskLevel: risk.riskLevel,
+      baseSha,
+      headSha,
+      modifiedFiles: diffFiles,
+      diffStat,
+      diff,
+      diffTruncated,
+      subagentsCount: subagents.length,
+      payload: { Subagents: subagents }
+    };
+  }
 
   const subagents = [
     {
       TypeName: 'research',
       Role: 'PR Peer Reviewer',
-      Prompt: `Load sdlc-review-gate/SKILL.md. Audit git diff against main on branch ${branch} for issue #${issueId}.
-1. Audit for Robert Martin test smells (no assertion-free tests, no trivial getters, no mock abuse).
-2. Verify Dual-Gate metrics (Line diff coverage >= 85%, Mutation kill score >= 80%).
-3. Verify developer showcase quickstart in README.md and CHANGELOG.md entry.
-4. MANDATORILY post formal review comment to GitHub PR, Jira, Linear, or docs/KANBAN.md (node .agent/scripts/sdlc-engine.mjs pm comment ${issueId} --body "<comment>").`
+      Prompt: `Follow sdlc-gate review guidelines. Audit git diff against main on branch ${branch} for ticket ${issueRef}.
+1. Audit for behavioral test smells (no assertion-free tests, no trivial getters, no mock abuse) and F.I.R.S.T. isolation.
+2. Verify Dual-Gate metrics against .agent/sdlc-config.json thresholds.
+3. Verify README.md and CHANGELOG.md alignment when user-facing behavior changes.
+4. Return a structured read-only verdict (verdict: approve | request-changes, blockers, notes) so the orchestrator can publish it via review record.
+
+${diffContextBlock}`
     },
     {
       TypeName: 'research',
       Role: 'Quality Gatekeeper',
-      Prompt: `Load sdlc-review-gate/SKILL.md. Execute universal quality gate (node .agent/scripts/sdlc-engine.mjs gate --strict).
-1. Audit formatting, static typing, and production builds.
-2. Check pre-flight risk profile (detected: ${risk.riskLevel}).
-3. Run secret scanning and package CVE check (node .agent/scripts/sdlc-engine.mjs security-audit).
-4. Verify zero concentric layer inversions (node .agent/scripts/sdlc-engine.mjs archlens diff).`
+      Prompt: `Follow sdlc-gate architectural & security guidelines. Inspect modified files on branch ${branch} for ticket ${issueRef}.
+1. Check pre-flight risk profile (detected: ${risk.riskLevel}, modified files: ${diffFiles.length}).
+2. Inspect modified files for hardcoded secrets, unsafe shell interpolation, or package CVEs.
+3. Verify zero concentric layer inversions against .archlens/policy.json and zero undeclared API contract drift.
+4. Return a structured read-only gate report (verdict: approve | request-changes, blockers, notes).
+
+${diffContextBlock}`
     }
   ];
 
@@ -1265,10 +1627,13 @@ export function generateReviewPlan({ repoRoot = '.' } = {}) {
     subagents.push({
       TypeName: 'research',
       Role: 'Security & Architectural Auditor',
-      Prompt: `Conduct deep security and architectural invariant audit for HIGH/CRITICAL risk changes (${risk.riskLevel}).
-1. Inspect migration files, auth handlers, and domain models.
-2. Ensure zero flaky tests (node .agent/scripts/sdlc-engine.mjs flake-check --runs 10).
-3. Validate concentric layer decoupling with Archlens.`
+      Prompt: `Conduct deep read-only security and architectural invariant audit on branch ${branch} for ticket ${issueRef} (${risk.riskLevel} risk).
+1. Inspect migration files, auth handlers, CLI execution paths, and domain models for injection, credential leaks, or privilege bypasses.
+2. Audit test determinism risks (shared mutable state, unseeded randomness, wall-clock or network coupling).
+3. Validate concentric layer decoupling against .archlens/policy.json.
+4. Return a structured read-only audit verdict (verdict: approve | request-changes, blockers, notes).
+
+${diffContextBlock}`
     });
   }
 
@@ -1276,7 +1641,14 @@ export function generateReviewPlan({ repoRoot = '.' } = {}) {
   return {
     issueId,
     branch,
+    lane: 'full',
     riskLevel: risk.riskLevel,
+    baseSha,
+    headSha,
+    modifiedFiles: diffFiles,
+    diffStat,
+    diff,
+    diffTruncated,
     subagentsCount: subagents.length,
     payload
   };
@@ -1293,7 +1665,9 @@ export function inspectCIWorkflows(repoRoot = '.') {
   if (!fileExists(workflowsDir)) return detected;
 
   try {
-    const files = fs.readdirSync(workflowsDir).filter((f) => f.endsWith('.yml') || f.endsWith('.yaml'));
+    const files = fs
+      .readdirSync(workflowsDir)
+      .filter((f) => (f.endsWith('.yml') || f.endsWith('.yaml')) && !/^sdlc-quality-gate\.ya?ml$/i.test(f));
     for (const file of files) {
       const content = readFileSafe(path.join(workflowsDir, file));
       if (!content) continue;
@@ -1304,6 +1678,12 @@ export function inspectCIWorkflows(repoRoot = '.') {
         const match = trimmed.match(/^(-\s*)?run:\s*(.+)$/);
         if (match) {
           const runCmd = match[2].trim();
+          let isSingleExecutable = false;
+          try {
+            parseCommandArgv(runCmd);
+            isSingleExecutable = true;
+          } catch {}
+          if (!isSingleExecutable) continue;
           if (!detected.testCommand && (runCmd.includes('test') || runCmd.includes('check') || runCmd.includes('pytest'))) {
             detected.testCommand = runCmd;
           }
@@ -1519,12 +1899,12 @@ export function discoverModules(repoRoot = '.') {
       stack: 'generic-script',
       language: 'generic',
       commands: {
-        test: 'npm test 2>/dev/null || true',
-        coverage: 'npm run test:coverage 2>/dev/null || true',
+        test: 'npm test',
+        coverage: 'npm run test:coverage',
         coverageFile: 'coverage/coverage-summary.json',
-        mutation: 'npx stryker run 2>/dev/null || true',
-        lint: 'npm run lint 2>/dev/null || true',
-        build: 'npm run build 2>/dev/null || true'
+        mutation: 'npx stryker run',
+        lint: 'npm run lint',
+        build: 'npm run build'
       },
       thresholds: {
         diffCoverage: 85,
@@ -1571,10 +1951,17 @@ export function generateConfig(repoRoot = '.') {
   }
 
   return {
-    $schema: 'https://agentic-sdlc.dev/schemas/config.v1.json',
-    version: '2.0.0',
+    $schema: './schemas/sdlc-config.schema.json',
+    version: '2.1.0',
     generatedAt: new Date().toISOString(),
     profile: modules.length > 1 ? 'polyglot-monorepo' : 'standard',
+    ci: {
+      runsOn: "${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}"
+    },
+    lanes: {
+      trivialMaxLines: 25,
+      standardMaxLines: 200
+    },
     projectManagement: {
       provider: pm.provider,
       key: pm.key || 'SDLC',
@@ -1654,7 +2041,11 @@ export function auditSkills(repoRoot = '.', { live = false } = {}) {
       // 2. SkillSpector RP1: Unpinned npx package invocation
       const lines = (body || content).split('\n');
       lines.forEach((line, idx) => {
-        if (/\bnpx\s+(?:-[yY]\s+)?(?:github:|[a-zA-Z0-9@_/-]+)(?!@[0-9])/i.test(line)) {
+        if (
+          /\bnpx\s+(?:-[yY]\s+)?(?:github:[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+|@[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+|[a-zA-Z0-9_.-]+)(?![a-zA-Z0-9_.-]|@[0-9])/i.test(
+            line
+          )
+        ) {
           findings.push({
             rule: 'RP1',
             severity: 'MEDIUM',
@@ -1701,6 +2092,7 @@ export function auditSkills(repoRoot = '.', { live = false } = {}) {
   return {
     success: totalFindings === 0,
     skillsScanned: results.length,
+    skillsAudited: results.length,
     totalFindings,
     maxScore: results.reduce((max, r) => Math.max(max, r.score), 0),
     skills: results,

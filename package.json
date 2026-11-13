@@ -1,6 +1,6 @@
 {
   "name": "@fmatar/agentic-sdlc",
-  "version": "0.3.2",
+  "version": "0.0.1",
   "description": "Autonomous Agentic Software Development Lifecycle (SDLC) Framework for AI Coding Agents",
   "keywords": [
     "agentic-sdlc",
@@ -27,11 +27,22 @@
     "sdlc": "./.agent/scripts/sdlc-engine.mjs"
   },
   "files": [
-    ".agent/skills",
+    ".agent/skills/sdlc",
+    ".agent/skills/sdlc-adr",
+    ".agent/skills/sdlc-doctor",
+    ".agent/skills/sdlc-flow",
+    ".agent/skills/sdlc-gate",
+    ".agent/skills/sdlc-product",
+    ".agent/skills/sdlc-release",
+    ".agent/skills/sdlc-status",
+    ".agent/skills/sdlc-tdd",
+    ".agent/skills/sdlc-wiki",
     ".agent/scripts",
+    ".agent/schemas",
     "docs/templates",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "llms.txt"
   ],
   "scripts": {
     "detect": "node .agent/scripts/sdlc-engine.mjs detect",

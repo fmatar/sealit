@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { execFileSync } from 'node:child_process';
 import {
   fileExists,
   readFileSafe,
@@ -65,7 +66,7 @@ import {
   monitorCanaryHealthAndWatchdog
 } from '../.agent/scripts/sdlc-engine.mjs';
 
-describe('Universal SDLC Engine: Complete Robert Martin Test Suite', () => {
+describe('Universal SDLC Engine: Comprehensive Functional & Governance Test Suite', () => {
   let tmpDir;
 
   beforeEach(() => {
@@ -861,12 +862,12 @@ jobs:
       assert.ok(templated.labels.includes('status:ready'));
     });
 
-    it('falls back to standardized Robert Martin clean structure when templates are absent', () => {
+    it('falls back to standardized clean issue structure when templates are absent', () => {
       const templated = formatTemplatedIssue({
         title: 'feat: clean fallback',
         type: 'feat',
         problem: 'Need consistent fallback format.',
-        solution: 'Use Robert Martin specification template.',
+        solution: 'Use structured specification template.',
         repoRoot: tmpDir
       });
 
@@ -1035,7 +1036,7 @@ jobs:
     });
 
     it('executes pm comment CLI command and records audit comment', () => {
-      const res = runCLI(['pm', 'comment', '5050', '--body', 'Approved by Peer Reviewer with clean Robert Martin principles.'], null, tmpDir);
+      const res = runCLI(['pm', 'comment', '5050', '--body', 'Approved by Peer Reviewer with clean architecture and TDD verification.'], null, tmpDir);
       assert.equal(res.command, 'pm');
       assert.equal(res.subcommand, 'comment');
       assert.equal(res.commented.success, true);
@@ -1121,11 +1122,20 @@ jobs:
     });
 
     it('executes release with package.json and CHANGELOG.md update', () => {
+      execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: tmpDir });
+      execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: tmpDir });
+      execFileSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir });
+      execFileSync('git', ['config', 'commit.gpgsign', 'false'], { cwd: tmpDir });
+
       const pkgPath = path.join(tmpDir, 'package.json');
       fs.writeFileSync(pkgPath, JSON.stringify({ name: 'my-app', version: '1.0.0' }, null, 2), 'utf8');
 
       const changelogPath = path.join(tmpDir, 'CHANGELOG.md');
       fs.writeFileSync(changelogPath, '# Changelog\n\n## [Unreleased]\n\n### Added\n- New feature\n', 'utf8');
+
+      execFileSync('git', ['add', 'package.json', 'CHANGELOG.md'], { cwd: tmpDir });
+      execFileSync('git', ['commit', '-q', '-m', 'chore: initial'], { cwd: tmpDir });
+      execFileSync('git', ['checkout', '-q', '-b', 'chore/release-v1.0.1'], { cwd: tmpDir });
 
       const res = executeRelease({ bump: 'patch', dryRun: false, skipGate: true, repoRoot: tmpDir });
       assert.equal(res.success, true);
@@ -1167,7 +1177,7 @@ jobs:
 
       const preCommit = fs.readFileSync(path.join(gitDir, 'hooks/pre-commit'), 'utf8');
       const prePush = fs.readFileSync(path.join(gitDir, 'hooks/pre-push'), 'utf8');
-      assert.ok(preCommit.includes('sdlc-engine.mjs test'));
+      assert.ok(preCommit.includes('sdlc-engine.mjs guard pre-commit'));
       assert.ok(prePush.includes('sdlc-engine.mjs gate'));
     });
 

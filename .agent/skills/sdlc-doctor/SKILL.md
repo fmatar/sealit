@@ -1,45 +1,51 @@
 ---
 name: sdlc-doctor
-description: Stack detection, doctor --fix auto-healing, 4-Layer Git Guard hooks, .archlens/policy.json scaffolding, and multi-agent installer (Gemini, Claude Code, Cursor, Grok, Windsurf, Copilot).
+description: "Use when onboarding a repo, diagnosing hook or session errors, or installing SDLC skills across AI agents. Not for feature coding. Runs detect, doctor, and install."
 tools: read_file, write_file, edit_file, run_command
 ---
 
-# 🩺 Environment Doctor, Stack Discovery & Multi-Agent Setup (`sdlc-doctor`)
+# Environment Doctor, Stack Discovery & Multi-Agent Installer (`sdlc-doctor`)
 
-## 1. Quick-Heal & Bootstrap Sequence
+## When to use / When NOT to use
+- **Use when** setting up a new repository, diagnosing outdated 4-Layer Git hooks or stale sessions, refreshing `.agent/sdlc-config.json`, or provisioning skills for Gemini, Claude Code/Cowork, Cursor, Grok, Windsurf, and Copilot.
+- **Not for** implementing product features or running PR reviews (`sdlc-flow`, `sdlc-gate`).
 
-Run these deterministic commands to inspect, initialize, or auto-heal any repository:
+## Lane behavior
+| Operation | Side-effect level | Command |
+| :--- | :--- | :--- |
+| **Diagnose (default)** | Read-only (`0` writes) | `node .agent/scripts/sdlc-engine.mjs doctor` + `skill-audit` |
+| **Auto-Heal** | Workspace writes | `node .agent/scripts/sdlc-engine.mjs doctor --fix` (heals `KANBAN.md`, `.archlens/policy.json`, SHA-256 verified `.git/hooks/*`, and `.github/workflows/sdlc-quality-gate.yml`) |
+| **Agent Install** | Local or `~/` writes (`sdlc*` only) | `install` or `interop export` across selected AI coding agents (provisions the 10 `sdlc*` skills and prunes retired `sdlc-*` skills while leaving standalone user/third-party skills untouched) |
+
+## Steps
 
 ```bash
-# 1. Auto-detect polyglot stack (Node/TS, Java, Python, Go, Rust) & write .agent/sdlc-config.json
+# 1. Read-only healthcheck (toolchain, assets, session locks, SHA-256 hook drift, skill audit)
+node .agent/scripts/sdlc-engine.mjs doctor
+node .agent/scripts/sdlc-engine.mjs skill-audit
+
+# 2. Detect polyglot stack (Node/TS, Python, Java, Go, Rust) & write .agent/sdlc-config.json
 node .agent/scripts/sdlc-engine.mjs detect
 
-# 2. Run environment healthcheck & auto-heal missing assets (KANBAN.md, .archlens/policy.json, Git hooks, CI workflow)
+# 3. Auto-heal missing or outdated hooks/policy/CI workflow (after user confirmation)
 node .agent/scripts/sdlc-engine.mjs doctor --fix
 
-# 3. Install 4-Layer Git Guard hooks (.git/hooks/pre-commit, pre-merge-commit, pre-push)
+# 4. Targeted single-asset repair (only when doctor reports just one item out of date)
 node .agent/scripts/sdlc-engine.mjs hooks install
-
-# 4. Scaffold Archlens Clean Architecture concentric ring policy (.archlens/policy.json)
 node .agent/scripts/sdlc-engine.mjs archlens scaffold
 
-# 5. Synchronize multi-agent rules across Gemini, Claude Code, Cursor, Grok, Windsurf, and Copilot
-node .agent/scripts/sdlc-engine.mjs interop export --agent all
+# 5. Provision canonical skills & non-destructive rules across AI agents
+node .agent/scripts/sdlc-engine.mjs interop export --agent gemini,claude,cursor
+node .agent/scripts/sdlc-engine.mjs install --agents gemini,claude,cursor --with-archlens --with-hooks --yes
 ```
 
----
+## ⚠️ Confirm with user before
+- Running `doctor --fix` when the user only asked to diagnose or inspect repo health.
+- Running `interop export --agent all` (creates rule/skill directories for agents the repo may not use) or `install --global` (writes into `~/.gemini`, `~/.claude`, `~/.cursor`, `~/.grok`).
 
-## 2. Multi-Agent CLI Installer Wizard (`sdlc-engine install`)
+## If it fails
+- **`hooks install` fails inside a sandbox** (`.git/hooks` write blocked) -> re-run `hooks install` outside the sandbox (`BypassSandbox: true`).
+- **`skill-audit` reports `FM1`/`FM2`/`RP1`/`AS3` findings** -> quote YAML `description`, pin `npx pkg@1.2.0`, and remove cross-skill file path references.
 
-To install or upgrade the framework across local or global AI coding environments:
-
-```bash
-# Interactive TUI wizard:
-node .agent/scripts/sdlc-engine.mjs install
-
-# Non-interactive local setup:
-node .agent/scripts/sdlc-engine.mjs install --agents gemini,claude,cursor,grok --with-archlens --with-hooks --yes
-
-# Global user config (~/.gemini, ~/.claude, ~/.grok, ~/.cursor):
-node .agent/scripts/sdlc-engine.mjs install --global --agents gemini,claude,grok,cursor --yes
-```
+## Done when
+`doctor` reports healthy toolchain, up-to-date SHA-256 Git hooks, valid `.agent/sdlc-config.json`, and `0` `skill-audit` findings.

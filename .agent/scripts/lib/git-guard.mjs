@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { execSync, execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { fileExists, readFileSafe } from './core.mjs';
 import { verifyGateReceipt } from './audit-chain.mjs';
 import { checkSpecDrift } from './adr-drift.mjs';
@@ -9,7 +10,7 @@ const PROTECTED_BRANCHES = ['main', 'develop'];
 
 function getCurrentGitBranch(repoRoot = '.') {
   try {
-    return execSync('git branch --show-current 2>/dev/null', {
+    return execFileSync('git', ['branch', '--show-current'], {
       cwd: repoRoot,
       encoding: 'utf8',
       stdio: 'pipe'
@@ -58,7 +59,7 @@ export function verifyCommitGuard({ branch = null, repoRoot = '.' } = {}) {
       allowed: false,
       layer: 'LAYER_2_SESSION_REQUIRED',
       branch: activeBranch,
-      message: `🛑 [SDLC Layer 2 Guard] No active SDLC session found in .agent/.sdlc-session.json. Run: node .agent/scripts/sdlc-engine.mjs session start --issue <id> --branch ${activeBranch}`
+      message: `🛑 [SDLC Layer 2 Guard] No active SDLC session found in .agent/.sdlc-session.json. Run: node .agent/scripts/sdlc-engine.mjs stage begin --issue <id> --branch ${activeBranch}`
     };
   }
 
@@ -175,16 +176,7 @@ export function verifyPushGuard({ remoteBranch = null, repoRoot = '.' } = {}) {
   };
 }
 
-export function installHooks({ repoRoot = '.' } = {}) {
-  console.log('🪝 Configuring 4-Layer Git Hooks (client-side; bypassable with --no-verify, pair with server-side branch protection) for Agentic SDLC...');
-  const gitDir = path.resolve(repoRoot, '.git');
-  if (!fs.existsSync(gitDir)) {
-    throw new Error('Not a git repository. Cannot install git hooks.');
-  }
-
-  const hooksDir = path.resolve(gitDir, 'hooks');
-  fs.mkdirSync(hooksDir, { recursive: true });
-
+export function buildHookTemplates() {
   const preCommitHook = `#!/usr/bin/env bash
 # Agentic SDLC Framework: 4-Layer Pre-Commit Guard (Branch & Active Session Lock)
 set -e
@@ -193,11 +185,9 @@ if git diff --cached --quiet; then
   exit 0
 fi
 
-if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
-  node .agent/scripts/sdlc-engine.mjs guard pre-commit
-  # Advisory only: affected tests never block a commit (the pre-push gate does).
-  node .agent/scripts/sdlc-engine.mjs test --affected-only >/dev/null 2>&1 || true
-fi
+  if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
+    node .agent/scripts/sdlc-engine.mjs guard pre-commit
+  fi
 `;
 
   const preMergeCommitHook = `#!/usr/bin/env bash
@@ -230,36 +220,126 @@ if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
 fi
 `;
 
-  const preCommitPath = path.resolve(hooksDir, 'pre-commit');
-  const preMergePath = path.resolve(hooksDir, 'pre-merge-commit');
-  const prePushPath = path.resolve(hooksDir, 'pre-push');
+  return {
+    'pre-commit': preCommitHook,
+    'pre-merge-commit': preMergeCommitHook,
+    'pre-push': prePushHook
+  };
+}
 
-  fs.writeFileSync(preCommitPath, preCommitHook, 'utf8');
-  fs.writeFileSync(preMergePath, preMergeCommitHook, 'utf8');
-  fs.writeFileSync(prePushPath, prePushHook, 'utf8');
+function sha256Text(text) {
+  return crypto.createHash('sha256').update(String(text), 'utf8').digest('hex');
+}
 
+function resolveGitHooksDir(repoRoot = '.') {
+  const gitDir = path.resolve(repoRoot, '.git');
   try {
-    fs.chmodSync(preCommitPath, 0o755);
-    fs.chmodSync(preMergePath, 0o755);
-    fs.chmodSync(prePushPath, 0o755);
+    const customHooksPath = execFileSync('git', ['config', '--get', 'core.hooksPath'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      stdio: 'pipe'
+    }).trim();
+    if (customHooksPath) {
+      return path.resolve(repoRoot, customHooksPath);
+    }
   } catch {}
+  return path.resolve(gitDir, 'hooks');
+}
 
-  console.log('✅ Installed 4-Layer Git hooks:');
-  console.log(`   • ${preCommitPath}`);
-  console.log(`   • ${preMergePath}`);
-  console.log(`   • ${prePushPath}`);
+export function inspectHooksHealth(repoRoot = '.') {
+  const gitDir = path.resolve(repoRoot, '.git');
+  if (!fs.existsSync(gitDir)) {
+    return {
+      isGitRepo: false,
+      hooksDir: null,
+      installed: false,
+      upToDate: false,
+      missingHooks: ['pre-commit', 'pre-merge-commit', 'pre-push'],
+      outdatedHooks: [],
+      details: []
+    };
+  }
+
+  const hooksDir = resolveGitHooksDir(repoRoot);
+  const templates = buildHookTemplates();
+  const missingHooks = [];
+  const outdatedHooks = [];
+  const details = [];
+
+  for (const [name, expectedContent] of Object.entries(templates)) {
+    const hookPath = path.resolve(hooksDir, name);
+    const expectedHash = sha256Text(expectedContent);
+    if (!fs.existsSync(hookPath)) {
+      missingHooks.push(name);
+      details.push({ name, present: false, upToDate: false, expectedHash, actualHash: null });
+      continue;
+    }
+    const actualContent = fs.readFileSync(hookPath, 'utf8');
+    const actualHash = sha256Text(actualContent);
+    const matches = actualHash === expectedHash;
+    if (!matches) outdatedHooks.push(name);
+    details.push({ name, present: true, upToDate: matches, expectedHash, actualHash });
+  }
 
   return {
+    isGitRepo: true,
+    hooksDir,
+    installed: missingHooks.length === 0,
+    upToDate: missingHooks.length === 0 && outdatedHooks.length === 0,
+    missingHooks,
+    outdatedHooks,
+    details
+  };
+}
+
+export function installHooks({ repoRoot = '.' } = {}) {
+  console.log('🪝 Configuring 4-Layer Git Hooks (client-side; bypassable with --no-verify, pair with server-side branch protection) for Agentic SDLC...');
+  const gitDir = path.resolve(repoRoot, '.git');
+  if (!fs.existsSync(gitDir)) {
+    throw new Error('Not a git repository. Cannot install git hooks.');
+  }
+
+  const hooksDir = resolveGitHooksDir(repoRoot);
+  fs.mkdirSync(hooksDir, { recursive: true });
+
+  const templates = buildHookTemplates();
+  const installedPaths = [];
+  for (const [name, content] of Object.entries(templates)) {
+    const hookPath = path.resolve(hooksDir, name);
+    fs.writeFileSync(hookPath, content, 'utf8');
+    try {
+      fs.chmodSync(hookPath, 0o755);
+    } catch {}
+    installedPaths.push(hookPath);
+  }
+
+  console.log('✅ Installed 4-Layer Git hooks:');
+  for (const p of installedPaths) {
+    console.log(`   • ${p}`);
+  }
+
+  const names = Object.keys(templates);
+  return {
     success: true,
-    installed: ['pre-commit', 'pre-merge-commit', 'pre-push'],
-    allHooksInstalled: ['pre-commit', 'pre-merge-commit', 'pre-push'],
+    installed: names,
+    allHooksInstalled: names,
     hooksDir
   };
 }
 
+export const DEFAULT_QUALITY_GATE_CHECK = 'Universal Quality Gate, Spec-Drift & Merkle Receipt Defense';
+
+/**
+ * Installs local 4-Layer Git hooks and applies GitHub remote branch protection
+ * with required quality-gate status checks and admin enforcement.
+ */
 export function applyBranchProtection({
   branches = ['main', 'develop'],
-  repoRoot = '.'
+  requiredChecks = undefined,
+  enforceAdmins = true,
+  requiredApprovals = 0,
+  repoRoot = '.',
+  execFn = execFileSync
 } = {}) {
   const results = {
     localHookInstalled: false,
@@ -274,26 +354,51 @@ export function applyBranchProtection({
     results.errors.push(`Local hook error: ${err.message}`);
   }
 
+  const hasGateWorkflow = fs.existsSync(path.resolve(repoRoot, '.github/workflows/sdlc-quality-gate.yml'));
+  const resolvedChecks = Array.isArray(requiredChecks)
+    ? requiredChecks.filter(Boolean)
+    : hasGateWorkflow
+      ? [DEFAULT_QUALITY_GATE_CHECK]
+      : [];
+
+  const approvalsCount = Math.max(0, Number(requiredApprovals) || 0);
+  const protectionPayload = {
+    required_status_checks: resolvedChecks.length > 0 ? { strict: true, contexts: resolvedChecks } : null,
+    enforce_admins: Boolean(enforceAdmins),
+    required_pull_request_reviews: {
+      dismiss_stale_reviews: true,
+      require_code_owner_reviews: false,
+      required_approving_review_count: approvalsCount
+    },
+    restrictions: null
+  };
+
   for (const b of branches) {
     try {
-      execFileSync(
+      execFn(
         'gh',
         [
-          'api', '--method', 'PUT', `repos/:owner/:repo/branches/${encodeURIComponent(b)}/protection`,
-          '-H', 'Accept: application/vnd.github+json',
-          '-F', 'required_status_checks=null',
-          '-F', 'enforce_admins=false',
-          '-F', 'required_pull_request_reviews[dismiss_stale_reviews]=true',
-          '-F', 'required_pull_request_reviews[require_code_owner_reviews]=false',
-          '-F', 'required_pull_request_reviews[required_approving_review_count]=0',
-          '-F', 'restrictions=null'
+          'api',
+          '--method',
+          'PUT',
+          `repos/:owner/:repo/branches/${encodeURIComponent(b)}/protection`,
+          '-H',
+          'Accept: application/vnd.github+json',
+          '--input',
+          '-'
         ],
         {
           cwd: repoRoot,
-          stdio: 'pipe'
+          stdio: 'pipe',
+          input: JSON.stringify(protectionPayload)
         }
       );
-      results.protectedBranches.push({ branch: b, remoteProtected: true });
+      results.protectedBranches.push({
+        branch: b,
+        remoteProtected: true,
+        enforceAdmins: Boolean(enforceAdmins),
+        requiredChecks: resolvedChecks
+      });
     } catch {
       results.protectedBranches.push({ branch: b, remoteProtected: false, localProtected: true });
     }

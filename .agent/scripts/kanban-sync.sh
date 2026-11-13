@@ -147,7 +147,7 @@ cat << 'EOF' >> "$OUTPUT_FILE"
 * `status:backlog` - Triaged, in queue for specification.
 * `status:ready` - Specification approved (`sdlc-product`), ready for engineering.
 * `status:in-progress` - Active branch and TDD implementation underway.
-* `status:in-review` - Pull Request open, peer review (`sdlc-review-gate`) & quality gate active.
+* `status:in-review` - Pull Request open, peer review (`sdlc-gate`) & quality gate active.
 * `status:done` - Merged, verified, and closed.
 EOF
 
