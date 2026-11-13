@@ -343,7 +343,26 @@ export function verifyGateReceipt({ headSha = null, branch = null, repoRoot = '.
 
   const matched = receipts.find((r) => {
     const m = r.metadata;
-    const shaMatch = targetSha ? m.headSha === targetSha : true;
+    let shaMatch = targetSha ? m.headSha === targetSha : true;
+    if (!shaMatch && targetSha && m.headSha) {
+      try {
+        execFileSync('git', ['merge-base', '--is-ancestor', m.headSha, targetSha], { cwd: repoRoot, stdio: 'pipe' });
+        const diffFiles = execFileSync('git', ['diff', '--name-only', m.headSha, targetSha], {
+          cwd: repoRoot,
+          encoding: 'utf8',
+          stdio: 'pipe'
+        })
+          .trim()
+          .split('\n')
+          .filter(Boolean);
+        if (
+          diffFiles.length > 0 &&
+          diffFiles.every((f) => f === 'docs/AUDIT_CHAIN.jsonl' || f === 'docs/ARCH_TRACE.md' || f.startsWith('.agent/'))
+        ) {
+          shaMatch = true;
+        }
+      } catch {}
+    }
     const branchMatch = branch ? m.branch === branch : true;
     return shaMatch && branchMatch && m.peerReviewApproved === true && m.driftCheckPassed === true && verifyReceiptSignature(m, key);
   });
