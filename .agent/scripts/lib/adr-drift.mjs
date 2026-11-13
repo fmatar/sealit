@@ -580,20 +580,41 @@ export function checkSpecDrift({
     };
   }
 
-  // Check if an ADR is present in the diff or already registered in docs/adr/ for this ticketId
+  // Check if an accepted ADR is present in the diff or registered in docs/adr/ for this ticketId,
+  // while failing closed if any ADR in the diff or matching ticketId is still pending_approval or rejected.
+  const normDiffSet = new Set(
+    files.map((f) =>
+      String(f || '')
+        .replace(/\\/g, '/')
+        .replace(/^\.\//, '')
+    )
+  );
   const allAdrs = listADRs(repoRoot);
-  const diffHasAdr = files.some((f) => f.includes('docs/adr/ADR-') && f.endsWith('.md'));
   const normQueryTicket = normalizeTicketId(ticketId);
-  const matchingAdrs = allAdrs.filter((a) => {
+  const blockingAdrs = allAdrs.filter((a) => {
+    const adrInDiff = normDiffSet.has(a.file);
     const normAdrTicket = normalizeTicketId(a.ticketId);
-    const matchesTicket = normQueryTicket !== null ? String(normAdrTicket) === String(normQueryTicket) : true;
-    const isAccepted = a.status === 'accepted';
-    return isAccepted && (matchesTicket || diffHasAdr);
+    const matchesTicket = normQueryTicket !== null && String(normAdrTicket) === String(normQueryTicket);
+    return (adrInDiff || matchesTicket) && (a.status === 'pending_approval' || a.status === 'rejected');
   });
+
+  const matchingAdrs =
+    blockingAdrs.length > 0
+      ? []
+      : allAdrs.filter((a) => {
+          if (a.status !== 'accepted') return false;
+          const adrInDiff = normDiffSet.has(a.file);
+          if (normQueryTicket !== null) {
+            const normAdrTicket = normalizeTicketId(a.ticketId);
+            const matchesTicket = String(normAdrTicket) === String(normQueryTicket);
+            return matchesTicket || adrInDiff;
+          }
+          return adrInDiff;
+        });
 
   // Also allow ADR Compaction diffs (where docs/adr/ADR-*.md files were compacted into docs/SRS.md and recorded in AUDIT_CHAIN.jsonl)
   let isAdrCompaction = false;
-  if (matchingAdrs.length === 0) {
+  if (blockingAdrs.length === 0 && matchingAdrs.length === 0) {
     const auditChainPath = path.resolve(repoRoot, 'docs/AUDIT_CHAIN.jsonl');
     const auditRaw = fileExists(auditChainPath) ? readFileSafe(auditChainPath) || '' : '';
     const hasCompactedAuditRecord = auditRaw.includes('"event":"ADR_BATCH_COMPACTED"');
@@ -607,18 +628,25 @@ export function checkSpecDrift({
     }
   }
 
-  const passed = matchingAdrs.length > 0 || isAdrCompaction;
+  const passed = blockingAdrs.length === 0 && (matchingAdrs.length > 0 || isAdrCompaction);
   const linkedIds = matchingAdrs.length > 0 ? matchingAdrs.map((a) => a.id) : isAdrCompaction ? ['ADR_BATCH_COMPACTED'] : [];
+  const blockingSummary = blockingAdrs.map((a) => `${a.id} (${a.status})`).join(', ');
 
   return {
     passed,
     hasUndeclaredDrift: !passed,
     triggers,
     linkedADRs: linkedIds,
-    remediationCommand: `node .agent/scripts/sdlc-engine.mjs adr create --title "<decision>" --scope <technical|product> --ticket ${ticketId || '<id>'} --supersedes CAP-01`,
+    blockingADRs: blockingAdrs.map((a) => a.id),
+    remediationCommand:
+      blockingAdrs.length > 0
+        ? `node .agent/scripts/sdlc-engine.mjs adr decide --id ${blockingAdrs[0].id} --status approve --by "@reviewer" --reason "<rationale>"`
+        : `node .agent/scripts/sdlc-engine.mjs adr create --title "<decision>" --scope <technical|product> --ticket ${ticketId || '<id>'} --supersedes CAP-01`,
     message: passed
       ? `Spec drift verified and governed by ${linkedIds.join(', ')}.`
-      : `UNDECLARED_SPEC_DRIFT: ${triggers.length} structural mutation(s) detected without a linked accepted ADR in docs/adr/.`
+      : blockingAdrs.length > 0
+        ? `UNAPPROVED_ADR_DRIFT: ADR(s) ${blockingSummary} require explicit approval via 'adr decide --status approve' before drift check passes.`
+        : `UNDECLARED_SPEC_DRIFT: ${triggers.length} structural mutation(s) detected without a linked accepted ADR in docs/adr/.`
   };
 }
 

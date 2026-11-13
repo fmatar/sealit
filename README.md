@@ -111,7 +111,7 @@ Concentric ring dependency governance (`Domain Core` ← `Governance Models` ←
 | **`/sdlc-product`** | Constitutional `PRODUCT.md` autopilot, `docs/PRD.md`, IEEE 29148 `docs/SRS.md`, and topological DAG waves |
 | **`/sdlc-tdd`** | Red-Green-Refactor TDD, bug reproduction harnesses (`reproduce`), and config-driven coverage & mutation gates |
 | **`/sdlc-gate`** | Risk-tiered parallel read-only PR review (`review plan`), `gate --strict`, and HMAC-SHA256 Stage 7 receipts |
-| **`/sdlc-adr`** | Spec-Drift sentinel (`drift check`), two-speed ADR lifecycle (`docs/adr/`), and SRS release compaction |
+| **`/sdlc-adr`** | Spec-Drift sentinel (`drift check`), approval-gated ADR lifecycle (`docs/adr/`), and SRS release compaction |
 | **`/sdlc-doctor`** | Read-only toolchain/hook SHA-256 diagnostics (`doctor`), `--fix` auto-healer, and 6-agent installer |
 | **`/sdlc-status`** | Strictly read-only 8-stage dashboard, drift status, audit-chain verification, and estimated telemetry |
 | **`/sdlc-wiki`** | 10–30–90 `README.md` engine, `llms.txt`, and [Archlens](https://github.com/fmatar/archlens) AST-to-Wiki synchronization |

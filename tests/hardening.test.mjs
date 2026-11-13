@@ -2222,7 +2222,13 @@ describe('Governance Hardening: release, stage begin, ADR approval, diff review 
     assert.match(localBegin.stage.branch, /^feature\/L-\d+-local-full-session$/);
     assert.equal(fs.existsSync(path.join(dir, 'docs/KANBAN.md')), false, '--local must not create remote/KANBAN tickets');
 
-    // 3. Passing --create-issue explicitly opts into ticket creation
+    // 3. Passing --create-issue explicitly opts into ticket creation (hermetically pinned to local PM provider)
+    fs.mkdirSync(path.join(dir, '.agent'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, '.agent/sdlc-config.json'),
+      JSON.stringify({ projectManagement: { provider: 'local', livingBoard: 'docs/KANBAN.md' } }, null, 2),
+      'utf8'
+    );
     const explicitCreate = runCLI(
       ['stage', 'begin', '--create-issue', '--title', 'Confirmed Ticket', '--type', 'feat'],
       null,
@@ -2232,13 +2238,36 @@ describe('Governance Hardening: release, stage begin, ADR approval, diff review 
     assert.equal(fs.existsSync(path.join(dir, 'docs/KANBAN.md')), true);
   });
 
-  it('createADR defaults technical and architectural scopes to pending_approval until explicitly approved via decideADR, and supports L-* ticket IDs', () => {
+  it('createADR defaults technical and architectural scopes to pending_approval until explicitly approved via decideADR, and prior accepted ADRs do not bypass pending or stateless CI checks', () => {
     fs.writeFileSync(path.join(dir, 'PRODUCT.md'), '# Constitution\n\n<!-- ADR_INDEX_START -->\n<!-- ADR_INDEX_END -->\n', 'utf8');
-    git(dir, 'add', 'PRODUCT.md');
-    assert.equal(git(dir, 'commit', '-q', '-m', 'chore: add product md').status, 0);
+    // Seed a pre-existing accepted ADR-001 on main so we verify historical ADRs never mask new drift
+    const priorAdr = createADR({
+      title: 'Baseline Historical Decision',
+      scope: 'technical',
+      ticketId: 1,
+      supersedes: ['CAP-01'],
+      repoRoot: dir
+    });
+    decideADR({
+      adrId: priorAdr.adr.id,
+      action: 'approve',
+      reviewer: '@fady',
+      reason: 'Baseline accepted on main',
+      repoRoot: dir
+    });
+    git(dir, 'add', '.');
+    assert.equal(git(dir, 'commit', '-q', '-m', 'chore: add product md and baseline ADR-001').status, 0);
 
     assert.equal(git(dir, 'checkout', '-q', '-b', 'feature/L-900100-adr-gate').status, 0);
     fs.writeFileSync(path.join(dir, 'PRODUCT.md'), '# Constitution\n- **INV-01**: Updated\n\n<!-- ADR_INDEX_START -->\n<!-- ADR_INDEX_END -->\n', 'utf8');
+
+    // Stateless CI check (ticketId: null) with zero ADR in the PR diff MUST fail despite accepted ADR-001 on main
+    const statelessNoAdr = checkSpecDrift({
+      diffFiles: ['PRODUCT.md'],
+      ticketId: null,
+      repoRoot: dir
+    });
+    assert.equal(statelessNoAdr.passed, false, 'stateless CI drift check must not pass from historical ADRs on main');
 
     const techAdr = runCLI(
       ['adr', 'create', '--title', 'Technical Drift Requires Approval', '--scope', 'technical', '--ticket', 'L-900100', '--supersedes', 'CAP-01'],
@@ -2252,7 +2281,14 @@ describe('Governance Hardening: release, stage begin, ADR approval, diff review 
       ticketId: 'L-900100',
       repoRoot: dir
     });
-    assert.equal(driftWhilePending.passed, false, 'pending_approval technical ADR must not satisfy checkSpecDrift');
+    assert.equal(driftWhilePending.passed, false, 'pending_approval technical ADR must not satisfy checkSpecDrift even when prior ADR-001 exists');
+
+    const statelessWhilePending = checkSpecDrift({
+      diffFiles: ['PRODUCT.md', techAdr.adr.relativePath],
+      ticketId: null,
+      repoRoot: dir
+    });
+    assert.equal(statelessWhilePending.passed, false, 'stateless CI drift check must block pending_approval ADRs');
 
     const approved = decideADR({
       adrId: techAdr.adr.adr.id,
@@ -2269,6 +2305,15 @@ describe('Governance Hardening: release, stage begin, ADR approval, diff review 
       repoRoot: dir
     });
     assert.equal(driftAfterApprove.passed, true, 'approved ADR with L-* ticket ID must satisfy checkSpecDrift');
+    assert.deepEqual(driftAfterApprove.linkedADRs, ['ADR-002']);
+
+    const statelessAfterApprove = checkSpecDrift({
+      diffFiles: ['PRODUCT.md', techAdr.adr.relativePath],
+      ticketId: null,
+      repoRoot: dir
+    });
+    assert.equal(statelessAfterApprove.passed, true, 'stateless CI drift check must pass when accepted ADR-002 is in the PR diff');
+    assert.deepEqual(statelessAfterApprove.linkedADRs, ['ADR-002']);
   });
 
   it('generateReviewPlan embeds modified file paths, diff stats, and actual unified diff hunks into every reviewer prompt', () => {

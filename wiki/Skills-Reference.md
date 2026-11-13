@@ -22,9 +22,9 @@ This reference documents the **10 Canonical Skills — 1 Universal Router (`/sdl
 | `/sdlc ui` | `node .agent/scripts/sdlc-engine.mjs ui-snapshot` |
 | `/sdlc serve` | `node .agent/scripts/sdlc-engine.mjs serve` |
 | `/sdlc triage` | `node .agent/scripts/sdlc-engine.mjs triage` |
-| `/sdlc quick "<title>"` | `node .agent/scripts/sdlc-engine.mjs stage begin --title "<title>" --lane trivial --checkout` |
+| `/sdlc quick "<title>"` | `node .agent/scripts/sdlc-engine.mjs stage begin --lane trivial --title "<title>" --checkout` |
 | `/sdlc begin <#id>` | `node .agent/scripts/sdlc-engine.mjs stage begin --issue <id> --checkout` |
-| `/sdlc begin "<title>"` | `node .agent/scripts/sdlc-engine.mjs stage begin --title "<title>" --checkout` |
+| `/sdlc begin "<title>"` | `node .agent/scripts/sdlc-engine.mjs stage begin --local --title "<title>" --checkout` (pass `--create-issue` instead of `--local` after user confirmation) |
 | `/sdlc pre-pr [#id]` | `node .agent/scripts/sdlc-engine.mjs stage pre-pr --issue <id>` |
 | `/sdlc complete [#id]` | `node .agent/scripts/sdlc-engine.mjs stage complete --issue <id>` |
 | `/sdlc test` / `/sdlc coverage` / `/sdlc mutation` | `node .agent/scripts/sdlc-engine.mjs <test\|coverage\|mutation>` |
@@ -54,8 +54,8 @@ This reference documents the **10 Canonical Skills — 1 Universal Router (`/sdl
 - **Path**: `.agent/skills/sdlc-adr/SKILL.md`
 - **Engine Modules**: `.agent/scripts/lib/adr-drift.mjs`, `.agent/scripts/lib/decision-graph.mjs`
 - **Capabilities**:
-  - Mints sequential Architecture Decision Records in `docs/adr/ADR-00X-*.md` (`adr create`).
-  - Approves or rejects pending product/contract ADRs (`adr decide <ADR-ID> <approve|reject>`).
+  - Mints sequential Architecture Decision Records in `docs/adr/ADR-00X-*.md` (`adr create`, initialized in `pending_approval` across all scopes).
+  - Approves or rejects pending ADRs across all scopes (`adr decide --id <ADR-ID> --status <approve|reject>`).
   - Runs the Spec-Drift Sentinel (`drift check`) and OpenAPI/GraphQL contract drift auditor (`contract check`).
   - Synchronizes `docs/DECISION_MAP.md` (`decision-graph sync`).
 
@@ -130,7 +130,7 @@ node .agent/scripts/sdlc-engine.mjs skill-audit [--live]
 
 # Risk Triage, Composite Lifecycle & Session Management
 node .agent/scripts/sdlc-engine.mjs triage [files...] [--intent "<desc>"] [--lane <trivial|standard|full>] [--reason "<why>"]
-node .agent/scripts/sdlc-engine.mjs stage <begin|pre-pr|complete> [--issue <id>] [--title "<title>"] [--lane <trivial|standard|full>] [--checkout] [--ui]
+node .agent/scripts/sdlc-engine.mjs stage <begin|pre-pr|complete> [--issue <id>|--local|--create-issue] [--title "<title>"] [--lane <trivial|standard|full>] [--checkout] [--ui]
 node .agent/scripts/sdlc-engine.mjs session <status|dashboard|start|update|list|switch|resume|release>
 node .agent/scripts/sdlc-engine.mjs stats
 

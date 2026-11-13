@@ -137,8 +137,8 @@ Every architectural evolution in the repository is tracked as a directed acyclic
 - **Constitutional Nodes**: Hard Invariants (`INV-01..INV-04`) and Product Capabilities (`CAP-01..CAP-11`) in `PRODUCT.md`.
 - **Specification Nodes**: Two-tier PRD (`docs/PRD.md`), IEEE 29148 SRS (`docs/SRS.md`), and per-capability specs (`docs/specs/cap-*.md`).
 - **Precision Spec-Drift Detection (`checkSpecDrift`)**: Flags `UNDECLARED_SPEC_DRIFT` whenever `PRODUCT.md`, `docs/specs/*.md`, `docs/PRD.md`, `docs/SRS.md`, `.archlens/policy.json`, OpenAPI/GraphQL/Protobuf schemas, or structural dependency keys in `package.json` (`dependencies`, `peerDependencies`, `bin`, `exports`) change without a linked `ADR-00X` (while exempting routine `"version"` or `"scripts"` edits per `ADR-004`).
-- **Two-Speed ADR Governance & Release Compaction (`createADR`, `decideADR`, `compactADRs`)**:
-  - `scope: 'technical'` ADRs auto-accept and patch `PRODUCT.md` immediately; `scope: 'product'` or `'contract'` ADRs await human approval.
+- **Approval-Gated ADR Governance & Release Compaction (`createADR`, `decideADR`, `compactADRs`)**:
+  - All ADR scopes (`technical`, `architectural`, `product`, and `contract`) initialize in `pending_approval` (`ADR-013`), patch `PRODUCT.md`, and require explicit approval (`adr decide --status approve`) before satisfying `checkSpecDrift` or `compactADRs`.
   - On release (`sdlc-release`), `compactADRs` consolidates in-flight `docs/adr/ADR-*.md` files into `docs/SRS.md` (`## Compacted Architectural Decisions`) while preserving all prior release rows, and `createADR` advances ADR numbering monotonically past compacted IDs.
 
 ---

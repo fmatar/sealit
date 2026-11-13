@@ -51,7 +51,7 @@ allowed-tools: Read, Write, Edit, Bash, Agent
 | Unknown subcommand | `node .agent/scripts/sdlc-engine.mjs help` |
 
 ## ⚠️ Confirm with user before
-- Running `doctor --fix`, `install --global`, `release <bump>` without `--dry-run`, or `stage begin --title` when it will create a new remote issue the user did not ask for.
+- Running `doctor --fix`, `install --global`, `release <bump>` without `--dry-run`, or `stage begin --create-issue` to create a new remote issue.
 
 ## If it fails
 - **Spec-drift failure** -> run `sdlc-adr` to mint or link an ADR.

@@ -12,7 +12,7 @@ The 8-stage `/sdlc-flow` orchestrator previously required the agent to invoke ~1
    - `sdlc-engine stage begin [--issue=<id>|--local|--lane=trivial|--create-issue] [--title="..."] [--type=feat|fix|chore] [--checkout]`:
      - Requires an existing `--issue=<id>`, `--local` (local `L-*` session), `--lane=trivial` (local `L-*` fast-path), or explicit `--create-issue` opt-in before creating any remote PM ticket (never creates a GitHub/Linear/Jira issue implicitly).
      - Starts an active session at Stage 2 (`Architecture & Branch Creation`).
-     - Checks out or creates `feature/issue-#<id>-<slug>` (or `feature/L-<id>-<slug>` / `chore/L-<id>-<slug>` for local sessions) when in an initialized git repository.
+     - Checks out or creates `feature/issue-#<id>-<slug>` (or `feature/L-<id>-<slug>` for `--local` and `chore/quick-<slug>` for `--lane=trivial`) when in an initialized git repository.
      - Transitions remote tickets to `in-progress` on the configured PM board (skipped for local `L-*` sessions).
    - `sdlc-engine stage pre-pr --issue=#<id>`:
      - Advances the active session through Stage 5 and Stage 6.
