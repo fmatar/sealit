@@ -2238,9 +2238,23 @@ describe('Governance Hardening: release, stage begin, ADR approval, diff review 
     assert.equal(fs.existsSync(path.join(dir, 'docs/KANBAN.md')), true);
   });
 
-  it('createADR defaults technical and architectural scopes to pending_approval until explicitly approved via decideADR, and prior accepted ADRs do not bypass pending or stateless CI checks', () => {
+  it('createADR defaults technical and architectural scopes to pending_approval until explicitly approved via decideADR, and prior accepted or compacted ADRs do not bypass pending or stateless CI checks', () => {
+    fs.mkdirSync(path.join(dir, 'docs'), { recursive: true });
     fs.writeFileSync(path.join(dir, 'PRODUCT.md'), '# Constitution\n\n<!-- ADR_INDEX_START -->\n<!-- ADR_INDEX_END -->\n', 'utf8');
-    // Seed a pre-existing accepted ADR-001 on main so we verify historical ADRs never mask new drift
+    fs.writeFileSync(path.join(dir, 'docs/SRS.md'), '# SRS\n\n## Compacted Architectural Decisions\n| `ADR-000` | Prior | `technical` | #0 | CAP-01 | `v0.0.1` | Prior |\n', 'utf8');
+    fs.writeFileSync(path.join(dir, 'docs/AUDIT_CHAIN.jsonl'), '{"index":0,"event":"ADR_BATCH_COMPACTED"}\n', 'utf8');
+    git(dir, 'add', '.');
+    assert.equal(git(dir, 'commit', '-q', '-m', 'chore: seed historical compacted SRS and audit chain').status, 0);
+
+    // Even with 0 files in docs/adr/ and historical ADR_BATCH_COMPACTED on main, mutating PRODUCT.md without an ADR MUST fail
+    fs.writeFileSync(path.join(dir, 'PRODUCT.md'), '# Constitution\n- **INV-00**: Mutated\n\n<!-- ADR_INDEX_START -->\n<!-- ADR_INDEX_END -->\n', 'utf8');
+    assert.equal(
+      checkSpecDrift({ diffFiles: ['PRODUCT.md'], ticketId: null, repoRoot: dir }).passed,
+      false,
+      'historical ADR_BATCH_COMPACTED on main must not satisfy undeclared PRODUCT.md drift'
+    );
+
+    // Seed a pre-existing accepted ADR-001 on main so we also verify historical uncompacted ADRs never mask new drift
     const priorAdr = createADR({
       title: 'Baseline Historical Decision',
       scope: 'technical',
@@ -2256,7 +2270,7 @@ describe('Governance Hardening: release, stage begin, ADR approval, diff review 
       repoRoot: dir
     });
     git(dir, 'add', '.');
-    assert.equal(git(dir, 'commit', '-q', '-m', 'chore: add product md and baseline ADR-001').status, 0);
+    assert.equal(git(dir, 'commit', '-q', '-m', 'chore: add baseline ADR-001').status, 0);
 
     assert.equal(git(dir, 'checkout', '-q', '-b', 'feature/L-900100-adr-gate').status, 0);
     fs.writeFileSync(path.join(dir, 'PRODUCT.md'), '# Constitution\n- **INV-01**: Updated\n\n<!-- ADR_INDEX_START -->\n<!-- ADR_INDEX_END -->\n', 'utf8');

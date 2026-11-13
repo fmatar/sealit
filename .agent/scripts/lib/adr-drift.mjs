@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileExists, readFileSafe, getModifiedFiles, gitOutput } from './core.mjs';
+import { fileExists, readFileSafe, getModifiedFiles, gitOutput, gitDiffForFile } from './core.mjs';
 import { appendDecisionEvent, syncDecisionMapMarkdown } from './decision-graph.mjs';
 import { appendAuditRecord } from './audit-chain.mjs';
 
@@ -614,7 +614,9 @@ export function checkSpecDrift({
 
   // Also allow ADR Compaction diffs (where docs/adr/ADR-*.md files were compacted into docs/SRS.md and recorded in AUDIT_CHAIN.jsonl)
   let isAdrCompaction = false;
-  if (blockingAdrs.length === 0 && matchingAdrs.length === 0) {
+  const compactionOnlyTriggers =
+    triggers.length > 0 && triggers.every((t) => t.file === 'PRODUCT.md' || t.file === 'docs/SRS.md');
+  if (blockingAdrs.length === 0 && matchingAdrs.length === 0 && allAdrs.length === 0 && compactionOnlyTriggers) {
     const auditChainPath = path.resolve(repoRoot, 'docs/AUDIT_CHAIN.jsonl');
     const auditRaw = fileExists(auditChainPath) ? readFileSafe(auditChainPath) || '' : '';
     const hasCompactedAuditRecord = auditRaw.includes('"event":"ADR_BATCH_COMPACTED"');
@@ -623,7 +625,15 @@ export function checkSpecDrift({
     );
     const srsPath = path.resolve(repoRoot, 'docs/SRS.md');
     const srsHasCompactedTable = fileExists(srsPath) && (readFileSafe(srsPath) || '').includes('## Compacted Architectural Decisions');
-    if (hasCompactedAuditRecord && (diffDeletesAdr || srsHasCompactedTable)) {
+    const auditDiff = gitDiffForFile('docs/AUDIT_CHAIN.jsonl', repoRoot) || '';
+    const diffAddsCompactionEvent = auditDiff
+      .split('\n')
+      .some((line) => line.startsWith('+') && !line.startsWith('+++') && line.includes('"event":"ADR_BATCH_COMPACTED"'));
+    if (
+      hasCompactedAuditRecord &&
+      srsHasCompactedTable &&
+      (diffDeletesAdr || (normDiffSet.has('docs/SRS.md') && diffAddsCompactionEvent))
+    ) {
       isAdrCompaction = true;
     }
   }
