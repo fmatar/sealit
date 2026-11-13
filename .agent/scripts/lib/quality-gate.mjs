@@ -465,14 +465,14 @@ jobs:
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Setup Node.js Runtime
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: '22'
+          node-version: 'lts/*'
 
       - name: Install Dependencies
         run: |
@@ -1508,7 +1508,7 @@ export function resolveAdHocTargets(files = [], modules = [], repoRoot = '.') {
   };
 }
 
-export function generateReviewPlan({ repoRoot = '.', lane = null } = {}) {
+export function generateReviewPlan({ repoRoot = '.', lane = null, maxDiffChars = 40000 } = {}) {
   const current = getSessionStatus(repoRoot);
   const activeSess = current.session;
   const issueId = activeSess?.issueId || 'N/A';
@@ -1521,12 +1521,48 @@ export function generateReviewPlan({ repoRoot = '.', lane = null } = {}) {
       ? activeSess.lane
       : 'full';
 
+  const baseSha =
+    (gitOutput(['merge-base', 'origin/main', 'HEAD'], repoRoot) ||
+      gitOutput(['merge-base', 'main', 'HEAD'], repoRoot) ||
+      '').trim() || null;
+  const headSha = (gitOutput(['rev-parse', 'HEAD'], repoRoot) || '').trim() || null;
+  const diffStat = (
+    gitOutput(['diff', '--stat', 'origin/main...HEAD'], repoRoot) ||
+    gitOutput(['diff', '--stat', 'main...HEAD'], repoRoot) ||
+    gitOutput(['diff', '--stat', 'HEAD~1'], repoRoot) ||
+    ''
+  ).trim();
+  const rawDiff = diffFiles
+    .map((file) => gitDiffForFile(file, repoRoot))
+    .filter(Boolean)
+    .join('\n');
+  const budget = Math.max(1024, Number(maxDiffChars) || 40000);
+  const diffTruncated = rawDiff.length > budget;
+  const diff = diffTruncated
+    ? `${rawDiff.slice(0, budget)}\n... [diff truncated at ${budget} chars; inspect full files via read_file]`
+    : rawDiff;
+
+  const filesLabel = diffFiles.length > 0 ? diffFiles.join(', ') : 'none';
+  const issueRef = String(issueId).startsWith('L-') || issueId === 'N/A' ? String(issueId) : `#${issueId}`;
+  const diffContextBlock = [
+    `Base SHA: ${baseSha || 'main'} | HEAD SHA: ${headSha || 'working-tree'}`,
+    `Modified files (${diffFiles.length}): ${filesLabel}`,
+    ...(diffStat ? [`Diff Stat:\n${diffStat}`] : []),
+    `Unified Diff:\n\`\`\`diff\n${diff || '(no diff hunks detected)'}\n\`\`\``
+  ].join('\n');
+
   if (resolvedLane === 'trivial') {
     return {
       issueId,
       branch,
       lane: 'trivial',
       riskLevel: risk.riskLevel,
+      baseSha,
+      headSha,
+      modifiedFiles: diffFiles,
+      diffStat,
+      diff,
+      diffTruncated,
       subagentsCount: 0,
       payload: { Subagents: [] }
     };
@@ -1537,11 +1573,13 @@ export function generateReviewPlan({ repoRoot = '.', lane = null } = {}) {
       {
         TypeName: 'research',
         Role: 'PR Peer & Architecture Reviewer',
-        Prompt: `Follow sdlc-gate review guidelines. Audit git diff against main on branch ${branch} for issue #${issueId} (standard lane, risk: ${risk.riskLevel}, modified files: ${diffFiles.length}).
+        Prompt: `Follow sdlc-gate review guidelines. Audit git diff against main on branch ${branch} for ticket ${issueRef} (standard lane, risk: ${risk.riskLevel}).
 1. Audit logic correctness, behavioral test smells (no assertion-free tests), and F.I.R.S.T. isolation.
 2. Verify coverage metrics against .agent/sdlc-config.json thresholds.
 3. Inspect modified files for hardcoded secrets, unsafe shell interpolation, concentric layer inversions (.archlens/policy.json), and undeclared spec drift.
-4. Return a structured read-only verdict (verdict: approve | request-changes, blockers, notes) so the orchestrator can publish it via review record.`
+4. Return a structured read-only verdict (verdict: approve | request-changes, blockers, notes) so the orchestrator can publish it via review record.
+
+${diffContextBlock}`
       }
     ];
     return {
@@ -1549,6 +1587,12 @@ export function generateReviewPlan({ repoRoot = '.', lane = null } = {}) {
       branch,
       lane: 'standard',
       riskLevel: risk.riskLevel,
+      baseSha,
+      headSha,
+      modifiedFiles: diffFiles,
+      diffStat,
+      diff,
+      diffTruncated,
       subagentsCount: subagents.length,
       payload: { Subagents: subagents }
     };
@@ -1558,20 +1602,24 @@ export function generateReviewPlan({ repoRoot = '.', lane = null } = {}) {
     {
       TypeName: 'research',
       Role: 'PR Peer Reviewer',
-      Prompt: `Follow sdlc-gate review guidelines. Audit git diff against main on branch ${branch} for issue #${issueId}.
+      Prompt: `Follow sdlc-gate review guidelines. Audit git diff against main on branch ${branch} for ticket ${issueRef}.
 1. Audit for behavioral test smells (no assertion-free tests, no trivial getters, no mock abuse) and F.I.R.S.T. isolation.
 2. Verify Dual-Gate metrics against .agent/sdlc-config.json thresholds.
 3. Verify README.md and CHANGELOG.md alignment when user-facing behavior changes.
-4. Return a structured read-only verdict (verdict: approve | request-changes, blockers, notes) so the orchestrator can publish it via review record.`
+4. Return a structured read-only verdict (verdict: approve | request-changes, blockers, notes) so the orchestrator can publish it via review record.
+
+${diffContextBlock}`
     },
     {
       TypeName: 'research',
       Role: 'Quality Gatekeeper',
-      Prompt: `Follow sdlc-gate architectural & security guidelines. Inspect modified files on branch ${branch} for issue #${issueId}.
+      Prompt: `Follow sdlc-gate architectural & security guidelines. Inspect modified files on branch ${branch} for ticket ${issueRef}.
 1. Check pre-flight risk profile (detected: ${risk.riskLevel}, modified files: ${diffFiles.length}).
 2. Inspect modified files for hardcoded secrets, unsafe shell interpolation, or package CVEs.
 3. Verify zero concentric layer inversions against .archlens/policy.json and zero undeclared API contract drift.
-4. Return a structured read-only gate report (verdict: approve | request-changes, blockers, notes).`
+4. Return a structured read-only gate report (verdict: approve | request-changes, blockers, notes).
+
+${diffContextBlock}`
     }
   ];
 
@@ -1579,10 +1627,13 @@ export function generateReviewPlan({ repoRoot = '.', lane = null } = {}) {
     subagents.push({
       TypeName: 'research',
       Role: 'Security & Architectural Auditor',
-      Prompt: `Conduct deep security and architectural invariant audit for HIGH/CRITICAL risk changes (${risk.riskLevel}).
-1. Inspect migration files, auth handlers, and domain models.
-2. Ensure zero flaky tests (node .agent/scripts/sdlc-engine.mjs flake-check --runs 10).
-3. Validate concentric layer decoupling with Archlens.`
+      Prompt: `Conduct deep read-only security and architectural invariant audit on branch ${branch} for ticket ${issueRef} (${risk.riskLevel} risk).
+1. Inspect migration files, auth handlers, CLI execution paths, and domain models for injection, credential leaks, or privilege bypasses.
+2. Audit test determinism risks (shared mutable state, unseeded randomness, wall-clock or network coupling).
+3. Validate concentric layer decoupling against .archlens/policy.json.
+4. Return a structured read-only audit verdict (verdict: approve | request-changes, blockers, notes).
+
+${diffContextBlock}`
     });
   }
 
@@ -1592,6 +1643,12 @@ export function generateReviewPlan({ repoRoot = '.', lane = null } = {}) {
     branch,
     lane: 'full',
     riskLevel: risk.riskLevel,
+    baseSha,
+    headSha,
+    modifiedFiles: diffFiles,
+    diffStat,
+    diff,
+    diffTruncated,
     subagentsCount: subagents.length,
     payload
   };

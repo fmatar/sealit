@@ -603,6 +603,8 @@ export function executeCompositeStage({
   type = 'feat',
   lane = null,
   laneReason = null,
+  localOnly = false,
+  createIssue = false,
   withUi = false,
   branch = null,
   worktree = null,
@@ -632,16 +634,20 @@ export function executeCompositeStage({
 
     let resolvedIssueId = issueId ? String(issueId).replace(/^#/, '') : null;
     if (!resolvedIssueId) {
-      if (resolvedLane === 'trivial') {
+      if (resolvedLane === 'trivial' || localOnly) {
         resolvedIssueId = `L-${Date.now().toString().slice(-6)}`;
-      } else {
+      } else if (createIssue) {
         const created = createPMIssue({
           title: title || 'Automated SDLC Task',
           type,
-          body: summary || title || 'Provisioned via sdlc-engine stage begin',
+          body: summary || title || 'Provisioned via sdlc-engine stage begin --create-issue',
           repoRoot
         });
         resolvedIssueId = String(created.issueId || '1').replace(/^#/, '');
+      } else {
+        throw new Error(
+          "Refusing to create a remote issue automatically without confirmation. Pass '--issue <id>' for an existing ticket, '--local' for a local L-* session, '--lane trivial' for a trivial change, or '--create-issue' after confirming with the user."
+        );
       }
     }
 
@@ -650,15 +656,18 @@ export function executeCompositeStage({
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '')
       .slice(0, 40);
-    const isLocalTrivial = resolvedLane === 'trivial' && String(resolvedIssueId).startsWith('L-');
+    const isLocalId = String(resolvedIssueId).startsWith('L-');
+    const isLocalTrivial = resolvedLane === 'trivial' && isLocalId;
     const prefix = type === 'hotfix' ? 'hotfix' : isLocalTrivial ? 'chore' : 'feature';
     const targetBranch =
       branch ||
       (isLocalTrivial
         ? `chore/quick-${slug}`
-        : title
-          ? `${prefix}/issue-#${resolvedIssueId}-${slug}`
-          : `${prefix}/issue-#${resolvedIssueId}`);
+        : isLocalId
+          ? `${prefix}/${resolvedIssueId}-${slug}`
+          : title
+            ? `${prefix}/issue-#${resolvedIssueId}-${slug}`
+            : `${prefix}/issue-#${resolvedIssueId}`);
 
     const started = startSession({
       issueId: resolvedIssueId,
@@ -680,7 +689,7 @@ export function executeCompositeStage({
       } catch {}
     }
 
-    if (!isLocalTrivial) {
+    if (!isLocalId) {
       try {
         transitionPMState({ issueId: resolvedIssueId, state: 'in-progress', repoRoot });
       } catch {}

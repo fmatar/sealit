@@ -24,7 +24,7 @@ tools: read_file, write_file, edit_file, run_command, invoke_subagent
 | `/sdlc triage` | `node .agent/scripts/sdlc-engine.mjs triage` |
 | `/sdlc quick "<desc>"` | `node .agent/scripts/sdlc-engine.mjs stage begin --lane trivial --title "<desc>" --checkout` |
 | `/sdlc begin <#id>` | `node .agent/scripts/sdlc-engine.mjs stage begin --issue <id> --checkout` |
-| `/sdlc begin "<title>"` | `node .agent/scripts/sdlc-engine.mjs stage begin --title "<title>" --checkout` |
+| `/sdlc begin "<title>"` | `node .agent/scripts/sdlc-engine.mjs stage begin --local --title "<title>" --checkout` (pass `--create-issue` instead of `--local` only after user confirmation) |
 | `/sdlc pre-pr [#id]` | `node .agent/scripts/sdlc-engine.mjs stage pre-pr --issue <id> --summary "<from-git-log-main..HEAD>"` |
 | `/sdlc review` | Run `sdlc-gate` (`review plan` -> read-only subagent review -> blocker-derived `review record`) |
 | `/sdlc complete [#id]` | `node .agent/scripts/sdlc-engine.mjs stage complete --issue <id> --pr <prNumber>` |

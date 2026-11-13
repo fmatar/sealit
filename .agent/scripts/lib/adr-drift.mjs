@@ -4,12 +4,25 @@ import { fileExists, readFileSafe, getModifiedFiles, gitOutput } from './core.mj
 import { appendDecisionEvent, syncDecisionMapMarkdown } from './decision-graph.mjs';
 import { appendAuditRecord } from './audit-chain.mjs';
 
+function normalizeTicketId(val) {
+  if (val === null || val === undefined || val === '' || val === 'N/A') return null;
+  const clean = String(val).trim().replace(/^#/, '');
+  if (!clean || clean === 'N/A') return null;
+  return /^\d+$/.test(clean) ? Number(clean) : clean;
+}
+
+function formatTicketRef(val) {
+  const norm = normalizeTicketId(val);
+  if (norm === null) return 'N/A';
+  return typeof norm === 'number' ? `#${norm}` : String(norm);
+}
+
 function patchProductMdWithADR(repoRoot, adr) {
   const productPath = path.resolve(repoRoot, 'PRODUCT.md');
   if (!fileExists(productPath)) return false;
 
   let content = readFileSafe(productPath) || '';
-  const row = `| ${adr.id} | ${adr.title} | \`${adr.scope}\` | \`${adr.status}\` | #${adr.ticketId || 'N/A'} | ${(adr.supersedes || []).join(', ') || 'None'} |`;
+  const row = `| ${adr.id} | ${adr.title} | \`${adr.scope}\` | \`${adr.status}\` | ${formatTicketRef(adr.ticketId)} | ${(adr.supersedes || []).join(', ') || 'None'} |`;
 
   // Update existing row if ADR ID already listed
   const rowRegex = new RegExp(`^\\|\\s*${adr.id}\\s*\\|.*$`, 'm');
@@ -55,7 +68,7 @@ export function listADRs(repoRoot = '.') {
     const title = (raw.match(/^title:\s*(.+)$/m) || raw.match(/^#\s+(.+)$/m) || [null, id])[1].trim();
     const status = (raw.match(/^status:\s*(.+)$/m) || [null, 'accepted'])[1].trim();
     const scope = (raw.match(/^scope:\s*(.+)$/m) || [null, 'technical'])[1].trim();
-    const ticketMatch = raw.match(/^ticket:\s*#?(\d+)/m);
+    const ticketMatch = raw.match(/^ticket:\s*(.+)$/m);
     const supersedesRaw = (raw.match(/^supersedes:\s*(.+)$/m) || [null, ''])[1].trim();
     const supersedes = supersedesRaw ? supersedesRaw.split(',').map((s) => s.trim()).filter(Boolean) : [];
     const createdAt = (raw.match(/^createdAt:\s*(.+)$/m) || [null, ''])[1].trim();
@@ -65,7 +78,7 @@ export function listADRs(repoRoot = '.') {
       title,
       status,
       scope,
-      ticketId: ticketMatch ? Number(ticketMatch[1]) : null,
+      ticketId: ticketMatch ? normalizeTicketId(ticketMatch[1]) : null,
       supersedes,
       createdAt,
       file: `docs/adr/${file}`,
@@ -103,7 +116,7 @@ export function createADR({
   context = 'Implementation revealed new technical or product constraints.',
   decision = 'Updated architectural approach.',
   consequences = 'Downstream specs and tickets updated accordingly.',
-  autoAccept = null,
+  autoAccept = false,
   repoRoot = '.'
 } = {}) {
   const adrDir = path.resolve(repoRoot, 'docs/adr');
@@ -119,8 +132,10 @@ export function createADR({
     .slice(0, 48);
 
   const normScope = String(scope).toLowerCase() === 'product' || String(scope).toLowerCase() === 'contract' ? 'product' : 'technical';
-  const shouldAccept = autoAccept !== null ? !!autoAccept : normScope === 'technical';
+  const shouldAccept = Boolean(autoAccept);
   const status = shouldAccept ? 'accepted' : 'pending_approval';
+  const normTicket = normalizeTicketId(ticketId);
+  const ticketRef = formatTicketRef(normTicket);
   const createdAt = new Date().toISOString();
   const supList = Array.isArray(supersedes) ? supersedes : String(supersedes || '').split(',').map((s) => s.trim()).filter(Boolean);
 
@@ -133,7 +148,7 @@ id: ${adrId}
 title: ${title}
 status: ${status}
 scope: ${normScope}
-ticket: ${ticketId ? '#' + ticketId : 'N/A'}
+ticket: ${ticketRef}
 supersedes: ${supList.join(', ')}
 createdAt: ${createdAt}
 ---
@@ -142,7 +157,7 @@ createdAt: ${createdAt}
 
 - **Status**: \`${status}\`
 - **Blast Radius / Scope**: \`${normScope}\`
-- **Triggered By Ticket**: ${ticketId ? '#' + ticketId : 'N/A'}
+- **Triggered By Ticket**: ${ticketRef}
 - **Supersedes / Amends**: ${supList.join(', ') || 'None'}
 
 ## 1. Context & Spec Drift Trigger
@@ -162,7 +177,7 @@ ${consequences}
     title,
     status,
     scope: normScope,
-    ticketId,
+    ticketId: normTicket,
     supersedes: supList,
     createdAt,
     file: relativePath
@@ -176,8 +191,8 @@ ${consequences}
     label: `${adrId}: ${title}`,
     category: 'ADR',
     status,
-    ticketId,
-    linksTo: [...supList, ...(ticketId ? [`#${ticketId}`] : [])],
+    ticketId: normTicket,
+    linksTo: [...supList, ...(normTicket !== null ? [ticketRef] : [])],
     metadata: { scope: normScope, file: relativePath, decision },
     repoRoot
   });
@@ -310,7 +325,7 @@ export function compactADRs({ releaseVersion = 'baseline', dryRun = false, repoR
     let srsContent = readFileSafe(srsPath) || '';
     const rows = adrs.map((a) => {
       const summary = extractDecisionSummary(a);
-      const ticketCell = a.ticketId ? `#${a.ticketId}` : 'N/A';
+      const ticketCell = formatTicketRef(a.ticketId);
       const supCell = (a.supersedes || []).join(', ') || 'None';
       return `| \`${a.id}\` | ${a.title.replace(/\|/g, '/')} | \`${a.scope}\` | ${ticketCell} | ${supCell} | \`${releaseVersion}\` | ${summary} |`;
     });
@@ -568,8 +583,10 @@ export function checkSpecDrift({
   // Check if an ADR is present in the diff or already registered in docs/adr/ for this ticketId
   const allAdrs = listADRs(repoRoot);
   const diffHasAdr = files.some((f) => f.includes('docs/adr/ADR-') && f.endsWith('.md'));
+  const normQueryTicket = normalizeTicketId(ticketId);
   const matchingAdrs = allAdrs.filter((a) => {
-    const matchesTicket = ticketId ? Number(a.ticketId) === Number(ticketId) : true;
+    const normAdrTicket = normalizeTicketId(a.ticketId);
+    const matchesTicket = normQueryTicket !== null ? String(normAdrTicket) === String(normQueryTicket) : true;
     const isAccepted = a.status === 'accepted';
     return isAccepted && (matchesTicket || diffHasAdr);
   });

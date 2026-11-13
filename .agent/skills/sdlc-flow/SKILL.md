@@ -31,6 +31,12 @@ tools: read_file, write_file, edit_file, run_command, invoke_subagent
    # Existing ticket:
    node .agent/scripts/sdlc-engine.mjs stage begin --issue <id> --type <feat|fix|hotfix> --checkout
 
+   # Local session without creating a remote issue (standard/full lane):
+   node .agent/scripts/sdlc-engine.mjs stage begin --local --title "<short-desc>" --type <feat|fix|chore> --checkout
+
+   # Create a new remote PM issue ONLY after explicit user confirmation:
+   node .agent/scripts/sdlc-engine.mjs stage begin --create-issue --title "<short-desc>" --type <feat|fix> --checkout
+
    # Trivial docs/style fast-path (no remote issue spam):
    node .agent/scripts/sdlc-engine.mjs stage begin --lane trivial --title "<short-desc>" --type chore --checkout
    ```

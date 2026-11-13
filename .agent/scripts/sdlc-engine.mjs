@@ -389,15 +389,34 @@ export function executeRelease({
   dryRun = false,
   skipGate = false,
   noCompact = false,
+  noTag = false,
   repoRoot = '.'
 } = {}) {
   console.log(`🚀 Preparing ${bump.toUpperCase()} Release (dryRun: ${dryRun})...`);
 
+  if (!dryRun) {
+    let currentBranch = '';
+    try {
+      currentBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        stdio: 'pipe'
+      }).trim();
+    } catch {
+      throw new Error('Cannot execute release outside an initialized git repository.');
+    }
+    if (['main', 'develop', 'master', 'HEAD'].includes(currentBranch)) {
+      throw new Error(
+        `Refusing to execute release directly on branch '${currentBranch}' (INV-01). Switch to a release branch via 'stage begin' first.`
+      );
+    }
+  }
+
   if (!skipGate && !dryRun) {
-    console.log('🛡️ Verifying Quality Gate before release...');
-    const gateRes = runCLI(['gate'], null, repoRoot);
+    console.log('🛡️ Verifying Strict Quality Gate before release...');
+    const gateRes = runCLI(['gate', '--strict'], null, repoRoot);
     if (!gateRes.success) {
-      throw new Error('Quality gate failed. Release aborted.');
+      throw new Error('Strict quality gate failed. Release aborted.');
     }
   }
 
@@ -454,6 +473,20 @@ export function executeRelease({
     };
   }
 
+  if (!noTag) {
+    let existingTagSha = '';
+    try {
+      existingTagSha = execFileSync('git', ['rev-parse', '-q', '--verify', `refs/tags/${releaseTag}`], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        stdio: 'pipe'
+      }).trim();
+    } catch {}
+    if (existingTagSha) {
+      throw new Error(`Release git tag '${releaseTag}' already exists (${existingTagSha.slice(0, 8)}).`);
+    }
+  }
+
   const updatedFiles = [];
   let compactedAdrs = null;
   if (!noCompact && listADRs(repoRoot).length > 0) {
@@ -470,6 +503,29 @@ export function executeRelease({
     pkg.version = newVersion;
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
     updatedFiles.push('package.json');
+
+    const lockPath = path.resolve(repoRoot, 'package-lock.json');
+    if (fileExists(lockPath)) {
+      try {
+        const lock = JSON.parse(readFileSafe(lockPath));
+        lock.version = newVersion;
+        if (lock.packages && lock.packages['']) {
+          lock.packages[''].version = newVersion;
+        }
+        fs.writeFileSync(lockPath, JSON.stringify(lock, null, 2) + '\n', 'utf8');
+        updatedFiles.push('package-lock.json');
+      } catch {}
+    }
+
+    const pluginPath = path.resolve(repoRoot, '.claude-plugin/plugin.json');
+    if (fileExists(pluginPath)) {
+      try {
+        const plugin = JSON.parse(readFileSafe(pluginPath));
+        plugin.version = newVersion;
+        fs.writeFileSync(pluginPath, JSON.stringify(plugin, null, 2) + '\n', 'utf8');
+        updatedFiles.push('.claude-plugin/plugin.json');
+      } catch {}
+    }
   } else if (manifestType === 'pom.xml') {
     let pom = readFileSafe(pomPath);
     pom = pom.replace(/<version>[0-9]+\.[0-9]+\.[0-9]+[^<]*<\/version>/, `<version>${newVersion}</version>`);
@@ -499,14 +555,31 @@ export function executeRelease({
     }
   }
 
+  const isGitIgnored = (rel) => {
+    try {
+      execFileSync('git', ['check-ignore', '-q', '--', rel], { cwd: repoRoot, stdio: 'pipe' });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   try {
-    execFileSync('git', ['add', '--', ...updatedFiles], { cwd: repoRoot, stdio: 'pipe' });
-    if (compactedAdrs && compactedAdrs.compactedCount > 0) {
+    const stageableFiles = updatedFiles.filter((rel) => !isGitIgnored(rel));
+    if (stageableFiles.length > 0) {
+      execFileSync('git', ['add', '--', ...stageableFiles], { cwd: repoRoot, stdio: 'pipe' });
+    }
+    if (compactedAdrs && compactedAdrs.compactedCount > 0 && fileExists(path.resolve(repoRoot, 'docs/adr')) && !isGitIgnored('docs/adr')) {
       execFileSync('git', ['add', '-A', '--', 'docs/adr'], { cwd: repoRoot, stdio: 'pipe' });
     }
     execFileSync('git', ['commit', '-m', `chore(release): ${releaseTag}`], { cwd: repoRoot, stdio: 'pipe' });
-    execFileSync('git', ['tag', '-a', releaseTag, '-m', `Release ${releaseTag}`], { cwd: repoRoot, stdio: 'pipe' });
-  } catch {}
+    if (!noTag) {
+      execFileSync('git', ['tag', '-a', releaseTag, '-m', `Release ${releaseTag}`], { cwd: repoRoot, stdio: 'pipe' });
+    }
+  } catch (err) {
+    const detail = err?.stderr ? Buffer.from(err.stderr).toString('utf8').trim() : err?.message || String(err);
+    throw new Error(`Release git commit/tag failed for ${releaseTag}: ${detail}`);
+  }
 
   return {
     success: true,
@@ -514,6 +587,7 @@ export function executeRelease({
     currentVersion,
     newVersion,
     releaseTag,
+    tagged: !noTag,
     updatedFiles,
     compactedAdrs
   };
@@ -888,7 +962,10 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         for (let i = 2; i < args.length; i++) {
           if (args[i] === '--title' && args[i + 1]) title = args[++i];
           else if (args[i] === '--scope' && args[i + 1]) scope = args[++i];
-          else if (args[i] === '--ticket' && args[i + 1]) ticketId = Number(args[++i]) || args[i];
+          else if (args[i] === '--ticket' && args[i + 1]) {
+            const rawTicket = args[++i];
+            ticketId = /^\d+$/.test(rawTicket) ? Number(rawTicket) : rawTicket.replace(/^#/, '');
+          }
           else if (args[i] === '--supersedes' && args[i + 1]) supersedes = args[++i].split(',').map((s) => s.trim());
           else if (args[i] === '--context' && args[i + 1]) context = args[++i];
           else if (args[i] === '--decision' && args[i + 1]) decision = args[++i];
@@ -1078,6 +1155,8 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         type = 'feat',
         lane = null,
         laneReason = null,
+        localOnly = false,
+        createIssue = false,
         withUi = false,
         branch = null,
         worktree = null,
@@ -1095,6 +1174,8 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         else if (args[i].startsWith('--lane=')) lane = args[i].slice('--lane='.length);
         else if (args[i] === '--reason' && args[i + 1]) laneReason = args[++i];
         else if (args[i].startsWith('--reason=')) laneReason = args[i].slice('--reason='.length);
+        else if (args[i] === '--local') localOnly = true;
+        else if (args[i] === '--create-issue') createIssue = true;
         else if (args[i] === '--ui') withUi = true;
         else if (args[i] === '--branch' && args[i + 1]) branch = args[++i];
         else if (args[i] === '--worktree' && args[i + 1]) worktree = args[++i];
@@ -1110,6 +1191,8 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         type,
         lane,
         laneReason,
+        localOnly,
+        createIssue,
         withUi,
         branch,
         worktree,
@@ -1850,14 +1933,16 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       let bump = 'patch',
         dryRun = false,
         skipGate = false,
-        noCompact = false;
+        noCompact = false,
+        noTag = false;
       for (let i = 1; i < args.length; i++) {
         if (args[i] === '--dry-run') dryRun = true;
         else if (args[i] === '--skip-gate') skipGate = true;
         else if (args[i] === '--no-compact') noCompact = true;
+        else if (args[i] === '--no-tag') noTag = true;
         else if (['patch', 'minor', 'major'].includes(args[i].toLowerCase())) bump = args[i].toLowerCase();
       }
-      result.release = executeRelease({ bump, dryRun, skipGate, noCompact, repoRoot });
+      result.release = executeRelease({ bump, dryRun, skipGate, noCompact, noTag, repoRoot });
       return result;
     }
 
@@ -2153,7 +2238,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         '',
         'Lifecycle & Sessions:',
         '  triage [files...] [--intent "<desc>"] [--lane <trivial|standard|full>] [--reason "<why>"]',
-        '  stage <begin|pre-pr|complete> [--issue <id>] [--title "<slug>"] [--lane <trivial|standard|full>] [--checkout] [--ui]',
+        '  stage <begin|pre-pr|complete> [--issue <id>|--local|--create-issue] [--title "<slug>"] [--lane <lane>] [--checkout] [--ui]',
         '  session <status|dashboard|list|start|update|switch|resume|release>',
         '  ticket <create|transition|comment|sync|templates>     Manage GitHub, Linear, Jira, or local KANBAN.md tickets',
         '  pm <status|sync|transition|comment|templates>         Project management provider operations',
@@ -2183,7 +2268,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         '  skill-audit [--live] | security-audit                 Static SkillSpector & secret/CVE scanning',
         '  audit <verify|record> | cache <status|clear> | stats  Merkle audit chain verification, gate cache & est. stats',
         '  ui-snapshot | serve [--port <4120>]                   Build static workbench HTML or start token-gated server',
-        '  proof generate --name <id> | release <patch|minor|major> [--dry-run] | watchdog monitor',
+        '  proof generate --name <id> | release <patch|minor|major> [--dry-run] [--no-tag] | watchdog monitor',
         ''
       ];
       (isHelp ? console.log : console.error)(helpLines.join('\n'));
@@ -2211,7 +2296,7 @@ export function formatCLIResult(res, args = []) {
     const sub = res.subcommand || 'status';
     if (sub === 'dashboard') {
       if (res.dashboard) return res.dashboard;
-      return 'ℹ️ No active SDLC session. Start one with `node .agent/scripts/sdlc-engine.mjs stage begin --title "<title>" --checkout`.';
+      return 'ℹ️ No active SDLC session. Start one with `node .agent/scripts/sdlc-engine.mjs stage begin --issue <id> --checkout` (or `--local`).';
     }
     if (sub === 'status') {
       const s = res.status?.session;
@@ -2379,6 +2464,11 @@ export function formatCLIResult(res, args = []) {
     if (res.readmeAudit) {
       return res.readmeAudit.summary;
     }
+  }
+
+  if (cmd === 'release' && res.release) {
+    const r = res.release;
+    return `🚀 Release ${r.releaseTag} (${r.currentVersion} -> ${r.newVersion})${r.dryRun ? ' [DRY RUN]' : ''}`;
   }
 
   return '';

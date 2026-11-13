@@ -41,11 +41,13 @@ flowchart TD
   ADR_011["ADR-011: Strict sdlc Namespace Isolation and Decoupling from Standalone Coding-Persona Skills"]
   _118["Ticket #118 (feature/issue-#118-decouple-sdlc-skill-namespace-from-stand)"]
   ADR_012["ADR-012: Reset Package, Plugin, and Documentation Version Baseline to 0.0.1"]
-  _120["Ticket #120"]
+  _120["Ticket #120 (feature/issue-#120-reset-release-baseline-to-version-0-0-1)"]
+  ADR_013["ADR-013: Harden Release Gate, Opt-In Issue Creation, Universal ADR Approval, Diff Review Plans, and Node 24 CI Actions"]
   ADR_COMPACT_v0_3_0["Compacted 8 ADR(s) into SRS.md (v0.3.0)"]
   createdAt__2026_11_03T18_52_42_656Z["createdAt: 2026-11-03T18:52:42.656Z"]
   ADR_COMPACT_v0_4_0["Compacted 6 ADR(s) into SRS.md (v0.4.0)"]
   createdAt__2026_11_12T18_08_28_446Z["createdAt: 2026-11-12T18:08:28.446Z"]
+  L_122000["L-122000"]
   _SDLC_INIT["Ticket #SDLC-INIT (feature/arch-traceability-governance)"]
   _24["Ticket #24 (feature/issue-#24-api-contract-drift-sentinel)"]
   _25["Ticket #25 (feature/issue-#25-bug-reproduce-generator)"]
@@ -115,6 +117,9 @@ flowchart TD
   _120 -->|triggered_drift_adr| ADR_012
   CAP_06 -.->|ADR Drift| ADR_012
   ADR_009 -.->|ADR Drift| ADR_012
+  CAP_01 -.->|ADR Drift| ADR_013
+  CAP_03 -.->|ADR Drift| ADR_013
+  CAP_06 -.->|ADR Drift| ADR_013
   CAP_01 -->|realized_by| ADR_COMPACT_v0_3_0
   CAP_02 -->|realized_by| ADR_COMPACT_v0_3_0
   CAP_03 -->|realized_by| ADR_COMPACT_v0_3_0
@@ -135,6 +140,7 @@ flowchart TD
   CAP_05 -->|realized_by| ADR_COMPACT_v0_4_0
   CAP_07 -->|realized_by| ADR_COMPACT_v0_4_0
   CAP_08 -->|realized_by| ADR_COMPACT_v0_4_0
+  L_122000 -.->|ADR Drift| ADR_013
 ```
 
 ---
@@ -147,6 +153,7 @@ flowchart TD
 | **ADR-010** | Standardize on 10 Canonical SDLC Skills, Neutralize Engineering Terminology, and Compact README Workflow Diagram | `technical` | `accepted` | #116 | CAP-05, CAP-07, CAP-08, CAP-11 |
 | **ADR-011** | Strict sdlc Namespace Isolation and Decoupling from Standalone Coding-Persona Skills | `technical` | `accepted` | #118 | CAP-05, CAP-07, CAP-08, ADR-010 |
 | **ADR-012** | Reset Package, Plugin, and Documentation Version Baseline to 0.0.1 | `technical` | `accepted` | #120 | CAP-06, ADR-009 |
+| **ADR-013** | Harden Release Gate, Opt-In Issue Creation, Universal ADR Approval, Diff Review Plans, and Node 24 CI Actions | `technical` | `accepted` | N/A | CAP-01, CAP-03, CAP-06 |
 
 ---
 
@@ -156,10 +163,10 @@ flowchart TD
 | :--- | :--- | :--- |
 | **CAP-01** | Core Domain & Architecture Foundation | `PLANNED` |
 | **CAP-02** | Shell Injection Remediation & Polyglot Test Runners (#69) | `AMENDED (ADR-006)` |
-| **CAP-03** | Real Coverage/Mutation Parsers & Policy ArchDiff (#70) | `AMENDED (ADR-004)` |
+| **CAP-03** | Real Coverage/Mutation Parsers & Policy ArchDiff (#70) | `AMENDED (ADR-013)` |
 | **CAP-04** | Live Canary Watchdog, Real Proofs & Polyglot Reproduce (#71) | `AMENDED (ADR-002)` |
 | **CAP-05** | Consolidate 14 Skills into 6 Schema-Valid Core Skills (#72) | `AMENDED (ADR-011)` |
-| **CAP-06** | Dogfooding Configuration, Docs Sync & Full Test Suite (#73) | `AMENDED (ADR-012)` |
+| **CAP-06** | Dogfooding Configuration, Docs Sync & Full Test Suite (#73) | `AMENDED (ADR-013)` |
 | **CAP-07** | Native `npx` Multi-Agent Interactive Installer & Legacy Installer Removal (#75) | `AMENDED (ADR-011)` |
 | **CAP-08** | `/sdlc` Universal Command Router & 9 Verb-Driven Skills (#81) | `AMENDED (ADR-011)` |
 | **CAP-09** | Two-Tier PRD & IEEE 29148 SRS Specification Engine (#84) | `PLANNED` |

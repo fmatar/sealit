@@ -16,7 +16,7 @@ jobs:
     runs-on: ${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Sync Wiki
         env:

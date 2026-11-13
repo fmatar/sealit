@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **CI Runner Routing & Node 24 GitHub Actions**: Configured `SDLC_RUNS_ON=local-archlens` for repository workflows and upgraded `.github/workflows/sdlc-quality-gate.yml`, `.github/workflows/publish-wiki.yml`, and `installCIWorkflow()` templates from `actions/checkout@v4` / `actions/setup-node@v4` to `@v7` (`node-version: 'lts/*'`), eliminating Node.js 20 deprecation warnings.
+- **Opt-In Remote Issue Creation (`stage begin`)**: `stage begin` no longer creates remote GitHub/Linear/Jira issues automatically when `--issue` is omitted; callers pass `--issue <id>`, `--local` (local `L-*` session across `standard`/`full` lanes), `--lane trivial`, or explicit `--create-issue`.
+- **Universal ADR Approval Gate (`createADR`)**: All ADR scopes (`technical`, `architectural`, `product`, `contract`) now initialize in `pending_approval` and require explicit `adr decide --status approve` before satisfying `drift check` or `adr compact` (with support for local `L-*` and string PM ticket IDs).
+- **Inline Unified Diff Reviewer Context (`review plan`)**: `generateReviewPlan` now embeds `baseSha`/`headSha`, full changed file paths, `--stat`, and a bounded unified `git diff` directly into every read-only subagent prompt across `standard` and `full` lanes.
+
+### Fixed
+- **Fail-Closed Release Execution (`executeRelease`)**: `release` now refuses protected branches (`main`, `develop`, `master`, detached `HEAD`), runs `gate --strict` instead of `gate`, checks pre-existing tags before mutating manifests, syncs `package-lock.json` and `.claude-plugin/plugin.json`, supports `--no-tag`, and throws immediately on `git add` / `commit` / `tag` failures instead of swallowing errors.
+
 ## [0.0.1] - 2026-11-12
 
 ### Added

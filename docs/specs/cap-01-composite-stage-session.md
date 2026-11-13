@@ -9,11 +9,11 @@ The 8-stage `/sdlc-flow` orchestrator previously required the agent to invoke ~1
 
 ## 2. Domain Contract & Acceptance Criteria
 1. **Composite Stage Orchestrator (`executeCompositeStage`)**:
-   - `sdlc-engine stage begin [--issue=#<id>] [--title="..."] [--type=feat|fix|chore]`:
-     - Auto-provisions a ticket if `--issue` is omitted.
+   - `sdlc-engine stage begin [--issue=<id>|--local|--lane=trivial|--create-issue] [--title="..."] [--type=feat|fix|chore] [--checkout]`:
+     - Requires an existing `--issue=<id>`, `--local` (local `L-*` session), `--lane=trivial` (local `L-*` fast-path), or explicit `--create-issue` opt-in before creating any remote PM ticket (never creates a GitHub/Linear/Jira issue implicitly).
      - Starts an active session at Stage 2 (`Architecture & Branch Creation`).
-     - Checks out or creates `feature/issue-#<id>-<slug>` when in an initialized git repository.
-     - Transitions the ticket to `in-progress` on the configured PM board.
+     - Checks out or creates `feature/issue-#<id>-<slug>` (or `feature/L-<id>-<slug>` / `chore/L-<id>-<slug>` for local sessions) when in an initialized git repository.
+     - Transitions remote tickets to `in-progress` on the configured PM board (skipped for local `L-*` sessions).
    - `sdlc-engine stage pre-pr --issue=#<id>`:
      - Advances the active session through Stage 5 and Stage 6.
      - Evaluates `checkSpecDrift`, synchronizes `docs/DECISION_MAP.md` (`syncDecisionMapMarkdown`), and records architectural traceability (`recordArchTrace`).
