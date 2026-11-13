@@ -64,6 +64,7 @@ This reference documents the **10 Canonical Skills — 1 Universal Router (`/sdl
 - **Engine Modules**: `.agent/scripts/lib/session.mjs`, `.agent/scripts/lib/dossier.mjs`
 - **Capabilities**:
   - Drives end-to-end feature and bug delivery across Stages 1–8 using atomic composite stage transitions (`stage begin`, `stage pre-pr`, `stage complete`).
+  - Enforces canonical Git Flow: feature PRs merge into `develop` (`--base develop`), while PRs targeting `main` originate strictly from `develop`.
   - Compiles context-compressed subagent dossiers in `.agent/dossiers/ticket-XX.md` (`dossier generate --issue <id>`).
   - Manages multi-session concurrency (`session list`, `session switch`, `session resume`).
 
@@ -102,8 +103,9 @@ This reference documents the **10 Canonical Skills — 1 Universal Router (`/sdl
 - **Path**: `.agent/skills/sdlc-release/SKILL.md`
 - **Engine Modules**: `.agent/scripts/sdlc-engine.mjs`, `.agent/scripts/lib/quality-gate.mjs`
 - **Capabilities**:
+  - Prepares SemVer releases on release branches cut from `develop` (`release <patch|minor|major> --no-tag`), compacting accepted ADRs into `docs/SRS.md` and rolling `CHANGELOG.md`.
+  - Promotes releases from `develop` to `main` via PR; merging into `main` automatically triggers the GitHub Actions production release workflow (`release.yml`), tagging `main` and creating GitHub Releases.
   - Generates SHA-256 delivery regression proofs in `docs/proofs/proof-*.md` (`proof generate --name <target>`).
-  - Bumps SemVer versions across `package.json`, `pom.xml`, `pyproject.toml`, or `Cargo.toml`, updates `CHANGELOG.md`, and creates annotated Git tags (`release <patch|minor|major>`).
   - Monitors post-deployment canary health endpoints with automatic rollback on error-rate threshold breach (`watchdog monitor`).
 
 ### 2.9 `sdlc-wiki` — Technical Writer, 10–30–90 README & [Archlens](https://github.com/fmatar/archlens) Wiki Architect

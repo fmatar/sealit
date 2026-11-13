@@ -19,6 +19,7 @@ The 8-stage `/sdlc-flow` orchestrator previously required the agent to invoke ~1
      - Evaluates `checkSpecDrift`, synchronizes `docs/DECISION_MAP.md` (`syncDecisionMapMarkdown`), and records architectural traceability (`recordArchTrace`).
      - Issues the cryptographic Stage 7 SHA-256 Merkle Gate Receipt (`issueGateReceipt`).
      - Generates the standardized PR summary (`generatePRSummary`).
+     - Ensures the PR targets `develop` (`ensurePullRequest --base develop`).
    - `sdlc-engine stage complete --issue=#<id> [--pr=#<num>]`:
      - Advances the active session to Stage 8 (`Release & Retrospective`).
      - Transitions the ticket to `done` on the PM board and synchronizes `docs/KANBAN.md`.

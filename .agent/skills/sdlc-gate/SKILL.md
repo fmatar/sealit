@@ -60,4 +60,4 @@ tools: read_file, write_file, edit_file, run_command, invoke_subagent
 - **3 failed remediation loops** -> circuit breaker trips; stop and escalate to the user.
 
 ## Done when
-All scheduled reviewers report `0` blockers, `gate` / `gate --strict` exits `0`, and `review record` publishes the PR review with a valid `GATE-RECEIPT-*` ID.
+All scheduled reviewers report `0` blockers, `gate` / `gate --strict` exits `0`, `review record` publishes the PR review with a valid `GATE-RECEIPT-*` ID, and the PR is merged into `develop` with green CI.

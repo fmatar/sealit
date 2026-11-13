@@ -409,11 +409,25 @@ export function gitDiffForFile(file, repoRoot = '.') {
   return '';
 }
 
-export function getModifiedFiles(baseBranch = 'main', repoRoot = '.') {
+export function hasDevelopBranch(repoRoot = '.') {
+  try {
+    const branches = gitOutput(['branch', '-a'], repoRoot) || '';
+    return /(^|\n)[ *]*remotes\/[^/]+\/develop($|\n)|(^|\n)[ *]*develop($|\n)/.test(branches);
+  } catch {
+    return false;
+  }
+}
+
+export function resolveDefaultBaseBranch(repoRoot = '.') {
+  return hasDevelopBranch(repoRoot) ? 'develop' : 'main';
+}
+
+export function getModifiedFiles(baseBranch = null, repoRoot = '.') {
+  const resolvedBase = baseBranch || resolveDefaultBaseBranch(repoRoot);
   const lines = (out) => (out || '').split('\n').map((s) => s.trim()).filter(Boolean);
   const branchOut =
-    gitOutput(['diff', '--name-only', `origin/${baseBranch}...HEAD`], repoRoot) ??
-    gitOutput(['diff', '--name-only', `${baseBranch}...HEAD`], repoRoot) ??
+    gitOutput(['diff', '--name-only', `origin/${resolvedBase}...HEAD`], repoRoot) ??
+    gitOutput(['diff', '--name-only', `${resolvedBase}...HEAD`], repoRoot) ??
     gitOutput(['diff', '--name-only', 'HEAD~1'], repoRoot);
   const workingFiles = [
     ...lines(gitOutput(['diff', '--name-only', 'HEAD'], repoRoot)),

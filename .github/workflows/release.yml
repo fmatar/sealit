@@ -1,0 +1,108 @@
+name: Production Release
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'media/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Tag & Production Release
+    runs-on: ${{ vars.SDLC_RUNS_ON || 'local-agentic-sdlc-framework' }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js Runtime
+        uses: actions/setup-node@v7
+        with:
+          node-version: "lts/*"
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install Dependencies
+        run: |
+          if [ -f "package-lock.json" ]; then
+            npm ci --no-audit --no-fund
+          elif [ -f "package.json" ]; then
+            npm install --no-audit --no-fund
+          fi
+
+      - name: Verify Strict Quality Gate
+        run: |
+          node .agent/scripts/sdlc-engine.mjs gate --strict
+
+      - name: Inspect Package Version & Release Tag
+        id: version_check
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="v${VERSION}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "tag_exists=true" >> $GITHUB_OUTPUT
+            echo "Release tag ${TAG} already exists. Skipping release creation."
+          else
+            echo "tag_exists=false" >> $GITHUB_OUTPUT
+            echo "Release tag ${TAG} does not exist. Release will be created."
+          fi
+
+      - name: Extract Release Notes from CHANGELOG.md
+        if: steps.version_check.outputs.tag_exists == 'false'
+        id: release_notes
+        run: |
+          VERSION="${{ steps.version_check.outputs.version }}"
+          awk -v ver="$VERSION" '
+            $0 ~ "^## \\[" ver "\\]" { found=1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md || true
+          if [ ! -s release-notes.md ]; then
+            echo "### Release ${{ steps.version_check.outputs.tag }}" > release-notes.md
+            echo "Production release triggered by merging 'develop' into 'main'." >> release-notes.md
+          fi
+          cat release-notes.md
+
+      - name: Create Git Tag & GitHub Release
+        if: steps.version_check.outputs.tag_exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.version_check.outputs.tag }}"
+          VERSION="${{ steps.version_check.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+          gh release create "$TAG" \
+            --title "Release $TAG" \
+            --notes-file release-notes.md
+
+      - name: Publish Package to NPM (When NPM_TOKEN is configured)
+        if: steps.version_check.outputs.tag_exists == 'false'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "${NODE_AUTH_TOKEN}" ]; then
+            echo "Publishing package to npm registry..."
+            npm publish --access public
+          else
+            echo "NPM_TOKEN secret is not set; skipping live npm publish."
+            echo "Verifying package packing integrity via npm pack --dry-run..."
+            npm pack --dry-run
+          fi

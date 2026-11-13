@@ -124,7 +124,7 @@ flowchart TB
 - **3.3.1 Verification & Test Quality**: Risk-proportional Dual-Gate thresholds governed by `.agent/sdlc-config.json` (default `>= 85%` test coverage and configurable mutation kill threshold) enforced prior to PR merge.
 - **3.3.2 Security & Process Isolation**: Zero shell string interpolation of untrusted inputs; all external CLI calls use `execFileSync` argument arrays (`parseCommandArgv` / `runConfiguredCommand`).
 - **3.3.3 Hard Constitutional Invariants**:
-- **INV-01**: Zero direct commits, merges, or pushes to main or develop
+- **INV-01**: Zero direct commits, merges, or pushes to main or develop; feature PRs merge into develop, PRs targeting main must originate from develop, and releases trigger when develop merges to main
 - **INV-02**: Changes require an active SDLC session and risk-proportional Dual-Gate verification (`trivial`, `standard`, or `full` lane) meeting the coverage, mutation, and peer-review thresholds configured in `.agent/sdlc-config.json`
 - **INV-03**: All spec drift must be recorded via an ADR (docs/adr/ADR-00X.md) and synchronized with PRODUCT.md
 - **INV-04**: Zero shell command interpolation of untrusted user/markdown inputs in PM, Git, or test runner execution paths

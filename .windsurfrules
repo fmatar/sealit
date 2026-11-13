@@ -2,10 +2,13 @@
 # Generated automatically by @fmatar/agentic-sdlc (Universal Engine v0.0.1)
 # Governed by Concentric Clean Architecture, Risk-Proportional Lanes & Dual-Gate TDD
 
-## 1. Zero Direct Pushes (4-Layer Git Guard)
+## 1. Zero Direct Pushes & Git Flow (4-Layer Git Guard)
 - Direct git commits, merges, or pushes to `develop` or `main` are STRICTLY FORBIDDEN.
 - Every commit requires an active session in `.agent/.sdlc-session.json` matching the current branch.
+- Feature, bugfix, and chore PRs merge into `develop` (default base branch).
+- Pull requests targeting `main` must originate exclusively from `develop`.
 - Every merge into `main` requires a signed Stage 7 SHA-256 Merkle Gate Receipt in `docs/AUDIT_CHAIN.jsonl`.
+- Merging `develop` into `main` triggers automated production release tagging and distribution.
 
 ## 2. PRODUCT.md Constitution & Spec Drift ADR Protocol
 - Full-spec project handovers synthesize `PRODUCT.md` (`CAP-XX`, `INV-XX`, `SPEC-XX`) starting at Genesis Ticket `#1`.

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { fileExists, readFileSafe } from './core.mjs';
+import { fileExists, readFileSafe, hasDevelopBranch } from './core.mjs';
 import { verifyGateReceipt } from './audit-chain.mjs';
 import { checkSpecDrift } from './adr-drift.mjs';
 
@@ -113,9 +113,20 @@ export function verifyMergeGuard({
     };
   }
 
+  if (currentTarget === 'main' && hasDevelopBranch(repoRoot) && sourceBranch && sourceBranch !== 'develop') {
+    return {
+      allowed: false,
+      layer: 'LAYER_3_GIT_FLOW_BRANCH_POLICY',
+      reasonCode: 'DIRECT_MERGE_TO_MAIN_FORBIDDEN',
+      targetBranch: currentTarget,
+      sourceBranch,
+      message: `🛑 [SDLC Branch Policy] Merges into 'main' must originate exclusively from 'develop'. Direct merges from '${sourceBranch}' are forbidden.`
+    };
+  }
+
   const receiptCheck = verifyGateReceipt({
     headSha: sourceSha,
-    branch: sourceBranch,
+    branch: currentTarget === 'main' && sourceBranch === 'develop' && sourceSha ? null : sourceBranch,
     repoRoot
   });
 
