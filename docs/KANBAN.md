@@ -13,7 +13,7 @@
 
 | 📥 Backlog | 📋 Ready | ⚡ In Progress | 🔍 In Review | ✅ Done |
 | :--- | :--- | :--- | :--- | :--- |
-|  |  | #118: [FEAT] feat: Decouple SDLC skill namespace from standalone coding-persona skills and document separation of concerns |  |  |
+|  |  |  | #118: [FEAT] feat: Decouple SDLC skill namespace from standalone coding-persona skills and document separation of concerns |  |
 |  |  |  | #116: [FEAT] feat: Standardize on 10 canonical skills, neutral terminology, clean footers, and GitHub-width workflow diagram |  |
 |  |  |  | #114: [FEAT] feat: Refresh README.md, Wiki & SRS documentation with Archlens links |  |
 |  |  |  | [#111 chore: Slim npm package (<250 KB), retire duplicate SvelteKit workbench, sync docs, and release v0.4.0](https://github.com/fmatar/agentic-sdlc-framework/issues/111) |  |
