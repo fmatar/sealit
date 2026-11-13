@@ -648,9 +648,50 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -a "\$TAG" -m "Release \$TAG"
           git push origin "\$TAG"
-          gh release create "\$TAG" \\
-            --title "Release \$TAG" \\
-            --notes-file release-notes.md
+          if command -v gh >/dev/null 2>&1; then
+            gh release create "\$TAG" \\
+              --title "Release \$TAG" \\
+              --notes-file release-notes.md
+          else
+            node -e "
+              const fs = require('node:fs');
+              const https = require('node:https');
+              const body = fs.readFileSync('release-notes.md', 'utf8');
+              const payload = JSON.stringify({
+                tag_name: process.env.TAG,
+                name: 'Release ' + process.env.TAG,
+                body,
+                draft: false,
+                prerelease: false
+              });
+              const [owner, repo] = (process.env.GITHUB_REPOSITORY || '').split('/');
+              const req = https.request({
+                hostname: 'api.github.com',
+                path: '/repos/' + owner + '/' + repo + '/releases',
+                method: 'POST',
+                headers: {
+                  'User-Agent': 'agentic-sdlc-release',
+                  'Authorization': 'token ' + process.env.GH_TOKEN,
+                  'Content-Type': 'application/json',
+                  'Content-Length': Buffer.byteLength(payload)
+                }
+              }, res => {
+                let data = '';
+                res.on('data', chunk => data += chunk);
+                res.on('end', () => {
+                  console.log('GitHub Release API Status:', res.statusCode);
+                  if (res.statusCode >= 400) {
+                    console.error('API Error:', data);
+                    process.exit(1);
+                  }
+                  console.log('GitHub Release created successfully via REST API.');
+                });
+              });
+              req.on('error', err => { console.error(err); process.exit(1); });
+              req.write(payload);
+              req.end();
+            "
+          fi
 
       - name: Publish Package to NPM (When NPM_TOKEN is configured)
         if: steps.version_check.outputs.tag_exists == 'false'
