@@ -5,7 +5,7 @@ alwaysApply: true
 ---
 
 # Agentic SDLC Framework Invariants & Autonomous Rules
-_Generated automatically by @fmatar/agentic-sdlc (Universal Engine v0.4.0)_
+_Generated automatically by @fmatar/agentic-sdlc (Universal Engine v0.0.1)_
 _Governed by Concentric Clean Architecture, Risk-Proportional Lanes & Config-Driven Dual-Gate TDD_
 
 ## 1. Zero Direct Pushes (4-Layer Git Guard — INV-01)
