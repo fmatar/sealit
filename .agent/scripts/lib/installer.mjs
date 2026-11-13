@@ -1255,7 +1255,12 @@ export function installFramework({
     prePruned.push(...pruneDeprecatedSkills(path.join(absTarget, '.agents/skills')));
 
     if (path.resolve(srcSkills) !== path.resolve(destSkills)) {
-      copyDirRecursive(srcSkills, destSkills);
+      for (const skillId of CANONICAL_SDLC_SKILLS) {
+        const srcSkillDir = path.join(srcSkills, skillId);
+        if (fileExists(srcSkillDir)) {
+          copyDirRecursive(srcSkillDir, path.join(destSkills, skillId));
+        }
+      }
     }
     if (path.resolve(srcScripts) !== path.resolve(destScripts)) {
       copyDirRecursive(srcScripts, destScripts);

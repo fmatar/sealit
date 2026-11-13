@@ -40,6 +40,7 @@ import {
   CANONICAL_SDLC_SKILLS,
   DEPRECATED_SDLC_SKILLS,
   provisionAgentIntegrations,
+  installFramework,
   auditSkills,
   auditReadme,
   auditWiki,
@@ -1914,70 +1915,87 @@ describe('Issue #118: Strict sdlc* namespace isolation and decoupling from stand
     }
   });
 
-  it('preserves standalone personal and third-party skills untouched during local and global provisioning', () => {
+  it('preserves standalone personal and third-party skills untouched and leaks zero non-sdlc* skills during local and global install', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-118-isolation-'));
     try {
       const localTarget = path.join(tmpDir, 'repo');
+      const cleanTarget = path.join(tmpDir, 'clean-repo');
       const fakeHome = path.join(tmpDir, 'home');
       const standaloneIds = [standalonePersonaId, 'ponytail', 'impeccable', 'team-style'];
 
       for (const id of standaloneIds) {
+        const sentinelSkill = `---\nname: ${id}\ndescription: "SENTINEL-SKILL:${id}"\n---\n`;
         fs.mkdirSync(path.join(localTarget, '.agent/skills', id), { recursive: true });
-        fs.writeFileSync(path.join(localTarget, '.agent/skills', id, 'SKILL.md'), `---\nname: ${id}\ndescription: "Standalone"\n---\n`, 'utf8');
+        fs.writeFileSync(path.join(localTarget, '.agent/skills', id, 'SKILL.md'), sentinelSkill, 'utf8');
         fs.mkdirSync(path.join(localTarget, '.claude/skills', id), { recursive: true });
-        fs.writeFileSync(path.join(localTarget, '.claude/skills', id, 'SKILL.md'), 'standalone\n', 'utf8');
+        fs.writeFileSync(path.join(localTarget, '.claude/skills', id, 'SKILL.md'), `SENTINEL-CLAUDE:${id}\n`, 'utf8');
         fs.mkdirSync(path.join(localTarget, '.claude/cowork'), { recursive: true });
-        fs.writeFileSync(path.join(localTarget, '.claude/cowork', `${id}.zip`), 'standalone-zip', 'utf8');
+        fs.writeFileSync(path.join(localTarget, '.claude/cowork', `${id}.zip`), `SENTINEL-ZIP:${id}`, 'utf8');
         fs.mkdirSync(path.join(localTarget, '.claude/commands'), { recursive: true });
-        fs.writeFileSync(path.join(localTarget, '.claude/commands', `${id}.md`), 'standalone-cmd\n', 'utf8');
+        fs.writeFileSync(path.join(localTarget, '.claude/commands', `${id}.md`), `SENTINEL-CMD:${id}\n`, 'utf8');
         fs.mkdirSync(path.join(localTarget, '.cursor/skills', id), { recursive: true });
-        fs.writeFileSync(path.join(localTarget, '.cursor/skills', id, 'SKILL.md'), 'standalone\n', 'utf8');
+        fs.writeFileSync(path.join(localTarget, '.cursor/skills', id, 'SKILL.md'), `SENTINEL-CURSOR:${id}\n`, 'utf8');
         fs.mkdirSync(path.join(localTarget, '.cursor/rules'), { recursive: true });
-        fs.writeFileSync(path.join(localTarget, '.cursor/rules', `${id}.mdc`), 'standalone-rule\n', 'utf8');
+        fs.writeFileSync(path.join(localTarget, '.cursor/rules', `${id}.mdc`), `SENTINEL-RULE:${id}\n`, 'utf8');
 
         fs.mkdirSync(path.join(fakeHome, '.gemini/config/skills', id), { recursive: true });
-        fs.writeFileSync(path.join(fakeHome, '.gemini/config/skills', id, 'SKILL.md'), 'standalone\n', 'utf8');
+        fs.writeFileSync(path.join(fakeHome, '.gemini/config/skills', id, 'SKILL.md'), `SENTINEL-GLOBAL-GEMINI:${id}\n`, 'utf8');
         fs.mkdirSync(path.join(fakeHome, '.claude/skills', id), { recursive: true });
-        fs.writeFileSync(path.join(fakeHome, '.claude/skills', id, 'SKILL.md'), 'standalone\n', 'utf8');
+        fs.writeFileSync(path.join(fakeHome, '.claude/skills', id, 'SKILL.md'), `SENTINEL-GLOBAL-CLAUDE:${id}\n`, 'utf8');
         fs.mkdirSync(path.join(fakeHome, '.claude/cowork'), { recursive: true });
-        fs.writeFileSync(path.join(fakeHome, '.claude/cowork', `${id}.zip`), 'standalone-zip', 'utf8');
+        fs.writeFileSync(path.join(fakeHome, '.claude/cowork', `${id}.zip`), `SENTINEL-GLOBAL-ZIP:${id}`, 'utf8');
         fs.mkdirSync(path.join(fakeHome, '.cursor/skills', id), { recursive: true });
-        fs.writeFileSync(path.join(fakeHome, '.cursor/skills', id, 'SKILL.md'), 'standalone\n', 'utf8');
+        fs.writeFileSync(path.join(fakeHome, '.cursor/skills', id, 'SKILL.md'), `SENTINEL-GLOBAL-CURSOR:${id}\n`, 'utf8');
         fs.mkdirSync(path.join(fakeHome, '.cursor/rules'), { recursive: true });
-        fs.writeFileSync(path.join(fakeHome, '.cursor/rules', `${id}.mdc`), 'standalone-rule\n', 'utf8');
+        fs.writeFileSync(path.join(fakeHome, '.cursor/rules', `${id}.mdc`), `SENTINEL-GLOBAL-RULE:${id}\n`, 'utf8');
         fs.mkdirSync(path.join(fakeHome, '.grok/skills', id), { recursive: true });
-        fs.writeFileSync(path.join(fakeHome, '.grok/skills', id, 'SKILL.md'), 'standalone\n', 'utf8');
+        fs.writeFileSync(path.join(fakeHome, '.grok/skills', id, 'SKILL.md'), `SENTINEL-GLOBAL-GROK:${id}\n`, 'utf8');
       }
 
-      provisionAgentIntegrations({
-        agents: ['gemini', 'claude', 'cursor', 'grok'],
+      installFramework({
         targetDir: localTarget,
         global: false,
+        agents: ['gemini', 'claude', 'cursor', 'grok'],
+        skipDetect: true,
         packageRoot: REPO_ROOT
       });
 
-      provisionAgentIntegrations({
-        agents: ['gemini', 'claude', 'cursor', 'grok'],
+      installFramework({
         global: true,
         homeDir: fakeHome,
+        agents: ['gemini', 'claude', 'cursor', 'grok'],
+        skipDetect: true,
         packageRoot: REPO_ROOT
       });
 
       for (const id of standaloneIds) {
-        assert.equal(fs.existsSync(path.join(localTarget, '.agent/skills', id, 'SKILL.md')), true, `Local .agent/skills/${id} must remain untouched`);
-        assert.equal(fs.existsSync(path.join(localTarget, '.claude/skills', id, 'SKILL.md')), true, `Local .claude/skills/${id} must remain untouched`);
-        assert.equal(fs.existsSync(path.join(localTarget, '.claude/cowork', `${id}.zip`)), true, `Local .claude/cowork/${id}.zip must remain untouched`);
-        assert.equal(fs.existsSync(path.join(localTarget, '.claude/commands', `${id}.md`)), true, `Local .claude/commands/${id}.md must remain untouched`);
-        assert.equal(fs.existsSync(path.join(localTarget, '.cursor/skills', id, 'SKILL.md')), true, `Local .cursor/skills/${id} must remain untouched`);
-        assert.equal(fs.existsSync(path.join(localTarget, '.cursor/rules', `${id}.mdc`)), true, `Local .cursor/rules/${id}.mdc must remain untouched`);
+        const expectedSkill = `---\nname: ${id}\ndescription: "SENTINEL-SKILL:${id}"\n---\n`;
+        assert.equal(fs.readFileSync(path.join(localTarget, '.agent/skills', id, 'SKILL.md'), 'utf8'), expectedSkill, `Local .agent/skills/${id}/SKILL.md must never be overwritten`);
+        assert.equal(fs.readFileSync(path.join(localTarget, '.claude/skills', id, 'SKILL.md'), 'utf8'), `SENTINEL-CLAUDE:${id}\n`);
+        assert.equal(fs.readFileSync(path.join(localTarget, '.claude/cowork', `${id}.zip`), 'utf8'), `SENTINEL-ZIP:${id}`);
+        assert.equal(fs.readFileSync(path.join(localTarget, '.claude/commands', `${id}.md`), 'utf8'), `SENTINEL-CMD:${id}\n`);
+        assert.equal(fs.readFileSync(path.join(localTarget, '.cursor/skills', id, 'SKILL.md'), 'utf8'), `SENTINEL-CURSOR:${id}\n`);
+        assert.equal(fs.readFileSync(path.join(localTarget, '.cursor/rules', `${id}.mdc`), 'utf8'), `SENTINEL-RULE:${id}\n`);
 
-        assert.equal(fs.existsSync(path.join(fakeHome, '.gemini/config/skills', id, 'SKILL.md')), true, `Global ~/.gemini/config/skills/${id} must remain untouched`);
-        assert.equal(fs.existsSync(path.join(fakeHome, '.claude/skills', id, 'SKILL.md')), true, `Global ~/.claude/skills/${id} must remain untouched`);
-        assert.equal(fs.existsSync(path.join(fakeHome, '.claude/cowork', `${id}.zip`)), true, `Global ~/.claude/cowork/${id}.zip must remain untouched`);
-        assert.equal(fs.existsSync(path.join(fakeHome, '.cursor/skills', id, 'SKILL.md')), true, `Global ~/.cursor/skills/${id} must remain untouched`);
-        assert.equal(fs.existsSync(path.join(fakeHome, '.cursor/rules', `${id}.mdc`)), true, `Global ~/.cursor/rules/${id}.mdc must remain untouched`);
-        assert.equal(fs.existsSync(path.join(fakeHome, '.grok/skills', id, 'SKILL.md')), true, `Global ~/.grok/skills/${id} must remain untouched`);
+        assert.equal(fs.readFileSync(path.join(fakeHome, '.gemini/config/skills', id, 'SKILL.md'), 'utf8'), `SENTINEL-GLOBAL-GEMINI:${id}\n`);
+        assert.equal(fs.readFileSync(path.join(fakeHome, '.claude/skills', id, 'SKILL.md'), 'utf8'), `SENTINEL-GLOBAL-CLAUDE:${id}\n`);
+        assert.equal(fs.readFileSync(path.join(fakeHome, '.claude/cowork', `${id}.zip`), 'utf8'), `SENTINEL-GLOBAL-ZIP:${id}`);
+        assert.equal(fs.readFileSync(path.join(fakeHome, '.cursor/skills', id, 'SKILL.md'), 'utf8'), `SENTINEL-GLOBAL-CURSOR:${id}\n`);
+        assert.equal(fs.readFileSync(path.join(fakeHome, '.cursor/rules', `${id}.mdc`), 'utf8'), `SENTINEL-GLOBAL-RULE:${id}\n`);
+        assert.equal(fs.readFileSync(path.join(fakeHome, '.grok/skills', id, 'SKILL.md'), 'utf8'), `SENTINEL-GLOBAL-GROK:${id}\n`);
       }
+
+      // Fresh clean target repo must receive strictly the 10 canonical sdlc* skills and zero non-sdlc* skills
+      installFramework({
+        targetDir: cleanTarget,
+        global: false,
+        agents: ['claude'],
+        skipDetect: true,
+        packageRoot: REPO_ROOT
+      });
+      const installedDirs = fs.readdirSync(path.join(cleanTarget, '.agent/skills')).sort();
+      assert.deepEqual(installedDirs, [...CANONICAL_SDLC_SKILLS].sort(), 'installFramework must copy strictly CANONICAL_SDLC_SKILLS and leak zero non-sdlc* skills');
+      assert.equal(fs.existsSync(path.join(cleanTarget, '.agent/skills/impeccable')), false);
 
       // Also verify auditSkills ignores standalone non-sdlc* skills even if they have unpinned npx calls
       fs.writeFileSync(
