@@ -2,36 +2,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { fileExists, readFileSafe, hasDevelopBranch } from './core.mjs';
+import { fileExists, gitOutput, hasDevelopBranch, readSessionRegistry } from './core.mjs';
 import { verifyGateReceipt } from './audit-chain.mjs';
 import { checkSpecDrift } from './adr-drift.mjs';
 
 const PROTECTED_BRANCHES = ['main', 'develop'];
 
 function getCurrentGitBranch(repoRoot = '.') {
-  try {
-    return execFileSync('git', ['branch', '--show-current'], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-      stdio: 'pipe'
-    }).trim();
-  } catch {
-    return '';
-  }
+  return (gitOutput(['branch', '--show-current'], repoRoot) || '').trim();
 }
 
 function readActiveSession(repoRoot = '.') {
-  const sessionPath = path.resolve(repoRoot, '.agent/.sdlc-session.json');
-  if (!fileExists(sessionPath)) return null;
-  try {
-    const data = JSON.parse(readFileSafe(sessionPath));
-    if (data.sessions && typeof data.sessions === 'object') {
-      return data.activeSessionId ? data.sessions[data.activeSessionId] : null;
-    }
-    return data.active ? data : null;
-  } catch {
-    return null;
-  }
+  return readSessionRegistry(repoRoot).active;
 }
 
 /**
@@ -113,15 +95,34 @@ export function verifyMergeGuard({
     };
   }
 
-  if (currentTarget === 'main' && hasDevelopBranch(repoRoot) && sourceBranch && sourceBranch !== 'develop') {
-    return {
-      allowed: false,
-      layer: 'LAYER_3_GIT_FLOW_BRANCH_POLICY',
-      reasonCode: 'DIRECT_MERGE_TO_MAIN_FORBIDDEN',
-      targetBranch: currentTarget,
-      sourceBranch,
-      message: `🛑 [SDLC Branch Policy] Merges into 'main' must originate exclusively from 'develop'. Direct merges from '${sourceBranch}' are forbidden.`
-    };
+  if (currentTarget === 'main' && hasDevelopBranch(repoRoot)) {
+    if (sourceBranch && sourceBranch !== 'develop') {
+      return {
+        allowed: false,
+        layer: 'LAYER_3_GIT_FLOW_BRANCH_POLICY',
+        reasonCode: 'DIRECT_MERGE_TO_MAIN_FORBIDDEN',
+        targetBranch: currentTarget,
+        sourceBranch,
+        message: `🛑 [SDLC Branch Policy] Merges into 'main' must originate exclusively from 'develop'. Direct merges from '${sourceBranch}' are forbidden.`
+      };
+    }
+    if (!sourceBranch && sourceSha) {
+      const developSha = (
+        gitOutput(['rev-parse', '--verify', '-q', 'refs/heads/develop'], repoRoot) ||
+        gitOutput(['rev-parse', '--verify', '-q', 'refs/remotes/origin/develop'], repoRoot) ||
+        ''
+      ).trim();
+      if (developSha && sourceSha.trim() !== developSha) {
+        return {
+          allowed: false,
+          layer: 'LAYER_3_GIT_FLOW_BRANCH_POLICY',
+          reasonCode: 'DIRECT_MERGE_TO_MAIN_FORBIDDEN',
+          targetBranch: currentTarget,
+          sourceBranch: sourceSha.trim(),
+          message: `🛑 [SDLC Branch Policy] Merges into 'main' must originate exclusively from 'develop' (${developSha.slice(0, 7)}). Direct merge from '${sourceSha.trim().slice(0, 7)}' is forbidden.`
+        };
+      }
+    }
   }
 
   const receiptCheck = verifyGateReceipt({
@@ -227,7 +228,7 @@ done
 echo "🛡️ [SDLC Hook] Verifying Universal Quality Gate & Spec-Drift Sentinel before push..."
 if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
   node .agent/scripts/sdlc-engine.mjs guard pre-push
-  node .agent/scripts/sdlc-engine.mjs gate
+  node .agent/scripts/sdlc-engine.mjs gate --strict --no-cache
 fi
 `;
 
@@ -244,16 +245,14 @@ function sha256Text(text) {
 
 function resolveGitHooksDir(repoRoot = '.') {
   const gitDir = path.resolve(repoRoot, '.git');
-  try {
-    const customHooksPath = execFileSync('git', ['config', '--get', 'core.hooksPath'], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-      stdio: 'pipe'
-    }).trim();
-    if (customHooksPath) {
-      return path.resolve(repoRoot, customHooksPath);
-    }
-  } catch {}
+  const customHooksPath = (gitOutput(['config', '--get', 'core.hooksPath'], repoRoot) || '').trim();
+  if (customHooksPath) {
+    return path.resolve(repoRoot, customHooksPath);
+  }
+  const commonGitDir = (gitOutput(['rev-parse', '--git-common-dir'], repoRoot) || '').trim();
+  if (commonGitDir) {
+    return path.resolve(repoRoot, commonGitDir, 'hooks');
+  }
   return path.resolve(gitDir, 'hooks');
 }
 

@@ -2243,7 +2243,8 @@ describe('Governance Hardening: release, stage begin, ADR approval, diff review 
     fs.mkdirSync(path.join(dir, 'docs'), { recursive: true });
     fs.writeFileSync(path.join(dir, 'PRODUCT.md'), '# Constitution\n\n<!-- ADR_INDEX_START -->\n<!-- ADR_INDEX_END -->\n', 'utf8');
     fs.writeFileSync(path.join(dir, 'docs/SRS.md'), '# SRS\n\n## Compacted Architectural Decisions\n| `ADR-000` | Prior | `technical` | #0 | CAP-01 | `v0.0.1` | Prior |\n', 'utf8');
-    fs.writeFileSync(path.join(dir, 'docs/AUDIT_CHAIN.jsonl'), '{"index":0,"event":"ADR_BATCH_COMPACTED"}\n', 'utf8');
+    const compactSeed = { index: 0, timestamp: '2026-01-01T00:00:00.000Z', event: 'ADR_BATCH_COMPACTED', metadata: { count: 1 }, previousHash: '0'.repeat(64) };
+    fs.writeFileSync(path.join(dir, 'docs/AUDIT_CHAIN.jsonl'), JSON.stringify({ ...compactSeed, currentHash: calculateRecordHash(compactSeed) }) + '\n', 'utf8');
     git(dir, 'add', '.');
     assert.equal(git(dir, 'commit', '-q', '-m', 'chore: seed historical compacted SRS and audit chain').status, 0);
 

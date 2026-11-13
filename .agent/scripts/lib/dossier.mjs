@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileExists, readFileSafe } from './core.mjs';
+import { fileExists, normalizeTicketId, parseTicketId, readFileSafe, resolveInsideRepo, writeFileAtomic } from './core.mjs';
 import { parseProductMarkdown } from './product-dag.mjs';
 import { listADRs } from './adr-drift.mjs';
 
@@ -32,25 +32,30 @@ export function generateTicketDossier({
   const product = parseProductMarkdown(repoRoot);
   const allAdrs = listADRs(repoRoot);
 
+  const normCapId = capabilityId ? String(capabilityId).trim().toUpperCase() : null;
   const matchedCap =
-    product.capabilities.find((c) => c.id === capabilityId) ||
-    product.capabilities[0] ||
-    null;
+    (normCapId
+      ? product.capabilities.find((c) => String(c.id).toUpperCase() === normCapId)
+      : product.capabilities[0]) || null;
 
   let specExcerpt = '';
   if (matchedCap && matchedCap.spec) {
-    const specPath = path.resolve(repoRoot, matchedCap.spec);
-    if (fileExists(specPath)) {
-      specExcerpt = (readFileSafe(specPath) || '').slice(0, 1200);
-    }
+    try {
+      const specPath = resolveInsideRepo(repoRoot, matchedCap.spec);
+      if (fileExists(specPath)) {
+        specExcerpt = (readFileSafe(specPath) || '').slice(0, 1200);
+      }
+    } catch {}
   }
 
+  const normQueryIssue = normalizeTicketId(issueId);
   const activeADRs = allAdrs
     .filter((a) => {
       if (a.status !== 'accepted') return false;
-      if (capabilityId && a.supersedes.includes(capabilityId)) return true;
-      if (issueId && Number(a.ticketId) === Number(issueId)) return true;
-      return true;
+      if (!normCapId && !normQueryIssue) return true;
+      if (normCapId && (a.supersedes || []).some((s) => String(s).trim().toUpperCase() === normCapId)) return true;
+      if (normQueryIssue && normalizeTicketId(a.ticketId) === normQueryIssue) return true;
+      return false;
     })
     .map((a) => ({
       id: a.id,
@@ -62,7 +67,12 @@ export function generateTicketDossier({
 
   const fileSignatures = [];
   for (const relFile of targetFiles) {
-    const full = path.resolve(repoRoot, relFile);
+    let full;
+    try {
+      full = resolveInsideRepo(repoRoot, relFile);
+    } catch {
+      continue;
+    }
     if (fileExists(full)) {
       const content = readFileSafe(full) || '';
       const exports = extractExportSignatures(content);
@@ -74,9 +84,12 @@ export function generateTicketDossier({
     }
   }
 
+  const resolvedIssueId = parseTicketId(issueId) ?? issueId;
+  const safeIssueSlug = String(normQueryIssue ?? issueId ?? 'unknown').replace(/[^A-Za-z0-9_-]/g, '_');
+
   const dossier = {
     generatedAt: new Date().toISOString(),
-    issueId: Number(issueId) || issueId,
+    issueId: resolvedIssueId,
     capability: matchedCap,
     invariants: product.invariants || [],
     activeADRs,
@@ -84,12 +97,12 @@ export function generateTicketDossier({
     fileSignatures
   };
 
-  const jsonPath = path.join(dossierDir, `issue-${issueId}.json`);
-  const markdownPath = path.join(dossierDir, `issue-${issueId}.md`);
+  const jsonPath = path.join(dossierDir, `issue-${safeIssueSlug}.json`);
+  const markdownPath = path.join(dossierDir, `issue-${safeIssueSlug}.md`);
 
-  fs.writeFileSync(jsonPath, JSON.stringify(dossier, null, 2), 'utf8');
+  writeFileAtomic(jsonPath, JSON.stringify(dossier, null, 2));
 
-  const md = `# 📦 Context-Compressed Subagent Dossier: Ticket #${issueId}
+  const md = `# 📦 Context-Compressed Subagent Dossier: Ticket #${resolvedIssueId}
 
 - **Capability**: \`${matchedCap ? matchedCap.id + ' - ' + matchedCap.title : 'N/A'}\`
 - **Spec Contract**: \`${matchedCap?.spec || 'N/A'}\`
@@ -105,7 +118,7 @@ ${specExcerpt ? specExcerpt.trim() : '_No capability spec excerpt found._'}
 ${fileSignatures.map((f) => `- \`${f.file}\` (${f.linesCount} lines): exports \`[${f.exports.join(', ')}]\``).join('\n') || '- No target files pre-scanned'}
 `;
 
-  fs.writeFileSync(markdownPath, md, 'utf8');
+  writeFileAtomic(markdownPath, md);
 
   return {
     success: true,

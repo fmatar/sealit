@@ -1,9 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileExists, readFileSafe } from './core.mjs';
+import { fileExists, loadConfig, readFileSafe, resolveInsideRepo, writeFileAtomic } from './core.mjs';
 import { createTicket } from './pm-provider.mjs';
-import { appendDecisionEvent, syncDecisionMapMarkdown } from './decision-graph.mjs';
+import { appendDecisionEvent, parseProductMarkdown, syncDecisionMapMarkdown } from './decision-graph.mjs';
 import { appendAuditRecord } from './audit-chain.mjs';
+
+export { parseProductMarkdown };
 
 const DAG_STATE_FILE = '.agent/product-dag-state.json';
 
@@ -557,80 +559,6 @@ export function scaffoldCapabilitySpec({
     absSpecPath,
     dependsOn,
     status
-  };
-}
-
-export function parseProductMarkdown(repoRoot = '.') {
-  const productPath = path.resolve(repoRoot, 'PRODUCT.md');
-  if (!fileExists(productPath)) {
-    return {
-      exists: false,
-      title: null,
-      vision: '',
-      capabilities: [],
-      invariants: [],
-      adrs: []
-    };
-  }
-
-  const raw = readFileSafe(productPath) || '';
-  const titleMatch = raw.match(/^#\s+(?:🏛️\s*Product Constitution:\s*)?(.+)$/m);
-  const title = titleMatch ? titleMatch[1].trim() : 'Product';
-  const visionMatch = raw.match(/##\s*1\.\s*Product Vision\s*\n+([^\n#]+)/i);
-  const vision = visionMatch ? visionMatch[1].trim() : '';
-
-  const capabilities = [];
-  const invariants = [];
-  const adrs = [];
-
-  for (const line of raw.split('\n')) {
-    const capMatch = line.match(/^\|\s*(CAP-\d+)\s*\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|/);
-    if (capMatch) {
-      const dependsRaw = capMatch[4].trim();
-      const dependsOn =
-        dependsRaw === 'None' || dependsRaw === '-'
-          ? []
-          : dependsRaw.split(',').map((s) => s.trim()).filter(Boolean);
-      capabilities.push({
-        id: capMatch[1].trim(),
-        title: capMatch[2].trim(),
-        spec: capMatch[3].trim().replace(/`/g, ''),
-        dependsOn,
-        status: capMatch[5].trim().replace(/`/g, '')
-      });
-      continue;
-    }
-
-    const invMatch = line.match(/^-\s*\*\*(INV-\d+)\*\*:\s*(.+)$/);
-    if (invMatch) {
-      invariants.push({
-        id: invMatch[1].trim(),
-        text: invMatch[2].trim()
-      });
-      continue;
-    }
-
-    const adrMatch = line.match(/^\|\s*(ADR-\d+)\s*\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|/);
-    if (adrMatch) {
-      adrs.push({
-        id: adrMatch[1].trim(),
-        title: adrMatch[2].trim(),
-        scope: adrMatch[3].trim().replace(/`/g, ''),
-        status: adrMatch[4].trim().replace(/`/g, ''),
-        ticket: adrMatch[5].trim(),
-        supersedes: adrMatch[6].trim()
-      });
-    }
-  }
-
-  return {
-    exists: true,
-    productPath,
-    title,
-    vision,
-    capabilities,
-    invariants,
-    adrs
   };
 }
 

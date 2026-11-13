@@ -44,12 +44,14 @@ flowchart TD
   _120["Ticket #120 (feature/issue-#120-reset-release-baseline-to-version-0-0-1)"]
   ADR_013["ADR-013: Harden Release Gate, Opt-In Issue Creation, Universal ADR Approval, Diff Review Plans, and Node 24 CI Actions"]
   ADR_014["ADR-014: Canonical Git Flow: Enforce Merges to Develop, Block Direct PRs to Main, and Automate Production Releases on Develop Merge"]
+  ADR_015["ADR-015: Harden Stage 7 Gate Receipts, Ring 0 Primitives, and Git Flow Verification"]
   ADR_COMPACT_v0_3_0["Compacted 8 ADR(s) into SRS.md (v0.3.0)"]
   createdAt__2026_11_03T18_52_42_656Z["createdAt: 2026-11-03T18:52:42.656Z"]
   ADR_COMPACT_v0_4_0["Compacted 6 ADR(s) into SRS.md (v0.4.0)"]
   createdAt__2026_11_12T18_08_28_446Z["createdAt: 2026-11-12T18:08:28.446Z"]
   L_122000["L-122000"]
   L_124000["L-124000"]
+  L_128000["L-128000"]
   _SDLC_INIT["Ticket #SDLC-INIT (feature/arch-traceability-governance)"]
   _24["Ticket #24 (feature/issue-#24-api-contract-drift-sentinel)"]
   _25["Ticket #25 (feature/issue-#25-bug-reproduce-generator)"]
@@ -76,6 +78,7 @@ flowchart TD
   _107["Ticket #107 (feature/issue-#107-risk-proportional-execution-lanes-and-sp)"]
   _109["Ticket #109 (feature/issue-#109-right-size-all-sdlc-skills-and-upgrade-c)"]
   _111["Ticket #111 (feature/issue-#111-slim-npm-package-retire-duplicate-svelte)"]
+  _L_124000["Ticket #L-124000 (feature/L-124000-fix-git-flow-enforce-merges-to-develop-b)"]
   CAP_01 -->|specified_by| SPEC_01
   CAP_02 -->|specified_by| SPEC_02
   CAP_03 -->|specified_by| SPEC_03
@@ -125,6 +128,8 @@ flowchart TD
   CAP_01 -.->|ADR Drift| ADR_014
   CAP_04 -.->|ADR Drift| ADR_014
   CAP_06 -.->|ADR Drift| ADR_014
+  CAP_01 -.->|ADR Drift| ADR_015
+  CAP_04 -.->|ADR Drift| ADR_015
   CAP_01 -->|realized_by| ADR_COMPACT_v0_3_0
   CAP_02 -->|realized_by| ADR_COMPACT_v0_3_0
   CAP_03 -->|realized_by| ADR_COMPACT_v0_3_0
@@ -147,6 +152,7 @@ flowchart TD
   CAP_08 -->|realized_by| ADR_COMPACT_v0_4_0
   L_122000 -.->|ADR Drift| ADR_013
   L_124000 -.->|ADR Drift| ADR_014
+  L_128000 -.->|ADR Drift| ADR_015
 ```
 
 ---
@@ -161,6 +167,7 @@ flowchart TD
 | **ADR-012** | Reset Package, Plugin, and Documentation Version Baseline to 0.0.1 | `technical` | `accepted` | #120 | CAP-06, ADR-009 |
 | **ADR-013** | Harden Release Gate, Opt-In Issue Creation, Universal ADR Approval, Diff Review Plans, and Node 24 CI Actions | `technical` | `accepted` | N/A | CAP-01, CAP-03, CAP-06 |
 | **ADR-014** | Canonical Git Flow: Enforce Merges to Develop, Block Direct PRs to Main, and Automate Production Releases on Develop Merge | `technical` | `accepted` | N/A | CAP-01, CAP-04, CAP-06 |
+| **ADR-015** | Harden Stage 7 Gate Receipts, Ring 0 Primitives, and Git Flow Verification | `technical` | `accepted` | N/A | CAP-01, CAP-04 |
 
 ---
 
@@ -171,7 +178,7 @@ flowchart TD
 | **CAP-01** | Core Domain & Architecture Foundation | `PLANNED` |
 | **CAP-02** | Shell Injection Remediation & Polyglot Test Runners (#69) | `AMENDED (ADR-006)` |
 | **CAP-03** | Real Coverage/Mutation Parsers & Policy ArchDiff (#70) | `AMENDED (ADR-013)` |
-| **CAP-04** | Live Canary Watchdog, Real Proofs & Polyglot Reproduce (#71) | `AMENDED (ADR-014)` |
+| **CAP-04** | Live Canary Watchdog, Real Proofs & Polyglot Reproduce (#71) | `AMENDED (ADR-015)` |
 | **CAP-05** | Consolidate 14 Skills into 6 Schema-Valid Core Skills (#72) | `AMENDED (ADR-011)` |
 | **CAP-06** | Dogfooding Configuration, Docs Sync & Full Test Suite (#73) | `AMENDED (ADR-014)` |
 | **CAP-07** | Native `npx` Multi-Agent Interactive Installer & Legacy Installer Removal (#75) | `AMENDED (ADR-011)` |
