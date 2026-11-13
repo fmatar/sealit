@@ -54,6 +54,7 @@ import * as coreMod from '../.agent/scripts/lib/core.mjs';
 import * as gitGuardMod from '../.agent/scripts/lib/git-guard.mjs';
 import * as qualityGateMod from '../.agent/scripts/lib/quality-gate.mjs';
 import * as installerMod from '../.agent/scripts/lib/installer.mjs';
+import * as pmMod from '../.agent/scripts/lib/pm-provider.mjs';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..');
 const SCRIPTS_SRC = path.join(REPO_ROOT, '.agent/scripts');
@@ -2383,5 +2384,126 @@ describe('Governance Hardening: release, stage begin, ADR approval, diff review 
 
     assert.match(wikiWf, /actions\/checkout@v7/, 'publish-wiki.yml must use actions/checkout@v7');
     assert.doesNotMatch(wikiWf, /actions\/checkout@v4/, 'publish-wiki.yml must not reference actions/checkout@v4');
+  });
+
+  it('enforces canonical Git Flow: default base branch develop, blocks direct feature PRs to main, and scaffolds release workflow', () => {
+    // 1. In a single-branch repository (main only)
+    assert.equal(coreMod.hasDevelopBranch(dir), false);
+    assert.equal(coreMod.resolveDefaultBaseBranch(dir), 'main');
+
+    // 2. Once develop exists, Git Flow becomes active
+    git(dir, 'checkout', '-b', 'develop');
+    assert.equal(coreMod.hasDevelopBranch(dir), true);
+    assert.equal(coreMod.resolveDefaultBaseBranch(dir), 'develop');
+
+    // 3. ensurePullRequest defaults baseBranch to develop
+    let ghCaptured = [];
+    const mockGh = (bin, args) => {
+      ghCaptured.push({ bin, args });
+      if (bin === 'git' && args[0] === 'push') return 'ok';
+      if (bin === 'gh' && args[0] === 'pr' && args[1] === 'view') throw new Error('no PR');
+      if (bin === 'gh' && args[0] === 'pr' && args[1] === 'create') {
+        return 'https://github.com/fmatar/agentic-sdlc-framework/pull/201\n';
+      }
+      return '';
+    };
+
+    fs.writeFileSync(
+      path.join(dir, '.agent/sdlc-config.json'),
+      JSON.stringify({
+        version: '2.1.0',
+        projectManagement: { provider: 'github', key: 'SDLC' },
+        modules: [{ name: 'root', path: '.', commands: { test: 'node -e 0' }, thresholds: { diffCoverage: 85, mutationScore: null } }]
+      }),
+      'utf8'
+    );
+
+    git(dir, 'checkout', '-b', 'feature/login-auth');
+    startSession({
+      issueId: 901,
+      branch: 'feature/login-auth',
+      stage: 5,
+      repoRoot: dir,
+      force: true
+    });
+
+    const prRes = pmMod.ensurePullRequest({
+      issueId: 901,
+      branch: 'feature/login-auth',
+      title: 'feat: add login authentication',
+      body: 'Closes #901',
+      repoRoot: dir,
+      execFn: mockGh
+    });
+
+    assert.equal(prRes.success, true);
+    assert.equal(prRes.prNumber, 201);
+    const prCreateCall = ghCaptured.find((c) => c.bin === 'gh' && c.args[0] === 'pr' && c.args[1] === 'create');
+    assert.ok(prCreateCall, 'gh pr create must be called');
+    const baseIdx = prCreateCall.args.indexOf('--base');
+    assert.ok(baseIdx !== -1, '--base argument must be passed');
+    assert.equal(prCreateCall.args[baseIdx + 1], 'develop', 'PR must target develop branch by default');
+
+    // 4. verifyMergeGuard rejects direct merges from feature branch to main
+    const directToMain = gitGuardMod.verifyMergeGuard({
+      targetBranch: 'main',
+      sourceBranch: 'feature/login-auth',
+      repoRoot: dir
+    });
+    assert.equal(directToMain.allowed, false);
+    assert.equal(directToMain.reasonCode, 'DIRECT_MERGE_TO_MAIN_FORBIDDEN');
+    assert.match(directToMain.message, /Merges into 'main' must originate exclusively from 'develop'/);
+
+    // 5. verifyMergeGuard allows merge to develop once Stage 7 receipt exists
+    fs.writeFileSync(path.join(dir, 'login.mjs'), 'export const login = true;\n', 'utf8');
+    git(dir, 'add', 'login.mjs');
+    git(dir, 'commit', '-m', 'feat: login');
+    const headSha = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+
+    const receipt = issueGateReceipt({
+      issueId: 901,
+      branch: 'feature/login-auth',
+      headSha,
+      coveragePct: 90.0,
+      mutationPct: 85.0,
+      peerReviewApproved: true,
+      driftCheckPassed: true,
+      repoRoot: dir
+    });
+    assert.equal(receipt.success, true);
+
+    const mergeToDevelop = gitGuardMod.verifyMergeGuard({
+      targetBranch: 'develop',
+      sourceBranch: 'feature/login-auth',
+      sourceSha: headSha,
+      repoRoot: dir
+    });
+    assert.equal(mergeToDevelop.allowed, true);
+
+    // 6. verifyMergeGuard allows develop to merge into main when backed by receipt
+    const mergeDevelopToMain = gitGuardMod.verifyMergeGuard({
+      targetBranch: 'main',
+      sourceBranch: 'develop',
+      sourceSha: headSha,
+      repoRoot: dir
+    });
+    assert.equal(mergeDevelopToMain.allowed, true);
+
+    // 7. installCIWorkflow scaffolds quality-gate, enforce-branch-flow, and release workflows
+    const ciRes = installCIWorkflow({ repoRoot: dir, force: true });
+    assert.equal(ciRes.success, true);
+    assert.ok(fs.existsSync(path.join(dir, '.github/workflows/sdlc-quality-gate.yml')));
+    assert.ok(fs.existsSync(path.join(dir, '.github/workflows/enforce-branch-flow.yml')));
+    assert.ok(fs.existsSync(path.join(dir, '.github/workflows/release.yml')));
+
+    const branchFlowYaml = fs.readFileSync(path.join(dir, '.github/workflows/enforce-branch-flow.yml'), 'utf8');
+    assert.match(branchFlowYaml, /HEAD_REF:\s*\${{\s*github\.head_ref\s*}}/);
+    assert.match(branchFlowYaml, /\$HEAD_REF.*!=.*develop/);
+    assert.match(branchFlowYaml, /Branch policy violation/);
+
+    const releaseYaml = fs.readFileSync(path.join(dir, '.github/workflows/release.yml'), 'utf8');
+    assert.match(releaseYaml, /name:\s*Production Release/);
+    assert.match(releaseYaml, /branches:\s*-\s*main/);
+    assert.match(releaseYaml, /gate --strict/);
   });
 });

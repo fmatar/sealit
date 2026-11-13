@@ -3,10 +3,13 @@
 _Generated automatically by @fmatar/agentic-sdlc (Universal Engine v0.0.1)_
 _Governed by Concentric Clean Architecture, Risk-Proportional Lanes & Config-Driven Dual-Gate TDD_
 
-## 1. Zero Direct Pushes (4-Layer Git Guard — INV-01)
+## 1. Zero Direct Pushes & Git Flow (4-Layer Git Guard — INV-01)
 - Direct git commits, merges, or pushes to `develop` or `main` are STRICTLY FORBIDDEN.
 - Every commit requires an active session in `.agent/.sdlc-session.json` matching the current branch (`node .agent/scripts/sdlc-engine.mjs stage begin`).
+- Feature, bugfix, and chore PRs merge into `develop` (default base branch).
+- Pull requests targeting `main` must originate exclusively from `develop`.
 - Every merge into `main` requires a signed Stage 7 HMAC-SHA256 Merkle Gate Receipt in `docs/AUDIT_CHAIN.jsonl`.
+- Merging `develop` into `main` triggers automated production release tagging and distribution.
 
 ## 2. Active Session & Config-Driven Dual-Gate Quality Verification (INV-02)
 - Diff coverage and mutation kill thresholds are governed by `.agent/sdlc-config.json` (measured from real coverage and mutation reports on disk).

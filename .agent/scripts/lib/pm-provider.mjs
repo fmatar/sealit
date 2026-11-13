@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { fileExists, readFileSafe, parseFrontmatter, detectPMProvider, hasGitHubRemote, gitOutput } from './core.mjs';
+import { fileExists, readFileSafe, parseFrontmatter, detectPMProvider, hasGitHubRemote, gitOutput, resolveDefaultBaseBranch } from './core.mjs';
 
 export const CANONICAL_ISSUE_TEMPLATES = {
   '.github/ISSUE_TEMPLATE/feature_request.md': `---
@@ -959,11 +959,12 @@ export function ensurePullRequest({
   branch = null,
   title = null,
   body = '',
-  baseBranch = 'main',
+  baseBranch = null,
   repoRoot = '.',
   execFn = execFileSync
 } = {}) {
   const activeSess = readActiveSessionFromDisk(repoRoot);
+  const targetBaseBranch = baseBranch || resolveDefaultBaseBranch(repoRoot);
   const targetBranch =
     branch ||
     activeSess?.branch ||
@@ -1019,7 +1020,7 @@ export function ensurePullRequest({
         '--body',
         prBody,
         '--base',
-        baseBranch,
+        targetBaseBranch,
         ...(targetBranch ? ['--head', targetBranch] : [])
       ],
       { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
