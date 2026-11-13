@@ -6,7 +6,7 @@
 ### 1.1 Purpose
 This Software Requirements Specification (SRS) defines the system-level functional interfaces, architectural boundaries, non-functional requirements (NFRs), and capability traceability matrix for **Agentic SDLC Framework**.
 ### 1.2 Scope
-End-to-end spec-driven autonomous software development lifecycle with risk-proportional execution lanes (`trivial`, `standard`, `full`), [Archlens](https://github.com/fmatar/archlens) concentric Clean Architecture verification (`.archlens/policy.json`), Spec-Drift ADR engine, 4-Layer Git Lockdown, config-driven polyglot Dual-Gate verification, and a zero-dependency loopback Architecture & Causal Decision Workbench (`.agent/scripts/lib/workbench-server.mjs`) governed by 11 canonical agentic skills.
+End-to-end spec-driven autonomous software development lifecycle with risk-proportional execution lanes (`trivial`, `standard`, `full`), [Archlens](https://github.com/fmatar/archlens) concentric Clean Architecture verification (`.archlens/policy.json`), Spec-Drift ADR engine, 4-Layer Git Lockdown, config-driven polyglot Dual-Gate verification, and a zero-dependency loopback Architecture & Causal Decision Workbench (`.agent/scripts/lib/workbench-server.mjs`) governed by 10 canonical agentic skills.
 ### 1.3 References & Traceability Matrix
 - **Product Constitution**: [`PRODUCT.md`](../PRODUCT.md)
 - **Product Requirements Document**: [`docs/PRD.md`](./PRD.md)
@@ -31,7 +31,7 @@ End-to-end spec-driven autonomous software development lifecycle with risk-propo
 ### 2.1 Product Perspective (C4 Container View)
 ```mermaid
 flowchart TB
-    Operator["Developer / AI Coding Agent"] --> Router["11 Canonical Skills (/sdlc Router, 9 Verb Skills & ub-mode)
+    Operator["Developer / AI Coding Agent"] --> Router["10 Canonical Skills (/sdlc Router & 9 Verb Skills)
 (.agent/skills/)"]
     Router --> Engine["SDLC Universal Engine
 (.agent/scripts/sdlc-engine.mjs)"]
@@ -49,7 +49,7 @@ flowchart TB
 
 ## 3. Specific Requirements (IEEE 29148)
 ### 3.1 External Interface Requirements
-- **3.1.1 Agent Slash-Command Interface**: 11 Canonical Skills — 1 Universal Router (`/sdlc`) + 9 Verb Skills (`/sdlc-flow`, `/sdlc-product`, `/sdlc-doctor`, `/sdlc-status`, `/sdlc-tdd`, `/sdlc-gate`, `/sdlc-adr`, `/sdlc-wiki`, `/sdlc-release`) + 1 Engineering Discipline Skill (`/ub-mode`).
+- **3.1.1 Agent Slash-Command Interface**: 10 Canonical Skills — 1 Universal Router (`/sdlc`) + 9 Verb Skills (`/sdlc-flow`, `/sdlc-product`, `/sdlc-doctor`, `/sdlc-status`, `/sdlc-tdd`, `/sdlc-gate`, `/sdlc-adr`, `/sdlc-wiki`, `/sdlc-release`).
 - **3.1.2 CLI & NPX Interface**: `npx --yes github:fmatar/agentic-sdlc-framework install` interactive ANSI TUI wizard and `node .agent/scripts/sdlc-engine.mjs <command>`.
 - **3.1.3 HTTP & Visual Workbench Interface**: Authenticated local loopback server (`http://127.0.0.1:4120`) in `.agent/scripts/lib/workbench-server.mjs` serving `/api/arch-diff`, `/widget`, and inline `<agent-embed>` snapshots, paired with [Archlens](https://github.com/fmatar/archlens) (`http://localhost:8088`).
 
@@ -145,5 +145,5 @@ flowchart TB
 | `ADR-002` | Config-Driven Dual-Gate Thresholds, Verifiable CLI Telemetry, and SHA-256 Hook Drift Detection | `technical` | #103 | CAP-03, CAP-06 | `v0.4.0` | Make .agent/sdlc-config.json the single source of truth for Dual-Gate coverage and mutation thresholds, widen Stryker mutation scope to core enforcement modules (audit-chain.mjs, git-guard.mjs), verify installed Git hook SHA-256 digests in doctor, fix CLI output formatters and full help registry, and align .archlens/policy.json concentric rings with .agent/scripts/lib. |
 | `ADR-003` | Shell-Free Command Execution, Least-Privilege Self-Hosted CI, and Bundled Config Schema | `technical` | #105 | createdAt: 2026-11-12T18:08:28.446Z | `v0.4.0` | Execute configured commands strictly via execFileSync (parseCommandArgv/runConfiguredCommand), enforce permissions: contents: read and mktemp/repo-local git config on workflows, and include .agent/schemas in package.json files. |
 | `ADR-004` | Risk-Proportional Execution Lanes, Instant Pre-Commit Guard, and Spec-Drift Precision | `technical` | #107 | CAP-01, CAP-03 | `v0.4.0` | Introduce deterministic 3-tier execution lanes (trivial, standard, full) via triageChange and sdlc-engine triage with automatic diff re-triage escalation, lane-aware Stage 7 HMAC receipts, opt-in --ui workbench snapshots, an instant (<100ms) pre-commit guard, and structural JSON AST diffing for package.json alongside PRODUCT.md and docs/specs/*.md drift protection. |
-| `ADR-005` | Right-Size Canonical Skills Suite and Native Claude and Cursor Skill Packaging | `technical` | #109 | CAP-05, CAP-07, CAP-08 | `v0.4.0` | Standardize all 11 canonical skills (including ub-mode) on <=200-char Use-when/Not-for descriptions, risk-proportional lane tables, confirmation gates, blocker-derived review verdicts, and repo-agnostic wiki rules; remove duplicate .claude/commands/*.md in favor of .claude/skills/<id>/SKILL.md, derive .claude-plugin/plugin.json version from package.json, and provision native .cursor/skills/<id>/SKILL.md alongside .cursor/rules/. |
-| `ADR-006` | Slim npm package (<250 KB), untrack third-party design binaries, and consolidate on zero-dependency workbench-server | `technical` | #111 | CAP-06, CAP-08 | `v0.4.0` | Scope package.json files whitelist to the 11 canonical SDLC skills, scripts, schemas, and templates (<250 KB), untrack the 4x17.7 MB impeccable binaries via .gitignore, and remove the duplicate abandoned SvelteKit workbench/ prototype in favor of .agent/scripts/lib/workbench-server.mjs. |
+| `ADR-005` | Right-Size Canonical Skills Suite and Native Claude and Cursor Skill Packaging | `technical` | #109 | CAP-05, CAP-07, CAP-08 | `v0.4.0` | Standardize canonical SDLC skills on <=200-char Use-when/Not-for descriptions, risk-proportional lane tables, confirmation gates, blocker-derived review verdicts, and repo-agnostic wiki rules; remove duplicate .claude/commands/*.md in favor of .claude/skills/<id>/SKILL.md, derive .claude-plugin/plugin.json version from package.json, and provision native .cursor/skills/<id>/SKILL.md alongside .cursor/rules/. |
+| `ADR-006` | Slim npm package (<250 KB), untrack third-party design binaries, and consolidate on zero-dependency workbench-server | `technical` | #111 | CAP-06, CAP-08 | `v0.4.0` | Scope package.json files whitelist to the canonical SDLC skills, scripts, schemas, and templates (<250 KB), untrack the 4x17.7 MB impeccable binaries via .gitignore, and remove the duplicate abandoned SvelteKit workbench/ prototype in favor of .agent/scripts/lib/workbench-server.mjs. |

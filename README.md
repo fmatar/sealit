@@ -7,7 +7,7 @@
 
 # Agentic SDLC Framework
 
-**Risk-proportional engineering governance for AI coding agents enforcing Robert Martin TDD, [Archlens](https://github.com/fmatar/archlens) Clean Architecture rings, and cryptographic PR merge gates.**
+**Risk-proportional engineering governance for AI coding agents enforcing Red-Green-Refactor TDD, [Archlens](https://github.com/fmatar/archlens) Clean Architecture rings, and cryptographic PR merge gates.**
 
 [![SDLC Quality Gate](https://github.com/fmatar/agentic-sdlc-framework/actions/workflows/sdlc-quality-gate.yml/badge.svg)](https://github.com/fmatar/agentic-sdlc-framework/actions/workflows/sdlc-quality-gate.yml)
 [![Version](https://img.shields.io/badge/Version-0.4.0-4f46e5.svg)](./CHANGELOG.md)
@@ -20,7 +20,7 @@
 
 ```text
 $ npx github:fmatar/agentic-sdlc-framework install --agents gemini,claude,cursor --with-archlens --with-hooks --with-ci --yes
-✔ Provisioned 11 Canonical Skills (/sdlc + 9 Verb Skills + ub-mode) across Gemini, Claude Code & Cursor
+✔ Provisioned 10 Canonical Skills (/sdlc + 9 Verb Skills) across Gemini, Claude Code & Cursor
 ✔ Installed SHA-256 verified 4-Layer Git Guard hooks (.git/hooks/pre-commit, pre-merge-commit, pre-push)
 ✔ Scaffolded Concentric Clean Architecture ring policy (.archlens/policy.json) & GitHub Actions CI gate
 ✔ Auto-detected polyglot test, coverage & mutation runners (.agent/sdlc-config.json)
@@ -72,11 +72,20 @@ Or drive the lifecycle directly from your AI coding assistant:
 
 ```mermaid
 %%{init: {'theme': 'neutral'}}%%
-flowchart LR
-    T["1. triage & stage begin\ntrivial | standard | full"] --> D["2. /sdlc-tdd & ub-mode\nRed -> Green -> Refactor"]
-    D --> P["3. stage pre-pr\nDrift, Rings & PR"]
-    P --> G["4. /sdlc-gate\nSubagent Review & Receipt"]
-    G --> C["5. stage complete\nCI Merge & Kanban Sync"]
+flowchart TD
+    Begin["1. Intake & Risk Triage (stage begin)"]
+
+    Begin -->|"<= 25 lines, docs/CSS"| L1["Trivial: Edit + Affected Tests"]
+    Begin -->|"<= 200 lines, code/fix"| L2["Standard: TDD + Diff Coverage"]
+    Begin -->|"Spec, High-Risk or > 200"| L3["Full: ADR + Coverage + Mutation"]
+
+    L1 --> PrePR["2. Pre-PR Gate (stage pre-pr: Drift, Archlens Rings & Docs)"]
+    L2 --> PrePR
+    L3 --> PrePR
+
+    PrePR -->|"Trivial auto-receipt"| Complete["4. CI Gate, Merge & stage complete"]
+    PrePR -->|"Standard (1) / Full (2-3)"| Review["3. Subagent Review & HMAC Receipt (/sdlc-gate)"]
+    Review --> Complete
 ```
 
 ### Clean Architecture with Archlens
@@ -87,7 +96,7 @@ Concentric ring dependency governance (`Domain Core` ← `Governance Models` ←
 - **Visual Workbench & MCP Companion**: Install the full [Archlens Dynamic Clean Architecture Workbench](https://github.com/fmatar/archlens) (`npx skills add fmatar/archlens` or `npx @fmatar/archlens-skill start --open`) to inspect live coupling/instability ($Ca, Ce, I$) at `http://localhost:8088`, run MCP architecture queries (`inspectArchitecture`, `exportLlmDossier`), and dispatch refactoring proposals via `.archlens/to-agent.json`.
 
 <details>
-<summary><strong>11 Canonical Skills & Risk-Proportional Execution Lanes</strong></summary>
+<summary><strong>10 Canonical Skills & Risk-Proportional Execution Lanes</strong></summary>
 
 | Lane | Auto-Selected When (`sdlc-engine.mjs triage`) | Required Verification |
 | :--- | :--- | :--- |
@@ -100,14 +109,13 @@ Concentric ring dependency governance (`Domain Core` ← `Governance Models` ←
 | **`/sdlc`** | Universal 1:1 CLI router (`/sdlc doctor`, `/sdlc quick`, `/sdlc triage`, `/sdlc begin #id`, `/sdlc gate`) |
 | **`/sdlc-flow`** | Proportional end-to-end delivery orchestrator (`stage begin` → TDD → `stage pre-pr` → review → `stage complete`) |
 | **`/sdlc-product`** | Constitutional `PRODUCT.md` autopilot, `docs/PRD.md`, IEEE 29148 `docs/SRS.md`, and topological DAG waves |
-| **`/sdlc-tdd`** | Robert Martin Red-Green-Refactor TDD, bug reproduction harnesses (`reproduce`), coverage & mutation gates |
+| **`/sdlc-tdd`** | Red-Green-Refactor TDD, bug reproduction harnesses (`reproduce`), and config-driven coverage & mutation gates |
 | **`/sdlc-gate`** | Risk-tiered parallel read-only PR review (`review plan`), `gate --strict`, and HMAC-SHA256 Stage 7 receipts |
 | **`/sdlc-adr`** | Spec-Drift sentinel (`drift check`), two-speed ADR lifecycle (`docs/adr/`), and SRS release compaction |
 | **`/sdlc-doctor`** | Read-only toolchain/hook SHA-256 diagnostics (`doctor`), `--fix` auto-healer, and 6-agent installer |
 | **`/sdlc-status`** | Strictly read-only 8-stage dashboard, drift status, audit-chain verification, and estimated telemetry |
 | **`/sdlc-wiki`** | 10–30–90 `README.md` engine, `llms.txt`, and [Archlens](https://github.com/fmatar/archlens) AST-to-Wiki synchronization |
 | **`/sdlc-release`** | SemVer bumps, ADR compaction into `docs/SRS.md`, SHA-256 regression proofs, and canary health watchdog |
-| **`/ub-mode`** | Robert C. Martin reduced coding principles (*First Make it Work → Then Make it Right → Practice*) |
 
 </details>
 
@@ -148,9 +156,8 @@ npx github:fmatar/agentic-sdlc-framework install --global --agents gemini,claude
 
 ## Documentation & Roadmap
 
-- **Wiki Overview & Quickstart**: [`wiki/Home.md`](./wiki/Home.md) & [`wiki/Skills-Reference.md`](./wiki/Skills-Reference.md) (`11 Canonical Skills` & full CLI reference)
+- **Wiki Overview & Quickstart**: [`wiki/Home.md`](./wiki/Home.md) & [`wiki/Skills-Reference.md`](./wiki/Skills-Reference.md) (`10 Canonical Skills` & full CLI reference)
 - **Concentric Ring Architecture & AST Map**: [`wiki/Architecture.md`](./wiki/Architecture.md), [`wiki/Codebase-Map.md`](./wiki/Codebase-Map.md), and [`wiki/Traceability.md`](./wiki/Traceability.md)
-- **Companion Clean Architecture Engine**: [Archlens (`github.com/fmatar/archlens`)](https://github.com/fmatar/archlens) (`.archlens/policy.json`, visual workbench & MCP server)
 - **Product Constitution & IEEE 29148 Specs**: [`PRODUCT.md`](./PRODUCT.md), [`docs/PRD.md`](./docs/PRD.md), and [`docs/SRS.md`](./docs/SRS.md)
 - **AI Coding Agent Context**: [`llms.txt`](./llms.txt)
 - **Living Kanban & Decision Lineage**: [`docs/KANBAN.md`](./docs/KANBAN.md) & [`docs/DECISION_MAP.md`](./docs/DECISION_MAP.md)

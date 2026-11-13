@@ -54,7 +54,7 @@ describe('Kanban Scripts & Consolidated 6-Skill Schema Validation', () => {
     assert.ok(scriptCode.includes('Traceability Matrix'));
   });
 
-  it('verifies 1 Router + 9 Verb Skills + ub-mode (11 canonical skills) exist in .agent/skills/ with valid tool schemas (ADR-005)', () => {
+  it('verifies 1 Router + 9 Verb Skills (10 canonical skills) exist in .agent/skills/ with valid tool schemas (ADR-010)', () => {
     const expectedSkills = [
       'sdlc',
       'sdlc-adr',
@@ -65,13 +65,12 @@ describe('Kanban Scripts & Consolidated 6-Skill Schema Validation', () => {
       'sdlc-release',
       'sdlc-status',
       'sdlc-tdd',
-      'sdlc-wiki',
-      'ub-mode'
+      'sdlc-wiki'
     ];
     const skillsDir = path.resolve('.agent/skills');
     const actualSkills = fs
       .readdirSync(skillsDir)
-      .filter((f) => (f.startsWith('sdlc') || f === 'ub-mode') && fs.statSync(path.join(skillsDir, f)).isDirectory())
+      .filter((f) => f.startsWith('sdlc') && fs.statSync(path.join(skillsDir, f)).isDirectory())
       .sort();
 
     assert.deepEqual(actualSkills, expectedSkills);

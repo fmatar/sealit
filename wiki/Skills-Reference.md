@@ -1,8 +1,8 @@
 # 🛠️ Skills & CLI Command Reference
 
-This reference documents the **11 Canonical Skills — 1 Universal Router (`/sdlc`), 9 Verb-Driven Lifecycle Skills, and `ub-mode`** (`ADR-005`) located in `.agent/skills/` and the complete CLI subcommand table for `.agent/scripts/sdlc-engine.mjs`.
+This reference documents the **10 Canonical Skills — 1 Universal Router (`/sdlc`) and 9 Verb-Driven Lifecycle Skills** (`ADR-010`) located in `.agent/skills/` and the complete CLI subcommand table for `.agent/scripts/sdlc-engine.mjs`.
 
-> **Historical Note (`ADR-002`, `ADR-004`, `ADR-005`)**: Earlier versions of this framework used 14 separate skills (such as `sdlc-init`, `sdlc-kanban`, `sdlc-feature-spec`, `sdlc-tdd-implement`, `sdlc-test-coverage`, `sdlc-docs-wiki`, `sdlc-peer-review`, `sdlc-quality-gate`, `sdlc-release-changelog`, and `sdlc-review-gate`). Those retired skills are automatically pruned by `pruneDeprecatedSkills` in `.agent/scripts/lib/installer.mjs` and replaced by the 11 canonical skills below.
+> **Historical Note (`ADR-002`, `ADR-004`, `ADR-010`)**: Earlier versions of this framework used separate legacy skills that have been consolidated into the 10 canonical skills below and are automatically pruned on upgrade by `pruneDeprecatedSkills` in `.agent/scripts/lib/installer.mjs`.
 
 ---
 
@@ -39,7 +39,7 @@ This reference documents the **11 Canonical Skills — 1 Universal Router (`/sdl
 
 ---
 
-## 2. The 9 Verb-Driven Skills & `ub-mode`
+## 2. The 9 Verb-Driven Lifecycle Skills
 
 ### 2.1 `sdlc-product` — Product Autopilot & IEEE 29148 SRS Architect
 - **Path**: `.agent/skills/sdlc-product/SKILL.md`
@@ -67,11 +67,11 @@ This reference documents the **11 Canonical Skills — 1 Universal Router (`/sdl
   - Compiles context-compressed subagent dossiers in `.agent/dossiers/ticket-XX.md` (`dossier generate --issue <id>`).
   - Manages multi-session concurrency (`session list`, `session switch`, `session resume`).
 
-### 2.4 `sdlc-tdd` — Robert C. Martin TDD & Polyglot Dual-Gate Runner
+### 2.4 `sdlc-tdd` — Red-Green-Refactor TDD & Polyglot Dual-Gate Runner
 - **Path**: `.agent/skills/sdlc-tdd/SKILL.md`
 - **Engine Modules**: `.agent/scripts/lib/quality-gate.mjs`, `.agent/scripts/lib/cache.mjs`
 - **Capabilities**:
-  - Enforces the Three Laws of TDD (*Red-Green-Refactor*), Transformation Priority Premise (TPP), and F.I.R.S.T. test isolation.
+  - Enforces Red-Green-Refactor TDD, Transformation Priority Premise (TPP), and F.I.R.S.T. test isolation.
   - Scaffolds automated bug reproduction tests from stack traces across JavaScript/TypeScript, Python, Java, Go, and Rust (`reproduce --error "<trace>"`).
   - Executes affected-only unit tests (`test --affected-only`), diff coverage verification (`coverage`), mutation testing (`mutation`) against the thresholds configured in `.agent/sdlc-config.json`, and mutant strengthening (`strengthen`).
 
@@ -115,11 +115,6 @@ This reference documents the **11 Canonical Skills — 1 Universal Router (`/sdl
   - Inspects AST exports with line numbers and maps modules into [Archlens](https://github.com/fmatar/archlens) `.archlens/policy.json` Concentric Clean Architecture rings with $Ca / Ce / I$ coupling telemetry (`wiki map`).
   - Generates and updates `wiki/Codebase-Map.md` (`wiki sync`).
   - Audits `wiki/*.md` for broken repo paths, retired skill references, unmapped modules, undocumented skills, and invalid Mermaid syntax (`wiki audit --strict`).
-
-### 2.10 `ub-mode` — Robert C. Martin Reduced Principles
-- **Path**: `.agent/skills/ub-mode/SKILL.md`
-- **Capabilities**:
-  - Enforces *First Make it Work* (Laziness Protocol, Foundational Thinking, TDD, Attack the Premise, Subtract Before You Add, Domain/Boundary/Type Discipline), *Then Make it Right* (Fix Root Causes, CRAP < 10, DRY, Mutator, Refactoring), and *Practice* across `trivial`, `standard`, and `full` execution lanes.
 
 ---
 

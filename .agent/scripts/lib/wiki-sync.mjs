@@ -611,7 +611,7 @@ ${rows}
 
 ## 1. Archlens Concentric Ring Dependency Graph
 
-In accordance with Robert C. Martin's **Clean Architecture** and [Archlens](https://github.com/fmatar/archlens) (\`.archlens/policy.json\`), dependencies point strictly inward toward **${codeMap.rings[0]?.name || 'Ring 0: Domain Core & Primitives'}**.
+In accordance with Concentric **Clean Architecture** and [Archlens](https://github.com/fmatar/archlens) (\`.archlens/policy.json\`), dependencies point strictly inward toward **${codeMap.rings[0]?.name || 'Ring 0: Domain Core & Primitives'}**.
 
 - **Afferent Coupling ($Ca$)**: Number of modules that depend on this module (inward stability).
 - **Efferent Coupling ($Ce$)**: Number of modules this module depends on (outward fan-out).

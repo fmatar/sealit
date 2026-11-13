@@ -8,7 +8,7 @@ This document provides the deep architectural explanation of the **Agentic SDLC 
 
 ## 1. Archlens Concentric Clean Architecture Rings
 
-In accordance with Robert C. Martin's **Clean Architecture**, [Archlens](https://github.com/fmatar/archlens) (`.archlens/policy.json`), and `ADR-002`, the engine is partitioned into four concentric rings (`domain-core` ← `governance-models` ← `adapters-orchestrators` ← `cli-entrypoints`) where all source code dependencies point strictly inward toward **Ring 0**:
+In accordance with Concentric **Clean Architecture**, [Archlens](https://github.com/fmatar/archlens) (`.archlens/policy.json`), and `ADR-002`, the engine is partitioned into four concentric rings (`domain-core` ← `governance-models` ← `adapters-orchestrators` ← `cli-entrypoints`) where all source code dependencies point strictly inward toward **Ring 0**:
 
 ```mermaid
 flowchart TD
@@ -19,7 +19,7 @@ flowchart TD
 
     subgraph Ring3 ["Ring 3: cli-entrypoints"]
       CLI["sdlc-engine.mjs (Universal CLI Router & Barrel Export)"]:::r3
-      SKILLS[".agent/skills/*/SKILL.md (11 Canonical Skills)"]:::r3
+      SKILLS[".agent/skills/*/SKILL.md (10 Canonical Skills)"]:::r3
     end
 
     subgraph Ring2 ["Ring 2: adapters-orchestrators"]

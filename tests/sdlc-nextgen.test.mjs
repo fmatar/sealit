@@ -879,8 +879,8 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
       fs.writeFileSync(path.join(customSkillDir, 'SKILL.md'), 'custom', 'utf8');
 
       assert.equal(SUPPORTED_AGENTS.length, 6);
-      assert.equal(CANONICAL_SDLC_SKILLS.length, 11);
-      assert.ok(CANONICAL_SDLC_SKILLS.includes('ub-mode'));
+      assert.equal(CANONICAL_SDLC_SKILLS.length, 10);
+      assert.ok(CANONICAL_SDLC_SKILLS.every((id) => id.startsWith('sdlc')));
       assert.ok(DEPRECATED_SDLC_SKILLS.includes('sdlc-kanban'));
       assert.ok(DEPRECATED_SDLC_SKILLS.includes('sdlc-init'));
       assert.ok(DEPRECATED_SDLC_SKILLS.includes('sdlc-review-gate'));
@@ -920,10 +920,10 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
         process.cwd()
       );
       assert.equal(cliRes.installed.success, true);
-      assert.equal(cliRes.installed.skillsCount, 11);
+      assert.equal(cliRes.installed.skillsCount, 10);
       assert.ok(cliRes.installed.prunedSkills.includes('sdlc-kanban'));
 
-      // Deprecated skill removed, custom skill preserved, 11 canonical skills present across runtimes
+      // Deprecated skill removed, custom skill preserved, 10 canonical skills present across runtimes
       assert.equal(fs.existsSync(legacySkillDir), false);
       assert.equal(fs.existsSync(customSkillDir), true);
       for (const s of CANONICAL_SDLC_SKILLS) {

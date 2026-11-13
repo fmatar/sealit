@@ -21,7 +21,8 @@ export const DEPRECATED_SDLC_SKILLS = [
   'sdlc-release-changelog',
   'sdlc-review-gate',
   'sdlc-tdd-implement',
-  'sdlc-test-coverage'
+  'sdlc-test-coverage',
+  'ub-mode'
 ];
 
 export const CANONICAL_SDLC_SKILLS = [
@@ -34,8 +35,7 @@ export const CANONICAL_SDLC_SKILLS = [
   'sdlc-release',
   'sdlc-status',
   'sdlc-tdd',
-  'sdlc-wiki',
-  'ub-mode'
+  'sdlc-wiki'
 ];
 
 export const ARCHLENS_SKILL_PACKAGE = '@fmatar/archlens-skill@1.2.0';
@@ -159,7 +159,7 @@ export function getFrameworkVersion(packageRoot = null) {
 
 export const CONSTITUTIONAL_RULES_SUMMARY = `# Agentic SDLC Framework Invariants & Autonomous Rules
 _Generated automatically by @fmatar/agentic-sdlc (Universal Engine v${getFrameworkVersion()})_
-_Adheres strictly to Robert C. Martin Clean Code & Clean Architecture_
+_Governed by Concentric Clean Architecture, Risk-Proportional Lanes & Config-Driven Dual-Gate TDD_
 
 ## 1. Zero Direct Pushes (4-Layer Git Guard — INV-01)
 - Direct git commits, merges, or pushes to \`develop\` or \`main\` are STRICTLY FORBIDDEN.
@@ -175,18 +175,17 @@ _Adheres strictly to Robert C. Martin Clean Code & Clean Architecture_
 - Full-spec project handovers synthesize \`PRODUCT.md\` (\`CAP-XX\`, \`INV-XX\`, \`SPEC-XX\`) starting at Genesis Ticket \`#1\`.
 - Any mutation to \`PRODUCT.md\`, \`docs/specs/\`, dependencies, C4 architecture boundaries, DB schemas, or API contracts MUST be accompanied by an ADR (\`node .agent/scripts/sdlc-engine.mjs adr create\`).
 
-## 4. Universal Router + Lifecycle Skills Suite
+## 4. Universal Router + Lifecycle Skills Suite (10 Canonical Skills)
 - \`/sdlc\`: Universal 1:1 subcommand router (\`/sdlc doctor\`, \`/sdlc begin #id\`, \`/sdlc status\`, \`/sdlc drift\`, \`/sdlc pre-pr\`, \`/sdlc gate\`, \`/sdlc kanban\`, \`/sdlc ui\`).
 - \`/sdlc-flow\`: End-to-end ticket orchestrator (\`stage begin\` -> TDD -> \`stage pre-pr\` -> review -> \`stage complete\`).
 - \`/sdlc-product\`: Constitutional \`PRODUCT.md\` autopilot, \`docs/specs/\` architect, and topological DAG waves.
 - \`/sdlc-doctor\`: Stack detection, \`doctor --fix\`, SHA-256 verified 4-Layer Git hooks, \`.archlens/policy.json\`, and multi-agent installer.
 - \`/sdlc-status\`: Active session, 8-stage progress, drift check, \`KANBAN.md\` state, and Architecture Diff snapshot.
-- \`/sdlc-tdd\`: Robert Martin Red-Green-Refactor TDD, polyglot test runners, and real coverage/mutation report parsers.
+- \`/sdlc-tdd\`: Red-Green-Refactor TDD, polyglot test runners, and real coverage/mutation report parsers.
 - \`/sdlc-gate\`: Risk-tiered PR review subagents, \`gate --strict\`, and Stage 7 HMAC-SHA256 Merkle Gate Receipt.
 - \`/sdlc-adr\`: Mint, approve, or compact Spec-Drift ADRs (\`adr compact\`) and synchronize \`docs/DECISION_MAP.md\`.
 - \`/sdlc-wiki\`: 10-30-90 \`README.md\` landing page & AST-to-Wiki synchronization (\`readme audit\`, \`wiki sync\`).
 - \`/sdlc-release\`: ADR compaction into \`docs/SRS.md\`, Docs/Wiki sync, SemVer tagging, regression proofs, and canary watchdog.
-- \`/ub-mode\`: Robert C. Martin reduced principles (First Make it Work, Then Make it Right, Follow Practice).
 `;
 
 /**
@@ -328,6 +327,13 @@ export function pruneDeprecatedSkills(skillsDir) {
       try {
         fs.unlinkSync(candidateMdc);
         pruned.push(`${deprecated}.mdc`);
+      } catch {}
+    }
+    const candidateZip = path.join(skillsDir, `${deprecated}.zip`);
+    if (fileExists(candidateZip)) {
+      try {
+        fs.unlinkSync(candidateZip);
+        pruned.push(`${deprecated}.zip`);
       } catch {}
     }
   }
@@ -727,13 +733,16 @@ export function provisionAgentIntegrations({
     prunedSkills.push(...pruneDeprecatedSkills(path.join(homeDir, '.gemini/config/skills')));
     prunedSkills.push(...pruneDeprecatedSkills(path.join(homeDir, '.claude/skills')));
     prunedSkills.push(...pruneDeprecatedSkills(path.join(homeDir, '.claude/commands')));
+    prunedSkills.push(...pruneDeprecatedSkills(path.join(homeDir, '.claude/cowork')));
     prunedSkills.push(...pruneDeprecatedSkills(path.join(homeDir, '.cursor/skills')));
+    prunedSkills.push(...pruneDeprecatedSkills(path.join(homeDir, '.cursor/rules')));
     prunedSkills.push(...pruneDeprecatedSkills(path.join(homeDir, '.grok/skills')));
   } else {
     prunedSkills.push(...pruneDeprecatedSkills(path.join(absTarget, '.agent/skills')));
     prunedSkills.push(...pruneDeprecatedSkills(path.join(absTarget, '.agents/skills')));
     prunedSkills.push(...pruneDeprecatedSkills(path.join(absTarget, '.claude/skills')));
     prunedSkills.push(...pruneDeprecatedSkills(path.join(absTarget, '.claude/commands')));
+    prunedSkills.push(...pruneDeprecatedSkills(path.join(absTarget, '.claude/cowork')));
     prunedSkills.push(...pruneDeprecatedSkills(path.join(absTarget, '.cursor/skills')));
     prunedSkills.push(...pruneDeprecatedSkills(path.join(absTarget, '.grok/skills')));
     prunedSkills.push(...pruneDeprecatedSkills(path.join(absTarget, '.cursor/rules')));
@@ -812,7 +821,7 @@ export function provisionAgentIntegrations({
           name: 'agentic-sdlc',
           version: getFrameworkVersion(packageRoot),
           description:
-            'Agentic SDLC Framework — Universal /sdlc router, ub-mode, and 9 lifecycle skills for Claude Code & Cowork',
+            'Agentic SDLC Framework — Universal /sdlc router and 9 lifecycle skills for Claude Code & Cowork',
           skills: './.claude/skills'
         };
         fs.writeFileSync(pluginManifestPath, JSON.stringify(pluginManifest, null, 2) + '\n', 'utf8');

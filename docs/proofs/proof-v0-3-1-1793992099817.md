@@ -21,5 +21,5 @@
 ---
 
 ### 🛡️ Cryptographic Proof Attestation
-- **Zero-Regression Guarantee:** Verified against Robert Martin clean architecture boundaries and backward-compatible contracts.
+- **Zero-Regression Guarantee:** Verified against Concentric Clean Architecture boundaries and backward-compatible contracts.
 - **Audit Verification:** Signed into project audit trail.

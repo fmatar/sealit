@@ -65,7 +65,7 @@ import {
   monitorCanaryHealthAndWatchdog
 } from '../.agent/scripts/sdlc-engine.mjs';
 
-describe('Universal SDLC Engine: Complete Robert Martin Test Suite', () => {
+describe('Universal SDLC Engine: Comprehensive Functional & Governance Test Suite', () => {
   let tmpDir;
 
   beforeEach(() => {
@@ -861,12 +861,12 @@ jobs:
       assert.ok(templated.labels.includes('status:ready'));
     });
 
-    it('falls back to standardized Robert Martin clean structure when templates are absent', () => {
+    it('falls back to standardized clean issue structure when templates are absent', () => {
       const templated = formatTemplatedIssue({
         title: 'feat: clean fallback',
         type: 'feat',
         problem: 'Need consistent fallback format.',
-        solution: 'Use Robert Martin specification template.',
+        solution: 'Use structured specification template.',
         repoRoot: tmpDir
       });
 
@@ -1035,7 +1035,7 @@ jobs:
     });
 
     it('executes pm comment CLI command and records audit comment', () => {
-      const res = runCLI(['pm', 'comment', '5050', '--body', 'Approved by Peer Reviewer with clean Robert Martin principles.'], null, tmpDir);
+      const res = runCLI(['pm', 'comment', '5050', '--body', 'Approved by Peer Reviewer with clean architecture and TDD verification.'], null, tmpDir);
       assert.equal(res.command, 'pm');
       assert.equal(res.subcommand, 'comment');
       assert.equal(res.commented.success, true);

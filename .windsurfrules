@@ -1,6 +1,6 @@
 # Agentic SDLC Framework Invariants & Autonomous Rules
 # Generated automatically by sdlc-engine (Universal Engine)
-# Adheres strictly to Robert C. Martin Clean Code & Architecture
+# Governed by Concentric Clean Architecture, Risk-Proportional Lanes & Dual-Gate TDD
 
 ## 1. Zero Direct Pushes (4-Layer Git Guard)
 - Direct git commits, merges, or pushes to `develop` or `main` are STRICTLY FORBIDDEN.
@@ -11,7 +11,6 @@
 - Full-spec project handovers synthesize `PRODUCT.md` (`CAP-XX`, `INV-XX`, `SPEC-XX`) starting at Genesis Ticket `#1`.
 - Any mutation to dependencies, C4 architecture boundaries, DB schemas, or API contracts MUST be accompanied by an ADR (`node .agent/scripts/sdlc-engine.mjs adr create`).
 
-## 3. Robert Martin TDD & Dual-Gate Quality Verification
-- Diff coverage threshold: >= 85% line and branch coverage.
-- Mutation kill score: >= 80% using PITest or Stryker.
+## 3. Red-Green-Refactor TDD & Config-Driven Dual-Gate Verification
+- Coverage and mutation kill thresholds are governed by `.agent/sdlc-config.json`.
 - Concentric ring Clean Architecture compliance: zero outer-layer imports into domain entities.

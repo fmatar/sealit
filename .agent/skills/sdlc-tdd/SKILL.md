@@ -10,8 +10,8 @@ tools: read_file, write_file, edit_file, run_command
 - **Use when** adding behavioral tests, reproducing defects from stack traces, or measuring test coverage and mutation kill scores.
 - **Not for** pure documentation, copy, or CSS-only changes with no executable behavior (`trivial` lane).
 
-## TDD Laws & Anti-Patterns (paired with `ub-mode`)
-1. **Red -> Green -> Refactor**: Write a minimal failing behavioral test first, write the smallest production change to pass, then remove duplication and respect Clean Architecture boundaries (`.archlens/policy.json`).
+## TDD Discipline & Anti-Patterns
+1. **Red -> Green -> Refactor**: Write a minimal failing behavioral test first, write the smallest production change to pass, then remove duplication (`CRAP < 10`) and respect Concentric Clean Architecture boundaries (`.archlens/policy.json`).
 2. **Zero Test Smells**: No assertion-free "smoke" tests, no trivial getter/setter tests, no deep mock wiring when domain fakes/values work, and strict **F.I.R.S.T.** isolation (temp dirs, ephemeral ports, zero network reliance).
 3. **Config-Driven Thresholds**: Coverage (`thresholds.diffCoverage`) and mutation (`thresholds.mutationScore`) bars come strictly from `.agent/sdlc-config.json` — never assume hardcoded numbers.
 

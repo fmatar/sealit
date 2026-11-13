@@ -3,7 +3,7 @@
 * 🚀 **[Home](Home)**
   * [Executive Summary](Home#executive-summary)
   * [Proportional Lanes & 8-Stage Lifecycle](Home#the-8-stage-autonomous-lifecycle--composite-stage-cli)
-  * [Canonical 11-Skill Suite](Home#canonical-11-skill-suite-1-router--9-verb-skills--ub-mode)
+  * [Canonical 10-Skill Suite](Home#canonical-10-skill-suite-1-router--9-verb-skills)
 * 🏗️ **[Architecture](Architecture)**
   * [Archlens Concentric Rings](Architecture#1-archlens-concentric-clean-architecture-rings)
   * [Archlens Workbench & MCP Companion](Architecture#archlens-visual-workbench--mcp-companion)
@@ -12,7 +12,7 @@
   * [Clearinghouse Ledger UI](Architecture#4-mission-control-clearinghouse-ledger-ui-workbench-servermjs)
 * 🛠️ **[Skills & CLI Reference](Skills-Reference)**
   * [Universal Router (`/sdlc`)](Skills-Reference#1-universal-command-router-sdlc)
-  * [Lifecycle Skills & `ub-mode`](Skills-Reference#2-the-9-verb-driven-skills--ub-mode)
+  * [Lifecycle Verb Skills](Skills-Reference#2-the-9-verb-driven-lifecycle-skills)
   * [CLI Subcommand Reference](Skills-Reference#3-complete-sdlc-enginemjs-cli-reference)
 * 🎯 **[Traceability & Ledgers](Traceability)**
   * [End-to-End Traceability Chain](Traceability#1-end-to-end-traceability-chain)
@@ -26,9 +26,8 @@
 
 ---
 
-### 🔗 Ecosystem & Repository Links
+### 🔗 Repository Links
 * [Agentic SDLC Repository](https://github.com/fmatar/agentic-sdlc-framework)
-* [Archlens Clean Architecture Workbench](https://github.com/fmatar/archlens)
 * [Product Constitution (`PRODUCT.md`)](https://github.com/fmatar/agentic-sdlc-framework/blob/main/PRODUCT.md)
 * [Causal Decision Map (`DECISION_MAP.md`)](https://github.com/fmatar/agentic-sdlc-framework/blob/main/docs/DECISION_MAP.md)
 * [Living Kanban Board (`KANBAN.md`)](https://github.com/fmatar/agentic-sdlc-framework/blob/main/docs/KANBAN.md)

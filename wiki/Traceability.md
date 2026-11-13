@@ -7,7 +7,8 @@ The **Agentic SDLC Framework** enforces unbroken traceability from constitutiona
 ## 1. End-to-End Traceability Chain
 
 ```mermaid
-flowchart LR
+%%{init: {'theme': 'neutral'}}%%
+flowchart TD
     P["PRODUCT.md (CAP-XX / INV-XX)"] --> S["docs/specs/cap-XX-*.md (PRD + IEEE 29148 SRS)"]
     S --> T["Ticket (#ID in GitHub / Linear / Jira & docs/KANBAN.md)"]
     T --> B["Isolated Branch (feature/issue-#ID-slug)"]

@@ -42,7 +42,6 @@ description: "Use when running an explicit /sdlc $ARGUMENTS command in chat. Not
 | `/sdlc gate` | `node .agent/scripts/sdlc-engine.mjs gate --strict` |
 | `/sdlc ticket <create\|transition\|comment\|sync\|templates>` | `node .agent/scripts/sdlc-engine.mjs ticket <subcommand> [args]` |
 | `/sdlc kanban` | `node .agent/scripts/sdlc-engine.mjs ticket sync` |
-| `/sdlc ub` | Activate `ub-mode` reduced principles for the current task |
 | `/sdlc ui` | `node .agent/scripts/sdlc-engine.mjs ui-snapshot` (embed snapshot only when requested) |
 | `/sdlc serve` | `node .agent/scripts/sdlc-engine.mjs serve` |
 | `/sdlc readme <init\|audit>` | `node .agent/scripts/sdlc-engine.mjs readme <subcommand> [--strict]` |
