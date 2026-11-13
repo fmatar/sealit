@@ -1398,11 +1398,12 @@ describe('Issue #109: Right-sized canonical skills, Claude unified packaging, an
   it('removes duplicate .claude/commands/sdlc*.md, syncs plugin.json version from package.json, and installs real .cursor/skills/<id>/SKILL.md', () => {
     // Seed legacy duplicate .claude/commands/sdlc*.md and a user-authored command that must be preserved
     const legacyCmdDir = path.join(dir, '.claude/commands');
-    const retiredModeId = ['ub', 'mode'].join('-');
+    const standalonePersonaId = ['ub', 'mode'].join('-');
     fs.mkdirSync(legacyCmdDir, { recursive: true });
     fs.writeFileSync(path.join(legacyCmdDir, 'sdlc.md'), 'legacy duplicate router command\n', 'utf8');
     fs.writeFileSync(path.join(legacyCmdDir, 'sdlc-flow.md'), 'legacy duplicate flow command\n', 'utf8');
-    fs.writeFileSync(path.join(legacyCmdDir, `${retiredModeId}.md`), 'legacy retired command\n', 'utf8');
+    fs.writeFileSync(path.join(legacyCmdDir, 'sdlc-review-gate.md'), 'legacy retired sdlc command\n', 'utf8');
+    fs.writeFileSync(path.join(legacyCmdDir, `${standalonePersonaId}.md`), 'standalone persona command\n', 'utf8');
     fs.writeFileSync(path.join(legacyCmdDir, 'custom-deploy.md'), 'user custom command\n', 'utf8');
 
     const res = provisionAgentIntegrations({
@@ -1413,10 +1414,11 @@ describe('Issue #109: Right-sized canonical skills, Claude unified packaging, an
     });
     assert.equal(res.skillsCount, 10);
 
-    // 1. Legacy canonical/deprecated .claude/commands/*.md pruned; custom command preserved; zero new .claude/commands/<skill>.md created
+    // 1. Legacy canonical/deprecated .claude/commands/sdlc*.md pruned; standalone & custom commands preserved
     assert.equal(fs.existsSync(path.join(legacyCmdDir, 'sdlc.md')), false);
     assert.equal(fs.existsSync(path.join(legacyCmdDir, 'sdlc-flow.md')), false);
-    assert.equal(fs.existsSync(path.join(legacyCmdDir, `${retiredModeId}.md`)), false);
+    assert.equal(fs.existsSync(path.join(legacyCmdDir, 'sdlc-review-gate.md')), false);
+    assert.equal(fs.existsSync(path.join(legacyCmdDir, `${standalonePersonaId}.md`)), true);
     assert.equal(fs.existsSync(path.join(legacyCmdDir, 'custom-deploy.md')), true);
 
     // 2. All 10 .claude/skills/<id>/SKILL.md + Cowork .zip + .cursor/skills/<id>/SKILL.md + .cursor/rules/<id>.mdc exist
@@ -1749,7 +1751,7 @@ describe('Issue #116: Author-neutral terminology, 10 canonical skills, clean foo
     'i'
   );
 
-  it('removes all author-specific branding across 100% of tracked files and restricts retired mode id to DEPRECATED_SDLC_SKILLS', () => {
+  it('removes all author-specific branding and retired mode ids across 100% of tracked files', () => {
     const trackedFiles = execFileSync('git', ['ls-files'], {
       cwd: REPO_ROOT,
       encoding: 'utf8'
@@ -1768,36 +1770,37 @@ describe('Issue #116: Author-neutral terminology, 10 canonical skills, clean foo
       if (authorPattern.test(content)) {
         authorHits.push(relPath);
       }
-      if (relPath !== '.agent/scripts/lib/installer.mjs' && retiredModePattern.test(content)) {
+      if (retiredModePattern.test(content)) {
         retiredHits.push(relPath);
       }
     }
 
     assert.deepEqual(authorHits, [], `Expected zero author-branding matches across repo, found in: ${authorHits.join(', ')}`);
-    assert.deepEqual(retiredHits, [], `Expected zero retired skill matches outside DEPRECATED_SDLC_SKILLS, found in: ${retiredHits.join(', ')}`);
+    assert.deepEqual(retiredHits, [], `Expected zero coupled persona-skill matches across 100% of tracked files, found in: ${retiredHits.join(', ')}`);
 
     assert.equal(CANONICAL_SDLC_SKILLS.length, 10);
     assert.equal(CANONICAL_SDLC_SKILLS.includes(retiredModeId), false);
-    assert.equal(DEPRECATED_SDLC_SKILLS.includes(retiredModeId), true);
+    assert.equal(DEPRECATED_SDLC_SKILLS.includes(retiredModeId), false);
   });
 
-  it('prunes retired skill directories, .md, .mdc, and Cowork .zip bundles in both local and global provisioning', () => {
+  it('prunes retired sdlc-* skill directories, .md, .mdc, and Cowork .zip bundles in both local and global provisioning', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-116-prune-'));
+    const legacySdlcSkill = 'sdlc-review-gate';
     try {
       const localTarget = path.join(tmpDir, 'repo');
       const fakeHome = path.join(tmpDir, 'home');
 
-      // Seed retired skill artifacts in local repo
-      fs.mkdirSync(path.join(localTarget, '.agent/skills', retiredModeId), { recursive: true });
-      fs.writeFileSync(path.join(localTarget, '.agent/skills', retiredModeId, 'SKILL.md'), 'legacy\n', 'utf8');
-      fs.mkdirSync(path.join(localTarget, '.claude/skills', retiredModeId), { recursive: true });
-      fs.writeFileSync(path.join(localTarget, '.claude/skills', retiredModeId, 'SKILL.md'), 'legacy\n', 'utf8');
+      // Seed retired sdlc-* skill artifacts in local repo
+      fs.mkdirSync(path.join(localTarget, '.agent/skills', legacySdlcSkill), { recursive: true });
+      fs.writeFileSync(path.join(localTarget, '.agent/skills', legacySdlcSkill, 'SKILL.md'), 'legacy\n', 'utf8');
+      fs.mkdirSync(path.join(localTarget, '.claude/skills', legacySdlcSkill), { recursive: true });
+      fs.writeFileSync(path.join(localTarget, '.claude/skills', legacySdlcSkill, 'SKILL.md'), 'legacy\n', 'utf8');
       fs.mkdirSync(path.join(localTarget, '.claude/cowork'), { recursive: true });
-      fs.writeFileSync(path.join(localTarget, '.claude/cowork', `${retiredModeId}.zip`), 'zip', 'utf8');
-      fs.mkdirSync(path.join(localTarget, '.cursor/skills', retiredModeId), { recursive: true });
-      fs.writeFileSync(path.join(localTarget, '.cursor/skills', retiredModeId, 'SKILL.md'), 'legacy\n', 'utf8');
+      fs.writeFileSync(path.join(localTarget, '.claude/cowork', `${legacySdlcSkill}.zip`), 'zip', 'utf8');
+      fs.mkdirSync(path.join(localTarget, '.cursor/skills', legacySdlcSkill), { recursive: true });
+      fs.writeFileSync(path.join(localTarget, '.cursor/skills', legacySdlcSkill, 'SKILL.md'), 'legacy\n', 'utf8');
       fs.mkdirSync(path.join(localTarget, '.cursor/rules'), { recursive: true });
-      fs.writeFileSync(path.join(localTarget, '.cursor/rules', `${retiredModeId}.mdc`), 'legacy\n', 'utf8');
+      fs.writeFileSync(path.join(localTarget, '.cursor/rules', `${legacySdlcSkill}.mdc`), 'legacy\n', 'utf8');
 
       provisionAgentIntegrations({
         agents: ['gemini', 'claude', 'cursor'],
@@ -1806,23 +1809,23 @@ describe('Issue #116: Author-neutral terminology, 10 canonical skills, clean foo
         packageRoot: REPO_ROOT
       });
 
-      assert.equal(fs.existsSync(path.join(localTarget, '.agent/skills', retiredModeId)), false);
-      assert.equal(fs.existsSync(path.join(localTarget, '.claude/skills', retiredModeId)), false);
-      assert.equal(fs.existsSync(path.join(localTarget, '.claude/cowork', `${retiredModeId}.zip`)), false);
-      assert.equal(fs.existsSync(path.join(localTarget, '.cursor/skills', retiredModeId)), false);
-      assert.equal(fs.existsSync(path.join(localTarget, '.cursor/rules', `${retiredModeId}.mdc`)), false);
+      assert.equal(fs.existsSync(path.join(localTarget, '.agent/skills', legacySdlcSkill)), false);
+      assert.equal(fs.existsSync(path.join(localTarget, '.claude/skills', legacySdlcSkill)), false);
+      assert.equal(fs.existsSync(path.join(localTarget, '.claude/cowork', `${legacySdlcSkill}.zip`)), false);
+      assert.equal(fs.existsSync(path.join(localTarget, '.cursor/skills', legacySdlcSkill)), false);
+      assert.equal(fs.existsSync(path.join(localTarget, '.cursor/rules', `${legacySdlcSkill}.mdc`)), false);
 
-      // Seed retired skill artifacts in global home directory
-      fs.mkdirSync(path.join(fakeHome, '.gemini/config/skills', retiredModeId), { recursive: true });
-      fs.writeFileSync(path.join(fakeHome, '.gemini/config/skills', retiredModeId, 'SKILL.md'), 'legacy\n', 'utf8');
-      fs.mkdirSync(path.join(fakeHome, '.claude/skills', retiredModeId), { recursive: true });
-      fs.writeFileSync(path.join(fakeHome, '.claude/skills', retiredModeId, 'SKILL.md'), 'legacy\n', 'utf8');
+      // Seed retired sdlc-* skill artifacts in global home directory
+      fs.mkdirSync(path.join(fakeHome, '.gemini/config/skills', legacySdlcSkill), { recursive: true });
+      fs.writeFileSync(path.join(fakeHome, '.gemini/config/skills', legacySdlcSkill, 'SKILL.md'), 'legacy\n', 'utf8');
+      fs.mkdirSync(path.join(fakeHome, '.claude/skills', legacySdlcSkill), { recursive: true });
+      fs.writeFileSync(path.join(fakeHome, '.claude/skills', legacySdlcSkill, 'SKILL.md'), 'legacy\n', 'utf8');
       fs.mkdirSync(path.join(fakeHome, '.claude/cowork'), { recursive: true });
-      fs.writeFileSync(path.join(fakeHome, '.claude/cowork', `${retiredModeId}.zip`), 'zip', 'utf8');
-      fs.mkdirSync(path.join(fakeHome, '.cursor/skills', retiredModeId), { recursive: true });
-      fs.writeFileSync(path.join(fakeHome, '.cursor/skills', retiredModeId, 'SKILL.md'), 'legacy\n', 'utf8');
+      fs.writeFileSync(path.join(fakeHome, '.claude/cowork', `${legacySdlcSkill}.zip`), 'zip', 'utf8');
+      fs.mkdirSync(path.join(fakeHome, '.cursor/skills', legacySdlcSkill), { recursive: true });
+      fs.writeFileSync(path.join(fakeHome, '.cursor/skills', legacySdlcSkill, 'SKILL.md'), 'legacy\n', 'utf8');
       fs.mkdirSync(path.join(fakeHome, '.cursor/rules'), { recursive: true });
-      fs.writeFileSync(path.join(fakeHome, '.cursor/rules', `${retiredModeId}.mdc`), 'legacy\n', 'utf8');
+      fs.writeFileSync(path.join(fakeHome, '.cursor/rules', `${legacySdlcSkill}.mdc`), 'legacy\n', 'utf8');
 
       provisionAgentIntegrations({
         agents: ['gemini', 'claude', 'cursor'],
@@ -1831,11 +1834,11 @@ describe('Issue #116: Author-neutral terminology, 10 canonical skills, clean foo
         packageRoot: REPO_ROOT
       });
 
-      assert.equal(fs.existsSync(path.join(fakeHome, '.gemini/config/skills', retiredModeId)), false);
-      assert.equal(fs.existsSync(path.join(fakeHome, '.claude/skills', retiredModeId)), false);
-      assert.equal(fs.existsSync(path.join(fakeHome, '.claude/cowork', `${retiredModeId}.zip`)), false);
-      assert.equal(fs.existsSync(path.join(fakeHome, '.cursor/skills', retiredModeId)), false);
-      assert.equal(fs.existsSync(path.join(fakeHome, '.cursor/rules', `${retiredModeId}.mdc`)), false);
+      assert.equal(fs.existsSync(path.join(fakeHome, '.gemini/config/skills', legacySdlcSkill)), false);
+      assert.equal(fs.existsSync(path.join(fakeHome, '.claude/skills', legacySdlcSkill)), false);
+      assert.equal(fs.existsSync(path.join(fakeHome, '.claude/cowork', `${legacySdlcSkill}.zip`)), false);
+      assert.equal(fs.existsSync(path.join(fakeHome, '.cursor/skills', legacySdlcSkill)), false);
+      assert.equal(fs.existsSync(path.join(fakeHome, '.cursor/rules', `${legacySdlcSkill}.mdc`)), false);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
@@ -1891,5 +1894,114 @@ describe('Issue #116: Author-neutral terminology, 10 canonical skills, clean foo
     const traceWiki = fs.readFileSync(path.join(REPO_ROOT, 'wiki/Traceability.md'), 'utf8');
     assert.doesNotMatch(traceWiki, /\bflowchart\s+LR\b/);
     assert.match(traceWiki, /\bflowchart\s+TD\b/);
+  });
+});
+
+// ===========================================================================
+// Issue #118: Strict sdlc* namespace isolation & decoupling from standalone coding-persona skills
+// ===========================================================================
+describe('Issue #118: Strict sdlc* namespace isolation and decoupling from standalone coding-persona skills', () => {
+  const standalonePersonaId = ['ub', 'mode'].join('-');
+
+  it('scopes both CANONICAL_SDLC_SKILLS and DEPRECATED_SDLC_SKILLS strictly to the sdlc* namespace', () => {
+    assert.equal(CANONICAL_SDLC_SKILLS.length, 10);
+    for (const id of CANONICAL_SDLC_SKILLS) {
+      assert.match(id, /^sdlc(?:-[a-z0-9-]+)?$/, `Canonical skill "${id}" must reside in the sdlc* namespace`);
+    }
+    assert.ok(DEPRECATED_SDLC_SKILLS.length >= 14);
+    for (const id of DEPRECATED_SDLC_SKILLS) {
+      assert.match(id, /^sdlc-[a-z0-9-]+$/, `Deprecated skill "${id}" must be a retired sdlc-* framework skill, never a standalone persona skill`);
+    }
+  });
+
+  it('preserves standalone personal and third-party skills untouched during local and global provisioning', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-118-isolation-'));
+    try {
+      const localTarget = path.join(tmpDir, 'repo');
+      const fakeHome = path.join(tmpDir, 'home');
+      const standaloneIds = [standalonePersonaId, 'ponytail', 'impeccable', 'team-style'];
+
+      for (const id of standaloneIds) {
+        fs.mkdirSync(path.join(localTarget, '.agent/skills', id), { recursive: true });
+        fs.writeFileSync(path.join(localTarget, '.agent/skills', id, 'SKILL.md'), `---\nname: ${id}\ndescription: "Standalone"\n---\n`, 'utf8');
+        fs.mkdirSync(path.join(localTarget, '.claude/skills', id), { recursive: true });
+        fs.writeFileSync(path.join(localTarget, '.claude/skills', id, 'SKILL.md'), 'standalone\n', 'utf8');
+        fs.mkdirSync(path.join(localTarget, '.claude/cowork'), { recursive: true });
+        fs.writeFileSync(path.join(localTarget, '.claude/cowork', `${id}.zip`), 'standalone-zip', 'utf8');
+        fs.mkdirSync(path.join(localTarget, '.claude/commands'), { recursive: true });
+        fs.writeFileSync(path.join(localTarget, '.claude/commands', `${id}.md`), 'standalone-cmd\n', 'utf8');
+        fs.mkdirSync(path.join(localTarget, '.cursor/skills', id), { recursive: true });
+        fs.writeFileSync(path.join(localTarget, '.cursor/skills', id, 'SKILL.md'), 'standalone\n', 'utf8');
+        fs.mkdirSync(path.join(localTarget, '.cursor/rules'), { recursive: true });
+        fs.writeFileSync(path.join(localTarget, '.cursor/rules', `${id}.mdc`), 'standalone-rule\n', 'utf8');
+
+        fs.mkdirSync(path.join(fakeHome, '.gemini/config/skills', id), { recursive: true });
+        fs.writeFileSync(path.join(fakeHome, '.gemini/config/skills', id, 'SKILL.md'), 'standalone\n', 'utf8');
+        fs.mkdirSync(path.join(fakeHome, '.claude/skills', id), { recursive: true });
+        fs.writeFileSync(path.join(fakeHome, '.claude/skills', id, 'SKILL.md'), 'standalone\n', 'utf8');
+        fs.mkdirSync(path.join(fakeHome, '.claude/cowork'), { recursive: true });
+        fs.writeFileSync(path.join(fakeHome, '.claude/cowork', `${id}.zip`), 'standalone-zip', 'utf8');
+        fs.mkdirSync(path.join(fakeHome, '.cursor/skills', id), { recursive: true });
+        fs.writeFileSync(path.join(fakeHome, '.cursor/skills', id, 'SKILL.md'), 'standalone\n', 'utf8');
+        fs.mkdirSync(path.join(fakeHome, '.cursor/rules'), { recursive: true });
+        fs.writeFileSync(path.join(fakeHome, '.cursor/rules', `${id}.mdc`), 'standalone-rule\n', 'utf8');
+        fs.mkdirSync(path.join(fakeHome, '.grok/skills', id), { recursive: true });
+        fs.writeFileSync(path.join(fakeHome, '.grok/skills', id, 'SKILL.md'), 'standalone\n', 'utf8');
+      }
+
+      provisionAgentIntegrations({
+        agents: ['gemini', 'claude', 'cursor', 'grok'],
+        targetDir: localTarget,
+        global: false,
+        packageRoot: REPO_ROOT
+      });
+
+      provisionAgentIntegrations({
+        agents: ['gemini', 'claude', 'cursor', 'grok'],
+        global: true,
+        homeDir: fakeHome,
+        packageRoot: REPO_ROOT
+      });
+
+      for (const id of standaloneIds) {
+        assert.equal(fs.existsSync(path.join(localTarget, '.agent/skills', id, 'SKILL.md')), true, `Local .agent/skills/${id} must remain untouched`);
+        assert.equal(fs.existsSync(path.join(localTarget, '.claude/skills', id, 'SKILL.md')), true, `Local .claude/skills/${id} must remain untouched`);
+        assert.equal(fs.existsSync(path.join(localTarget, '.claude/cowork', `${id}.zip`)), true, `Local .claude/cowork/${id}.zip must remain untouched`);
+        assert.equal(fs.existsSync(path.join(localTarget, '.claude/commands', `${id}.md`)), true, `Local .claude/commands/${id}.md must remain untouched`);
+        assert.equal(fs.existsSync(path.join(localTarget, '.cursor/skills', id, 'SKILL.md')), true, `Local .cursor/skills/${id} must remain untouched`);
+        assert.equal(fs.existsSync(path.join(localTarget, '.cursor/rules', `${id}.mdc`)), true, `Local .cursor/rules/${id}.mdc must remain untouched`);
+
+        assert.equal(fs.existsSync(path.join(fakeHome, '.gemini/config/skills', id, 'SKILL.md')), true, `Global ~/.gemini/config/skills/${id} must remain untouched`);
+        assert.equal(fs.existsSync(path.join(fakeHome, '.claude/skills', id, 'SKILL.md')), true, `Global ~/.claude/skills/${id} must remain untouched`);
+        assert.equal(fs.existsSync(path.join(fakeHome, '.claude/cowork', `${id}.zip`)), true, `Global ~/.claude/cowork/${id}.zip must remain untouched`);
+        assert.equal(fs.existsSync(path.join(fakeHome, '.cursor/skills', id, 'SKILL.md')), true, `Global ~/.cursor/skills/${id} must remain untouched`);
+        assert.equal(fs.existsSync(path.join(fakeHome, '.cursor/rules', `${id}.mdc`)), true, `Global ~/.cursor/rules/${id}.mdc must remain untouched`);
+        assert.equal(fs.existsSync(path.join(fakeHome, '.grok/skills', id, 'SKILL.md')), true, `Global ~/.grok/skills/${id} must remain untouched`);
+      }
+
+      // Also verify auditSkills ignores standalone non-sdlc* skills even if they have unpinned npx calls
+      fs.writeFileSync(
+        path.join(localTarget, '.agent/skills/ponytail/SKILL.md'),
+        '---\nname: ponytail\n---\nRun npx some-unpinned-pkg\n',
+        'utf8'
+      );
+      const auditRes = auditSkills(localTarget);
+      assert.equal(auditRes.success, true);
+      assert.equal(auditRes.skillsScanned, 10);
+      assert.equal(auditRes.totalFindings, 0);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('documents workflow-vs-persona decoupling and strict sdlc* namespace isolation across skills, README, and Wiki', () => {
+    const readme = fs.readFileSync(path.join(REPO_ROOT, 'README.md'), 'utf8');
+    assert.match(readme, /sdlc\*\s+namespace|standalone.*skills/i, 'README.md must document strict sdlc* namespace isolation');
+
+    const wikiRef = fs.readFileSync(path.join(REPO_ROOT, 'wiki/Skills-Reference.md'), 'utf8');
+    assert.match(wikiRef, /Namespace Isolation|Coding-Persona|standalone/i, 'wiki/Skills-Reference.md must document decoupling from standalone coding-persona skills');
+
+    const doctorSkill = fs.readFileSync(path.join(REPO_ROOT, '.agent/skills/sdlc-doctor/SKILL.md'), 'utf8');
+    assert.match(doctorSkill, /sdlc\*|standalone/i, 'sdlc-doctor/SKILL.md must state install leaves standalone skills untouched');
   });
 });

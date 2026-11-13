@@ -33,4 +33,5 @@ _Governed by Concentric Clean Architecture, Risk-Proportional Lanes & Config-Dri
 - `/sdlc-adr`: Mint, approve, or compact Spec-Drift ADRs (`adr compact`) and synchronize `docs/DECISION_MAP.md`.
 - `/sdlc-wiki`: 10-30-90 `README.md` landing page & AST-to-Wiki synchronization (`readme audit`, `wiki sync`).
 - `/sdlc-release`: ADR compaction into `docs/SRS.md`, Docs/Wiki sync, SemVer tagging, regression proofs, and canary watchdog.
+- **Strict `sdlc*` Namespace Isolation**: `sdlc*` skills govern delivery mechanics and verification only (decoupled from standalone coding-persona or design skills); `install` and `interop export` never modify or delete non-`sdlc*` skills.
 

@@ -81,7 +81,7 @@ flowchart TD
 
 ## 🛠️ Canonical 10-Skill Suite (`1 Router + 9 Verb Skills`)
 
-Per `ADR-010`, the framework consolidates all agent capabilities into **1 Universal Router (`/sdlc`)** and **9 Verb-Driven Lifecycle Skills**:
+Per `ADR-010` and `ADR-011`, the framework consolidates all agent capabilities into **1 Universal Router (`/sdlc`)** and **9 Verb-Driven Lifecycle Skills** strictly scoped to the `sdlc*` namespace (decoupled from standalone coding-persona or design skills so `install` and `install --global` never touch non-`sdlc*` skills):
 
 | Skill | Role & Primary Responsibility | Primary Engine Entrypoint |
 | :--- | :--- | :--- |

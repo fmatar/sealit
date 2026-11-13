@@ -14,3 +14,4 @@
 ## 3. Red-Green-Refactor TDD & Config-Driven Dual-Gate Verification
 - Coverage and mutation kill thresholds are governed by `.agent/sdlc-config.json`.
 - Concentric ring Clean Architecture compliance: zero outer-layer imports into domain entities.
+- Strict `sdlc*` namespace isolation: `sdlc*` skills govern delivery mechanics and verification only, leaving standalone coding-persona and design skills untouched.

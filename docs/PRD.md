@@ -29,6 +29,7 @@
 
 ### Out of Scope (Non-Goals)
 - Bypassing the 4-Layer Git Guard or merging unverified code without a signed Stage 7 HMAC-SHA256 Gate Receipt.
+- Bundling, prescribing, or deleting standalone coding-persona or design skills outside the `sdlc*` namespace (`ADR-011`).
 
 ## 4. User Experience & Core Flows
 - **Onboarding Flow**: `npx --yes github:fmatar/agentic-sdlc-framework install` -> select coding agents -> run `/sdlc-doctor` (and optionally `npx skills add fmatar/archlens` for [Archlens](https://github.com/fmatar/archlens) MCP/visual workbench integration).

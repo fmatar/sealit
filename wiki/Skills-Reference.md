@@ -1,8 +1,8 @@
 # 🛠️ Skills & CLI Command Reference
 
-This reference documents the **10 Canonical Skills — 1 Universal Router (`/sdlc`) and 9 Verb-Driven Lifecycle Skills** (`ADR-010`) located in `.agent/skills/` and the complete CLI subcommand table for `.agent/scripts/sdlc-engine.mjs`.
+This reference documents the **10 Canonical Skills — 1 Universal Router (`/sdlc`) and 9 Verb-Driven Lifecycle Skills** (`ADR-010`, `ADR-011`) located in `.agent/skills/` and the complete CLI subcommand table for `.agent/scripts/sdlc-engine.mjs`.
 
-> **Historical Note (`ADR-002`, `ADR-004`, `ADR-010`)**: Earlier versions of this framework used separate legacy skills that have been consolidated into the 10 canonical skills below and are automatically pruned on upgrade by `pruneDeprecatedSkills` in `.agent/scripts/lib/installer.mjs`.
+> **Namespace Isolation & Coding-Persona Decoupling (`ADR-011`)**: All canonical and deprecated framework skills are strictly scoped to the `sdlc*` namespace (`CANONICAL_SDLC_SKILLS` and `DEPRECATED_SDLC_SKILLS` in `.agent/scripts/lib/installer.mjs`). Workflow governance (`/sdlc*`) is intentionally decoupled from standalone coding-persona or design skills (such as `ponytail`, `impeccable`, or personal coding style skills): `install`, `install --global`, `interop export`, and `skill-audit` never overwrite, audit, or delete non-`sdlc*` skills in local or global agent directories.
 
 ---
 

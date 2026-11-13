@@ -117,6 +117,8 @@ Concentric ring dependency governance (`Domain Core` ← `Governance Models` ←
 | **`/sdlc-wiki`** | 10–30–90 `README.md` engine, `llms.txt`, and [Archlens](https://github.com/fmatar/archlens) AST-to-Wiki synchronization |
 | **`/sdlc-release`** | SemVer bumps, ADR compaction into `docs/SRS.md`, SHA-256 regression proofs, and canary health watchdog |
 
+> **Workflow Governance vs. Coding-Persona Decoupling (`ADR-011`)**: The 10 canonical skills reside strictly in the `sdlc*` namespace and govern *delivery mechanics and verification* only—composing cleanly alongside any standalone coding-style or design skills (such as `ponytail`, `impeccable`, or custom team skills) without bundling or requiring a specific coding persona.
+
 </details>
 
 <details>
@@ -135,7 +137,7 @@ Concentric ring dependency governance (`Domain Core` ← `Governance Models` ←
 # Configure all 6 AI coding tools + Archlens policy + GitHub Actions CI + Git hooks:
 npx github:fmatar/agentic-sdlc-framework install --agents all --with-archlens --with-hooks --with-ci --yes
 
-# Refresh global skills across your machine:
+# Refresh global skills across your machine (strictly scoped to sdlc*; standalone skills are never modified or deleted):
 npx github:fmatar/agentic-sdlc-framework install --global --agents gemini,claude,cursor,grok --yes
 ```
 
