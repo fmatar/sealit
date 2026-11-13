@@ -2505,5 +2505,7 @@ describe('Governance Hardening: release, stage begin, ADR approval, diff review 
     assert.match(releaseYaml, /name:\s*Production Release/);
     assert.match(releaseYaml, /branches:\s*-\s*main/);
     assert.match(releaseYaml, /gate --strict/);
+    assert.match(releaseYaml, /command -v gh/);
+    assert.match(releaseYaml, /api\.github\.com/);
   });
 });
