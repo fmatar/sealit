@@ -23,10 +23,10 @@ alwaysApply: false
    ```bash
    node .agent/scripts/sdlc-engine.mjs review plan --json
    ```
-    inspect the returned `lane`, `subagentsCount`, and `subagents` list.
+   Inspect the returned `lane`, `subagentsCount`, `modifiedFiles`, `diffStat`, `diff`, and `payload.Subagents` list (each prompt embeds the changed file paths, `--stat`, and bounded unified diff against `main`).
 
 2. **Dispatch Read-Only Reviewers with Concrete Context** (`standard` & `full` lanes):
-   For each subagent in `review plan`, call `subagent-task` (`TypeName: "research"`) in parallel, supplying:
+   For each subagent in `review plan`, call `subagent-task` (`TypeName: "research"`) in parallel using its generated `Prompt` (which already contains the branch, `baseSha`/`headSha`, modified files, and unified `git diff`), supplemented with:
    - Current branch name, base `main` SHA, and active ticket `#id`.
    - Measured coverage/mutation numbers from `.agent/.sdlc-session.json` and thresholds from `.agent/sdlc-config.json`.
    - Instruction to return a structured verdict: `verdict: approve | request-changes`, `blockers: [...]`, and concise `notes` for the PR comment (subagents are read-only and never run `review record` or `gh` themselves).

@@ -21,7 +21,7 @@ description: "Use when changing PRODUCT.md, docs/specs/, dependencies, schemas, 
 # 1. Detect spec, structural dependency, schema, or contract drift
 node .agent/scripts/sdlc-engine.mjs drift check
 
-# 2. Mint an ADR (`technical`/`architectural` auto-accept; `product`/`contract` enter `pending_approval`)
+# 2. Mint an ADR (all scopes start in `pending_approval` until reviewed)
 node .agent/scripts/sdlc-engine.mjs adr create \
   --title "<Decision Title>" \
   --scope <technical|architectural|product|contract> \
@@ -31,9 +31,9 @@ node .agent/scripts/sdlc-engine.mjs adr create \
   --decision "<Chosen design & reversal criteria>" \
   --consequences "<Trade-offs & downstream impact>"
 
-# 3. List ADRs or record human decision on a pending product/contract ADR
+# 3. List ADRs or record explicit human decision (`approve` | `reject`)
 node .agent/scripts/sdlc-engine.mjs adr list
-node .agent/scripts/sdlc-engine.mjs adr decide --id ADR-00X --status <accepted|rejected> --by "@reviewer" --reason "<rationale>"
+node .agent/scripts/sdlc-engine.mjs adr decide --id ADR-00X --status <approve|reject> --by "@reviewer" --reason "<rationale>"
 
 # 4. Sync the Causal Decision Graph (docs/DECISION_MAP.md)
 node .agent/scripts/sdlc-engine.mjs decision-graph sync
@@ -43,7 +43,7 @@ node .agent/scripts/sdlc-engine.mjs adr compact --release <vX.Y.Z> --dry-run
 ```
 
 ## ⚠️ Confirm with user before
-- Running `adr decide --status accepted` on any `product` or `contract` scope ADR (`pending_approval` requires explicit human sign-off).
+- Running `adr decide --status approve` on any ADR (`technical`, `architectural`, `product`, and `contract` ADRs all start in `pending_approval` and require explicit human sign-off).
 - Running `adr compact` without `--dry-run` outside a release branch.
 
 ## If it fails

@@ -31,6 +31,12 @@ alwaysApply: false
    # Existing ticket:
    node .agent/scripts/sdlc-engine.mjs stage begin --issue <id> --type <feat|fix|hotfix> --checkout
 
+   # Local session without creating a remote issue (standard/full lane):
+   node .agent/scripts/sdlc-engine.mjs stage begin --local --title "<short-desc>" --type <feat|fix|chore> --checkout
+
+   # Create a new remote PM issue ONLY after explicit user confirmation:
+   node .agent/scripts/sdlc-engine.mjs stage begin --create-issue --title "<short-desc>" --type <feat|fix> --checkout
+
    # Trivial docs/style fast-path (no remote issue spam):
    node .agent/scripts/sdlc-engine.mjs stage begin --lane trivial --title "<short-desc>" --type chore --checkout
    ```
@@ -54,11 +60,11 @@ alwaysApply: false
    ```
 
 ## ⚠️ Confirm with user before
-- Provisioning a new remote PM ticket (`stage begin --title` without `--issue` in `standard`/`full` lanes) if no ticket exists yet and intent is ambiguous.
+- Provisioning a new remote PM ticket (`stage begin --create-issue --title "<short-desc>"`) when no ticket exists yet (use `--local` by default for local-only sessions).
 - Passing `--lane <lower> --reason` to downgrade a computed risk lane.
 
 ## If it fails
-- **`drift check` fails** -> invoke `sdlc-adr` (`adr create`), or await human sign-off on `product`/`contract` scope ADRs.
+- **`drift check` fails** -> invoke `sdlc-adr` (`adr create`), and obtain explicit human sign-off (`adr decide --status approve`) across all ADR scopes (`technical`, `architectural`, `product`, `contract`).
 - **Reviewer returns `request-changes` or `gate` fails** -> fix root cause via `sdlc-tdd` and re-verify (stop and ask user if 3 remediation retries trip the circuit breaker).
 - **CI check fails on PR** -> inspect failing job logs, fix on branch, re-sign Stage 7 receipt on final `HEAD`, and re-run `check-ci <pr>`.
 

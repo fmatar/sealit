@@ -25,8 +25,12 @@ node .agent/scripts/sdlc-engine.mjs skill-audit
 
 1. **Start a Proportional Ticket Session (`INV-01` & `INV-02`)**: Direct commits to `main` are blocked by the 4-Layer Git Guard. Start a feature branch and session lock matched to your change scope:
    ```bash
-   # Standard / full feature or bugfix:
-   node .agent/scripts/sdlc-engine.mjs stage begin --title "<short-slug>" --type <feat|fix> --checkout
+   # Existing remote ticket, or local L-* session (no remote issue spam):
+   node .agent/scripts/sdlc-engine.mjs stage begin --issue <id> --type <feat|fix> --checkout
+   node .agent/scripts/sdlc-engine.mjs stage begin --local --title "<short-slug>" --type <feat|fix> --checkout
+
+   # Create a new remote issue explicitly (opt-in):
+   node .agent/scripts/sdlc-engine.mjs stage begin --create-issue --title "<short-slug>" --type <feat|fix> --checkout
 
    # Trivial docs/copy/style tweak (<= 25 lines, local L-* session):
    node .agent/scripts/sdlc-engine.mjs stage begin --lane trivial --title "<short-slug>" --checkout

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { execFileSync } from 'node:child_process';
 import {
   fileExists,
   readFileSafe,
@@ -1121,11 +1122,20 @@ jobs:
     });
 
     it('executes release with package.json and CHANGELOG.md update', () => {
+      execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: tmpDir });
+      execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: tmpDir });
+      execFileSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir });
+      execFileSync('git', ['config', 'commit.gpgsign', 'false'], { cwd: tmpDir });
+
       const pkgPath = path.join(tmpDir, 'package.json');
       fs.writeFileSync(pkgPath, JSON.stringify({ name: 'my-app', version: '1.0.0' }, null, 2), 'utf8');
 
       const changelogPath = path.join(tmpDir, 'CHANGELOG.md');
       fs.writeFileSync(changelogPath, '# Changelog\n\n## [Unreleased]\n\n### Added\n- New feature\n', 'utf8');
+
+      execFileSync('git', ['add', 'package.json', 'CHANGELOG.md'], { cwd: tmpDir });
+      execFileSync('git', ['commit', '-q', '-m', 'chore: initial'], { cwd: tmpDir });
+      execFileSync('git', ['checkout', '-q', '-b', 'chore/release-v1.0.1'], { cwd: tmpDir });
 
       const res = executeRelease({ bump: 'patch', dryRun: false, skipGate: true, repoRoot: tmpDir });
       assert.equal(res.success, true);

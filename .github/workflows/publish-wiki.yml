@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - 'wiki/**'
+      - "wiki/**"
   workflow_dispatch:
 
 permissions:
@@ -13,10 +13,10 @@ permissions:
 
 jobs:
   publish:
-    runs-on: ${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ${{ vars.SDLC_RUNS_ON || 'local-agentic-sdlc-framework' }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Sync Wiki
         env:

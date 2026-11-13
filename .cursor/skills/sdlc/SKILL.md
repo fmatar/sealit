@@ -23,7 +23,7 @@ description: "Use when running an explicit /sdlc $ARGUMENTS command in chat. Not
 | `/sdlc triage` | `node .agent/scripts/sdlc-engine.mjs triage` |
 | `/sdlc quick "<desc>"` | `node .agent/scripts/sdlc-engine.mjs stage begin --lane trivial --title "<desc>" --checkout` |
 | `/sdlc begin <#id>` | `node .agent/scripts/sdlc-engine.mjs stage begin --issue <id> --checkout` |
-| `/sdlc begin "<title>"` | `node .agent/scripts/sdlc-engine.mjs stage begin --title "<title>" --checkout` |
+| `/sdlc begin "<title>"` | `node .agent/scripts/sdlc-engine.mjs stage begin --local --title "<title>" --checkout` (pass `--create-issue` instead of `--local` only after user confirmation) |
 | `/sdlc pre-pr [#id]` | `node .agent/scripts/sdlc-engine.mjs stage pre-pr --issue <id> --summary "<from-git-log-main..HEAD>"` |
 | `/sdlc review` | Run `sdlc-gate` (`review plan` -> read-only subagent review -> blocker-derived `review record`) |
 | `/sdlc complete [#id]` | `node .agent/scripts/sdlc-engine.mjs stage complete --issue <id> --pr <prNumber>` |
@@ -50,7 +50,7 @@ description: "Use when running an explicit /sdlc $ARGUMENTS command in chat. Not
 | Unknown subcommand | `node .agent/scripts/sdlc-engine.mjs help` |
 
 ## ⚠️ Confirm with user before
-- Running `doctor --fix`, `install --global`, `release <bump>` without `--dry-run`, or `stage begin --title` when it will create a new remote issue the user did not ask for.
+- Running `doctor --fix`, `install --global`, `release <bump>` without `--dry-run`, or `stage begin --create-issue` to create a new remote issue.
 
 ## If it fails
 - **Spec-drift failure** -> run `sdlc-adr` to mint or link an ADR.

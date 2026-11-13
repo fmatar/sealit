@@ -12,8 +12,8 @@ tools: read_file, write_file, edit_file, run_command
 
 ## Branch & `INV-01` Protocol (Where Releases Happen)
 Direct commits to `main` are blocked by `INV-01` and branch protection:
-1. Start a release branch via `stage begin --title "Release vX.Y.Z" --type chore --checkout`.
-2. Sync docs (`sdlc-wiki`), run `gate --strict`, and run `release <patch|minor|major>` **on the release branch** (updates `package.json`/manifests, compacts accepted ADRs into `docs/SRS.md`, rolls `CHANGELOG.md`). Pure `version` bumps in `package.json` are exempted from `drift check`.
+1. Start a release branch via `stage begin --local --title "Release vX.Y.Z" --type chore --checkout` (or `--issue <id>`). `release` refuses to execute directly on `main` or `develop`.
+2. Sync docs (`sdlc-wiki`), run `gate --strict`, and run `release <patch|minor|major> --no-tag` **on the release branch** (`executeRelease` runs `gate --strict`, updates `package.json`, `package-lock.json`, and `.claude-plugin/plugin.json`, compacts accepted ADRs into `docs/SRS.md`, rolls `CHANGELOG.md`, and fails closed if committing fails). Pure `version` bumps in `package.json` are exempted from `drift check`.
 3. Complete `stage pre-pr` + `sdlc-gate` (`review record` Stage 7 receipt), wait for green CI, and merge the release PR into `main`.
 4. Checkout updated `main`, verify/push the annotated `vX.Y.Z` tag (`git tag -a vX.Y.Z -m "Release vX.Y.Z" && git push origin vX.Y.Z`), and publish the GitHub Release (`gh release create vX.Y.Z --generate-notes`).
 
