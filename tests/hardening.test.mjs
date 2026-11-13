@@ -51,6 +51,7 @@ import {
 import * as coreMod from '../.agent/scripts/lib/core.mjs';
 import * as gitGuardMod from '../.agent/scripts/lib/git-guard.mjs';
 import * as qualityGateMod from '../.agent/scripts/lib/quality-gate.mjs';
+import * as installerMod from '../.agent/scripts/lib/installer.mjs';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..');
 const SCRIPTS_SRC = path.join(REPO_ROOT, '.agent/scripts');
@@ -2021,5 +2022,54 @@ describe('Issue #118: Strict sdlc* namespace isolation and decoupling from stand
 
     const doctorSkill = fs.readFileSync(path.join(REPO_ROOT, '.agent/skills/sdlc-doctor/SKILL.md'), 'utf8');
     assert.match(doctorSkill, /sdlc\*|standalone/i, 'sdlc-doctor/SKILL.md must state install leaves standalone skills untouched');
+  });
+});
+
+// ===========================================================================
+// Issue #120: Reset release baseline to version 0.0.1
+// ===========================================================================
+describe('Issue #120: Reset release baseline to version 0.0.1', () => {
+  it('sets package.json, package-lock.json, plugin manifest, installer fallback, rule headers, and README badge to 0.0.1', () => {
+    const pkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'));
+    const lock = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package-lock.json'), 'utf8'));
+    const plugin = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, '.claude-plugin/plugin.json'), 'utf8'));
+    const readme = fs.readFileSync(path.join(REPO_ROOT, 'README.md'), 'utf8');
+
+    assert.equal(pkg.version, '0.0.1');
+    assert.equal(lock.version, '0.0.1');
+    assert.equal(lock.packages[''].version, '0.0.1');
+    assert.equal(plugin.version, '0.0.1');
+    assert.equal(installerMod.getFrameworkVersion(REPO_ROOT), '0.0.1');
+
+    const emptyTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-120-ver-'));
+    try {
+      assert.equal(installerMod.getFrameworkVersion(emptyTmp), '0.0.1');
+    } finally {
+      fs.rmSync(emptyTmp, { recursive: true, force: true });
+    }
+
+    assert.ok(readme.includes('Version-0.0.1-'), 'README.md version badge must be 0.0.1');
+    for (const rel of ['AGENTS.md', 'CLAUDE.md', '.cursorrules', '.windsurfrules', '.cursor/rules/agentic-sdlc.mdc']) {
+      const content = fs.readFileSync(path.join(REPO_ROOT, rel), 'utf8');
+      assert.match(content, /Universal Engine v0\.0\.1/, `${rel} must declare Universal Engine v0.0.1`);
+    }
+  });
+
+  it('resets CHANGELOG.md to a clean 0.0.1 baseline and removes legacy docs/proofs/proof-v0-*.md files', () => {
+    const changelog = fs.readFileSync(path.join(REPO_ROOT, 'CHANGELOG.md'), 'utf8');
+    assert.match(changelog, /^## \[0\.0\.1\]/m, 'CHANGELOG.md must define ## [0.0.1]');
+    assert.doesNotMatch(
+      changelog,
+      /^## \[0\.(?:1|2|3|4)\.\d+\]/m,
+      'CHANGELOG.md must not retain retired 0.1.x..0.4.x release headers'
+    );
+
+    const proofsDir = path.join(REPO_ROOT, 'docs/proofs');
+    const proofEntries = fs.existsSync(proofsDir) ? fs.readdirSync(proofsDir) : [];
+    assert.equal(
+      proofEntries.some((f) => f.startsWith('proof-v0-')),
+      false,
+      `Legacy proof-v0-*.md files must be removed, found: ${proofEntries.join(', ')}`
+    );
   });
 });
