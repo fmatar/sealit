@@ -94,9 +94,12 @@ npx @fmatar/archlens-skill@1.2.0 start --open
 
 ---
 
-## 2. The 4-Layer Git Lockdown & Cryptographic Gate Receipts
+## 2. Canonical Git Flow & The 4-Layer Git Lockdown
 
-To guarantee `INV-01` (*Zero direct commits, merges, or pushes to `main` or `develop`*) and `INV-02` (*Proportional session & Dual-Gate verification*), `.agent/scripts/lib/git-guard.mjs` and `.agent/scripts/lib/audit-chain.mjs` enforce four concentric defense layers:
+To guarantee `INV-01` (*Zero direct commits, merges, or pushes to `main` or `develop`*), canonical Git Flow, and `INV-02` (*Proportional session & Dual-Gate verification*), `.agent/scripts/lib/git-guard.mjs` and `.agent/scripts/lib/audit-chain.mjs` enforce four concentric defense layers:
+- **Feature Delivery to `develop`**: All feature, bugfix, and chore PRs merge into `develop` (`baseBranch = 'develop'`) backed by an active session lock and signed Stage 7 receipt.
+- **Strict `main` Branch Policy**: PRs targeting `main` must originate exclusively from `develop`. Direct merges from feature branches to `main` are strictly rejected by Layer 3 merge guards (`DIRECT_MERGE_TO_MAIN_FORBIDDEN`) and CI branch flow policies.
+- **Automated Production Release on Main**: Merging `develop` into `main` triggers GitHub Actions `release.yml`, validating `gate --strict`, creating annotated git tag `v${VERSION}`, extracting changelog notes, and publishing the GitHub Release.
 
 ```mermaid
 sequenceDiagram
@@ -106,6 +109,7 @@ sequenceDiagram
     participant Guard as git-guard.mjs
     participant Session as .agent/.sdlc-session.json
     participant Ledger as docs/AUDIT_CHAIN.jsonl
+    participant CI as GitHub Actions (release.yml)
 
     Dev->>Git: git commit -m "feat: implement capability"
     Git->>Guard: verifyCommitGuard() (<100ms)
@@ -116,11 +120,17 @@ sequenceDiagram
     Dev->>Guard: sdlc-engine review record --verdict approve
     Guard->>Ledger: Sign HMAC-SHA256 Stage 7 Gate Receipt for HEAD SHA
 
-    Dev->>Git: git merge feature/issue-#ID into main
+    Dev->>Git: git merge feature/branch into develop
     Git->>Guard: verifyMergeGuard()
     Guard->>Ledger: verifyGateReceipt(sourceSha) (Layer 3)
     Ledger-->>Guard: Valid HMAC-SHA256 Receipt Verified
-    Guard-->>Git: Merge Allowed
+    Guard-->>Git: Merge Allowed into develop
+
+    Dev->>Git: git merge develop into main
+    Git->>Guard: verifyMergeGuard() (verifies sourceBranch == develop)
+    Guard-->>Git: Merge Allowed into main
+    Git->>CI: Push event on main triggers release.yml
+    CI->>CI: Tag vX.Y.Z & Publish GitHub Release
 ```
 
 1. **Layer 1 (`LAYER_1_PROTECTED_BRANCH`)**: Blocks direct commits on `main`, `master`, or `develop`.

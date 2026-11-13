@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileExists, readFileSafe, getModifiedFiles, gitOutput, gitDiffForFile } from './core.mjs';
+import { fileExists, readFileSafe, getModifiedFiles, gitOutput, gitDiffForFile, resolveDefaultBaseBranch } from './core.mjs';
 import { appendDecisionEvent, syncDecisionMapMarkdown } from './decision-graph.mjs';
 import { appendAuditRecord } from './audit-chain.mjs';
 
@@ -479,7 +479,8 @@ function canonicalizeJsonValue(val) {
   return val;
 }
 
-function hasStructuralPackageJsonMutation(relFile, baseBranch = 'main', repoRoot = '.') {
+function hasStructuralPackageJsonMutation(relFile, baseBranch = null, repoRoot = '.') {
+  const resolvedBase = baseBranch || resolveDefaultBaseBranch(repoRoot);
   const rel = String(relFile).replace(/\\/g, '/');
   const fullPath = path.resolve(repoRoot, rel);
   if (!fileExists(fullPath)) return true;
@@ -493,8 +494,8 @@ function hasStructuralPackageJsonMutation(relFile, baseBranch = 'main', repoRoot
   if (!currentPkg || typeof currentPkg !== 'object') return true;
 
   let baseRaw =
-    gitOutput(['show', `origin/${baseBranch}:${rel}`], repoRoot) ??
-    gitOutput(['show', `${baseBranch}:${rel}`], repoRoot) ??
+    gitOutput(['show', `origin/${resolvedBase}:${rel}`], repoRoot) ??
+    gitOutput(['show', `${resolvedBase}:${rel}`], repoRoot) ??
     gitOutput(['show', `HEAD~1:${rel}`], repoRoot);
 
   if (baseRaw === null) {
@@ -527,17 +528,18 @@ function hasStructuralPackageJsonMutation(relFile, baseBranch = 'main', repoRoot
  */
 export function checkSpecDrift({
   diffFiles = [],
-  baseBranch = 'main',
+  baseBranch = null,
   ticketId = null,
   repoRoot = '.'
 } = {}) {
-  const files = diffFiles.length > 0 ? diffFiles : getModifiedFiles(baseBranch, repoRoot);
+  const resolvedBase = baseBranch || resolveDefaultBaseBranch(repoRoot);
+  const files = diffFiles.length > 0 ? diffFiles : getModifiedFiles(resolvedBase, repoRoot);
   const triggers = [];
 
   for (const file of files) {
     const lower = file.replace(/\\/g, '/').toLowerCase();
     if (lower === 'package.json' || lower.endsWith('/package.json')) {
-      if (hasStructuralPackageJsonMutation(file, baseBranch, repoRoot)) {
+      if (hasStructuralPackageJsonMutation(file, resolvedBase, repoRoot)) {
         triggers.push({ file, category: 'DEPENDENCY_MANIFEST_MUTATION', reason: 'Package manifest structural or dependency field modified' });
       }
     } else if (
@@ -662,8 +664,9 @@ export function checkSpecDrift({
 
 // --- API Contract Drift & Schema Guardian (Issue #24) ---
 
-export function auditContractDrift({ diffFiles = [], baseBranch = 'main', repoRoot = '.' } = {}) {
-  const files = diffFiles.length > 0 ? diffFiles : getModifiedFiles(baseBranch, repoRoot);
+export function auditContractDrift({ diffFiles = [], baseBranch = null, repoRoot = '.' } = {}) {
+  const resolvedBase = baseBranch || resolveDefaultBaseBranch(repoRoot);
+  const files = diffFiles.length > 0 ? diffFiles : getModifiedFiles(resolvedBase, repoRoot);
   const contractPatterns = ['openapi.json', 'openapi.yaml', 'openapi.yml', 'swagger.json', 'schema.graphql', 'schema.gql'];
 
   const modifiedContracts = files.filter((f) => {
@@ -689,7 +692,7 @@ export function auditContractDrift({ diffFiles = [], baseBranch = 'main', repoRo
     let oldContent = '';
     try {
       oldContent = (
-        gitOutput(['show', `origin/${baseBranch}:${relPath}`], repoRoot) ??
+        gitOutput(['show', `origin/${resolvedBase}:${relPath}`], repoRoot) ??
         gitOutput(['show', `HEAD~1:${relPath}`], repoRoot) ??
         ''
       ).trim();

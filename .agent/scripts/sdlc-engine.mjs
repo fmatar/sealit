@@ -671,7 +671,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
     }
 
     case 'test': {
-      const files = getModifiedFiles('main', repoRoot);
+      const files = getModifiedFiles(null, repoRoot);
       const affectedOnly = args.includes('--affected-only');
 
       if (affectedOnly) {
@@ -696,7 +696,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
     }
 
     case 'coverage': {
-      const files = getModifiedFiles('main', repoRoot);
+      const files = getModifiedFiles(null, repoRoot);
       const activeModules = files.length > 0 ? matchFilesToModules(files, config.modules) : config.modules;
       for (const mod of activeModules) {
         const hit = getGateCacheHit({ checkType: 'coverage', modulePath: mod.path, repoRoot });
@@ -729,7 +729,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
     }
 
     case 'mutation': {
-      const files = getModifiedFiles('main', repoRoot);
+      const files = getModifiedFiles(null, repoRoot);
       const activeModules = files.length > 0 ? matchFilesToModules(files, config.modules) : config.modules;
       for (const mod of activeModules) {
         if (mod.thresholds && mod.thresholds.mutationScore === null) {
@@ -787,7 +787,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       }
 
       const sessStatus = getSessionStatus(repoRoot);
-      const gateDiffFiles = getModifiedFiles('main', repoRoot);
+      const gateDiffFiles = getModifiedFiles(null, repoRoot);
       const reconciled = reconcileSessionLaneWithDiff({
         session: sessStatus.session,
         cliLane,
@@ -825,7 +825,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       }
 
       if (isStrict) {
-        const modifiedFiles = getModifiedFiles('main', repoRoot);
+        const modifiedFiles = getModifiedFiles(null, repoRoot);
         result.risk = assessRisk(modifiedFiles, repoRoot);
         const secRes = auditSecurity(repoRoot);
         result.security = secRes;

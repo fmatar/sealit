@@ -11,11 +11,12 @@ alwaysApply: false
 - **Not for** ordinary feature/bug PRs (do not run release-level doc/changelog compaction on every ticket).
 
 ## Branch & `INV-01` Protocol (Where Releases Happen)
-Direct commits to `main` are blocked by `INV-01` and branch protection:
-1. Start a release branch via `stage begin --local --title "Release vX.Y.Z" --type chore --checkout` (or `--issue <id>`). `release` refuses to execute directly on `main` or `develop`.
+Direct commits to `main` and `develop` are blocked by `INV-01` and branch protection:
+1. Start a release branch from `develop` via `stage begin --local --title "Release vX.Y.Z" --type chore --checkout` (or `--issue <id>`). `release` refuses to execute directly on `main` or `develop`.
 2. Sync docs (`sdlc-wiki`), run `gate --strict`, and run `release <patch|minor|major> --no-tag` **on the release branch** (`executeRelease` runs `gate --strict`, updates `package.json`, `package-lock.json`, and `.claude-plugin/plugin.json`, compacts accepted ADRs into `docs/SRS.md`, rolls `CHANGELOG.md`, and fails closed if committing fails). Pure `version` bumps in `package.json` are exempted from `drift check`.
-3. Complete `stage pre-pr` + `sdlc-gate` (`review record` Stage 7 receipt), wait for green CI, and merge the release PR into `main`.
-4. Checkout updated `main`, verify/push the annotated `vX.Y.Z` tag (`git tag -a vX.Y.Z -m "Release vX.Y.Z" && git push origin vX.Y.Z`), and publish the GitHub Release (`gh release create vX.Y.Z --generate-notes`).
+3. Complete `stage pre-pr` + `sdlc-gate` (`review record` Stage 7 receipt), wait for green CI, and merge the release PR into `develop`.
+4. Promote `develop` to `main` via PR (`gh pr create --base main --head develop --title "chore(release): release vX.Y.Z"`). PRs targeting `main` must originate exclusively from `develop`.
+5. Merging `develop` into `main` automatically triggers the GitHub Actions `Production Release` pipeline (`release.yml`), which verifies `gate --strict`, tags `main` (`vX.Y.Z`), extracts release notes from `CHANGELOG.md`, creates the GitHub Release, and publishes to npm when credentials (`NPM_TOKEN`) are configured.
 
 ## Lane behavior
 | Release type | Required verification |
@@ -51,4 +52,4 @@ node .agent/scripts/sdlc-engine.mjs watchdog monitor --url https://service.examp
 - **`gate --strict` or `readme/wiki audit` fails** -> fix findings on the release branch before running `release`.
 
 ## Done when
-Release PR is merged into `main` with green CI and a Stage 7 receipt, `vX.Y.Z` tag/release is published (when requested), and `stage complete` closes the session.
+Release PR is merged into `develop`, promoted from `develop` to `main`, and the GitHub Actions release workflow tags `main`, creates the GitHub Release, and closes the session via `stage complete`.

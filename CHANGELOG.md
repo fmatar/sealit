@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Canonical Git Flow & Automated Production Release**: Standardized on canonical Git Flow: feature, bugfix, and chore PRs merge into `develop` (`--base develop`), while PRs targeting `main` must originate exclusively from `develop` (enforced by `verifyMergeGuard`, `enforce-branch-flow.yml`, and `sdlc-quality-gate.yml`). Merging `develop` into `main` automatically triggers `.github/workflows/release.yml`, validating `gate --strict`, creating git tag `v${VERSION}`, extracting release notes from `CHANGELOG.md`, and creating the GitHub Release.
+
 ### Changed
 - **CI Runner Routing & Node 24 GitHub Actions**: Configured `SDLC_RUNS_ON=local-archlens` for repository workflows and upgraded `.github/workflows/sdlc-quality-gate.yml`, `.github/workflows/publish-wiki.yml`, and `installCIWorkflow()` templates from `actions/checkout@v4` / `actions/setup-node@v4` to `@v7` (`node-version: 'lts/*'`), eliminating Node.js 20 deprecation warnings.
 - **Opt-In Remote Issue Creation (`stage begin`)**: `stage begin` no longer creates remote GitHub/Linear/Jira issues automatically when `--issue` is omitted; callers pass `--issue <id>`, `--local` (local `L-*` session across `standard`/`full` lanes), `--lane trivial`, or explicit `--create-issue`.

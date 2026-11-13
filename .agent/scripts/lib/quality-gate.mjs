@@ -12,7 +12,8 @@ import {
   gitDiffForFile,
   gitOutput,
   parseCommandArgv,
-  runConfiguredCommand
+  runConfiguredCommand,
+  resolveDefaultBaseBranch
 } from './core.mjs';
 import { getSessionStatus } from './session.mjs';
 import { createTicket, scaffoldIssueTemplates } from './pm-provider.mjs';
@@ -469,6 +470,17 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Enforce Branch Flow Policy
+        if: github.event_name == 'pull_request' && github.base_ref == 'main'
+        env:
+          HEAD_REF: \${{ github.head_ref }}
+        run: |
+          if [ "\$HEAD_REF" != "develop" ]; then
+            echo "::error::Branch policy violation: Pull requests targeting 'main' must originate exclusively from 'develop'. Direct merges from '\$HEAD_REF' into 'main' are forbidden."
+            exit 1
+          fi
+          echo "Branch policy validated: PR targeting 'main' originates from 'develop'."
+
       - name: Setup Node.js Runtime
         uses: actions/setup-node@v7
         with:
@@ -505,11 +517,167 @@ jobs:
   fs.writeFileSync(workflowPath, workflowContent, 'utf8');
   console.log(`✅ GitHub Actions workflow scaffolded at ${workflowPath}`);
 
+  const branchFlowPath = path.resolve(workflowDir, 'enforce-branch-flow.yml');
+  const branchFlowContent = `name: Enforce Branch Flow Policy
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: enforce-branch-flow-\${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  enforce-develop-source:
+    name: Enforce Merge From Develop Only
+    runs-on: ${runsOnYaml}
+    steps:
+      - name: Validate Pull Request Source Branch
+        env:
+          BASE_REF: \${{ github.base_ref }}
+          HEAD_REF: \${{ github.head_ref }}
+        run: |
+          echo "Target branch (base): \$BASE_REF"
+          echo "Source branch (head): \$HEAD_REF"
+          if [ "\$HEAD_REF" != "develop" ]; then
+            echo "::error::Branch policy violation: Pull requests targeting 'main' must originate exclusively from 'develop'. Direct merges from '\$HEAD_REF' into 'main' are forbidden."
+            exit 1
+          fi
+          echo "Branch policy validated: PR targeting 'main' originates from 'develop'."
+`;
+  if (!fs.existsSync(branchFlowPath) || force) {
+    fs.writeFileSync(branchFlowPath, branchFlowContent, 'utf8');
+    console.log(`✅ GitHub Actions branch flow policy scaffolded at ${branchFlowPath}`);
+  }
+
+  const releasePath = path.resolve(workflowDir, 'release.yml');
+  const releaseContent = `name: Production Release
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'media/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+concurrency:
+  group: release-\${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Tag & Production Release
+    runs-on: ${runsOnYaml}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          token: \${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js Runtime
+        uses: actions/setup-node@v7
+        with:
+          node-version: "lts/*"
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install Dependencies
+        run: |
+          if [ -f "package-lock.json" ]; then
+            npm ci --no-audit --no-fund
+          elif [ -f "package.json" ]; then
+            npm install --no-audit --no-fund
+          fi
+
+      - name: Verify Strict Quality Gate
+        run: |
+          node .agent/scripts/sdlc-engine.mjs gate --strict
+
+      - name: Inspect Package Version & Release Tag
+        id: version_check
+        run: |
+          VERSION=\$(node -p "require('./package.json').version")
+          TAG="v\${VERSION}"
+          echo "version=\${VERSION}" >> \$GITHUB_OUTPUT
+          echo "tag=\${TAG}" >> \$GITHUB_OUTPUT
+          if git rev-parse -q --verify "refs/tags/\${TAG}" >/dev/null 2>&1; then
+            echo "tag_exists=true" >> \$GITHUB_OUTPUT
+            echo "Release tag \${TAG} already exists. Skipping release creation."
+          else
+            echo "tag_exists=false" >> \$GITHUB_OUTPUT
+            echo "Release tag \${TAG} does not exist. Release will be created."
+          fi
+
+      - name: Extract Release Notes from CHANGELOG.md
+        if: steps.version_check.outputs.tag_exists == 'false'
+        id: release_notes
+        env:
+          VERSION: \${{ steps.version_check.outputs.version }}
+          TAG: \${{ steps.version_check.outputs.tag }}
+        run: |
+          awk -v ver="\$VERSION" '
+            \$0 ~ "^## \\\\[" ver "\\\\]" { found=1; next }
+            found && /^## \\[/ { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md || true
+          if [ ! -s release-notes.md ]; then
+            echo "### Release \$TAG" > release-notes.md
+            echo "Production release triggered by merging 'develop' into 'main'." >> release-notes.md
+          fi
+          cat release-notes.md
+
+      - name: Create Git Tag & GitHub Release
+        if: steps.version_check.outputs.tag_exists == 'false'
+        env:
+          GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+          TAG: \${{ steps.version_check.outputs.tag }}
+          VERSION: \${{ steps.version_check.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "\$TAG" -m "Release \$TAG"
+          git push origin "\$TAG"
+          gh release create "\$TAG" \\
+            --title "Release \$TAG" \\
+            --notes-file release-notes.md
+
+      - name: Publish Package to NPM (When NPM_TOKEN is configured)
+        if: steps.version_check.outputs.tag_exists == 'false'
+        env:
+          NODE_AUTH_TOKEN: \${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "\${NODE_AUTH_TOKEN}" ]; then
+            echo "Publishing package to npm registry..."
+            npm publish --access public
+          else
+            echo "NPM_TOKEN secret is not set; skipping live npm publish."
+            echo "Verifying package packing integrity via npm pack --dry-run..."
+            npm pack --dry-run
+          fi
+`;
+  if (!fs.existsSync(releasePath) || force) {
+    fs.writeFileSync(releasePath, releaseContent, 'utf8');
+    console.log(`✅ GitHub Actions release workflow scaffolded at ${releasePath}`);
+  }
+
   return {
     success: true,
     created: true,
     runsOn: runsOnYaml,
-    path: workflowPath
+    path: workflowPath,
+    branchFlowPath,
+    releasePath
   };
 }
 
@@ -746,12 +914,13 @@ function isTrivialEligibleFile(filePath) {
   return TRIVIAL_DOC_STYLE_EXTS.has(path.extname(norm));
 }
 
-function countChangedLines(files, baseBranch = 'main', repoRoot = '.') {
+function countChangedLines(files, baseBranch = null, repoRoot = '.') {
   if (!files || files.length === 0) return 0;
+  const resolvedBase = baseBranch || resolveDefaultBaseBranch(repoRoot);
   const numstatMap = new Map();
   const numstatOut =
-    gitOutput(['diff', '--numstat', `origin/${baseBranch}`], repoRoot) ??
-    gitOutput(['diff', '--numstat', baseBranch], repoRoot) ??
+    gitOutput(['diff', '--numstat', `origin/${resolvedBase}`], repoRoot) ??
+    gitOutput(['diff', '--numstat', resolvedBase], repoRoot) ??
     gitOutput(['diff', '--numstat', 'HEAD'], repoRoot) ??
     '';
 
@@ -794,10 +963,11 @@ export function triageChange({
   intent = '',
   laneOverride = null,
   reason = null,
-  baseBranch = 'main',
+  baseBranch = null,
   ticketId = null,
   repoRoot = '.'
 } = {}) {
+  const resolvedBase = baseBranch || resolveDefaultBaseBranch(repoRoot);
   let trivialMaxLines = 25;
   let standardMaxLines = 200;
   const cfgPath = path.resolve(repoRoot, '.agent/sdlc-config.json');
@@ -814,12 +984,12 @@ export function triageChange({
     throw new Error(`Invalid lane '${laneOverride}'. Expected one of: ${VALID_LANES.join(', ')}.`);
   }
 
-  const files = diffFiles.length > 0 ? diffFiles : getModifiedFiles(baseBranch, repoRoot);
-  const changedLines = countChangedLines(files, baseBranch, repoRoot);
+  const files = diffFiles.length > 0 ? diffFiles : getModifiedFiles(resolvedBase, repoRoot);
+  const changedLines = countChangedLines(files, resolvedBase, repoRoot);
   const risk = files.length > 0 ? assessRisk(files, repoRoot) : { score: 0, riskLevel: 'LOW', totalFiles: 0, factors: [] };
   const drift =
     files.length > 0
-      ? checkSpecDrift({ diffFiles: files, baseBranch, ticketId, repoRoot })
+      ? checkSpecDrift({ diffFiles: files, baseBranch: resolvedBase, ticketId, repoRoot })
       : { passed: true, triggers: [] };
 
   let computedLane = 'standard';

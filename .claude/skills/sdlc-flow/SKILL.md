@@ -11,7 +11,7 @@ allowed-tools: Read, Write, Edit, Bash, Agent
 - **Not for** read-only codebase questions, status checks (`sdlc-status`), or macro product bootstrapping (`sdlc-product`).
 
 ## Core Invariants
-1. **Zero Direct Pushes (`INV-01`)**: Never commit, merge, or push directly to `main` or `develop`.
+1. **Zero Direct Pushes & Git Flow (`INV-01`)**: Never commit, merge, or push directly to `main` or `develop`. Feature, bugfix, and chore PRs merge into `develop` (`--base develop`). Pull requests targeting `main` must originate exclusively from `develop`.
 2. **Proportional Session & Gate (`INV-02`)**: Every branch has an active session in `.agent/.sdlc-session.json` and passes the gates for its risk lane (thresholds read from `.agent/sdlc-config.json`).
 3. **Spec-Drift ADR Discipline (`INV-03`)**: Structural changes to `PRODUCT.md`, `docs/specs/*.md`, dependencies, schemas, or API contracts require an accepted ADR via `sdlc-adr`.
 
@@ -51,8 +51,8 @@ allowed-tools: Read, Write, Edit, Bash, Agent
    ```
 
 4. **Review, Receipt & Merge (`sdlc-gate`)**:
-   - In `trivial` lane (if not escalated): `stage pre-pr` already signed the `trivial` receipt; verify CI (`check-ci <pr>`) and merge.
-   - In `standard` or `full` lane: execute `sdlc-gate` (`review plan` -> read-only subagent review -> remediate any blockers -> `gate` / `gate --strict` -> `review record` -> commit & push `docs/AUDIT_CHAIN.jsonl` -> `check-ci <pr>` -> merge).
+   - In `trivial` lane (if not escalated): `stage pre-pr` already signed the `trivial` receipt; verify CI (`check-ci <pr>`) and merge into `develop`.
+   - In `standard` or `full` lane: execute `sdlc-gate` (`review plan` -> read-only subagent review -> remediate any blockers -> `gate` / `gate --strict` -> `review record` -> commit & push `docs/AUDIT_CHAIN.jsonl` -> `check-ci <pr>` -> merge into `develop`).
 
 5. **Complete (`stage complete`)**:
    ```bash
