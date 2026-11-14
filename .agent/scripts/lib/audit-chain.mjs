@@ -403,9 +403,19 @@ export function verifyGateReceipt({ headSha = null, branch = null, repoRoot = '.
     };
   }
 
+  const isHexSha = (sha) => /^[0-9a-f]{7,64}$/i.test(String(sha || '').trim());
   const branchForLookup = branch && branch !== 'HEAD' ? branch : null;
-  let targetSha = headSha;
-  if (!targetSha && branchForLookup) {
+  let targetSha = headSha ? String(headSha).trim() : null;
+  if (targetSha && !isHexSha(targetSha)) {
+    try {
+      const resolvedRef = execFileSync('git', ['rev-parse', '--verify', '-q', '--end-of-options', targetSha], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        stdio: 'pipe'
+      }).trim();
+      if (resolvedRef) targetSha = resolvedRef;
+    } catch {}
+  } else if (!targetSha && branchForLookup) {
     try {
       targetSha = execFileSync('git', ['rev-parse', '--verify', '-q', '--end-of-options', branchForLookup], {
         cwd: repoRoot,
@@ -426,8 +436,6 @@ export function verifyGateReceipt({ headSha = null, branch = null, repoRoot = '.
   const receipts = (chain.records || [])
     .filter((r) => r.event === 'STAGE_7_GATE_RECEIPT_SIGNED' && r.metadata)
     .reverse();
-
-  const isHexSha = (sha) => /^[0-9a-f]{7,64}$/i.test(String(sha || '').trim());
 
   const matched = receipts.find((r) => {
     const m = r.metadata;

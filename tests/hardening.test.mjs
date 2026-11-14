@@ -4406,6 +4406,16 @@ describe('Issue #132: Git Flow develop base, atomic session I/O, receipt allowli
         true,
         `expected bookkeeping commit after receipt to verify cleanly: ${verifiedBookkeeping.reason || ''}`
       );
+      const verifiedHeadRef = auditMod.verifyGateReceipt({
+        headSha: 'HEAD',
+        branch: 'feature/issue-#132-receipt',
+        repoRoot: dir
+      });
+      assert.equal(
+        verifiedHeadRef.valid,
+        true,
+        `expected symbolic HEAD ref to resolve and verify cleanly on bookkeeping commit: ${verifiedHeadRef.reason || ''}`
+      );
 
       // Modifying source code after the receipt must STILL fail closed
       fs.writeFileSync(path.join(dir, 'code.mjs'), 'export const v = 2;\n', 'utf8');
