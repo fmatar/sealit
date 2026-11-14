@@ -22,7 +22,9 @@ import {
   detectPMProvider,
   hasGitHubRemote,
   diagnoseEnvironment,
-  getModifiedFiles
+  getModifiedFiles,
+  parseTicketId,
+  writeFileAtomic
 } from './lib/core.mjs';
 
 import {
@@ -384,14 +386,59 @@ export {
   auditReadme
 };
 
+function maskXmlChildSections(xml = '', tags = ['parent', 'dependencies', 'dependencyManagement', 'build', 'plugins', 'profiles', 'reporting']) {
+  let masked = String(xml);
+  for (const tag of tags) {
+    const re = new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?<\\/${tag}>`, 'gi');
+    masked = masked.replace(re, (m) => ' '.repeat(m.length));
+  }
+  return masked;
+}
+
+function findPomProjectVersionMatch(pomXml = '') {
+  const masked = maskXmlChildSections(pomXml);
+  return masked.match(/<version>([0-9]+\.[0-9]+\.[0-9]+[^<]*)<\/version>/);
+}
+
+function handleTomlSectionVersion(toml = '', sections = ['package'], newVersion = null) {
+  const lines = String(toml).split('\n');
+  let inTargetSection = false;
+  let foundVersion = null;
+  const targetSet = new Set(sections);
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    const secMatch = trimmed.match(/^\[([^\]]+)\]/);
+    if (secMatch) {
+      inTargetSection = targetSet.has(secMatch[1].trim());
+      continue;
+    }
+    if (inTargetSection) {
+      const verMatch = lines[i].match(/^(\s*version\s*=\s*["'])([^"']+)(["'])/);
+      if (verMatch) {
+        foundVersion = verMatch[2];
+        if (newVersion !== null) {
+          lines[i] = lines[i].replace(/^(\s*version\s*=\s*["'])([^"']+)(["'])/, `$1${newVersion}$3`);
+          return { version: newVersion, content: lines.join('\n'), updated: true };
+        }
+        return { version: foundVersion, content: toml, updated: false };
+      }
+    }
+  }
+  return { version: foundVersion, content: toml, updated: false };
+}
+
 export function executeRelease({
   bump = 'patch',
   dryRun = false,
-  skipGate = false,
   noCompact = false,
   noTag = false,
-  repoRoot = '.'
+  repoRoot = '.',
+  ...rest
 } = {}) {
+  if (rest.skipGate) {
+    throw new Error('Bypassing strict quality gate (--skip-gate) is strictly forbidden (INV-02).');
+  }
   console.log(`🚀 Preparing ${bump.toUpperCase()} Release (dryRun: ${dryRun})...`);
 
   if (!dryRun) {
@@ -410,11 +457,9 @@ export function executeRelease({
         `Refusing to execute release directly on branch '${currentBranch}' (INV-01). Switch to a release branch via 'stage begin' first.`
       );
     }
-  }
 
-  if (!skipGate && !dryRun) {
     console.log('🛡️ Verifying Strict Quality Gate before release...');
-    const gateRes = runCLI(['gate', '--strict'], null, repoRoot);
+    const gateRes = runCLI(['gate', '--strict', '--no-cache'], null, repoRoot);
     if (!gateRes.success) {
       throw new Error('Strict quality gate failed. Release aborted.');
     }
@@ -437,23 +482,23 @@ export function executeRelease({
     } catch {}
   } else if (fileExists(pomPath)) {
     const pomContent = readFileSafe(pomPath) || '';
-    const match = pomContent.match(/<version>([0-9]+\.[0-9]+\.[0-9]+[^<]*)<\/version>/);
+    const match = findPomProjectVersionMatch(pomContent);
     if (match) {
       currentVersion = match[1];
       manifestType = 'pom.xml';
     }
   } else if (fileExists(pyprojectPath)) {
     const pyContent = readFileSafe(pyprojectPath) || '';
-    const match = pyContent.match(/version\s*=\s*["']([^"']+)["']/);
-    if (match) {
-      currentVersion = match[1];
+    const pyVer = handleTomlSectionVersion(pyContent, ['project', 'tool.poetry']);
+    if (pyVer.version) {
+      currentVersion = pyVer.version;
       manifestType = 'pyproject.toml';
     }
   } else if (fileExists(cargoPath)) {
     const cargoContent = readFileSafe(cargoPath) || '';
-    const match = cargoContent.match(/version\s*=\s*["']([^"']+)["']/);
-    if (match) {
-      currentVersion = match[1];
+    const cargoVer = handleTomlSectionVersion(cargoContent, ['package']);
+    if (cargoVer.version) {
+      currentVersion = cargoVer.version;
       manifestType = 'Cargo.toml';
     }
   }
@@ -501,7 +546,7 @@ export function executeRelease({
   if (manifestType === 'package.json') {
     const pkg = JSON.parse(readFileSafe(pkgPath));
     pkg.version = newVersion;
-    fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
+    writeFileAtomic(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
     updatedFiles.push('package.json');
 
     const lockPath = path.resolve(repoRoot, 'package-lock.json');
@@ -512,7 +557,7 @@ export function executeRelease({
         if (lock.packages && lock.packages['']) {
           lock.packages[''].version = newVersion;
         }
-        fs.writeFileSync(lockPath, JSON.stringify(lock, null, 2) + '\n', 'utf8');
+        writeFileAtomic(lockPath, JSON.stringify(lock, null, 2) + '\n');
         updatedFiles.push('package-lock.json');
       } catch {}
     }
@@ -522,25 +567,32 @@ export function executeRelease({
       try {
         const plugin = JSON.parse(readFileSafe(pluginPath));
         plugin.version = newVersion;
-        fs.writeFileSync(pluginPath, JSON.stringify(plugin, null, 2) + '\n', 'utf8');
+        writeFileAtomic(pluginPath, JSON.stringify(plugin, null, 2) + '\n');
         updatedFiles.push('.claude-plugin/plugin.json');
       } catch {}
     }
   } else if (manifestType === 'pom.xml') {
-    let pom = readFileSafe(pomPath);
-    pom = pom.replace(/<version>[0-9]+\.[0-9]+\.[0-9]+[^<]*<\/version>/, `<version>${newVersion}</version>`);
-    fs.writeFileSync(pomPath, pom, 'utf8');
-    updatedFiles.push('pom.xml');
+    const pom = readFileSafe(pomPath);
+    const match = findPomProjectVersionMatch(pom);
+    if (match && typeof match.index === 'number') {
+      const bumpedPom = pom.slice(0, match.index) + `<version>${newVersion}</version>` + pom.slice(match.index + match[0].length);
+      writeFileAtomic(pomPath, bumpedPom);
+      updatedFiles.push('pom.xml');
+    }
   } else if (manifestType === 'pyproject.toml') {
-    let py = readFileSafe(pyprojectPath);
-    py = py.replace(/version\s*=\s*["'][^"']+["']/, `version = "${newVersion}"`);
-    fs.writeFileSync(pyprojectPath, py, 'utf8');
-    updatedFiles.push('pyproject.toml');
+    const py = readFileSafe(pyprojectPath);
+    const bumpedPy = handleTomlSectionVersion(py, ['project', 'tool.poetry'], newVersion);
+    if (bumpedPy.updated) {
+      writeFileAtomic(pyprojectPath, bumpedPy.content);
+      updatedFiles.push('pyproject.toml');
+    }
   } else if (manifestType === 'Cargo.toml') {
-    let cargo = readFileSafe(cargoPath);
-    cargo = cargo.replace(/version\s*=\s*["'][^"']+["']/, `version = "${newVersion}"`);
-    fs.writeFileSync(cargoPath, cargo, 'utf8');
-    updatedFiles.push('Cargo.toml');
+    const cargo = readFileSafe(cargoPath);
+    const bumpedCargo = handleTomlSectionVersion(cargo, ['package'], newVersion);
+    if (bumpedCargo.updated) {
+      writeFileAtomic(cargoPath, bumpedCargo.content);
+      updatedFiles.push('Cargo.toml');
+    }
   }
 
   const changelogPath = path.resolve(repoRoot, 'CHANGELOG.md');
@@ -550,7 +602,7 @@ export function executeRelease({
     const releaseHeader = `## [Unreleased]\n\n## [${newVersion}] - ${today}`;
     if (changelog.includes(unreleasedHeader)) {
       changelog = changelog.replace(unreleasedHeader, releaseHeader);
-      fs.writeFileSync(changelogPath, changelog, 'utf8');
+      writeFileAtomic(changelogPath, changelog);
       updatedFiles.push('CHANGELOG.md');
     }
   }
@@ -956,9 +1008,9 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         let scope = 'technical';
         let ticketId = null;
         let supersedes = [];
-        let context = '';
-        let decision = '';
-        let consequences = '';
+        let context = undefined;
+        let decision = undefined;
+        let consequences = undefined;
         for (let i = 2; i < args.length; i++) {
           if (args[i] === '--title' && args[i + 1]) title = args[++i];
           else if (args[i] === '--scope' && args[i + 1]) scope = args[++i];
@@ -1034,7 +1086,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       let capabilityId = null;
       const targetFiles = [];
       for (let i = 1; i < args.length; i++) {
-        if (args[i] === '--issue' && args[i + 1]) issueId = Number(args[++i]) || args[i];
+        if (args[i] === '--issue' && args[i + 1]) issueId = parseTicketId(args[++i]) || args[i];
         else if (args[i] === '--cap' && args[i + 1]) capabilityId = args[++i];
         else if (!args[i].startsWith('-') && args[i] !== 'generate') targetFiles.push(args[i]);
       }
@@ -1133,6 +1185,43 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         });
         result.success = result.receipt.success;
         if (!result.success) console.error(`🛑 ${result.receipt.reason}`);
+        return result;
+      }
+      if (sub === 'verify') {
+        let headSha = null;
+        let branch = null;
+        for (let i = 2; i < args.length; i++) {
+          if (args[i] === '--sha' && args[i + 1]) headSha = args[++i];
+          else if (args[i].startsWith('--sha=')) headSha = args[i].slice('--sha='.length);
+          else if (args[i] === '--branch' && args[i + 1]) branch = args[++i];
+          else if (args[i].startsWith('--branch=')) branch = args[i].slice('--branch='.length);
+        }
+        if (!headSha) {
+          try {
+            headSha = execFileSync('git', ['rev-parse', 'HEAD'], {
+              cwd: repoRoot,
+              encoding: 'utf8',
+              stdio: 'pipe'
+            }).trim() || null;
+          } catch {}
+        }
+        if (!branch) {
+          try {
+            branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+              cwd: repoRoot,
+              encoding: 'utf8',
+              stdio: 'pipe'
+            }).trim() || null;
+          } catch {}
+        }
+        const verRes = verifyGateReceipt({ headSha, branch, repoRoot });
+        result.guard = verRes;
+        result.success = Boolean(verRes.valid);
+        if (!result.success) {
+          console.error(`🛑 Guard verify failed: ${verRes.reason || 'No valid Stage 7 receipt for target commit.'}`);
+        } else {
+          console.log(`✅ Verified Stage 7 gate receipt ${verRes.receipt?.receiptId || ''} for ${headSha || 'HEAD'}.`);
+        }
         return result;
       }
       return result;
@@ -1339,7 +1428,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         return { ...result, ...switchSession(targetId, repoRoot) };
       }
       if (sub === 'release') {
-        const targetId = args[2] ? Number(args[2]) : null;
+        const targetId = args[2] ? (parseTicketId(args[2]) || args[2]) : null;
         return { ...result, ...releaseSession(repoRoot, targetId) };
       }
 
@@ -1466,7 +1555,8 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         return result;
       }
       if (sub === 'diff') {
-        return { ...result, ...checkArchDiff(repoRoot) };
+        const diffRes = checkArchDiff(repoRoot);
+        return { ...result, ...diffRes, success: diffRes.passed !== false };
       }
       result.success = false;
       return result;
@@ -1480,6 +1570,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         else if (args[i] === '--target' && args[i + 1]) target = args[++i];
       }
       result.flakeCheck = runFlakeCheck({ runs, target, repoRoot });
+      result.success = !result.flakeCheck.flaky && result.flakeCheck.passed !== false;
       return result;
     }
 
@@ -1760,7 +1851,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         const cfg = generateConfig(dir);
         const cfgFile = path.join(dir, '.agent', 'sdlc-config.json');
         fs.mkdirSync(path.dirname(cfgFile), { recursive: true });
-        fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2));
+        writeFileAtomic(cfgFile, JSON.stringify(cfg, null, 2));
       };
       const onInstallCi = ({ repoRoot: dir }) => installCIWorkflow({ repoRoot: dir, force: true });
       result.installed = installFramework({
@@ -1780,7 +1871,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       }
       const freshConfig = generateConfig(repoRoot);
       fs.mkdirSync(path.dirname(configPath), { recursive: true });
-      fs.writeFileSync(configPath, JSON.stringify(freshConfig, null, 2));
+      writeFileAtomic(configPath, JSON.stringify(freshConfig, null, 2));
       result.updated = true;
       return result;
     }
@@ -1788,6 +1879,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
     case 'doctor': {
       const fix = args.includes('--fix');
       result.doctor = runDoctor(repoRoot, { fix });
+      result.success = result.doctor.healthy !== false;
       return result;
     }
 
@@ -1857,36 +1949,50 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         });
 
         let issuedReceipt = null;
-        if (verdict === 'approve' && sessRes?.session) {
-          try {
-            const reconciled = reconcileSessionLaneWithDiff({
-              session: sessRes.session,
-              repoRoot
-            });
-            const effectiveSession = reconciled.session || {
-              ...sessRes.session,
-              lane: reconciled.lane,
-              laneReason: reconciled.laneReason,
-              laneDowngraded: reconciled.laneDowngraded
-            };
-            const drift = checkSpecDrift({ ticketId: effectiveSession.issueId, repoRoot });
-            const sessionInputs = receiptInputsFromSession(effectiveSession, {
-              driftCheckPassed: Boolean(drift.passed),
-              repoRoot
-            });
-            const recRes = issueGateReceipt({
-              issueId: effectiveSession.issueId,
-              branch: effectiveSession.branch,
-              ...sessionInputs,
-              lane: reconciled.lane,
-              laneReason: reconciled.laneReason,
-              reviewer,
-              repoRoot
-            });
-            if (recRes.success) {
-              issuedReceipt = recRes.receipt;
+        let receiptError = null;
+        if (verdict === 'approve') {
+          if (!sessRes?.session) {
+            receiptError = 'Cannot issue Stage 7 gate receipt without an active SDLC session.';
+          } else {
+            try {
+              const reconciled = reconcileSessionLaneWithDiff({
+                session: sessRes.session,
+                repoRoot
+              });
+              const effectiveSession = reconciled.session || {
+                ...sessRes.session,
+                lane: reconciled.lane,
+                laneReason: reconciled.laneReason,
+                laneDowngraded: reconciled.laneDowngraded
+              };
+              const drift = checkSpecDrift({ ticketId: effectiveSession.issueId, repoRoot });
+              const sessionInputs = receiptInputsFromSession(effectiveSession, {
+                driftCheckPassed: Boolean(drift.passed),
+                repoRoot
+              });
+              const recRes = issueGateReceipt({
+                issueId: effectiveSession.issueId,
+                branch: effectiveSession.branch,
+                ...sessionInputs,
+                lane: reconciled.lane,
+                laneReason: reconciled.laneReason,
+                reviewer,
+                repoRoot
+              });
+              if (recRes.success) {
+                issuedReceipt = recRes.receipt;
+              } else {
+                receiptError = recRes.reason || 'Failed to issue Stage 7 gate receipt.';
+              }
+            } catch (err) {
+              receiptError = err?.message || String(err);
             }
-          } catch {}
+          }
+          if (receiptError) {
+            result.success = false;
+            result.receiptError = receiptError;
+            console.error(`🛑 ${receiptError}`);
+          }
         }
 
         const formattedComment = formatConsolidatedReviewComment({
@@ -1920,6 +2026,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
           verdict,
           reviewer,
           receipt: issuedReceipt,
+          ...(receiptError ? { receiptError } : {}),
           formattedComment,
           commented
         };
@@ -1930,19 +2037,23 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
     }
 
     case 'release': {
+      if (args.includes('--skip-gate')) {
+        console.error('🛑 Bypassing quality gate (--skip-gate) is strictly forbidden (INV-02).');
+        result.success = false;
+        result.error = 'Bypassing quality gate (--skip-gate) is forbidden.';
+        return result;
+      }
       let bump = 'patch',
         dryRun = false,
-        skipGate = false,
         noCompact = false,
         noTag = false;
       for (let i = 1; i < args.length; i++) {
         if (args[i] === '--dry-run') dryRun = true;
-        else if (args[i] === '--skip-gate') skipGate = true;
         else if (args[i] === '--no-compact') noCompact = true;
         else if (args[i] === '--no-tag') noTag = true;
         else if (['patch', 'minor', 'major'].includes(args[i].toLowerCase())) bump = args[i].toLowerCase();
       }
-      result.release = executeRelease({ bump, dryRun, skipGate, noCompact, noTag, repoRoot });
+      result.release = executeRelease({ bump, dryRun, noCompact, noTag, repoRoot });
       return result;
     }
 
@@ -2064,6 +2175,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       const sub = args[1] || 'check';
       if (sub === 'check') {
         result.contract = auditContractDrift({ repoRoot });
+        result.success = result.contract.passed !== false;
         return result;
       }
       result.success = false;
@@ -2251,7 +2363,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         '  flake-check [--runs <n>]                              Verify test determinism across repeated runs',
         '  gate [--strict] [--no-cache]                          Execute Universal Quality Gate pillars',
         '  review <plan|record> [--verdict <approve|request-changes>] [--reviewer <id>]',
-        '  guard <pre-commit|pre-merge|pre-push|receipt>         4-Layer Git Guard & Stage 7 HMAC receipt verification',
+        '  guard <pre-commit|pre-merge|pre-push|receipt|verify>  4-Layer Git Guard & Stage 7 HMAC receipt verification',
         '  risk-audit | pr-summary | check-ci                    Diff risk profile, PR markdown summary, and CI polling',
         '',
         'Product Specs, ADRs & Architecture:',
@@ -2466,6 +2578,17 @@ export function formatCLIResult(res, args = []) {
     }
   }
 
+  if (cmd === 'guard' && res.guard) {
+    if (res.subcommand === 'verify') {
+      return res.guard.valid
+        ? `✅ Verified Stage 7 gate receipt ${res.guard.receipt?.receiptId || ''}`.trim()
+        : `🛑 Guard verify failed: ${res.guard.reason || 'invalid receipt'}`;
+    }
+    if (res.guard.allowed !== undefined) {
+      return `${res.guard.allowed ? '✅' : '🛑'} Git Guard (${res.subcommand || 'check'}): ${res.guard.message || (res.guard.allowed ? 'ALLOWED' : 'BLOCKED')}`;
+    }
+  }
+
   if (cmd === 'release' && res.release) {
     const r = res.release;
     return `🚀 Release ${r.releaseTag} (${r.currentVersion} -> ${r.newVersion})${r.dryRun ? ' [DRY RUN]' : ''}`;
@@ -2474,7 +2597,7 @@ export function formatCLIResult(res, args = []) {
   return '';
 }
 
-function invokeMainCLI() {
+async function invokeMainCLI() {
   const cliArgs = process.argv.slice(2);
   const cmd = (cliArgs[0] || '').toLowerCase();
   if (cmd === 'install' || cmd === 'init') {
@@ -2483,10 +2606,10 @@ function invokeMainCLI() {
       const cfg = generateConfig(dir);
       const cfgFile = path.join(dir, '.agent', 'sdlc-config.json');
       fs.mkdirSync(path.dirname(cfgFile), { recursive: true });
-      fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2));
+      writeFileAtomic(cfgFile, JSON.stringify(cfg, null, 2));
     };
     const onInstallCi = ({ repoRoot: dir }) => installCIWorkflow({ repoRoot: dir, force: true });
-    const installRes = runInstallerCLI(cliArgs, { repoRoot, onDetect, onInstallCi });
+    const installRes = await runInstallerCLI(cliArgs, { repoRoot, onDetect, onInstallCi });
     if (installRes && installRes.success === false) process.exitCode = 1;
     return;
   }
@@ -2517,15 +2640,19 @@ export function cliExitCode(res) {
 }
 
 if (process.argv[1]) {
+  const handleFatal = (err) => {
+    console.error(`❌ ${err?.message || err}`);
+    process.exitCode = 1;
+  };
   try {
     const isDirect = path.resolve(process.argv[1]) === path.resolve(import.meta.filename);
     const isRealTarget = fs.realpathSync(process.argv[1]) === path.resolve(import.meta.filename);
     if (isDirect || isRealTarget) {
-      invokeMainCLI();
+      invokeMainCLI().catch(handleFatal);
     }
   } catch {
     if (path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {
-      invokeMainCLI();
+      invokeMainCLI().catch(handleFatal);
     }
   }
 }

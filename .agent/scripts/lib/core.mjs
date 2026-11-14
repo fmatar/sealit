@@ -53,6 +53,84 @@ export function readFileSafe(filePath) {
   }
 }
 
+export function normalizeTicketId(val) {
+  if (val === null || val === undefined || val === '' || val === 'N/A') return null;
+  const clean = String(val).trim().replace(/^#/, '');
+  if (!clean || clean === 'N/A') return null;
+  return clean;
+}
+
+export function parseTicketId(val) {
+  const clean = normalizeTicketId(val);
+  if (clean === null) return null;
+  return /^\d+$/.test(clean) ? Number(clean) : clean;
+}
+
+export function resolveInsideRepo(repoRoot = '.', relPath = '') {
+  const absRoot = path.resolve(repoRoot);
+  const targetStr = String(relPath ?? '').trim();
+  if (!targetStr) {
+    throw new Error('Path traversal refused: empty path.');
+  }
+  const resolved = path.resolve(absRoot, targetStr);
+  if (resolved !== absRoot && !resolved.startsWith(absRoot + path.sep)) {
+    throw new Error(`Path traversal refused: '${relPath}' resolves outside repository root.`);
+  }
+  return resolved;
+}
+
+export function writeFileAtomic(filePath, content, options = 'utf8') {
+  const dir = path.dirname(filePath);
+  fs.mkdirSync(dir, { recursive: true });
+  const tmpPath = path.join(dir, `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`);
+  fs.writeFileSync(tmpPath, content, options);
+  fs.renameSync(tmpPath, filePath);
+}
+
+export function loadConfig(repoRoot = '.') {
+  const cfgPath = path.resolve(repoRoot, '.agent/sdlc-config.json');
+  if (!fileExists(cfgPath)) return {};
+  try {
+    const parsed = JSON.parse(readFileSafe(cfgPath) || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function readSessionRegistry(repoRoot = '.') {
+  const sessionPath = path.resolve(repoRoot, '.agent/.sdlc-session.json');
+  if (!fileExists(sessionPath)) {
+    return { exists: false, active: null, activeSessionId: null, sessions: {}, raw: null };
+  }
+  try {
+    const data = JSON.parse(readFileSafe(sessionPath) || '{}');
+    if (data && data.sessions && typeof data.sessions === 'object') {
+      const active = data.activeSessionId ? data.sessions[data.activeSessionId] || null : null;
+      return {
+        exists: true,
+        active,
+        activeSessionId: data.activeSessionId || null,
+        sessions: data.sessions,
+        raw: data
+      };
+    }
+    if (data && data.active) {
+      const id = normalizeTicketId(data.issueId) || String(data.issueId || '');
+      return {
+        exists: true,
+        active: data,
+        activeSessionId: id,
+        sessions: id ? { [id]: data } : {},
+        raw: data
+      };
+    }
+    return { exists: true, active: null, activeSessionId: null, sessions: {}, raw: data };
+  } catch {
+    return { exists: true, active: null, activeSessionId: null, sessions: {}, raw: null };
+  }
+}
+
 export function execCommand(cmd, options = {}) {
   try {
     return execSync(cmd, { stdio: 'pipe', encoding: 'utf8', ...options });
@@ -375,15 +453,36 @@ export function hasGitHubRemote(repoRoot = '.') {
   return /github\.com/i.test(originUrl.trim());
 }
 
+const developBranchMemo = new Map();
+
+export function clearGitMemoCache() {
+  developBranchMemo.clear();
+}
+
+function getGitRefStamp(repoRoot = '.') {
+  const absRoot = path.resolve(repoRoot);
+  const parts = [];
+  for (const rel of ['.git/HEAD', '.git/refs/heads', '.git/refs/remotes', '.git/packed-refs']) {
+    try {
+      const st = fs.statSync(path.join(absRoot, rel), { bigint: true });
+      parts.push(String(st.mtimeNs));
+    } catch {
+      parts.push('0');
+    }
+  }
+  return `${absRoot}|${parts.join('|')}`;
+}
+
 /**
  * Returns a unified diff for one file: branch/commit diff + working tree diff,
  * and for unignored untracked files a synthetic all-added diff of its content.
  */
-export function gitDiffForFile(file, repoRoot = '.') {
+export function gitDiffForFile(file, repoRoot = '.', baseBranch = null) {
+  const resolvedBase = baseBranch || resolveDefaultBaseBranch(repoRoot);
   const committedDiff =
-    gitOutput(['diff', 'origin/main...HEAD', '--', file], repoRoot) ||
-    gitOutput(['diff', 'main...HEAD', '--', file], repoRoot) ||
-    gitOutput(['diff', 'HEAD~1', '--', file], repoRoot) ||
+    gitOutput(['diff', `origin/${resolvedBase}...HEAD`, '--', file], repoRoot) ??
+    gitOutput(['diff', `${resolvedBase}...HEAD`, '--', file], repoRoot) ??
+    gitOutput(['diff', 'HEAD~1', '--', file], repoRoot) ??
     '';
   const working =
     gitOutput(['diff', 'HEAD', '--', file], repoRoot) ||
@@ -409,13 +508,75 @@ export function gitDiffForFile(file, repoRoot = '.') {
   return '';
 }
 
+function appendUnifiedDiffChunks(rawDiff, map) {
+  if (!rawDiff) return;
+  const sections = String(rawDiff).split(/(?=^diff --git )/m);
+  for (const section of sections) {
+    if (!section.startsWith('diff --git ')) continue;
+    const headerEnd = section.indexOf('\n');
+    const header = headerEnd === -1 ? section : section.slice(0, headerEnd);
+    const bMatch = header.match(/ b\/(.+)$/) || section.match(/^\+\+\+ b\/(.+)$/m);
+    const aMatch = header.match(/^diff --git a\/(.+?) b\//);
+    const filePath = (bMatch && bMatch[1]) || (aMatch && aMatch[1]) || null;
+    if (!filePath) continue;
+    const cleanPath = filePath.replace(/^"|"$/g, '').trim();
+    const prev = map.get(cleanPath);
+    map.set(cleanPath, prev ? `${prev}\n${section}` : section);
+  }
+}
+
+/**
+ * Computes unified diffs for multiple files in 2 batched `git diff` spawns instead of O(N) spawns.
+ */
+export function getUnifiedDiffByFile(baseBranch = null, repoRoot = '.', files = null) {
+  const resolvedBase = baseBranch || resolveDefaultBaseBranch(repoRoot);
+  const diffMap = new Map();
+  const pathArgs = Array.isArray(files) && files.length > 0 && files.length <= 200 ? ['--', ...files] : [];
+  const committedDiff =
+    gitOutput(['diff', '--no-color', `origin/${resolvedBase}...HEAD`, ...pathArgs], repoRoot) ??
+    gitOutput(['diff', '--no-color', `${resolvedBase}...HEAD`, ...pathArgs], repoRoot) ??
+    gitOutput(['diff', '--no-color', 'HEAD~1', ...pathArgs], repoRoot) ??
+    '';
+  const workingDiff =
+    gitOutput(['diff', '--no-color', 'HEAD', ...pathArgs], repoRoot) ??
+    gitOutput(['diff', '--no-color', ...pathArgs], repoRoot) ??
+    '';
+
+  appendUnifiedDiffChunks(committedDiff, diffMap);
+  appendUnifiedDiffChunks(workingDiff, diffMap);
+
+  const untrackedOut = gitOutput(['ls-files', '--others', '--exclude-standard'], repoRoot) || '';
+  const untrackedSet = new Set(untrackedOut.split('\n').map((s) => s.trim()).filter(Boolean));
+  const candidateFiles = Array.isArray(files) && files.length > 0 ? files : Array.from(untrackedSet);
+  for (const file of candidateFiles) {
+    if (!diffMap.has(file) && untrackedSet.has(file)) {
+      try {
+        const abs = path.resolve(repoRoot, file);
+        if (fs.statSync(abs).isFile()) {
+          const body = fs.readFileSync(abs, 'utf8');
+          diffMap.set(file, `+++ b/${file}\n` + body.split('\n').map((l) => `+${l}`).join('\n'));
+        }
+      } catch {}
+    }
+  }
+  return diffMap;
+}
+
 export function hasDevelopBranch(repoRoot = '.') {
+  const key = getGitRefStamp(repoRoot);
+  if (developBranchMemo.has(key)) {
+    return developBranchMemo.get(key);
+  }
+  let result = false;
   try {
     const branches = gitOutput(['branch', '-a'], repoRoot) || '';
-    return /(^|\n)[ *]*remotes\/[^/]+\/develop($|\n)|(^|\n)[ *]*develop($|\n)/.test(branches);
+    result = /(^|\n)[ *]*remotes\/[^/]+\/develop($|\n)|(^|\n)[ *]*develop($|\n)/.test(branches);
   } catch {
-    return false;
+    result = false;
   }
+  if (developBranchMemo.size > 128) developBranchMemo.clear();
+  developBranchMemo.set(key, result);
+  return result;
 }
 
 export function resolveDefaultBaseBranch(repoRoot = '.') {

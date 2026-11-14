@@ -1,11 +1,38 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileExists, readFileSafe } from './core.mjs';
+import { fileExists, loadConfig, readFileSafe, resolveInsideRepo, writeFileAtomic } from './core.mjs';
 import { createTicket } from './pm-provider.mjs';
-import { appendDecisionEvent, syncDecisionMapMarkdown } from './decision-graph.mjs';
+import { appendDecisionEvent, parseProductMarkdown, syncDecisionMapMarkdown } from './decision-graph.mjs';
 import { appendAuditRecord } from './audit-chain.mjs';
 
+export { parseProductMarkdown };
+
 const DAG_STATE_FILE = '.agent/product-dag-state.json';
+
+function resolveQualityBarsText(repoRoot = '.') {
+  const cfg = loadConfig(repoRoot) || {};
+  const gates = cfg?.gates || {};
+  const covNum = Number(gates.minDiffCoverage);
+  const minCov = Number.isFinite(covNum) ? covNum : 85;
+  const mutRaw = gates.minMutationScore;
+  if (mutRaw === null || mutRaw === false) {
+    return {
+      covPhrase: `\`>= ${minCov}%\` diff line coverage`,
+      mutPhrase: 'mutation testing disabled per config',
+      prdMetric: `Diff Test Coverage \`>= ${minCov}%\``,
+      srsMetric: `Minimum \`${minCov}%\` diff test coverage enforced prior to PR merge.`,
+      invariantClause: `(>=${minCov}% coverage)`
+    };
+  }
+  const mutNum = mutRaw !== undefined && Number.isFinite(Number(mutRaw)) ? Number(mutRaw) : 80;
+  return {
+    covPhrase: `\`>= ${minCov}%\` diff line coverage and \`>= ${mutNum}%\` mutation score`,
+    mutPhrase: `\`>= ${mutNum}%\` mutation score`,
+    prdMetric: `Diff Test Coverage \`>= ${minCov}%\`, Mutation Score \`>= ${mutNum}%\``,
+    srsMetric: `Minimum \`${minCov}%\` diff test coverage and \`${mutNum}%\` mutation score enforced prior to PR merge.`,
+    invariantClause: `(>=${minCov}% coverage, >=${mutNum}% mutation)`
+  };
+}
 
 export function renderCapabilitySpecMarkdown({
   capId = 'CAP-01',
@@ -14,11 +41,13 @@ export function renderCapabilitySpecMarkdown({
   inputs = '',
   processing = '',
   outputs = '',
-  dependsOn = []
+  dependsOn = [],
+  repoRoot = '.'
 } = {}) {
   const numPart = capId.includes('-') ? capId.split('-')[1] : '01';
   const specId = `SPEC-${numPart}`;
   const depText = Array.isArray(dependsOn) && dependsOn.length > 0 ? dependsOn.join(', ') : 'None';
+  const bars = resolveQualityBarsText(repoRoot);
 
   return `# ${specId}: ${title}
 
@@ -45,7 +74,7 @@ export function renderCapabilitySpecMarkdown({
 
 ## 3. Domain Contract & Acceptance Criteria
 - Enforce Clean Architecture concentric ring boundaries (\`.archlens/policy.json\`) and Red-Green-Refactor TDD.
-- Achieve Dual-Gate verification (\`>= 85%\` diff line coverage and \`>= 80%\` mutation score).
+- Achieve Dual-Gate verification (${bars.covPhrase}).
 - Zero shell command interpolation of untrusted inputs (\`INV-04\`).
 
 ## 4. C4 Component & Sequence Architecture
@@ -62,8 +91,10 @@ export function renderProductPrdMarkdown({
   title = 'Autonomous Product System',
   vision = '',
   capabilities = [],
-  invariants = []
+  invariants = [],
+  repoRoot = '.'
 } = {}) {
+  const bars = resolveQualityBarsText(repoRoot);
   const capRows = capabilities
     .map((c) => `- **${c.id} (${c.title})**: Governed by [\`${c.spec}\`](../${c.spec}) (Depends on: ${c.dependsOn.length > 0 ? c.dependsOn.join(', ') : 'None'})`)
     .join('\n');
@@ -98,7 +129,7 @@ ${capRows}
 - **Ticket Delivery Flow**: \`/sdlc-flow\` executes \`stage begin\` -> \`/sdlc-tdd\` -> \`stage pre-pr\` -> \`/sdlc-gate\` -> \`stage complete\`.
 
 ## 5. Metrics, Success & Guardrails (The "How We Measure")
-- **Primary Quality Metrics**: Diff Test Coverage \`>= 85%\`, Mutation Score \`>= 80%\`.
+- **Primary Quality Metrics**: ${bars.prdMetric}.
 - **Guardrail Invariants (\`INV-XX\`)**:
 ${invRows}
 
@@ -111,8 +142,10 @@ export function renderProductSrsMarkdown({
   title = 'Autonomous Product System',
   vision = '',
   capabilities = [],
-  invariants = []
+  invariants = [],
+  repoRoot = '.'
 } = {}) {
+  const bars = resolveQualityBarsText(repoRoot);
   const traceRows = capabilities
     .map(
       (c) =>
@@ -175,7 +208,7 @@ flowchart TB
 ${functionalSections}
 
 ### 3.3 Non-Functional Requirements & System Invariants (\`INV-XX\`)
-- **3.3.1 Verification & Test Quality**: Minimum \`85%\` diff test coverage and \`80%\` mutation score enforced prior to PR merge.
+- **3.3.1 Verification & Test Quality**: ${bars.srsMetric}
 - **3.3.2 Security & Process Isolation**: Zero shell string interpolation of untrusted inputs; all external CLI calls use \`execFileSync\` argument arrays.
 - **3.3.3 Hard Constitutional Invariants**:
 ${invRows}
@@ -215,11 +248,12 @@ export function initProductConstitution({
     return { id, title: capTitle, spec: specPath, dependsOn, status, problem, inputs, processing, outputs };
   });
 
+  const bars = resolveQualityBarsText(repoRoot);
   const normalizedInvs = (invariants.length > 0
     ? invariants
     : [
         'Zero direct commits, merges, or pushes to main or develop',
-        '100% of code changes require an active SDLC ticket session and Dual-Gate verification (>=85% coverage, >=80% mutation)',
+        `100% of code changes require an active SDLC ticket session and Dual-Gate verification ${bars.invariantClause}`,
         'All spec drift must be recorded via an ADR (docs/adr/ADR-00X.md) and synchronized with PRODUCT.md'
       ]
   ).map((inv, idx) => {
@@ -230,10 +264,10 @@ export function initProductConstitution({
 
   // Scaffold missing spec files referenced by capabilities using rich PRD+SRS+C4 template
   for (const cap of normalizedCaps) {
-    const absSpec = path.resolve(repoRoot, cap.spec);
+    const absSpec = resolveInsideRepo(repoRoot, cap.spec);
     if (!fileExists(absSpec)) {
       fs.mkdirSync(path.dirname(absSpec), { recursive: true });
-      fs.writeFileSync(
+      writeFileAtomic(
         absSpec,
         renderCapabilitySpecMarkdown({
           capId: cap.id,
@@ -242,34 +276,34 @@ export function initProductConstitution({
           inputs: cap.inputs,
           processing: cap.processing,
           outputs: cap.outputs,
-          dependsOn: cap.dependsOn
-        }),
-        'utf8'
+          dependsOn: cap.dependsOn,
+          repoRoot
+        })
       );
     }
   }
 
   // Scaffold macro docs/PRD.md and docs/SRS.md
-  fs.writeFileSync(
+  writeFileAtomic(
     prdPath,
     renderProductPrdMarkdown({
       title,
       vision,
       capabilities: normalizedCaps,
-      invariants: normalizedInvs
-    }),
-    'utf8'
+      invariants: normalizedInvs,
+      repoRoot
+    })
   );
 
-  fs.writeFileSync(
+  writeFileAtomic(
     srsPath,
     renderProductSrsMarkdown({
       title,
       vision,
       capabilities: normalizedCaps,
-      invariants: normalizedInvs
-    }),
-    'utf8'
+      invariants: normalizedInvs,
+      repoRoot
+    })
   );
 
   const capTableRows = normalizedCaps
@@ -321,7 +355,7 @@ ${capTableRows}
 <!-- ADR_INDEX_END -->
 `;
 
-  fs.writeFileSync(productPath, productMd, 'utf8');
+  writeFileAtomic(productPath, productMd);
 
   // Provision Genesis Ticket #1 deterministically
   const genesisTicket = {
@@ -402,6 +436,9 @@ export function scaffoldCapabilitySpec({
   const resolvedCapId =
     capId ||
     `CAP-${String(existingCaps.length + 1).padStart(2, '0')}`;
+  if (/[\\/]|\.\./.test(resolvedCapId)) {
+    throw new Error(`Invalid capability ID '${resolvedCapId}': path traversal characters are forbidden.`);
+  }
   const upperCapId = resolvedCapId.toUpperCase();
 
   const slug = title
@@ -412,7 +449,7 @@ export function scaffoldCapabilitySpec({
 
   const existingMatch = existingCaps.find((c) => c.id.toUpperCase() === upperCapId);
   const relSpecPath = existingMatch?.spec || `docs/specs/${resolvedCapId.toLowerCase()}-${slug || 'spec'}.md`;
-  const absSpecPath = path.resolve(repoRoot, relSpecPath);
+  const absSpecPath = resolveInsideRepo(repoRoot, relSpecPath);
 
   fs.mkdirSync(path.dirname(absSpecPath), { recursive: true });
   if (!fileExists(absSpecPath) || force) {
@@ -423,9 +460,10 @@ export function scaffoldCapabilitySpec({
       inputs,
       processing,
       outputs,
-      dependsOn
+      dependsOn,
+      repoRoot
     });
-    fs.writeFileSync(absSpecPath, specMarkdown, 'utf8');
+    writeFileAtomic(absSpecPath, specMarkdown);
   }
 
   const depCol = dependsOn.length > 0 ? dependsOn.join(', ') : 'None';
@@ -444,7 +482,7 @@ export function scaffoldCapabilitySpec({
     }
     if (lastCapRowIdx !== -1) {
       lines.splice(lastCapRowIdx + 1, 0, newRow);
-      fs.writeFileSync(productPath, lines.join('\n'), 'utf8');
+      writeFileAtomic(productPath, lines.join('\n'));
     }
   }
 
@@ -456,15 +494,15 @@ export function scaffoldCapabilitySpec({
     fs.mkdirSync(path.dirname(prdPath), { recursive: true });
 
     if (!fileExists(prdPath) || force) {
-      fs.writeFileSync(
+      writeFileAtomic(
         prdPath,
         renderProductPrdMarkdown({
           title: refreshed.title,
           vision: refreshed.vision || `Constitutional specification for ${refreshed.title}.`,
           capabilities: refreshed.capabilities,
-          invariants: refreshed.invariants
-        }),
-        'utf8'
+          invariants: refreshed.invariants,
+          repoRoot
+        })
       );
     } else {
       const prdContent = readFileSafe(prdPath) || '';
@@ -479,23 +517,23 @@ export function scaffoldCapabilitySpec({
         }
         if (lastCapBulletIdx !== -1) {
           prdLines.splice(lastCapBulletIdx + 1, 0, prdBullet);
-          fs.writeFileSync(prdPath, prdLines.join('\n'), 'utf8');
+          writeFileAtomic(prdPath, prdLines.join('\n'));
         } else {
-          fs.writeFileSync(prdPath, `${prdContent.trimEnd()}\n${prdBullet}\n`, 'utf8');
+          writeFileAtomic(prdPath, `${prdContent.trimEnd()}\n${prdBullet}\n`);
         }
       }
     }
 
     if (!fileExists(srsPath) || force) {
-      fs.writeFileSync(
+      writeFileAtomic(
         srsPath,
         renderProductSrsMarkdown({
           title: refreshed.title,
           vision: refreshed.vision || `Constitutional specification for ${refreshed.title}.`,
           capabilities: refreshed.capabilities,
-          invariants: refreshed.invariants
-        }),
-        'utf8'
+          invariants: refreshed.invariants,
+          repoRoot
+        })
       );
     } else {
       let srsContent = readFileSafe(srsPath) || '';
@@ -531,7 +569,7 @@ export function scaffoldCapabilitySpec({
         }
       }
 
-      fs.writeFileSync(srsPath, srsContent, 'utf8');
+      writeFileAtomic(srsPath, srsContent);
     }
   }
 
@@ -560,104 +598,39 @@ export function scaffoldCapabilitySpec({
   };
 }
 
-export function parseProductMarkdown(repoRoot = '.') {
-  const productPath = path.resolve(repoRoot, 'PRODUCT.md');
-  if (!fileExists(productPath)) {
-    return {
-      exists: false,
-      title: null,
-      vision: '',
-      capabilities: [],
-      invariants: [],
-      adrs: []
-    };
-  }
-
-  const raw = readFileSafe(productPath) || '';
-  const titleMatch = raw.match(/^#\s+(?:🏛️\s*Product Constitution:\s*)?(.+)$/m);
-  const title = titleMatch ? titleMatch[1].trim() : 'Product';
-  const visionMatch = raw.match(/##\s*1\.\s*Product Vision\s*\n+([^\n#]+)/i);
-  const vision = visionMatch ? visionMatch[1].trim() : '';
-
-  const capabilities = [];
-  const invariants = [];
-  const adrs = [];
-
-  for (const line of raw.split('\n')) {
-    const capMatch = line.match(/^\|\s*(CAP-\d+)\s*\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|/);
-    if (capMatch) {
-      const dependsRaw = capMatch[4].trim();
-      const dependsOn =
-        dependsRaw === 'None' || dependsRaw === '-'
-          ? []
-          : dependsRaw.split(',').map((s) => s.trim()).filter(Boolean);
-      capabilities.push({
-        id: capMatch[1].trim(),
-        title: capMatch[2].trim(),
-        spec: capMatch[3].trim().replace(/`/g, ''),
-        dependsOn,
-        status: capMatch[5].trim().replace(/`/g, '')
-      });
-      continue;
-    }
-
-    const invMatch = line.match(/^-\s*\*\*(INV-\d+)\*\*:\s*(.+)$/);
-    if (invMatch) {
-      invariants.push({
-        id: invMatch[1].trim(),
-        text: invMatch[2].trim()
-      });
-      continue;
-    }
-
-    const adrMatch = line.match(/^\|\s*(ADR-\d+)\s*\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|/);
-    if (adrMatch) {
-      adrs.push({
-        id: adrMatch[1].trim(),
-        title: adrMatch[2].trim(),
-        scope: adrMatch[3].trim().replace(/`/g, ''),
-        status: adrMatch[4].trim().replace(/`/g, ''),
-        ticket: adrMatch[5].trim(),
-        supersedes: adrMatch[6].trim()
-      });
-    }
-  }
-
-  return {
-    exists: true,
-    productPath,
-    title,
-    vision,
-    capabilities,
-    invariants,
-    adrs
-  };
-}
-
 export function planProductDAG({ repoRoot = '.', autoProvision = false, createTicketFn = createTicket } = {}) {
   const parsed = parseProductMarkdown(repoRoot);
   const caps = parsed.capabilities || [];
 
   // Compute topological waves
+  const capIdSet = new Set(caps.map((c) => c.id));
   const resolved = new Set();
   const remaining = [...caps];
   const waves = [];
   let waveNum = 1;
+  let hasCycle = false;
+  const cycleNodes = [];
 
   while (remaining.length > 0 && waveNum <= caps.length + 2) {
-    const readyInWave = remaining.filter((c) => c.dependsOn.every((dep) => resolved.has(dep)));
-    const batch = readyInWave.length > 0 ? readyInWave : [remaining[0]];
+    const readyInWave = remaining.filter((c) =>
+      c.dependsOn.filter((dep) => capIdSet.has(dep)).every((dep) => resolved.has(dep))
+    );
+    if (readyInWave.length === 0) {
+      hasCycle = true;
+      for (const item of remaining) cycleNodes.push(item.id);
+      break;
+    }
 
     waves.push({
       wave: waveNum++,
-      parallelizable: batch.length > 1,
-      items: batch.map((item) => ({
+      parallelizable: readyInWave.length > 1,
+      items: readyInWave.map((item) => ({
         ...item,
         worktreeBranch: `feature/issue-${item.id.toLowerCase()}-${item.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`
       }))
     });
 
-    for (const item of batch) {
+    for (const item of readyInWave) {
       resolved.add(item.id);
       const idx = remaining.findIndex((r) => r.id === item.id);
       if (idx !== -1) remaining.splice(idx, 1);
@@ -665,7 +638,7 @@ export function planProductDAG({ repoRoot = '.', autoProvision = false, createTi
   }
 
   const provisioned = [];
-  if (autoProvision && typeof createTicketFn === 'function') {
+  if (!hasCycle && autoProvision && typeof createTicketFn === 'function') {
     for (const w of waves) {
       for (const item of w.items) {
         try {
@@ -682,7 +655,6 @@ export function planProductDAG({ repoRoot = '.', autoProvision = false, createTi
   }
 
   const statePath = path.resolve(repoRoot, DAG_STATE_FILE);
-  fs.mkdirSync(path.dirname(statePath), { recursive: true });
   let currentState = { status: 'idle', currentWave: 1, history: [] };
   if (fileExists(statePath)) {
     try {
@@ -691,7 +663,10 @@ export function planProductDAG({ repoRoot = '.', autoProvision = false, createTi
   }
 
   const plan = {
-    success: true,
+    success: !hasCycle,
+    hasCycle,
+    cycleNodes,
+    error: hasCycle ? `Circular dependency detected among capabilities: ${cycleNodes.join(', ')}` : undefined,
     title: parsed.title || 'Product DAG',
     totalCapabilities: caps.length,
     waves,
@@ -704,7 +679,6 @@ export function planProductDAG({ repoRoot = '.', autoProvision = false, createTi
 
 export function controlProductDAG({ action = 'status', reason = '', wave = null, repoRoot = '.' } = {}) {
   const statePath = path.resolve(repoRoot, DAG_STATE_FILE);
-  fs.mkdirSync(path.dirname(statePath), { recursive: true });
 
   let state = {
     status: 'running',
@@ -721,6 +695,15 @@ export function controlProductDAG({ action = 'status', reason = '', wave = null,
   }
 
   const normAction = String(action).toLowerCase();
+  if (normAction === 'status') {
+    return {
+      success: true,
+      action: 'status',
+      state
+    };
+  }
+
+  fs.mkdirSync(path.dirname(statePath), { recursive: true });
   if (normAction === 'pause') {
     state.status = 'paused';
     state.reason = reason || 'Paused by operator';
@@ -737,7 +720,7 @@ export function controlProductDAG({ action = 'status', reason = '', wave = null,
   state.history = Array.isArray(state.history) ? state.history : [];
   state.history.push({ action: normAction, timestamp: state.updatedAt, reason: state.reason });
 
-  fs.writeFileSync(statePath, JSON.stringify(state, null, 2), 'utf8');
+  writeFileAtomic(statePath, JSON.stringify(state, null, 2));
 
   return {
     success: true,
@@ -760,7 +743,7 @@ export function deconstructEpic({
   let currentTask = null;
 
   for (const line of lines) {
-    const match = line.match(/^[-*•\d.]+\s*(?:\[[ xX]\]\s*)?(?:(feat|fix|hotfix|spike|chore|task):\s*)?(.+)$/i);
+    const match = line.match(/^(?:[-*•]|\d+[.)])\s+(?:\[[ xX]\]\s+)?(?:(feat|fix|hotfix|spike|chore|task):\s*)?(.+)$/i);
     if (match) {
       const type = (match[1] || 'feat').toLowerCase();
       const rawTitle = match[2].trim();

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { loadConfig, parseTicketId } from './core.mjs';
 
 export const AUDIT_LEDGER_FILE = 'docs/AUDIT_CHAIN.jsonl';
 export const GENESIS_HASH = '0000000000000000000000000000000000000000000000000000000000000000';
@@ -11,48 +12,88 @@ export function calculateRecordHash({ index, timestamp, event, metadata, previou
   return crypto.createHash('sha256').update(payload).digest('hex');
 }
 
+function withAuditChainLock(repoRoot, fn) {
+  const lockDir = path.resolve(repoRoot, '.agent');
+  fs.mkdirSync(lockDir, { recursive: true });
+  const lockPath = path.join(lockDir, '.audit-chain.lock');
+  const waitBuf = new Int32Array(new SharedArrayBuffer(4));
+  let fd = null;
+  for (let attempt = 0; attempt < 50; attempt++) {
+    try {
+      fd = fs.openSync(lockPath, 'wx');
+      break;
+    } catch (err) {
+      if (err && err.code !== 'EEXIST') throw err;
+      try {
+        const stat = fs.statSync(lockPath);
+        if (Date.now() - stat.mtimeMs > 5000) {
+          fs.unlinkSync(lockPath);
+          continue;
+        }
+      } catch {}
+      Atomics.wait(waitBuf, 0, 0, 15);
+    }
+  }
+  if (fd === null) {
+    throw new Error(`Timed out waiting for audit chain lock: ${lockPath}`);
+  }
+  try {
+    fs.writeFileSync(fd, `${process.pid}\n`);
+    return fn();
+  } finally {
+    try {
+      fs.closeSync(fd);
+    } catch {}
+    try {
+      fs.unlinkSync(lockPath);
+    } catch {}
+  }
+}
+
 export function appendAuditRecord({ event, metadata = {}, repoRoot = '.' } = {}) {
-  const auditPath = path.resolve(repoRoot, AUDIT_LEDGER_FILE);
-  fs.mkdirSync(path.dirname(auditPath), { recursive: true });
+  return withAuditChainLock(repoRoot, () => {
+    const auditPath = path.resolve(repoRoot, AUDIT_LEDGER_FILE);
+    fs.mkdirSync(path.dirname(auditPath), { recursive: true });
 
-  let previousHash = GENESIS_HASH;
-  let index = 0;
+    let previousHash = GENESIS_HASH;
+    let index = 0;
 
-  if (fs.existsSync(auditPath)) {
-    const content = fs.readFileSync(auditPath, 'utf8').trim();
-    if (content) {
-      const lines = content.split('\n').filter(Boolean);
-      if (lines.length > 0) {
-        try {
+    if (fs.existsSync(auditPath)) {
+      const content = fs.readFileSync(auditPath, 'utf8').trim();
+      if (content) {
+        const integrity = verifyAuditChain(repoRoot);
+        if (!integrity.valid) {
+          throw new Error(`Refusing to append to corrupted audit ledger (${AUDIT_LEDGER_FILE}): ${integrity.error}`);
+        }
+        const lines = content.split('\n').filter(Boolean);
+        if (lines.length > 0) {
           const lastEntry = JSON.parse(lines[lines.length - 1]);
           index = typeof lastEntry.index === 'number' ? lastEntry.index + 1 : lines.length;
           previousHash = lastEntry.currentHash || lastEntry.hash || GENESIS_HASH;
-        } catch {
-          index = lines.length;
         }
       }
     }
-  }
 
-  const timestamp = new Date().toISOString();
-  const currentHash = calculateRecordHash({ index, timestamp, event, metadata, previousHash });
+    const timestamp = new Date().toISOString();
+    const currentHash = calculateRecordHash({ index, timestamp, event, metadata, previousHash });
 
-  const record = {
-    index,
-    timestamp,
-    event,
-    metadata,
-    previousHash,
-    currentHash
-  };
+    const record = {
+      index,
+      timestamp,
+      event,
+      metadata,
+      previousHash,
+      currentHash
+    };
 
-  fs.appendFileSync(auditPath, JSON.stringify(record) + '\n', 'utf8');
+    fs.appendFileSync(auditPath, JSON.stringify(record) + '\n', 'utf8');
 
-  return {
-    success: true,
-    record,
-    auditPath
-  };
+    return {
+      success: true,
+      record,
+      auditPath
+    };
+  });
 }
 
 export function verifyAuditChain(repoRoot = '.') {
@@ -170,14 +211,17 @@ export function loadReceiptKey(repoRoot = '.', { create = false } = {}) {
 }
 
 function canonicalJSON(value) {
-  if (Array.isArray(value)) return `[${value.map(canonicalJSON).join(',')}]`;
+  if (Array.isArray(value)) {
+    return `[${value.map((v) => (v === undefined ? 'null' : canonicalJSON(v))).join(',')}]`;
+  }
   if (value && typeof value === 'object') {
     return `{${Object.keys(value)
       .sort()
+      .filter((k) => value[k] !== undefined)
       .map((k) => `${JSON.stringify(k)}:${canonicalJSON(value[k])}`)
       .join(',')}}`;
   }
-  return JSON.stringify(value);
+  return JSON.stringify(value === undefined ? null : value);
 }
 
 export function signReceiptPayload(payload, key) {
@@ -195,6 +239,34 @@ export function verifyReceiptSignature(receipt, key) {
 }
 
 export const VALID_RECEIPT_LANES = ['trivial', 'standard', 'full'];
+
+function resolveReceiptThresholds(repoRoot = '.') {
+  const cfgPath = path.resolve(repoRoot, '.agent/sdlc-config.json');
+  if (!fs.existsSync(cfgPath)) return { minCov: null, minMut: null };
+  const cfg = loadConfig(repoRoot);
+  const mods = Array.isArray(cfg.modules) ? cfg.modules : [];
+  const allNullCov = mods.length > 0 && mods.every((m) => m?.thresholds && m.thresholds.diffCoverage === null);
+  const covVals = mods.map((m) => m?.thresholds?.diffCoverage).filter((v) => typeof v === 'number' && Number.isFinite(v));
+  const minCov =
+    typeof cfg?.testing?.coverageThreshold === 'number'
+      ? cfg.testing.coverageThreshold
+      : allNullCov
+        ? null
+        : covVals.length > 0
+          ? Math.max(...covVals)
+          : 85;
+  const allNullMut = mods.length > 0 && mods.every((m) => m?.thresholds && m.thresholds.mutationScore === null);
+  const mutVals = mods.map((m) => m?.thresholds?.mutationScore).filter((v) => typeof v === 'number' && Number.isFinite(v));
+  const minMut =
+    cfg?.testing?.mutationThreshold !== undefined
+      ? cfg.testing.mutationThreshold
+      : allNullMut
+        ? null
+        : mutVals.length > 0
+          ? Math.max(...mutVals)
+          : 52;
+  return { minCov, minMut };
+}
 
 export function issueGateReceipt({
   issueId,
@@ -238,6 +310,24 @@ export function issueGateReceipt({
     };
   }
 
+  if (!resolvedDocsOnly && !isTrivialLane) {
+    const { minCov, minMut } = resolveReceiptThresholds(repoRoot);
+    if (Number.isFinite(minCov) && Number.isFinite(resolvedCoverage) && resolvedCoverage < minCov) {
+      return {
+        success: false,
+        missing: ['coveragePct'],
+        reason: `Refusing to issue gate receipt: coverage ${resolvedCoverage}% is below configured threshold ${minCov}%.`
+      };
+    }
+    if (!isStandardLane && resolvedMutation !== null && minMut !== null && Number.isFinite(minMut) && Number.isFinite(resolvedMutation) && resolvedMutation < minMut) {
+      return {
+        success: false,
+        missing: ['mutationPct'],
+        reason: `Refusing to issue gate receipt: mutation score ${resolvedMutation}% is below configured threshold ${minMut}%.`
+      };
+    }
+  }
+
   let resolvedSha = headSha;
   if (!resolvedSha) {
     try {
@@ -263,10 +353,11 @@ export function issueGateReceipt({
           : 'measured';
 
   const key = loadReceiptKey(repoRoot, { create: true });
-  const issueRef = String(issueId).startsWith('L-') ? String(issueId) : `#${issueId}`;
+  const parsedIssueId = parseTicketId(issueId) ?? issueId;
+  const issueRef = typeof parsedIssueId === 'number' ? `#${parsedIssueId}` : String(parsedIssueId);
   const payload = {
     receiptId: `GATE-RECEIPT-${issueRef}-${resolvedSha.slice(0, 8)}`,
-    issueId: Number(issueId) || issueId,
+    issueId: parsedIssueId,
     branch: branch || 'feature/unknown',
     headSha: resolvedSha,
     productMdHash,
@@ -357,7 +448,15 @@ export function verifyGateReceipt({ headSha = null, branch = null, repoRoot = '.
           .filter(Boolean);
         if (
           diffFiles.length > 0 &&
-          diffFiles.every((f) => f === 'docs/AUDIT_CHAIN.jsonl' || f === 'docs/ARCH_TRACE.md' || f.startsWith('.agent/'))
+          diffFiles.every(
+            (f) =>
+              f === 'docs/AUDIT_CHAIN.jsonl' ||
+              f === 'docs/ARCH_TRACE.md' ||
+              f === '.agent/arch-trace.jsonl' ||
+              f === '.agent/decision-graph.jsonl' ||
+              f === '.agent/.sdlc-session.json' ||
+              f.startsWith('.agent/workbench/')
+          )
         ) {
           shaMatch = true;
         }

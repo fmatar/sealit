@@ -39,8 +39,7 @@ echo "📋 Project Title: $PROJECT_TITLE"
 PROJECT_NUM=$(gh project list --owner "$OWNER" --format json 2>/dev/null | jq -r --arg repo "$REPO_NAME" --arg title "$PROJECT_TITLE" '
   .projects[] | select(
     (.title | ascii_downcase) == ($repo | ascii_downcase) or
-    (.title | ascii_downcase) == ($title | ascii_downcase) or
-    (.title | ascii_downcase | contains($repo | ascii_downcase))
+    (.title | ascii_downcase) == ($title | ascii_downcase)
   ) | .number' | head -n 1)
 
 if [ -z "$PROJECT_NUM" ]; then

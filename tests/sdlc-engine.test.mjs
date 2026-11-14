@@ -1109,7 +1109,7 @@ jobs:
       const pkgPath = path.join(tmpDir, 'package.json');
       fs.writeFileSync(pkgPath, JSON.stringify({ name: 'my-app', version: '2.4.0' }), 'utf8');
 
-      const res = executeRelease({ bump: 'minor', dryRun: true, skipGate: true, repoRoot: tmpDir });
+      const res = executeRelease({ bump: 'minor', dryRun: true, repoRoot: tmpDir });
       assert.equal(res.success, true);
       assert.equal(res.dryRun, true);
       assert.equal(res.currentVersion, '2.4.0');
@@ -1133,11 +1133,32 @@ jobs:
       const changelogPath = path.join(tmpDir, 'CHANGELOG.md');
       fs.writeFileSync(changelogPath, '# Changelog\n\n## [Unreleased]\n\n### Added\n- New feature\n', 'utf8');
 
-      execFileSync('git', ['add', 'package.json', 'CHANGELOG.md'], { cwd: tmpDir });
+      fs.mkdirSync(path.join(tmpDir, '.agent'), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpDir, '.agent/sdlc-config.json'),
+        JSON.stringify({
+          version: '2.1.0',
+          modules: [
+            {
+              name: 'root',
+              path: '.',
+              commands: {
+                test: 'node -e 0',
+                coverage: `node -e "const fs=require('fs');fs.mkdirSync('coverage',{recursive:true});fs.writeFileSync('coverage/coverage-summary.json',JSON.stringify({total:{lines:{pct:95},branches:{pct:90}}}))"`,
+                coverageFile: 'coverage/coverage-summary.json'
+              },
+              thresholds: { diffCoverage: 85, mutationScore: null }
+            }
+          ]
+        }),
+        'utf8'
+      );
+
+      execFileSync('git', ['add', 'package.json', 'CHANGELOG.md', '.agent/sdlc-config.json'], { cwd: tmpDir });
       execFileSync('git', ['commit', '-q', '-m', 'chore: initial'], { cwd: tmpDir });
       execFileSync('git', ['checkout', '-q', '-b', 'chore/release-v1.0.1'], { cwd: tmpDir });
 
-      const res = executeRelease({ bump: 'patch', dryRun: false, skipGate: true, repoRoot: tmpDir });
+      const res = executeRelease({ bump: 'patch', dryRun: false, repoRoot: tmpDir });
       assert.equal(res.success, true);
       assert.equal(res.newVersion, '1.0.1');
       assert.equal(res.releaseTag, 'v1.0.1');

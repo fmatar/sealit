@@ -1629,6 +1629,26 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
       // Also verify executeRelease automatically compacts in-flight ADRs when cutting a release
       execFileSync('git', ['checkout', '-q', '-b', 'chore/release-v1.1.0'], { cwd: tmpDir });
       fs.writeFileSync(path.join(tmpDir, 'package.json'), JSON.stringify({ name: 'quantum', version: '1.0.0' }, null, 2));
+      fs.mkdirSync(path.join(tmpDir, '.agent'), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpDir, '.agent/sdlc-config.json'),
+        JSON.stringify({
+          version: '2.1.0',
+          modules: [
+            {
+              name: 'root',
+              path: '.',
+              commands: {
+                test: 'node -e 0',
+                coverage: `node -e "const fs=require('fs');fs.mkdirSync('coverage',{recursive:true});fs.writeFileSync('coverage/coverage-summary.json',JSON.stringify({total:{lines:{pct:95},branches:{pct:90}}}))"`,
+                coverageFile: 'coverage/coverage-summary.json'
+              },
+              thresholds: { diffCoverage: 85, mutationScore: null }
+            }
+          ]
+        }),
+        'utf8'
+      );
       const relAdr = createADR({
         title: 'Release Auto-Compacted Decision',
         scope: 'technical',
@@ -1645,7 +1665,8 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
         repoRoot: tmpDir
       });
       assert.equal(listADRs(tmpDir).length, 1);
-      const relRes = executeRelease({ bump: 'minor', skipGate: true, repoRoot: tmpDir });
+      fs.rmSync(path.join(tmpDir, 'README.md'), { force: true });
+      const relRes = executeRelease({ bump: 'minor', repoRoot: tmpDir });
       assert.equal(relRes.success, true);
       assert.equal(relRes.newVersion, '1.1.0');
       assert.equal(relRes.compactedAdrs.compactedCount, 1);
