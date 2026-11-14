@@ -80,6 +80,7 @@ flowchart TD
   _111["Ticket #111 (feature/issue-#111-slim-npm-package-retire-duplicate-svelte)"]
   _L_124000["Ticket #L-124000 (feature/L-124000-fix-git-flow-enforce-merges-to-develop-b)"]
   _131["Ticket #131 (feature/issue-#131-gate-diff-coverage-thresholds-tdd)"]
+  _132["Ticket #132 (feature/issue-#132-git-flow-atomic-session-receipt-allowlis)"]
   CAP_01 -->|specified_by| SPEC_01
   CAP_02 -->|specified_by| SPEC_02
   CAP_03 -->|specified_by| SPEC_03
