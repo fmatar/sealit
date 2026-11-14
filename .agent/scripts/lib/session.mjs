@@ -8,6 +8,8 @@ import {
   normalizeTicketId,
   parseTicketId,
   resolveQualityThresholds,
+  getSessionFilePath,
+  readSessionFileState,
   writeFileAtomic
 } from './core.mjs';
 import { createPMIssue, transitionPMState, syncKanbanBoard, ensurePullRequest } from './pm-provider.mjs';
@@ -23,43 +25,24 @@ const SESSION_FILE = '.sdlc-session.json';
 const SESSION_LANE_RANK = { trivial: 0, standard: 1, full: 2 };
 
 export function getSessionPath(repoRoot = '.') {
-  return path.resolve(repoRoot, '.agent', SESSION_FILE);
+  return getSessionFilePath(repoRoot);
 }
 
 export function getSessionStatus(repoRoot = '.') {
-  const sessionPath = getSessionPath(repoRoot);
-  if (!fileExists(sessionPath)) {
+  const state = readSessionFileState(repoRoot);
+  if (!state.exists) {
     return { active: false, session: null, registry: null };
   }
-
-  const content = readFileSafe(sessionPath);
-  if (!content) {
-    return { active: false, session: null, registry: null, error: 'Empty session file' };
+  if (state.error) {
+    return { active: false, session: null, registry: null, error: state.error };
   }
-
-  try {
-    const data = JSON.parse(content);
-    if (data.sessions && typeof data.sessions === 'object') {
-      const activeId = data.activeSessionId;
-      const activeSession = activeId && data.sessions[activeId] ? data.sessions[activeId] : null;
-      return {
-        active: !!activeSession?.active,
-        session: activeSession,
-        activeSessionId: activeId,
-        sessions: data.sessions,
-        registry: data
-      };
-    }
-    return {
-      active: !!data.active,
-      session: data,
-      activeSessionId: data.issueId,
-      sessions: data.issueId ? { [data.issueId]: data } : {},
-      registry: null
-    };
-  } catch {
-    return { active: false, session: null, registry: null, error: 'Corrupted session file' };
-  }
+  return {
+    active: state.active,
+    session: state.session,
+    activeSessionId: state.activeSessionId,
+    sessions: state.sessions,
+    registry: state.registry
+  };
 }
 
 export function startSession({
@@ -141,7 +124,7 @@ export function startSession({
     sessions
   };
 
-  fs.writeFileSync(sessionPath, JSON.stringify(registry, null, 2), 'utf8');
+  writeFileAtomic(sessionPath, JSON.stringify(registry, null, 2));
   return { success: true, session, registry };
 }
 
@@ -215,7 +198,7 @@ export function updateSession({
     sessions
   };
 
-  fs.writeFileSync(sessionPath, JSON.stringify(registry, null, 2), 'utf8');
+  writeFileAtomic(sessionPath, JSON.stringify(registry, null, 2));
   return { success: true, session, registry };
 }
 
@@ -391,6 +374,23 @@ export function getExemptionsPath(repoRoot = '.') {
   return path.resolve(repoRoot, '.agent', 'sdlc-exemptions.json');
 }
 
+const exemptionHighWater = new Map();
+
+function allocateNextExemptionId(exPath, ledger) {
+  const resolved = path.resolve(exPath);
+  let maxId = exemptionHighWater.get(resolved) || 0;
+  for (const item of ledger?.exemptions || []) {
+    const match = /^EX-(\d+)$/i.exec(String(item?.id || '').trim());
+    if (match) {
+      const num = Number(match[1]);
+      if (Number.isInteger(num) && num > maxId) maxId = num;
+    }
+  }
+  const nextId = maxId + 1;
+  exemptionHighWater.set(resolved, nextId);
+  return `EX-${nextId}`;
+}
+
 export function recordExemption({ mutantId, file, reason, approvedBy = 'human-review', repoRoot = '.' } = {}) {
   const exPath = getExemptionsPath(repoRoot);
   fs.mkdirSync(path.dirname(exPath), { recursive: true });
@@ -405,7 +405,7 @@ export function recordExemption({ mutantId, file, reason, approvedBy = 'human-re
   }
 
   const entry = {
-    id: `EX-${Date.now() % 100000}`,
+    id: allocateNextExemptionId(exPath, ledger),
     mutantId: mutantId || 'unknown',
     file: file || null,
     reason: reason || 'Verified benign mutant / compiler artifact',
@@ -414,7 +414,7 @@ export function recordExemption({ mutantId, file, reason, approvedBy = 'human-re
   };
 
   ledger.exemptions.push(entry);
-  fs.writeFileSync(exPath, JSON.stringify(ledger, null, 2), 'utf8');
+  writeFileAtomic(exPath, JSON.stringify(ledger, null, 2));
   console.log(`🛡️ Exemption registered: [${entry.id}] ${entry.mutantId} -> ${entry.reason}`);
   return { success: true, exemption: entry };
 }
@@ -523,7 +523,7 @@ export function reconcileSessionLaneWithDiff({
   diffFiles = null,
   repoRoot = '.'
 } = {}) {
-  const files = Array.isArray(diffFiles) ? diffFiles : getModifiedFiles('main', repoRoot);
+  const files = Array.isArray(diffFiles) ? diffFiles : getModifiedFiles(null, repoRoot);
   const currentLane = Object.prototype.hasOwnProperty.call(SESSION_LANE_RANK, session?.lane) ? session.lane : 'full';
 
   if (cliLane) {
@@ -617,6 +617,24 @@ export function reconcileSessionLaneWithDiff({
  * - pre-pr: re-triages actual git diff (auto-escalating trivial/standard when outgrown), runs Spec-Drift check, syncs DECISION_MAP.md, records ArchTrace, issues signed gate receipt from measured values, builds PR summary
  * - complete: advances to Stage 8, transitions PM -> done, syncs KANBAN.md, and releases session lock
  */
+const localSessionHighWater = new Map();
+
+function allocateNextLocalSessionId(repoRoot = '.') {
+  const resolvedRoot = path.resolve(repoRoot);
+  let maxId = localSessionHighWater.get(resolvedRoot) || 0;
+  const status = getSessionStatus(resolvedRoot);
+  for (const key of Object.keys(status.sessions || {})) {
+    const match = /^L-(\d+)$/i.exec(String(key).trim());
+    if (match) {
+      const num = Number(match[1]);
+      if (Number.isInteger(num) && num > maxId) maxId = num;
+    }
+  }
+  const nextId = maxId + 1;
+  localSessionHighWater.set(resolvedRoot, nextId);
+  return `L-${nextId}`;
+}
+
 export function executeCompositeStage({
   action = 'begin',
   issueId = null,
@@ -656,7 +674,7 @@ export function executeCompositeStage({
     let resolvedIssueId = issueId ? String(issueId).replace(/^#/, '') : null;
     if (!resolvedIssueId) {
       if (resolvedLane === 'trivial' || localOnly) {
-        resolvedIssueId = `L-${Date.now().toString().slice(-6)}`;
+        resolvedIssueId = allocateNextLocalSessionId(repoRoot);
       } else if (createIssue) {
         const created = createPMIssue({
           title: title || 'Automated SDLC Task',
@@ -672,11 +690,13 @@ export function executeCompositeStage({
       }
     }
 
-    const slug = (title || 'sdlc-task')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '')
-      .slice(0, 40);
+    const slug =
+      (title || 'sdlc-task')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 40)
+        .replace(/-+$/g, '') || 'sdlc-task';
     const isLocalId = String(resolvedIssueId).startsWith('L-');
     const isLocalTrivial = resolvedLane === 'trivial' && isLocalId;
     const prefix = type === 'hotfix' ? 'hotfix' : isLocalTrivial ? 'chore' : 'feature';

@@ -688,6 +688,17 @@ export function resolveDefaultBaseBranch(repoRoot = '.') {
   return hasDevelopBranch(repoRoot) ? 'develop' : 'main';
 }
 
+const EPHEMERAL_SDLC_UNTRACKED = new Set([
+  '.agent/.sdlc-session.json',
+  '.agent/.receipt-key',
+  '.agent/.audit-chain.lock'
+]);
+
+function isEphemeralUntrackedSdlcFile(relPath) {
+  const norm = String(relPath).replace(/\\/g, '/');
+  return EPHEMERAL_SDLC_UNTRACKED.has(norm) || norm.startsWith('.agent/.cache/');
+}
+
 export function getModifiedFiles(baseBranch = null, repoRoot = '.') {
   const resolvedBase = baseBranch || resolveDefaultBaseBranch(repoRoot);
   const lines = (out) => (out || '').split('\n').map((s) => s.trim()).filter(Boolean);
@@ -697,7 +708,72 @@ export function getModifiedFiles(baseBranch = null, repoRoot = '.') {
     gitOutput(['diff', '--name-only', 'HEAD~1'], repoRoot);
   const workingFiles = [
     ...lines(gitOutput(['diff', '--name-only', 'HEAD'], repoRoot)),
-    ...lines(gitOutput(['ls-files', '--others', '--exclude-standard'], repoRoot))
+    ...lines(gitOutput(['ls-files', '--others', '--exclude-standard'], repoRoot)).filter(
+      (f) => !isEphemeralUntrackedSdlcFile(f)
+    )
   ];
   return Array.from(new Set([...lines(branchOut), ...workingFiles]));
+}
+
+export function getSessionFilePath(repoRoot = '.') {
+  return path.resolve(repoRoot, '.agent', '.sdlc-session.json');
+}
+
+export function readSessionFileState(repoRoot = '.') {
+  const sessionPath = getSessionFilePath(repoRoot);
+  if (!fileExists(sessionPath)) {
+    return { exists: false, active: false, session: null, activeSessionId: null, sessions: {}, registry: null };
+  }
+  const content = readFileSafe(sessionPath);
+  if (!content) {
+    return { exists: true, active: false, session: null, activeSessionId: null, sessions: {}, registry: null, error: 'Empty session file' };
+  }
+  try {
+    const data = JSON.parse(content);
+    if (data.sessions && typeof data.sessions === 'object') {
+      const activeId = data.activeSessionId;
+      const activeSession = activeId && data.sessions[activeId] ? data.sessions[activeId] : null;
+      return {
+        exists: true,
+        active: !!activeSession?.active,
+        session: activeSession,
+        activeSessionId: activeId,
+        sessions: data.sessions,
+        registry: data
+      };
+    }
+    return {
+      exists: true,
+      active: !!data.active,
+      session: data.issueId ? data : null,
+      activeSessionId: data.issueId || null,
+      sessions: data.issueId ? { [data.issueId]: data } : {},
+      registry: null
+    };
+  } catch {
+    return { exists: true, active: false, session: null, activeSessionId: null, sessions: {}, registry: null, error: 'Corrupted session file' };
+  }
+}
+
+export function patchActiveSessionManifest(repoRoot = '.', manifestPatch = {}) {
+  const sessionPath = getSessionFilePath(repoRoot);
+  if (!fileExists(sessionPath)) return false;
+  try {
+    const data = JSON.parse(readFileSafe(sessionPath) || '{}');
+    if (data.sessions && typeof data.sessions === 'object') {
+      const activeId = data.activeSessionId;
+      if (activeId && data.sessions[activeId]) {
+        data.sessions[activeId].manifest = { ...(data.sessions[activeId].manifest || {}), ...manifestPatch };
+        data.sessions[activeId].updatedAt = new Date().toISOString();
+        writeFileAtomic(sessionPath, JSON.stringify(data, null, 2));
+        return true;
+      }
+    } else if (data.issueId) {
+      data.manifest = { ...(data.manifest || {}), ...manifestPatch };
+      data.updatedAt = new Date().toISOString();
+      writeFileAtomic(sessionPath, JSON.stringify(data, null, 2));
+      return true;
+    }
+  } catch {}
+  return false;
 }

@@ -19,7 +19,7 @@ flowchart TD
   subgraph Ring0 ["Ring 0: domain-core"]
     M__agent_scripts_lib_audit_chain_mjs["audit-chain.mjs (12 exports, I=0.13)"]
     M__agent_scripts_lib_cache_mjs["cache.mjs (6 exports, I=0.5)"]
-    M__agent_scripts_lib_core_mjs["core.mjs (29 exports, I=0)"]
+    M__agent_scripts_lib_core_mjs["core.mjs (32 exports, I=0)"]
     M__agent_scripts_lib_decision_graph_mjs["decision-graph.mjs (7 exports, I=0.17)"]
   end
   subgraph Ring1 ["Ring 1: governance-models"]
@@ -96,9 +96,9 @@ flowchart TD
 
 | Source Module | Lines | $Ca$ / $Ce$ | Instability ($I$) | Exported AST Symbols (Line #) | Wiki Coverage |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `.agent/scripts/lib/audit-chain.mjs` | 479 | 7 / 1 | `0.13` | `AUDIT_LEDGER_FILE` (L7), `GENESIS_HASH` (L8), `calculateRecordHash` (L10), `appendAuditRecord` (L53), `verifyAuditChain` (L99), `RECEIPT_KEY_FILE` (L191), `loadReceiptKey` (L199), `signReceiptPayload` (L241) +4 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
+| `.agent/scripts/lib/audit-chain.mjs` | 481 | 7 / 1 | `0.13` | `AUDIT_LEDGER_FILE` (L7), `GENESIS_HASH` (L8), `calculateRecordHash` (L10), `appendAuditRecord` (L53), `verifyAuditChain` (L99), `RECEIPT_KEY_FILE` (L191), `loadReceiptKey` (L199), `signReceiptPayload` (L241) +4 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
 | `.agent/scripts/lib/cache.mjs` | 171 | 1 / 1 | `0.5` | `getGateCachePath` (L9), `computeTreeHash` (L18), `getGateCacheHit` (L105), `recordGateCache` (L119), `getGateCacheStats` (L152), `clearGateCache` (L162) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md` |
-| `.agent/scripts/lib/core.mjs` | 704 | 16 / 0 | `0` | `loadEnv` (L10), `fileExists` (L40), `readFileSafe` (L48), `normalizeTicketId` (L56), `parseTicketId` (L63), `resolveInsideRepo` (L69), `writeFileAtomic` (L82), `loadConfig` (L90) +21 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md` |
+| `.agent/scripts/lib/core.mjs` | 780 | 16 / 0 | `0` | `loadEnv` (L10), `fileExists` (L40), `readFileSafe` (L48), `normalizeTicketId` (L56), `parseTicketId` (L63), `resolveInsideRepo` (L69), `writeFileAtomic` (L82), `loadConfig` (L90) +24 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md` |
 | `.agent/scripts/lib/decision-graph.mjs` | 449 | 5 / 1 | `0.17` | `DECISION_GRAPH_FILE` (L5), `DECISION_MAP_MD` (L6), `parseProductMarkdown` (L8), `listADRs` (L82), `appendDecisionEvent` (L122), `buildDecisionGraph` (L153), `syncDecisionMapMarkdown` (L374) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
 
 ### 🏛️ Ring 1: governance-models
@@ -108,7 +108,7 @@ flowchart TD
 | `.agent/scripts/lib/adr-drift.mjs` | 853 | 7 / 3 | `0.3` | `createADR` (L86), `decideADR` (L206), `compactADRs` (L291), `checkSpecDrift` (L536), `auditContractDrift` (L730) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
 | `.agent/scripts/lib/dossier.mjs` | 130 | 1 / 3 | `0.75` | `extractExportSignatures` (L7), `generateTicketDossier` (L23) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md` |
 | `.agent/scripts/lib/git-guard.mjs` | 419 | 3 / 3 | `0.5` | `verifyCommitGuard` (L24), `verifyMergeGuard` (L82), `verifyPushGuard` (L157), `buildHookTemplates` (L191), `inspectHooksHealth` (L259), `installHooks` (L305), `DEFAULT_QUALITY_GATE_CHECK` (L340), `applyBranchProtection` (L346) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
-| `.agent/scripts/lib/pm-provider.mjs` | 1550 | 5 / 1 | `0.17` | `CANONICAL_ISSUE_TEMPLATES` (L62), `scaffoldIssueTemplates` (L164), `loadIssueTemplate` (L186), `formatTemplatedIssue` (L240), `updateLocalKanbanState` (L317), `transitionPMState` (L405), `createTicket` (L727), `resolveOpenPRNumber` (L978) +8 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
+| `.agent/scripts/lib/pm-provider.mjs` | 1540 | 5 / 1 | `0.17` | `CANONICAL_ISSUE_TEMPLATES` (L90), `scaffoldIssueTemplates` (L192), `loadIssueTemplate` (L214), `formatTemplatedIssue` (L268), `updateLocalKanbanState` (L345), `transitionPMState` (L433), `createTicket` (L755), `resolveOpenPRNumber` (L968) +8 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
 | `.agent/scripts/lib/product-dag.mjs` | 815 | 5 / 4 | `0.44` | `renderCapabilitySpecMarkdown` (L32), `renderProductPrdMarkdown` (L85), `renderProductSrsMarkdown` (L136), `initProductConstitution` (L213), `scaffoldCapabilitySpec` (L416), `planProductDAG` (L596), `controlProductDAG` (L675), `deconstructEpic` (L729) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
 | `.agent/scripts/lib/readme-sync.mjs` | 911 | 1 / 2 | `0.67` | `escapeXml` (L105), `slugifyHeadingAnchor` (L114), `detectReadmeArchetype` (L137), `stripArchetypeBlocks` (L182), `renderThemeWordmarkSvg` (L199), `renderVhsDemoTape` (L223), `renderLlmsTxt` (L249), `scaffoldReadme` (L446) +1 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
 
@@ -119,7 +119,7 @@ flowchart TD
 | `.agent/scripts/lib/arch-trace.mjs` | 492 | 6 / 2 | `0.25` | `checkArchDiff` (L16), `parseMermaidDiagram` (L191), `diffMermaidGraphs` (L268), `recordArchTrace` (L292), `scaffoldArchlensPolicy` (L431) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
 | `.agent/scripts/lib/installer.mjs` | 1513 | 3 / 4 | `0.57` | `DEPRECATED_SDLC_SKILLS` (L10), `CANONICAL_SDLC_SKILLS` (L27), `ARCHLENS_SKILL_PACKAGE` (L40), `DEFAULT_GITIGNORE_ENTRIES` (L42), `upsertGitignore` (L52), `pinArchlensMcpConfigs` (L66), `SUPPORTED_AGENTS` (L82), `getFrameworkVersion` (L150) +18 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md` |
 | `.agent/scripts/lib/quality-gate.mjs` | 2778 | 2 / 8 | `0.8` | `runDoctor` (L31), `generateRegressionProof` (L143), `monitorCanaryHealthAndWatchdog` (L327), `installCIWorkflow` (L440), `exportAgentRules` (L867), `scaffoldReproductionTest` (L884), `assessRisk` (L1010), `VALID_LANES` (L1084) +21 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md` |
-| `.agent/scripts/lib/session.mjs` | 896 | 4 / 9 | `0.69` | `getSessionPath` (L25), `getSessionStatus` (L29), `startSession` (L65), `updateSession` (L148), `switchSession` (L232), `listSessions` (L254), `renderDashboard` (L278), `resumeSession` (L315) +8 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Home.md`, `wiki/Skills-Reference.md` |
+| `.agent/scripts/lib/session.mjs` | 916 | 4 / 9 | `0.69` | `getSessionPath` (L27), `getSessionStatus` (L31), `startSession` (L48), `updateSession` (L131), `switchSession` (L215), `listSessions` (L237), `renderDashboard` (L261), `resumeSession` (L298) +8 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Home.md`, `wiki/Skills-Reference.md` |
 | `.agent/scripts/lib/wiki-sync.mjs` | 796 | 2 / 5 | `0.71` | `inspectSourceModule` (L97), `resolveArchlensRing` (L149), `buildWikiCodeMap` (L183), `auditWiki` (L371), `renderCodebaseMapMarkdown` (L571), `syncWiki` (L724) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
 | `.agent/scripts/lib/workbench-server.mjs` | 2749 | 2 / 7 | `0.78` | `parseKanbanMarkdown` (L94), `parseArchTraceMarkdown` (L175), `buildArchDiffPayload` (L209), `generateArchitectureWidget` (L286), `renderWorkbenchHTML` (L901), `ensureWorkbenchRunning` (L2491), `createWorkbenchServer` (L2529) | `wiki/Architecture.md`, `wiki/Codebase-Map.md` |
 
@@ -127,7 +127,7 @@ flowchart TD
 
 | Source Module | Lines | $Ca$ / $Ce$ | Instability ($I$) | Exported AST Symbols (Line #) | Wiki Coverage |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `.agent/scripts/sdlc-engine.mjs` | 2809 | 0 / 16 | `1` | `executeRelease` (L437), `runCLI` (L718), `formatCLIResult` (L2546), `cliExitCode` (L2786) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Home.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
+| `.agent/scripts/sdlc-engine.mjs` | 2819 | 0 / 16 | `1` | `executeRelease` (L437), `runCLI` (L718), `formatCLIResult` (L2556), `cliExitCode` (L2796) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Home.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
 
 
 ---

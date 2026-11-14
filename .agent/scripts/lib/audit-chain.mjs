@@ -447,6 +447,8 @@ export function verifyGateReceipt({ headSha = null, branch = null, repoRoot = '.
             (f) =>
               f === 'docs/AUDIT_CHAIN.jsonl' ||
               f === 'docs/ARCH_TRACE.md' ||
+              f === 'docs/DECISION_MAP.md' ||
+              f === 'docs/KANBAN.md' ||
               f === '.agent/arch-trace.jsonl' ||
               f === '.agent/decision-graph.jsonl' ||
               f === '.agent/.sdlc-session.json'

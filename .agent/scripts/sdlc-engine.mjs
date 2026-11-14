@@ -719,6 +719,12 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
   const args = customArgs || process.argv.slice(2);
   const command = args[0] || 'detect';
   const configPath = customConfigPath || path.resolve(repoRoot, '.agent/sdlc-config.json');
+  const shouldPersistConfig =
+    command === 'detect' ||
+    command === 'install' ||
+    command === 'init' ||
+    command === 'update' ||
+    (command === 'doctor' && args.includes('--fix'));
 
   let config;
   let reGenerated = false;
@@ -729,15 +735,19 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       if (!config || !Array.isArray(config.modules)) throw new Error('Invalid config schema');
     } catch {
       config = generateConfig(repoRoot);
-      fs.mkdirSync(path.dirname(configPath), { recursive: true });
-      fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-      reGenerated = true;
+      if (shouldPersistConfig) {
+        fs.mkdirSync(path.dirname(configPath), { recursive: true });
+        writeFileAtomic(configPath, JSON.stringify(config, null, 2));
+        reGenerated = true;
+      }
     }
   } else {
     config = generateConfig(repoRoot);
-    fs.mkdirSync(path.dirname(configPath), { recursive: true });
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-    reGenerated = true;
+    if (shouldPersistConfig) {
+      fs.mkdirSync(path.dirname(configPath), { recursive: true });
+      writeFileAtomic(configPath, JSON.stringify(config, null, 2));
+      reGenerated = true;
+    }
   }
 
   const result = {
@@ -2266,7 +2276,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       let laneOverride = null;
       let reason = null;
       let intent = '';
-      let baseBranch = 'main';
+      let baseBranch = null;
       const files = [];
       for (let i = 1; i < args.length; i++) {
         if (args[i] === '--lane' && args[i + 1]) laneOverride = args[++i];

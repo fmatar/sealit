@@ -11,8 +11,36 @@ import {
   resolveDefaultBaseBranch,
   resolveQualityThresholds,
   sameShaPrefix,
+  readSessionFileState,
+  patchActiveSessionManifest,
   writeFileAtomic
 } from './core.mjs';
+
+const localTicketHighWater = new Map();
+
+function allocateNextLocalTicketId(repoRoot = '.') {
+  const resolvedRoot = path.resolve(repoRoot);
+  let maxId = localTicketHighWater.get(resolvedRoot) || 0;
+
+  const kanbanPath = path.resolve(resolvedRoot, 'docs/KANBAN.md');
+  if (fileExists(kanbanPath)) {
+    const content = readFileSafe(kanbanPath) || '';
+    for (const m of content.matchAll(/#(\d+):|\|\s*\*\*#?(\d+)\*\*\s*\|/g)) {
+      const num = Number(m[1] || m[2]);
+      if (Number.isInteger(num) && num > maxId) maxId = num;
+    }
+  }
+
+  const state = readSessionFileState(resolvedRoot);
+  for (const key of Object.keys(state.sessions || {})) {
+    const parsed = Number(String(key).replace(/^#/, ''));
+    if (Number.isInteger(parsed) && parsed > maxId) maxId = parsed;
+  }
+
+  const nextId = maxId + 1;
+  localTicketHighWater.set(resolvedRoot, nextId);
+  return nextId;
+}
 
 function sanitizeCurlHeaderVal(val) {
   return String(val ?? '')
@@ -924,7 +952,7 @@ export function createTicket({
     }
   }
 
-  const issueId = Date.now() % 10000;
+  const issueId = allocateNextLocalTicketId(repoRoot);
   mirrorTicketToKanban(repoRoot, { issueId, prefix, fullTitle });
   return {
     success: true,
@@ -937,51 +965,13 @@ export function createTicket({
   };
 }
 
-function readActiveSessionFromDisk(repoRoot = '.') {
-  const sessionPath = path.resolve(repoRoot, '.agent', '.sdlc-session.json');
-  if (!fileExists(sessionPath)) return null;
-  try {
-    const data = JSON.parse(readFileSafe(sessionPath) || '{}');
-    if (data.sessions && typeof data.sessions === 'object') {
-      const activeId = data.activeSessionId;
-      return activeId && data.sessions[activeId] ? data.sessions[activeId] : null;
-    }
-    return data.issueId ? data : null;
-  } catch {
-    return null;
-  }
-}
-
-function patchActiveSessionManifest(repoRoot = '.', manifestPatch = {}) {
-  const sessionPath = path.resolve(repoRoot, '.agent', '.sdlc-session.json');
-  if (!fileExists(sessionPath)) return false;
-  try {
-    const data = JSON.parse(readFileSafe(sessionPath) || '{}');
-    if (data.sessions && typeof data.sessions === 'object') {
-      const activeId = data.activeSessionId;
-      if (activeId && data.sessions[activeId]) {
-        data.sessions[activeId].manifest = { ...(data.sessions[activeId].manifest || {}), ...manifestPatch };
-        data.sessions[activeId].updatedAt = new Date().toISOString();
-        writeFileAtomic(sessionPath, JSON.stringify(data, null, 2));
-        return true;
-      }
-    } else if (data.issueId) {
-      data.manifest = { ...(data.manifest || {}), ...manifestPatch };
-      data.updatedAt = new Date().toISOString();
-      writeFileAtomic(sessionPath, JSON.stringify(data, null, 2));
-      return true;
-    }
-  } catch {}
-  return false;
-}
-
 export function resolveOpenPRNumber({ prNumber = null, branch = null, repoRoot = '.', execFn = execFileSync } = {}) {
   if (prNumber !== null && prNumber !== undefined && String(prNumber).trim() !== '') {
     const cleaned = String(prNumber).trim().replace(/^#/, '');
     return Number(cleaned) || cleaned;
   }
 
-  const activeSess = readActiveSessionFromDisk(repoRoot);
+  const activeSess = readSessionFileState(repoRoot).session;
   const manifestPr = activeSess?.manifest?.prNumber;
   if (manifestPr !== null && manifestPr !== undefined && String(manifestPr).trim() !== '') {
     const cleaned = String(manifestPr).trim().replace(/^#/, '');
@@ -1018,7 +1008,7 @@ export function ensurePullRequest({
   repoRoot = '.',
   execFn = execFileSync
 } = {}) {
-  const activeSess = readActiveSessionFromDisk(repoRoot);
+  const activeSess = readSessionFileState(repoRoot).session;
   const targetBaseBranch = baseBranch || resolveDefaultBaseBranch(repoRoot);
   const targetBranch =
     branch ||
@@ -1029,7 +1019,7 @@ export function ensurePullRequest({
 
   const existingPr = resolveOpenPRNumber({ branch: targetBranch, repoRoot, execFn });
   if (existingPr) {
-    const refreshedSess = readActiveSessionFromDisk(repoRoot);
+    const refreshedSess = readSessionFileState(repoRoot).session;
     return {
       success: true,
       created: false,
@@ -1101,7 +1091,7 @@ export function ensurePullRequest({
   } catch (err) {
     const fallbackPr = resolveOpenPRNumber({ branch: targetBranch, repoRoot, execFn });
     if (fallbackPr) {
-      const refreshedSess = readActiveSessionFromDisk(repoRoot);
+      const refreshedSess = readSessionFileState(repoRoot).session;
       return {
         success: true,
         created: false,
@@ -1181,7 +1171,7 @@ export function formatConsolidatedReviewComment({
   receiptId = null,
   repoRoot = '.'
 } = {}) {
-  const activeSess = readActiveSessionFromDisk(repoRoot);
+  const activeSess = readSessionFileState(repoRoot).session;
   const resolvedIssue = issueId ?? activeSess?.issueId ?? 'N/A';
   const resolvedPr = prNumber ?? activeSess?.manifest?.prNumber ?? null;
   const resolvedBranch = branch || activeSess?.branch || 'current-branch';
@@ -1287,7 +1277,7 @@ export function postPMComment({
   execFn = execFileSync
 } = {}) {
   const pm = detectPMProvider(repoRoot);
-  const activeSess = readActiveSessionFromDisk(repoRoot);
+  const activeSess = readSessionFileState(repoRoot).session;
   const resolvedIssueId = issueId || activeSess?.issueId || null;
   const resolvedPrNumber = resolveOpenPRNumber({ prNumber, branch: activeSess?.branch, repoRoot, execFn });
   const targetId = resolvedIssueId || resolvedPrNumber;
