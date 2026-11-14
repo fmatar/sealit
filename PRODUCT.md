@@ -57,4 +57,5 @@ End-to-end spec-driven autonomous software development lifecycle, Spec-Drift ADR
 | ADR-014 | Canonical Git Flow: Enforce Merges to Develop, Block Direct PRs to Main, and Automate Production Releases on Develop Merge | `technical` | `accepted` | L-124000 | CAP-01, CAP-04, CAP-06 |
 | ADR-015 | Harden Stage 7 Gate Receipts, Ring 0 Primitives, and Git Flow Verification | `technical` | `accepted` | L-128000 | CAP-01, CAP-04 |
 | ADR-016 | Break Ring 2 Cycles, Decompose quality-gate.mjs, Enforce Whole-Graph Cycle Detection in checkArchDiff, and Align Archlens Policy Schema | `technical` | `accepted` | #134 | CAP-02, CAP-03 |
+| ADR-017 | Externalize Workbench Assets, Harden CSP Headers, Clean Dialect Hygiene, and Ensure Global CLI Portability | `technical` | `accepted` | #135 | CAP-03, CAP-07, CAP-08, CAP-10, CAP-11 |
 <!-- ADR_INDEX_END -->

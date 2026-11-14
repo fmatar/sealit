@@ -94,13 +94,13 @@ export function listADRs(repoRoot = '.') {
     const raw = readFileSafe(full) || '';
     const idMatch = file.match(/^(ADR-\d+)/);
     const id = idMatch ? idMatch[1] : file.replace(/\.md$/, '');
-    const title = (raw.match(/^title:\s*(.+)$/m) || raw.match(/^#\s+(.+)$/m) || [null, id])[1].trim();
-    const status = (raw.match(/^status:\s*(.+)$/m) || [null, 'accepted'])[1].trim();
-    const scope = (raw.match(/^scope:\s*(.+)$/m) || [null, 'technical'])[1].trim();
-    const ticketMatch = raw.match(/^ticket:\s*(.+)$/m);
-    const supersedesRaw = (raw.match(/^supersedes:\s*(.+)$/m) || [null, ''])[1].trim();
+    const title = (raw.match(/^title:[ \t]*(.+)$/m) || raw.match(/^#[ \t]+(.+)$/m) || [null, id])[1].trim();
+    const status = (raw.match(/^status:[ \t]*(.+)$/m) || [null, 'accepted'])[1].trim();
+    const scope = (raw.match(/^scope:[ \t]*(.+)$/m) || [null, 'technical'])[1].trim();
+    const ticketMatch = raw.match(/^ticket:[ \t]*(.+)$/m);
+    const supersedesRaw = (raw.match(/^supersedes:[ \t]*(.+)$/m) || [null, ''])[1].trim();
     const supersedes = supersedesRaw ? supersedesRaw.split(',').map((s) => s.trim()).filter(Boolean) : [];
-    const createdAt = (raw.match(/^createdAt:\s*(.+)$/m) || [null, ''])[1].trim();
+    const createdAt = (raw.match(/^createdAt:[ \t]*(.+)$/m) || [null, ''])[1].trim();
 
     adrs.push({
       id,

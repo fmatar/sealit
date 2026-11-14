@@ -55,7 +55,8 @@
     ".impeccable",
     ".gradle",
     ".idea",
-    ".vscode"
+    ".vscode",
+    "workbench-assets"
   ],
   "lang": "typescript"
 }

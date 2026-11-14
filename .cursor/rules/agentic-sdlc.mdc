@@ -1,6 +1,6 @@
 ---
 description: Agentic SDLC Framework Lifecycle, TDD, and Dual-Gate Quality Rules
-globs: *
+globs: "*"
 alwaysApply: true
 ---
 
