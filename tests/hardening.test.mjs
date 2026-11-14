@@ -4705,4 +4705,89 @@ describe('Issue #133: CI Portability, Config Validation, Wiki Stdout & Graph Fid
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it('validates every schema error path in validateConfigFile, runDoctor invalid config detection, and CLI formatters', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-133-cfg-branches-'));
+    try {
+      // Missing config file
+      const missing = qualityGateMod.validateConfigFile(dir);
+      assert.equal(missing.valid, false);
+      assert.equal(missing.exists, false);
+
+      fs.mkdirSync(path.join(dir, '.agent'), { recursive: true });
+      const cfgPath = path.join(dir, '.agent/sdlc-config.json');
+
+      // Malformed JSON
+      fs.writeFileSync(cfgPath, '{not valid json', 'utf8');
+      const malformed = qualityGateMod.validateConfigFile(dir);
+      assert.equal(malformed.valid, false);
+      assert.equal(malformed.exists, true);
+      assert.match(malformed.errors[0], /Invalid JSON/);
+
+      // Non-object top level
+      fs.writeFileSync(cfgPath, '[]', 'utf8');
+      const arrTop = qualityGateMod.validateConfigFile(dir);
+      assert.equal(arrTop.valid, false);
+      assert.match(arrTop.errors[0], /JSON object/);
+
+      // All field validation error paths
+      const badCases = [
+        [{ version: '', modules: [] }, /'version'/],
+        [{ version: '2.1.0', profile: 'invalid-profile', modules: [] }, /Invalid 'profile'/],
+        [{ version: '2.1.0', ci: 'bad', modules: [] }, /'ci' must be an object/],
+        [{ version: '2.1.0', ci: { runsOn: '' }, modules: [] }, /'ci\.runsOn' must be a non-empty string without newline/],
+        [{ version: '2.1.0', ci: { runsOn: ['ubuntu-latest', 'bad\nrunner'] }, modules: [] }, /Every entry in 'ci\.runsOn' array/],
+        [{ version: '2.1.0', ci: { runsOn: [] }, modules: [] }, /'ci\.runsOn' must be a non-empty string or non-empty array/],
+        [{ version: '2.1.0', lanes: 'bad', modules: [] }, /'lanes' must be an object/],
+        [{ version: '2.1.0', lanes: { trivialMaxLines: 0, standardMaxLines: -5 }, modules: [] }, /'lanes\.trivialMaxLines'/],
+        [{ version: '2.1.0', projectManagement: 'bad', modules: [] }, /'projectManagement' must be an object/],
+        [{ version: '2.1.0', projectManagement: { provider: 'bugzilla' }, modules: [] }, /projectManagement\.provider/],
+        [{ version: '2.1.0', modules: 'not-array' }, /Missing required 'modules' array/],
+        [{ version: '2.1.0', modules: ['bad-mod'] }, /modules\[0\] must be an object/],
+        [{ version: '2.1.0', modules: [{ path: '', thresholds: { diffCoverage: 150, mutationScore: -1 } }] }, /modules\[0\]\.path/]
+      ];
+      for (const [payload, expectedRegex] of badCases) {
+        fs.writeFileSync(cfgPath, JSON.stringify(payload), 'utf8');
+        const res = qualityGateMod.validateConfigFile(dir);
+        assert.equal(res.valid, false, `Expected invalid for ${JSON.stringify(payload)}`);
+        assert.match(res.errors.join(' | '), expectedRegex);
+
+        const cliInvalid = runCLI(['config', 'check'], null, dir);
+        assert.equal(cliInvalid.success, false);
+        assert.equal(cliInvalid.exitCode, 1);
+        const formattedErr = formatCLIResult(cliInvalid, ['config', 'check']);
+        assert.match(formattedErr, /Config Check Failed/);
+      }
+
+      // runDoctor flags invalid config cleanly
+      fs.writeFileSync(cfgPath, JSON.stringify({ version: '2.1.0', modules: [{ path: '.', thresholds: { diffCoverage: 120 } }] }), 'utf8');
+      const doc = runDoctor(dir);
+      assert.equal(doc.configValidation.valid, false);
+      assert.equal(doc.assets.find((a) => a.path === '.agent/sdlc-config.json')?.status, false);
+
+      // Unknown subcommand on `config` exits cleanly with code 2
+      const badSub = runCLI(['config', 'bogus'], null, dir);
+      assert.equal(badSub.success, false);
+      assert.equal(badSub.exitCode, 2);
+
+      // Valid config passes validate + formatCLIResult
+      fs.writeFileSync(
+        cfgPath,
+        JSON.stringify({
+          version: '2.1.0',
+          profile: 'custom',
+          ci: { runsOn: ['ubuntu-latest'] },
+          lanes: { trivialMaxLines: 25, standardMaxLines: 200 },
+          projectManagement: { provider: 'github' },
+          modules: [{ name: 'root', path: '.', thresholds: { diffCoverage: 85, mutationScore: 52 } }]
+        }),
+        'utf8'
+      );
+      const cliValid = runCLI(['config', 'validate'], cfgPath, dir);
+      assert.equal(cliValid.success, true);
+      assert.match(formatCLIResult(cliValid, ['config', 'validate']), /is valid \(1 module\(s\), profile=custom\)/);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
