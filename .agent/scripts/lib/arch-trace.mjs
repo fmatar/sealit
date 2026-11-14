@@ -23,7 +23,8 @@ const DEFAULT_OMIT_DIRS = new Set([
   'build',
   'target',
   'tests',
-  '__tests__'
+  '__tests__',
+  'workbench-assets'
 ]);
 
 const SOURCE_FILE_EXT_RE = /\.(mjs|cjs|mts|cts|js|jsx|ts|tsx|java)$/i;
@@ -781,7 +782,7 @@ export function scaffoldArchlensPolicy(repoRoot = '.') {
     order,
     levels,
     foreign: ['node:', '@types/'],
-    omit: ['target', 'build', '.git', 'node_modules', 'coverage', 'reports', '.stryker-tmp'],
+    omit: ['target', 'build', '.git', 'node_modules', 'coverage', 'reports', '.stryker-tmp', 'workbench-assets'],
     lang
   };
 

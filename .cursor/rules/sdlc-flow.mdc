@@ -1,6 +1,6 @@
 ---
 description: "Use when implementing a feature, bug fix, or hotfix end-to-end across branches and PRs. Not for read-only questions or status checks. Drives proportional SDLC lanes."
-globs: *
+globs: "*"
 alwaysApply: false
 ---
 

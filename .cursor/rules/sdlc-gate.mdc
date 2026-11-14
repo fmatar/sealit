@@ -1,6 +1,6 @@
 ---
 description: "Use when reviewing a branch or PR, running strict quality gates, or signing a Stage 7 receipt. Not for writing feature code. Runs review plan, gate, and review record."
-globs: *
+globs: "*"
 alwaysApply: false
 ---
 
@@ -26,14 +26,14 @@ alwaysApply: false
    Inspect the returned `lane`, `subagentsCount`, `modifiedFiles`, `diffStat`, `diff`, and `payload.Subagents` list (each prompt embeds the changed file paths, `--stat`, and bounded unified diff against the target base branch (`develop` or `main`)).
 
 2. **Dispatch Read-Only Reviewers with Concrete Context** (`standard` & `full` lanes):
-   For each subagent in `review plan`, call `subagent-task` (`TypeName: "research"`) in parallel using its generated `Prompt` (which already contains the branch, `baseSha`/`headSha`, modified files, and unified `git diff`), supplemented with:
+   For each subagent in `review plan`, call `subagent-task` in parallel using its generated `Prompt` (which already contains the branch, `baseSha`/`headSha`, modified files, and unified `git diff`), supplemented with:
    - Current branch name, target base branch (`develop` or `main`) SHA, and active ticket `#id`.
    - Measured coverage/mutation numbers from `.agent/.sdlc-session.json` and thresholds from `.agent/sdlc-config.json`.
    - Instruction to return a structured verdict: `verdict: approve | request-changes`, `blockers: [...]`, and concise `notes` for the PR comment (subagents are read-only and never run `review record` or `gh` themselves).
 
 3. **Evaluate Blockers & Remediate if Needed**:
    - Derive `<verdict>` strictly from reviewer output: `approve` **only** when every reviewer returned `approve` with `0` blockers; otherwise `request-changes`.
-   - If `request-changes`, fix all blockers, commit, and message the same subagent `conversationId`s to re-verify before approving.
+   - If `request-changes`, fix all blockers, commit, and message the same reviewer subagent to re-verify before approving.
 
 4. **Run Deterministic Quality Gate & Record Verdict**:
    ```bash
@@ -55,7 +55,7 @@ alwaysApply: false
 - Waiving or exempting any security or architectural blocker reported by a reviewer.
 
 ## If it fails
-- **`review record` exits non-zero on `gh pr comment`** -> re-run with network/keychain access (`BypassSandbox: true`) so the 4-section review is published live on the PR.
+- **`review record` exits non-zero on `gh pr comment`** -> re-run with host network/keychain access outside any restricted sandbox so the 4-section review is published live on the PR.
 - **`issueGateReceipt` refuses unmeasured values** -> run `coverage` (and `mutation` in `full` lane) first so `.agent/.sdlc-session.json` holds real measurements.
 - **3 failed remediation loops** -> circuit breaker trips; stop and escalate to the user.
 

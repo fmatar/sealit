@@ -1,6 +1,6 @@
 ---
 description: "Use when writing tests, reproducing bugs, or checking coverage and mutation gates. Not for pure prose edits. Enforces Red-Green-Refactor TDD using sdlc-config.json bars."
-globs: *
+globs: "*"
 alwaysApply: false
 ---
 

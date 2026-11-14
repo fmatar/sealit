@@ -50,6 +50,8 @@ flowchart TD
   L_128000["Ticket L-128000"]
   ADR_016["ADR-016: Break Ring 2 Cycles, Decompose quality-gate.mjs, Enforce Whole-Graph Cycle Detection in checkArchDiff, and Align Archlens Policy Schema"]
   _134["Ticket #134 (feature/issue-#134)"]
+  ADR_017["ADR-017: Externalize Workbench Assets, Harden CSP Headers, Clean Dialect Hygiene, and Ensure Global CLI Portability"]
+  _135["Ticket #135"]
   ADR_COMPACT_v0_3_0["Compacted 8 ADR(s) into SRS.md (v0.3.0)"]
   createdAt__2026_11_03T18_52_42_656Z["createdAt: 2026-11-03T18:52:42.656Z"]
   ADR_COMPACT_v0_4_0["Compacted 6 ADR(s) into SRS.md (v0.4.0)"]
@@ -141,6 +143,12 @@ flowchart TD
   _134 -->|triggered_drift_adr| ADR_016
   CAP_02 -.->|ADR Drift| ADR_016
   CAP_03 -.->|ADR Drift| ADR_016
+  _135 -->|triggered_drift_adr| ADR_017
+  CAP_03 -.->|ADR Drift| ADR_017
+  CAP_07 -.->|ADR Drift| ADR_017
+  CAP_08 -.->|ADR Drift| ADR_017
+  CAP_10 -.->|ADR Drift| ADR_017
+  CAP_11 -.->|ADR Drift| ADR_017
   CAP_01 -->|realized_by| ADR_COMPACT_v0_3_0
   CAP_02 -->|realized_by| ADR_COMPACT_v0_3_0
   CAP_03 -->|realized_by| ADR_COMPACT_v0_3_0
@@ -177,6 +185,7 @@ flowchart TD
 | **ADR-014** | Canonical Git Flow: Enforce Merges to Develop, Block Direct PRs to Main, and Automate Production Releases on Develop Merge | `technical` | `accepted` | L-124000 | CAP-01, CAP-04, CAP-06 |
 | **ADR-015** | Harden Stage 7 Gate Receipts, Ring 0 Primitives, and Git Flow Verification | `technical` | `accepted` | L-128000 | CAP-01, CAP-04 |
 | **ADR-016** | Break Ring 2 Cycles, Decompose quality-gate.mjs, Enforce Whole-Graph Cycle Detection in checkArchDiff, and Align Archlens Policy Schema | `technical` | `accepted` | #134 | CAP-02, CAP-03 |
+| **ADR-017** | Externalize Workbench Assets, Harden CSP Headers, Clean Dialect Hygiene, and Ensure Global CLI Portability | `technical` | `accepted` | #135 | CAP-03, CAP-07, CAP-08, CAP-10, CAP-11 |
 | **ADR-001** | Decompose sdlc-engine.mjs into Modular Domain Libraries with SHA-256 Gate Cache and SvelteKit 5 Decision Workbench | `technical` | `compacted` | #63 | CAP-01 |
 | **ADR-002** | Consolidate 14 Skills into 6 Schema-Valid Skills, Add Composite Stage CLI, and Enforce Real Dual-Gate Verification | `architectural` | `compacted` | #68 | CAP-01, CAP-02, CAP-03, CAP-04, CAP-05, CAP-06 |
 | **ADR-003** | Replace Legacy Shell/Java Installers with Native npx Interactive Multi-Agent Installer Wizard | `architectural` | `compacted` | #75 | CAP-06, CAP-07 |

@@ -1,6 +1,6 @@
 ---
 description: "Use when inspecting the active SDLC session, 8-stage progress, spec drift, or audit chain health. Not for modifying code, sessions, or artifacts (strictly read-only)."
-globs: *
+globs: "*"
 alwaysApply: false
 ---
 

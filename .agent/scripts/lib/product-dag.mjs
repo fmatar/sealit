@@ -186,7 +186,7 @@ flowchart TB
     Router --> Engine["SDLC Universal Engine\n(.agent/scripts/sdlc-engine.mjs)"]
     Engine --> Domain["Modular Domain Libraries\n(.agent/scripts/lib/*.mjs)"]
     Domain --> Ledger["SHA-256 Merkle Audit Chain & Decision Graph\n(docs/AUDIT_CHAIN.jsonl, docs/DECISION_MAP.md)"]
-    Domain --> Workbench["SvelteKit 5 Architecture & Decision Workbench\n(http://localhost:4120)"]
+    Domain --> Workbench["Architecture & Decision Workbench\n(http://localhost:4120)"]
 \`\`\`
 
 ### 2.2 Operating Environment & Constraints

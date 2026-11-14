@@ -34,9 +34,9 @@ node .agent/scripts/sdlc-engine.mjs gate --strict
 # 2. (Optional) Generate SHA-256 delivery regression proof
 node .agent/scripts/sdlc-engine.mjs proof generate --name <release-version>
 
-# 3. Preview SemVer bump & ADR compaction first (--dry-run), then execute on release branch
+# 3. Preview SemVer bump & ADR compaction first (--dry-run), then execute on release branch (--no-tag when tagging after PR merge)
 node .agent/scripts/sdlc-engine.mjs release <patch|minor|major> --dry-run
-node .agent/scripts/sdlc-engine.mjs release <patch|minor|major>
+node .agent/scripts/sdlc-engine.mjs release <patch|minor|major> --no-tag
 
 # 4. After PR merge to main: monitor canary health endpoint (read-only probe unless rollback confirmed)
 node .agent/scripts/sdlc-engine.mjs watchdog monitor --url https://service.example.com/health --threshold 0.05 --samples 5 --live

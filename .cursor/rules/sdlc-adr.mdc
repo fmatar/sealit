@@ -1,6 +1,6 @@
 ---
 description: "Use when changing PRODUCT.md, docs/specs/, dependencies, schemas, or API contracts, or when drift check fails. Not for routine code edits without spec or dependency drift."
-globs: *
+globs: "*"
 alwaysApply: false
 ---
 

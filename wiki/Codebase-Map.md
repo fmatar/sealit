@@ -152,16 +152,16 @@ flowchart TD
 
 | Source Module | Lines | $Ca$ / $Ce$ | Instability ($I$) | Exported AST Symbols (Line #) | Wiki Coverage |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `.agent/scripts/lib/arch-trace.mjs` | 798 | 6 / 1 | `0.14` | `checkArchDiff` (L329), `parseMermaidDiagram` (L509), `diffMermaidGraphs` (L586), `recordArchTrace` (L610), `scaffoldArchlensPolicy` (L749) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
+| `.agent/scripts/lib/arch-trace.mjs` | 799 | 6 / 1 | `0.14` | `checkArchDiff` (L330), `parseMermaidDiagram` (L510), `diffMermaidGraphs` (L587), `recordArchTrace` (L611), `scaffoldArchlensPolicy` (L750) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
 | `.agent/scripts/lib/coverage-mutation.mjs` | 583 | 1 / 3 | `0.75` | `buildSingleTestArgv` (L19), `buildSingleTestCommand` (L37), `parseCoverageReport` (L173), `parseMutationReport` (L381), `runFlakeCheck` (L491), `suggestMutationStrengthening` (L555) | `wiki/Architecture.md`, `wiki/Codebase-Map.md` |
 | `.agent/scripts/lib/doctor-ci.mjs` | 1097 | 2 / 4 | `0.67` | `validateConfigFile` (L20), `runDoctor` (L202), `installCIWorkflow` (L328), `inspectCIWorkflows` (L755), `detectStackInDir` (L802), `discoverModules` (L927), `matchFilesToModules` (L1013), `generateConfig` (L1035) +1 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md` |
-| `.agent/scripts/lib/installer.mjs` | 1508 | 2 / 4 | `0.67` | `ARCHLENS_SKILL_PACKAGE` (L18), `DEFAULT_GITIGNORE_ENTRIES` (L20), `upsertGitignore` (L30), `pinArchlensMcpConfigs` (L44), `SUPPORTED_AGENTS` (L60), `getFrameworkVersion` (L128), `CONSTITUTIONAL_RULES_SUMMARY` (L137), `CLAUDE_TOOL_MAP` (L178) +19 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md` |
+| `.agent/scripts/lib/installer.mjs` | 1563 | 2 / 4 | `0.67` | `ARCHLENS_SKILL_PACKAGE` (L18), `DEFAULT_GITIGNORE_ENTRIES` (L20), `upsertGitignore` (L30), `pinArchlensMcpConfigs` (L44), `SUPPORTED_AGENTS` (L60), `getFrameworkVersion` (L128), `CONSTITUTIONAL_RULES_SUMMARY` (L137), `CLAUDE_TOOL_MAP` (L178) +19 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md` |
 | `.agent/scripts/lib/quality-gate.mjs` | 47 | 1 / 5 | `0.83` | `validateConfigFile` (L4), `runDoctor` (L4), `installCIWorkflow` (L4), `inspectCIWorkflows` (L4), `detectStackInDir` (L4), `discoverModules` (L4), `matchFilesToModules` (L4), `generateConfig` (L4) +22 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md` |
 | `.agent/scripts/lib/security-audit.mjs` | 424 | 1 / 3 | `0.75` | `generateRegressionProof` (L17), `monitorCanaryHealthAndWatchdog` (L212), `auditSecurity` (L325) | `wiki/Architecture.md`, `wiki/Codebase-Map.md` |
 | `.agent/scripts/lib/session.mjs` | 894 | 1 / 9 | `0.9` | `getSessionPath` (L30), `getSessionStatus` (L34), `startSession` (L38), `updateSession` (L121), `switchSession` (L206), `listSessions` (L229), `renderDashboard` (L253), `resumeSession` (L290) +8 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Home.md`, `wiki/Skills-Reference.md` |
 | `.agent/scripts/lib/triage-review.mjs` | 911 | 3 / 3 | `0.5` | `scaffoldReproductionTest` (L22), `assessRisk` (L148), `VALID_LANES` (L222), `LANE_RANK` (L223), `triageChange` (L290), `generatePRSummary` (L419), `findAffectedTests` (L564), `findAffectededTests` (L608) +3 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md` |
 | `.agent/scripts/lib/wiki-sync.mjs` | 861 | 2 / 5 | `0.71` | `inspectSourceModule` (L107), `resolveArchlensRing` (L191), `buildWikiCodeMap` (L243), `auditWiki` (L431), `renderCodebaseMapMarkdown` (L631), `syncWiki` (L789) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
-| `.agent/scripts/lib/workbench-server.mjs` | 2748 | 2 / 6 | `0.75` | `parseKanbanMarkdown` (L93), `parseArchTraceMarkdown` (L174), `buildArchDiffPayload` (L208), `generateArchitectureWidget` (L285), `renderWorkbenchHTML` (L900), `ensureWorkbenchRunning` (L2490), `createWorkbenchServer` (L2528) | `wiki/Architecture.md`, `wiki/Codebase-Map.md` |
+| `.agent/scripts/lib/workbench-server.mjs` | 637 | 2 / 6 | `0.75` | `parseKanbanMarkdown` (L108), `parseArchTraceMarkdown` (L189), `buildArchDiffPayload` (L223), `generateArchitectureWidget` (L341), `renderWorkbenchHTML` (L434), `ensureWorkbenchRunning` (L499), `createWorkbenchServer` (L514) | `wiki/Architecture.md`, `wiki/Codebase-Map.md` |
 
 ### 🏛️ Ring 3: cli-entrypoints
 
@@ -219,6 +219,7 @@ flowchart TD
 | **ADR-014** | Canonical Git Flow: Enforce Merges to Develop, Block Direct PRs to Main, and Automate Production Releases on Develop Merge | `technical` | `accepted` | CAP-01, CAP-04, CAP-06 |
 | **ADR-015** | Harden Stage 7 Gate Receipts, Ring 0 Primitives, and Git Flow Verification | `technical` | `accepted` | CAP-01, CAP-04 |
 | **ADR-016** | Break Ring 2 Cycles, Decompose quality-gate.mjs, Enforce Whole-Graph Cycle Detection in checkArchDiff, and Align Archlens Policy Schema | `technical` | `accepted` | CAP-02, CAP-03 |
+| **ADR-017** | Externalize Workbench Assets, Harden CSP Headers, Clean Dialect Hygiene, and Ensure Global CLI Portability | `technical` | `accepted` | CAP-03, CAP-07, CAP-08, CAP-10, CAP-11 |
 
 ---
 

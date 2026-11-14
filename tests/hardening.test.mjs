@@ -5025,3 +5025,260 @@ describe('Issue #134: Ring 2 cycle breakup, quality-gate decomposition, intra-la
     assert.deepEqual(repoPolicy.levels.map((grp) => grp.length), [4, 6, 10, 1]);
   });
 });
+
+// ===========================================================================
+// Issue #135: Workbench asset externalization, CSP/headers, dialect hygiene, global portability & template sync
+// ===========================================================================
+describe('Issue #135: Workbench asset externalization, security headers, dialect hygiene & global portability', () => {
+  let dir;
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-135-'));
+  });
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it('externalizes HTML/CSS/JS out of workbench-server.mjs, sets strict CSP/security headers, and removes stale SvelteKit copy', async () => {
+    const assetsDir = path.join(REPO_ROOT, '.agent/scripts/workbench-assets');
+    for (const f of ['workbench.css', 'shared-client.js', 'widget.html', 'widget.js', 'mission-control.html', 'mission-control.js']) {
+      assert.equal(fs.existsSync(path.join(assetsDir, f)), true, `Missing external workbench asset: ${f}`);
+    }
+
+    const serverLines = fs.readFileSync(path.join(REPO_ROOT, '.agent/scripts/lib/workbench-server.mjs'), 'utf8').split('\n').length;
+    assert.ok(serverLines < 650, `Expected slim workbench-server.mjs (<650 lines), got ${serverLines}`);
+
+    createADR({ title: 'Workbench ADR', scope: 'product', ticketId: 135, decision: 'Use external assets', repoRoot: dir });
+    const wb = createWorkbenchServer({ port: 0, repoRoot: dir });
+    const srv = await wb.listen();
+    const port = srv.address().port;
+
+    try {
+      for (const route of [`/?token=${wb.token}`, `/widget?token=${wb.token}`, `/api/status?token=${wb.token}`, '/api/status']) {
+        const res = await req(port, 'GET', route);
+        assert.equal(res.headers['x-content-type-options'], 'nosniff', `${route} must set X-Content-Type-Options: nosniff`);
+        assert.equal(res.headers['referrer-policy'], 'no-referrer', `${route} must set Referrer-Policy: no-referrer`);
+        const csp = String(res.headers['content-security-policy'] || '');
+        assert.match(csp, /script-src 'nonce-[^']+'/, `${route} CSP must require a per-request script nonce`);
+        assert.match(csp, /style-src 'nonce-[^']+'/, `${route} CSP must require a per-request style nonce`);
+        assert.equal(csp.includes('unsafe-inline'), false, `${route} CSP must never allow unsafe-inline`);
+        assert.match(csp, /object-src 'none'/);
+        assert.match(csp, /base-uri 'none'/);
+        assert.match(csp, /frame-ancestors 'none'/);
+
+        if (route.startsWith('/?') || route.startsWith('/widget')) {
+          const nonceMatch = csp.match(/script-src 'nonce-([^']+)'/);
+          assert.ok(nonceMatch, 'CSP script-src nonce must be present');
+          assert.ok(res.body.includes(`<style nonce="${nonceMatch[1]}">`), `${route} style tag must carry matching CSP nonce`);
+          assert.ok(res.body.includes(`<script nonce="${nonceMatch[1]}">`), `${route} script tag must carry matching CSP nonce`);
+          assert.doesNotMatch(res.body, /\bon(?:click|input)=["']/, `${route} must not use inline event handler attributes`);
+          assert.doesNotMatch(res.body, /\bstyle=["']/, `${route} must not emit inline style attributes`);
+          assert.doesNotMatch(res.body, /\{\{[A-Z0-9_]+\}\}/, `${route} must not leave unresolved template placeholders`);
+        }
+      }
+
+      const adrRes = await req(port, 'POST', '/api/adr/decide', {
+        body: { adrId: listADRs(dir)[0].id, action: 'approve', reviewer: '@qa' },
+        headers: { 'X-SDLC-Token': wb.token }
+      });
+      assert.equal(adrRes.status, 200);
+      assert.doesNotMatch(adrRes.body, /SvelteKit/i, 'Default workbench ADR reason must not mention SvelteKit');
+    } finally {
+      await wb.close();
+    }
+
+    productDagMod.initProductConstitution({
+      title: 'Clean Workbench Spec',
+      capabilities: [{ id: 'CAP-01', title: 'Core Engine' }],
+      repoRoot: dir
+    });
+    const srs = fs.readFileSync(path.join(dir, 'docs/SRS.md'), 'utf8');
+    assert.doesNotMatch(srs, /SvelteKit/i, 'Generated SRS C4 diagram must not reference SvelteKit');
+
+    const { checkArchDiff } = await import('../.agent/scripts/lib/arch-trace.mjs');
+    const liveArch = checkArchDiff(REPO_ROOT);
+    assert.equal(liveArch.passed, true);
+    assert.equal(liveArch.cyclesCount, 0);
+  });
+
+  it('strips TypeName/conversationId/BypassSandbox leaks across all runtimes and quotes globs: "*" in Cursor rules', () => {
+    const sample =
+      'Call `invoke_subagent` (`TypeName: "research"`). Message same subagent `conversationId`s. Re-run (`BypassSandbox: true`).';
+    const claudeText = installerMod.toClaudeDialect(sample);
+    for (const leak of ['TypeName', 'conversationId', 'BypassSandbox']) {
+      assert.equal(claudeText.includes(leak), false, `toClaudeDialect leaked '${leak}'`);
+    }
+
+    provisionAgentIntegrations({ agents: 'all', targetDir: dir, packageRoot: REPO_ROOT });
+
+    const generatedFiles = [];
+    const walkDirs = [
+      path.join(dir, '.claude/skills'),
+      path.join(dir, '.cursor/skills'),
+      path.join(dir, '.cursor/rules'),
+      path.join(dir, '.grok/skills'),
+      path.join(dir, '.windsurf/workflows'),
+      path.join(dir, '.github/prompts')
+    ];
+    for (const rootDir of walkDirs) {
+      if (!fs.existsSync(rootDir)) continue;
+      for (const entry of fs.readdirSync(rootDir, { withFileTypes: true })) {
+        const full = path.join(rootDir, entry.name);
+        if (entry.isDirectory()) {
+          for (const sub of fs.readdirSync(full)) {
+            if (sub.endsWith('.md')) generatedFiles.push(path.join(full, sub));
+          }
+        } else if (entry.name.endsWith('.md') || entry.name.endsWith('.mdc')) {
+          generatedFiles.push(full);
+        }
+      }
+    }
+    assert.ok(generatedFiles.length >= 40, `Expected >=40 generated agent files, got ${generatedFiles.length}`);
+
+    for (const f of generatedFiles) {
+      const text = fs.readFileSync(f, 'utf8');
+      for (const forbidden of [
+        /\bTypeName\b/,
+        /\bconversationId\b/,
+        /\bBypassSandbox\b/,
+        /<agent-embed\b/,
+        /<artifactDir>/,
+        /\b(?:read_file|write_file|edit_file|run_command|invoke_subagent)\b/
+      ]) {
+        assert.equal(forbidden.test(text), false, `${path.relative(dir, f)} leaked ${forbidden}`);
+      }
+      if (f.endsWith('.mdc')) {
+        assert.match(text, /^globs:\s*"\*"$/m, `${path.relative(dir, f)} must quote globs: "*"`);
+      }
+    }
+
+    // Checked-in .claude/ and .cursor/ files in REPO_ROOT must match the leak-free generator output
+    for (const sk of CANONICAL_SDLC_SKILLS) {
+      for (const rel of [
+        `.claude/skills/${sk}/SKILL.md`,
+        `.cursor/skills/${sk}/SKILL.md`,
+        `.cursor/rules/${sk}.mdc`
+      ]) {
+        const raw = fs.readFileSync(path.join(REPO_ROOT, rel), 'utf8');
+        assert.equal(/\b(TypeName|conversationId|BypassSandbox)\b/.test(raw), false, `Checked-in ${rel} contains Antigravity leak`);
+        if (rel.endsWith('.mdc')) {
+          assert.match(raw, /^globs:\s*"\*"$/m, `Checked-in ${rel} must quote globs: "*"`);
+        }
+      }
+    }
+    const masterRule = fs.readFileSync(path.join(REPO_ROOT, '.cursor/rules/agentic-sdlc.mdc'), 'utf8');
+    assert.match(masterRule, /^globs:\s*"\*"$/m, 'Checked-in .cursor/rules/agentic-sdlc.mdc must quote globs: "*"');
+  });
+
+  it('makes --global installs portable across repos without local .agent/scripts/ and keeps release/issue/PR templates aligned', () => {
+    const fakeHome = path.join(dir, 'home');
+    const emptyRepo = path.join(dir, 'empty-user-repo');
+    fs.mkdirSync(fakeHome, { recursive: true });
+    fs.mkdirSync(emptyRepo, { recursive: true });
+
+    const res = installFramework({
+      global: true,
+      homeDir: fakeHome,
+      agents: ['gemini', 'claude', 'cursor', 'grok', 'windsurf', 'copilot'],
+      skipDetect: true,
+      packageRoot: REPO_ROOT
+    });
+    assert.equal(res.success, true);
+
+    const globalEngineScript = path.join(fakeHome, '.agentic-sdlc/scripts/sdlc-engine.mjs');
+    assert.equal(fs.existsSync(globalEngineScript), true, 'Global install must copy scripts to ~/.agentic-sdlc/scripts/');
+
+    const grokSettings = JSON.parse(fs.readFileSync(path.join(fakeHome, '.grok/settings.json'), 'utf8'));
+    assert.equal(
+      grokSettings.engineCommand.includes('.agent/scripts/sdlc-engine.mjs') && !grokSettings.engineCommand.includes('$HOME/.agentic-sdlc'),
+      false,
+      `Global grok settings engineCommand must reference global engine path, got: ${grokSettings.engineCommand}`
+    );
+
+    const helpRun = spawnSync('sh', ['-c', `${grokSettings.engineCommand} --help`], {
+      cwd: emptyRepo,
+      encoding: 'utf8',
+      env: { ...childEnv(), HOME: fakeHome }
+    });
+    assert.equal(helpRun.status, 0, `Global engineCommand must run inside empty repo: ${helpRun.stderr}`);
+
+    for (const rel of [
+      '.claude/skills/sdlc/SKILL.md',
+      '.claude/skills/sdlc-flow/SKILL.md',
+      '.cursor/rules/agentic-sdlc.mdc',
+      '.grok/GROK.md',
+      '.codeium/windsurf/memories/global_rules.md',
+      '.github/copilot-instructions.md',
+      '.github/prompts/sdlc-flow.prompt.md'
+    ]) {
+      const content = fs.readFileSync(path.join(fakeHome, rel), 'utf8');
+      assert.equal(
+        /\bnode \.agent\/scripts\/sdlc-engine\.mjs\b/.test(content),
+        false,
+        `Global file ${rel} must not hardcode bare 'node .agent/scripts/sdlc-engine.mjs'`
+      );
+    }
+
+    const releaseSkill = fs.readFileSync(path.join(REPO_ROOT, '.agent/skills/sdlc-release/SKILL.md'), 'utf8');
+    assert.match(releaseSkill, /release <patch\|minor\|major> --no-tag\b/m);
+    const step3Lines = releaseSkill.split('\n').filter((l) => l.includes('sdlc-engine.mjs release <'));
+    assert.ok(
+      step3Lines.some((l) => l.includes('--no-tag') && !l.includes('--dry-run')),
+      'sdlc-release Step 3 execution command must pass --no-tag'
+    );
+
+    for (const tplRel of [
+      '.github/ISSUE_TEMPLATE/bug_report.md',
+      '.github/ISSUE_TEMPLATE/feature_request.md',
+      '.github/ISSUE_TEMPLATE/architecture_spike.md',
+      '.github/ISSUE_TEMPLATE/hotfix_incident.md',
+      '.github/PULL_REQUEST_TEMPLATE.md'
+    ]) {
+      const tpl = fs.readFileSync(path.join(REPO_ROOT, tplRel), 'utf8');
+      assert.doesNotMatch(tpl, /(?:svelte|spotless|mvnw)/i, `${tplRel} still contains stale stack reference`);
+      for (const stale of ['sdlc-tdd-implement', 'sdlc-feature-spec', 'sdlc-quality-gate', 'sdlc-test-coverage', 'sdlc-peer-review', 'sdlc-kanban']) {
+        assert.equal(tpl.includes(stale), false, `${tplRel} still contains stale reference '${stale}'`);
+      }
+    }
+  });
+
+  it('prevents empty ADR supersedes fields from capturing createdAt and escapes <, >, &, and line separators in SSR script payloads', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-135-adr-xss-'));
+    try {
+      const adrDir = path.join(tmp, 'docs/adr');
+      fs.mkdirSync(adrDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(adrDir, 'ADR-001-empty-supersedes.md'),
+        '---\nid: ADR-001\ntitle: Empty Supersedes\nstatus: accepted\nscope: technical\nticket: #1\nsupersedes: \ncreatedAt: 2026-11-14T00:00:00.000Z\n---\n',
+        'utf8'
+      );
+      const { listADRs } = await import(new URL('../.agent/scripts/lib/decision-graph.mjs', import.meta.url).href);
+      const adrs = listADRs(tmp);
+      assert.equal(adrs.length, 1);
+      assert.deepEqual(adrs[0].supersedes, [], 'Empty supersedes: must not capture next YAML line createdAt');
+
+      const assetsDir = path.join(REPO_ROOT, '.agent/scripts/workbench-assets');
+      for (const f of fs.readdirSync(assetsDir)) {
+        if (!f.endsWith('.html') && !f.endsWith('.js')) continue;
+        const body = fs.readFileSync(path.join(assetsDir, f), 'utf8');
+        assert.doesNotMatch(body, /\bstyle\s*=/, `Inline style attribute found in workbench asset ${f}`);
+      }
+
+      const { renderWorkbenchHTML } = await import(new URL('../.agent/scripts/lib/workbench-server.mjs', import.meta.url).href);
+      const evil = '</script><script>alert(1)&>\u2028\u2029';
+      const html = renderWorkbenchHTML(tmp, () => ({ active: true, session: { issueId: '1', stage: 2, branch: evil, lane: 'full' } }), { cspNonce: 'testnonce123' });
+      assert.ok(html.includes('<style nonce="testnonce123">'), 'HTML must attach CSP nonce to inline <style>');
+      assert.ok(html.includes('<script nonce="testnonce123">'), 'HTML must attach CSP nonce to inline <script>');
+      const [, scriptSection = ''] = html.split('<script nonce="testnonce123">');
+      assert.equal(scriptSection.includes('</script><script>alert(1)'), false, 'safeJsonScriptPayload must neutralize </script> breakout');
+      assert.equal(scriptSection.includes('\u2028') || scriptSection.includes('\u2029'), false, 'safeJsonScriptPayload must escape U+2028/U+2029 line separators inside script block');
+      assert.ok(
+        scriptSection.includes('\\u003c/script\\u003e') &&
+          scriptSection.includes('\\u0026') &&
+          scriptSection.includes('\\u003e') &&
+          scriptSection.includes('\\u2028') &&
+          scriptSection.includes('\\u2029'),
+        'safeJsonScriptPayload must escape <, >, &, U+2028, and U+2029'
+      );
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});

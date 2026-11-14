@@ -1,6 +1,6 @@
 ---
 description: "Use when scaffolding or auditing README.md, llms.txt, or wiki/*.md architecture docs. Not for routine code changes with no public API, CLI, or architecture impact."
-globs: *
+globs: "*"
 alwaysApply: false
 ---
 
