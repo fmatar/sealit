@@ -4216,3 +4216,297 @@ describe('Issue #131 Review Blocker Regressions', () => {
     }
   });
 });
+
+describe('Issue #132: Git Flow develop base, atomic session I/O, receipt allowlist & non-colliding local IDs', () => {
+  const cleanChildEnv = () => {
+    const env = { ...process.env };
+    delete env.GIT_DIR;
+    delete env.GIT_WORK_TREE;
+    delete env.GIT_INDEX_FILE;
+    delete env.NODE_TEST_CONTEXT;
+    return env;
+  };
+
+  it('uses resolveDefaultBaseBranch (develop over main) in reconcileSessionLaneWithDiff, buildArchDiffPayload, and triage CLI', async () => {
+    const { execFileSync } = await import('node:child_process');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-132-develop-'));
+    const gitExec = (args) =>
+      execFileSync('git', args, { cwd: dir, encoding: 'utf8', env: cleanChildEnv(), stdio: 'pipe' }).trim();
+    try {
+      gitExec(['init', '-b', 'main']);
+      gitExec(['config', 'user.email', 'test@example.com']);
+      gitExec(['config', 'user.name', 'Test User']);
+      fs.writeFileSync(path.join(dir, 'README.md'), '# Base\n', 'utf8');
+      gitExec(['add', '.']);
+      gitExec(['commit', '-m', 'init main']);
+
+      // develop diverges from main with a CRITICAL security file
+      gitExec(['checkout', '-b', 'develop']);
+      fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'src/develop-only-auth.js'), 'export const jwtSecret = true;\n', 'utf8');
+      gitExec(['add', '.']);
+      gitExec(['commit', '-m', 'feat(develop): prior develop auth commit']);
+
+      // feature branch off develop modifies ONLY a 1-line trivial doc file
+      gitExec(['checkout', '-b', 'feature/issue-#132-docs-only']);
+      fs.mkdirSync(path.join(dir, 'docs'), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'docs/tiny.md'), 'hello\n', 'utf8');
+      gitExec(['add', '.']);
+      gitExec(['commit', '-m', 'docs: add tiny doc']);
+
+      const sessMod = await import('../.agent/scripts/lib/session.mjs');
+      const wbMod = await import('../.agent/scripts/lib/workbench-server.mjs');
+      const sess = sessMod.startSession({
+        issueId: 132,
+        branch: 'feature/issue-#132-docs-only',
+        lane: 'trivial',
+        laneDowngraded: true,
+        laneReason: 'docs change only',
+        repoRoot: dir
+      }).session;
+
+      // 1. reconcileSessionLaneWithDiff must diff against develop (docs/tiny.md only), not main (src/develop-only-auth.js)
+      const reconciled = sessMod.reconcileSessionLaneWithDiff({ session: sess, repoRoot: dir });
+      assert.equal(reconciled.lane, 'trivial', 'trivial doc change on branch off develop must not escalate from older develop auth commits');
+
+      // 2. buildArchDiffPayload must list only docs/tiny.md (against develop), not main..HEAD files
+      const payload = wbMod.buildArchDiffPayload(dir);
+      const allRingFiles = Object.values(payload.rings).flat();
+      assert.ok(allRingFiles.includes('docs/tiny.md'));
+      assert.equal(allRingFiles.includes('src/develop-only-auth.js'), false, 'buildArchDiffPayload must diff against develop when present');
+
+      // 3. `sdlc-engine triage --json` must evaluate diff relative to develop without polluting repo with sdlc-config.json
+      const enginePath = path.resolve('.agent/scripts/sdlc-engine.mjs');
+      const triageOut = execFileSync(process.execPath, [enginePath, 'triage', '--json'], {
+        cwd: dir,
+        encoding: 'utf8',
+        env: cleanChildEnv(),
+        stdio: 'pipe'
+      });
+      const triageJson = JSON.parse(triageOut.slice(triageOut.indexOf('{')));
+      assert.equal(triageJson.triage.riskLevel, 'LOW');
+      assert.equal(triageJson.triage.computedLane, 'trivial');
+      assert.equal(fs.existsSync(path.join(dir, '.agent/sdlc-config.json')), false, 'read-only triage must not write .agent/sdlc-config.json');
+
+      // Explicitly passing --base=main includes develop's auth file and escalates to full
+      const triageMainOut = execFileSync(process.execPath, [enginePath, 'triage', '--base=main', '--json'], {
+        cwd: dir,
+        encoding: 'utf8',
+        env: cleanChildEnv(),
+        stdio: 'pipe'
+      });
+      const triageMainJson = JSON.parse(triageMainOut.slice(triageMainOut.indexOf('{')));
+      assert.equal(triageMainJson.triage.computedLane, 'full');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('enforces atomic session/exemption writes and reuses shared core session helpers without duplication', async () => {
+    const sessionSrc = fs.readFileSync(path.resolve('.agent/scripts/lib/session.mjs'), 'utf8');
+    const pmSrc = fs.readFileSync(path.resolve('.agent/scripts/lib/pm-provider.mjs'), 'utf8');
+    assert.equal(/\bfs\.writeFileSync\b/.test(sessionSrc), false, 'session.mjs must use writeFileAtomic for all session and exemption writes');
+    assert.equal(/\bfunction\s+readActiveSessionFromDisk\b/.test(pmSrc), false, 'pm-provider.mjs must share session disk reader from core.mjs');
+    assert.equal(/\bfunction\s+patchActiveSessionManifest\b/.test(pmSrc), false, 'pm-provider.mjs must share session manifest patcher from core.mjs');
+
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-132-atomic-'));
+    try {
+      const sessMod = await import('../.agent/scripts/lib/session.mjs');
+      const pmMod = await import('../.agent/scripts/lib/pm-provider.mjs');
+      const coreMod = await import('../.agent/scripts/lib/core.mjs');
+      sessMod.startSession({ issueId: 132, branch: 'feature/issue-#132-atomic', lane: 'full', repoRoot: dir });
+      sessMod.updateSession({ stage: 3, stageName: 'TDD', manifestUpdate: { prNumber: 999 }, repoRoot: dir });
+      const exIds = [];
+      for (let i = 0; i < 5; i++) {
+        const res = sessMod.recordExemption({ mutantId: `m${i}`, file: 'a.mjs', reason: 'equivalent mutant', approvedBy: 'tester', repoRoot: dir });
+        exIds.push(res.exemption.id);
+      }
+      assert.equal(new Set(exIds).size, 5, `exemption IDs collided: ${exIds.join(', ')}`);
+
+      assert.equal(pmMod.resolveOpenPRNumber({ repoRoot: dir }), 999);
+      assert.equal(coreMod.readSessionFileState(dir).session.stage, 3);
+      assert.equal(sessMod.getExemptions(dir).length, 5);
+      const agentFiles = fs.readdirSync(path.join(dir, '.agent'));
+      assert.equal(agentFiles.some((f) => f.endsWith('.tmp')), false, 'atomic writes must leave zero .tmp leftovers');
+
+      // Legacy flat session object with active: true and omitted issueId must not regress or throw TypeError
+      fs.writeFileSync(
+        path.join(dir, '.agent/.sdlc-session.json'),
+        JSON.stringify({ active: true, branch: 'feature/legacy', stage: 2, manifest: { checkpoints: {} } }, null, 2),
+        'utf8'
+      );
+      assert.equal(coreMod.readSessionFileState(dir).active, true);
+      assert.equal(coreMod.readSessionFileState(dir).session.branch, 'feature/legacy');
+      assert.equal(coreMod.readSessionRegistry(dir).active.branch, 'feature/legacy');
+      assert.equal(coreMod.patchActiveSessionManifest(dir, { prNumber: 888 }), true);
+      assert.equal(coreMod.readSessionFileState(dir).session.manifest.prNumber, 888);
+      sessMod.updateSession({ stage: 3, stageName: 'TDD', repoRoot: dir });
+      assert.equal(coreMod.readSessionFileState(dir).active, true);
+      assert.equal(coreMod.readSessionFileState(dir).session.stage, 3);
+      assert.equal(coreMod.readSessionRegistry(dir).active.stage, 3);
+      assert.throws(
+        () => sessMod.startSession({ issueId: 133, branch: 'feature/issue-#133', repoRoot: dir }),
+        /Active SDLC workflow session already in progress for issue #unknown on branch feature\/legacy/
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('allows docs/DECISION_MAP.md and docs/KANBAN.md in Stage 7 receipt post-signature ancestor diffs while rejecting code edits', async () => {
+    const { execFileSync } = await import('node:child_process');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-132-receipt-allowlist-'));
+    const gitExec = (args) =>
+      execFileSync('git', args, { cwd: dir, encoding: 'utf8', env: cleanChildEnv(), stdio: 'pipe' }).trim();
+    try {
+      gitExec(['init', '-b', 'develop']);
+      gitExec(['config', 'user.email', 'test@example.com']);
+      gitExec(['config', 'user.name', 'Test User']);
+      fs.mkdirSync(path.join(dir, '.agent'), { recursive: true });
+      fs.mkdirSync(path.join(dir, 'docs'), { recursive: true });
+      fs.writeFileSync(path.join(dir, '.agent/sdlc-config.json'), JSON.stringify({ version: '1.0.0', modules: [] }), 'utf8');
+      gitExec(['add', '.']);
+      gitExec(['commit', '-m', 'init develop']);
+
+      gitExec(['checkout', '-b', 'feature/issue-#132-receipt']);
+      fs.writeFileSync(path.join(dir, 'code.mjs'), 'export const v = 1;\n', 'utf8');
+      gitExec(['add', 'code.mjs']);
+      gitExec(['commit', '-m', 'feat: implement code']);
+      const reviewedSha = gitExec(['rev-parse', 'HEAD']);
+
+      const auditMod = await import('../.agent/scripts/lib/audit-chain.mjs');
+      const issued = auditMod.issueGateReceipt({
+        issueId: 132,
+        branch: 'feature/issue-#132-receipt',
+        headSha: reviewedSha,
+        lane: 'full',
+        coveragePct: 92,
+        mutationPct: 85,
+        peerReviewApproved: true,
+        reviewer: 'reviewer',
+        driftCheckPassed: true,
+        repoRoot: dir
+      });
+      assert.equal(issued.success, true);
+
+      // Post-signature bookkeeping commit modifying AUDIT_CHAIN, DECISION_MAP, and KANBAN must still verify cleanly
+      fs.writeFileSync(path.join(dir, 'docs/DECISION_MAP.md'), '# Decision Map\n', 'utf8');
+      fs.writeFileSync(path.join(dir, 'docs/KANBAN.md'), '# Kanban\n', 'utf8');
+      gitExec(['add', 'docs/AUDIT_CHAIN.jsonl', 'docs/DECISION_MAP.md', 'docs/KANBAN.md']);
+      gitExec(['commit', '-m', 'chore(audit): sign receipt and update decision map / kanban']);
+      const bookkeepingSha = gitExec(['rev-parse', 'HEAD']);
+
+      const verifiedBookkeeping = auditMod.verifyGateReceipt({
+        headSha: bookkeepingSha,
+        branch: 'feature/issue-#132-receipt',
+        repoRoot: dir
+      });
+      assert.equal(
+        verifiedBookkeeping.valid,
+        true,
+        `expected bookkeeping commit after receipt to verify cleanly: ${verifiedBookkeeping.reason || ''}`
+      );
+      const verifiedHeadRef = auditMod.verifyGateReceipt({
+        headSha: 'HEAD',
+        branch: 'feature/issue-#132-receipt',
+        repoRoot: dir
+      });
+      assert.equal(
+        verifiedHeadRef.valid,
+        true,
+        `expected symbolic HEAD ref to resolve and verify cleanly on bookkeeping commit: ${verifiedHeadRef.reason || ''}`
+      );
+
+      // Modifying source code after the receipt must STILL fail closed
+      fs.writeFileSync(path.join(dir, 'code.mjs'), 'export const v = 2;\n', 'utf8');
+      gitExec(['add', 'code.mjs']);
+      gitExec(['commit', '-m', 'fix: unverified post-receipt code change']);
+      const dirtySha = gitExec(['rev-parse', 'HEAD']);
+
+      const verifiedDirty = auditMod.verifyGateReceipt({
+        headSha: dirtySha,
+        branch: 'feature/issue-#132-receipt',
+        repoRoot: dir
+      });
+      assert.equal(verifiedDirty.valid, false, 'post-receipt code mutations must invalidate receipt verification');
+
+      // Validly HMAC-signed receipt with non-hex headSha option injection must STILL fail closed without passing options to git
+      const badReceipt = {
+        headSha: '--help',
+        branch: 'feature/issue-#132-receipt',
+        peerReviewApproved: true,
+        driftCheckPassed: true
+      };
+      const receiptKey = auditMod.loadReceiptKey(dir);
+      auditMod.appendAuditRecord({
+        event: 'STAGE_7_GATE_RECEIPT_SIGNED',
+        metadata: {
+          ...badReceipt,
+          signature: { alg: 'HMAC-SHA256', value: auditMod.signReceiptPayload(badReceipt, receiptKey) }
+        },
+        repoRoot: dir
+      });
+      assert.equal(
+        auditMod.verifyReceiptSignature(
+          {
+            ...badReceipt,
+            signature: { alg: 'HMAC-SHA256', value: auditMod.signReceiptPayload(badReceipt, receiptKey) }
+          },
+          receiptKey
+        ),
+        true
+      );
+      const verifiedForged = auditMod.verifyGateReceipt({
+        headSha: dirtySha,
+        branch: 'feature/issue-#132-receipt',
+        repoRoot: dir
+      });
+      assert.equal(verifiedForged.valid, false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('generates non-colliding local ticket and session IDs under rapid bursts and avoids trailing hyphen branch slugs', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-132-ids-'));
+    try {
+      fs.mkdirSync(path.join(dir, '.agent'), { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, '.agent/sdlc-config.json'),
+        JSON.stringify({ version: '1.0.0', projectManagement: { provider: 'local', livingBoard: 'docs/KANBAN.md' }, modules: [] }),
+        'utf8'
+      );
+
+      const pmMod = await import('../.agent/scripts/lib/pm-provider.mjs');
+      const sessMod = await import('../.agent/scripts/lib/session.mjs');
+
+      // 1. Burst local ticket creation (15 calls in <5ms) must yield 15 distinct numeric IDs
+      const createdTickets = [];
+      for (let i = 0; i < 15; i++) {
+        const res = pmMod.createTicket({ title: `Burst Ticket ${i}`, type: 'feat', repoRoot: dir });
+        createdTickets.push(res.issueId);
+      }
+      assert.equal(new Set(createdTickets.map(String)).size, 15, `local ticket IDs collided: ${createdTickets.join(', ')}`);
+      for (const id of createdTickets) {
+        assert.match(String(id), /^\d+$/);
+      }
+
+      // 2. Burst local session creation & trailing-hyphen slug sanitization
+      const boundaryTitle = `${'a'.repeat(39)}-tail`;
+      const localIds = [];
+      for (let i = 0; i < 6; i++) {
+        const begun = sessMod.executeCompositeStage({
+          action: 'begin',
+          localOnly: true,
+          title: boundaryTitle,
+          repoRoot: dir
+        });
+        localIds.push(begun.issueId);
+        assert.equal(begun.branch.endsWith('-'), false, `branch slug must not end in hyphen: ${begun.branch}`);
+      }
+      assert.equal(new Set(localIds).size, 6, `local session IDs collided: ${localIds.join(', ')}`);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

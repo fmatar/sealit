@@ -403,9 +403,19 @@ export function verifyGateReceipt({ headSha = null, branch = null, repoRoot = '.
     };
   }
 
+  const isHexSha = (sha) => /^[0-9a-f]{7,64}$/i.test(String(sha || '').trim());
   const branchForLookup = branch && branch !== 'HEAD' ? branch : null;
-  let targetSha = headSha;
-  if (!targetSha && branchForLookup) {
+  let targetSha = headSha ? String(headSha).trim() : null;
+  if (targetSha && !isHexSha(targetSha)) {
+    try {
+      const resolvedRef = execFileSync('git', ['rev-parse', '--verify', '-q', '--end-of-options', targetSha], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        stdio: 'pipe'
+      }).trim();
+      if (resolvedRef) targetSha = resolvedRef;
+    } catch {}
+  } else if (!targetSha && branchForLookup) {
     try {
       targetSha = execFileSync('git', ['rev-parse', '--verify', '-q', '--end-of-options', branchForLookup], {
         cwd: repoRoot,
@@ -429,11 +439,16 @@ export function verifyGateReceipt({ headSha = null, branch = null, repoRoot = '.
 
   const matched = receipts.find((r) => {
     const m = r.metadata;
-    let shaMatch = targetSha ? m.headSha === targetSha : true;
-    if (!shaMatch && targetSha && m.headSha) {
+    const branchMatch = effectiveBranch ? m.branch === effectiveBranch : true;
+    if (!branchMatch || m.peerReviewApproved !== true || m.driftCheckPassed !== true || !verifyReceiptSignature(m, key)) {
+      return false;
+    }
+    if (!targetSha) return true;
+    if (m.headSha === targetSha) return true;
+    if (isHexSha(m.headSha) && isHexSha(targetSha)) {
       try {
-        execFileSync('git', ['merge-base', '--is-ancestor', m.headSha, targetSha], { cwd: repoRoot, stdio: 'pipe' });
-        const diffFiles = execFileSync('git', ['diff', '--name-only', m.headSha, targetSha], {
+        execFileSync('git', ['merge-base', '--is-ancestor', '--', m.headSha, targetSha], { cwd: repoRoot, stdio: 'pipe' });
+        const diffFiles = execFileSync('git', ['diff', '--name-only', m.headSha, targetSha, '--'], {
           cwd: repoRoot,
           encoding: 'utf8',
           stdio: 'pipe'
@@ -447,17 +462,18 @@ export function verifyGateReceipt({ headSha = null, branch = null, repoRoot = '.
             (f) =>
               f === 'docs/AUDIT_CHAIN.jsonl' ||
               f === 'docs/ARCH_TRACE.md' ||
+              f === 'docs/DECISION_MAP.md' ||
+              f === 'docs/KANBAN.md' ||
               f === '.agent/arch-trace.jsonl' ||
               f === '.agent/decision-graph.jsonl' ||
               f === '.agent/.sdlc-session.json'
           )
         ) {
-          shaMatch = true;
+          return true;
         }
       } catch {}
     }
-    const branchMatch = effectiveBranch ? m.branch === effectiveBranch : true;
-    return shaMatch && branchMatch && m.peerReviewApproved === true && m.driftCheckPassed === true && verifyReceiptSignature(m, key);
+    return false;
   });
 
   if (!matched) {

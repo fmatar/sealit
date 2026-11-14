@@ -208,7 +208,7 @@ export function parseArchTraceMarkdown(raw = '') {
 
 export function buildArchDiffPayload(repoRoot = '.') {
   const archDiff = checkArchDiff(repoRoot);
-  const modifiedFiles = getModifiedFiles('main', repoRoot);
+  const modifiedFiles = getModifiedFiles(null, repoRoot);
 
   const rings = {
     'Domain & Core Rules': [],
