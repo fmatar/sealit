@@ -584,6 +584,7 @@ export function renderCodebaseMapMarkdown(codeMap) {
     })
     .join('\n');
 
+  const seenEdges = new Set();
   const importEdges = [];
   const nameByPath = new Map(codeMap.modules.map((m) => [m.path, moduleNodeId(m.path)]));
   for (const mod of codeMap.modules) {
@@ -591,7 +592,11 @@ export function renderCodebaseMapMarkdown(codeMap) {
     for (const imp of mod.imports) {
       const toId = nameByPath.get(imp);
       if (fromId && toId && fromId !== toId) {
-        importEdges.push(`  ${fromId} --> ${toId}`);
+        const edge = `  ${fromId} --> ${toId}`;
+        if (!seenEdges.has(edge)) {
+          seenEdges.add(edge);
+          importEdges.push(edge);
+        }
       }
     }
   }
@@ -667,7 +672,7 @@ In accordance with Concentric **Clean Architecture** and [Archlens](https://gith
 \`\`\`mermaid
 flowchart TD
 ${ringSubgraphs}
-${importEdges.slice(0, 45).join('\n')}
+${importEdges.join('\n')}
 \`\`\`
 
 ---

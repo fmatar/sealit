@@ -14,7 +14,7 @@ concurrency:
 jobs:
   enforce-develop-source:
     name: Enforce Merge From Develop Only
-    runs-on: ${{ vars.SDLC_RUNS_ON || 'local-agentic-sdlc-framework' }}
+    runs-on: ${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}
     steps:
       - name: Validate Pull Request Source Branch
         env:

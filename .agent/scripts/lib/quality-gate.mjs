@@ -28,6 +28,191 @@ import { installHooks, inspectHooksHealth } from './git-guard.mjs';
 import { scaffoldArchlensPolicy } from './arch-trace.mjs';
 import { provisionAgentIntegrations } from './installer.mjs';
 
+/**
+ * Validates `.agent/sdlc-config.json` strictly on disk without synthesizing missing files.
+ */
+export function validateConfigFile(repoRoot = '.', customConfigPath = null) {
+  const cfgPath = customConfigPath ? path.resolve(customConfigPath) : path.resolve(repoRoot, '.agent/sdlc-config.json');
+  if (!fileExists(cfgPath)) {
+    return {
+      valid: false,
+      exists: false,
+      configPath: cfgPath,
+      errors: ["Missing required .agent/sdlc-config.json — run 'node .agent/scripts/sdlc-engine.mjs detect' locally and commit it."],
+      config: null
+    };
+  }
+
+  let cfg;
+  try {
+    cfg = JSON.parse(readFileSafe(cfgPath) || '');
+  } catch (err) {
+    return {
+      valid: false,
+      exists: true,
+      configPath: cfgPath,
+      errors: [`Invalid JSON in .agent/sdlc-config.json: ${err?.message || err}`],
+      config: null
+    };
+  }
+
+  const isPlainObject = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
+  const hasControlChar = (v) => /[\x00-\x1f\x7f]/.test(v);
+  const isCommandSpec = (v) => typeof v === 'string' || (Array.isArray(v) && v.every((item) => typeof item === 'string'));
+
+  const errors = [];
+  if (!isPlainObject(cfg)) {
+    errors.push('Top-level config must be a JSON object.');
+    return { valid: false, exists: true, configPath: cfgPath, errors, config: null };
+  }
+
+  if (typeof cfg.version !== 'string' || !cfg.version.trim()) {
+    errors.push("Missing or invalid 'version' string.");
+  }
+
+  for (const optStr of ['$schema', 'generatedAt']) {
+    if (cfg[optStr] !== undefined && typeof cfg[optStr] !== 'string') {
+      errors.push(`'${optStr}' must be a string when present.`);
+    }
+  }
+
+  if (cfg.profile !== undefined && !['standard', 'polyglot-monorepo', 'custom'].includes(cfg.profile)) {
+    errors.push(`Invalid 'profile' '${cfg.profile}': expected standard, polyglot-monorepo, or custom.`);
+  }
+
+  if (cfg.ci !== undefined) {
+    if (!isPlainObject(cfg.ci)) {
+      errors.push("'ci' must be an object when present.");
+    } else if (cfg.ci.runsOn !== undefined) {
+      const ro = cfg.ci.runsOn;
+      if (typeof ro === 'string') {
+        if (!ro.trim() || hasControlChar(ro)) {
+          errors.push("'ci.runsOn' must be a non-empty string without control characters.");
+        }
+      } else if (Array.isArray(ro) && ro.length > 0) {
+        for (const item of ro) {
+          if (typeof item !== 'string' || !item.trim() || hasControlChar(item)) {
+            errors.push("Every entry in 'ci.runsOn' array must be a non-empty string without control characters.");
+            break;
+          }
+        }
+      } else {
+        errors.push("'ci.runsOn' must be a non-empty string or non-empty array of strings.");
+      }
+    }
+  }
+
+  if (cfg.lanes !== undefined) {
+    if (!isPlainObject(cfg.lanes)) {
+      errors.push("'lanes' must be an object when present.");
+    } else {
+      for (const key of ['trivialMaxLines', 'standardMaxLines']) {
+        if (cfg.lanes[key] !== undefined && (!Number.isInteger(cfg.lanes[key]) || cfg.lanes[key] < 1)) {
+          errors.push(`'lanes.${key}' must be an integer >= 1.`);
+        }
+      }
+    }
+  }
+
+  if (cfg.projectManagement !== undefined) {
+    if (!isPlainObject(cfg.projectManagement)) {
+      errors.push("'projectManagement' must be an object when present.");
+    } else {
+      if (
+        cfg.projectManagement.provider !== undefined &&
+        !['github', 'linear', 'jira', 'local'].includes(cfg.projectManagement.provider)
+      ) {
+        errors.push(`Invalid 'projectManagement.provider' '${cfg.projectManagement.provider}'.`);
+      }
+      for (const pmStr of ['key', 'livingBoard']) {
+        if (cfg.projectManagement[pmStr] !== undefined && typeof cfg.projectManagement[pmStr] !== 'string') {
+          errors.push(`'projectManagement.${pmStr}' must be a string.`);
+        }
+      }
+    }
+  }
+
+  if (cfg.archlens !== undefined) {
+    if (!isPlainObject(cfg.archlens)) {
+      errors.push("'archlens' must be an object when present.");
+    } else {
+      for (const boolKey of ['enabled', 'enforceInQualityGate']) {
+        if (cfg.archlens[boolKey] !== undefined && typeof cfg.archlens[boolKey] !== 'boolean') {
+          errors.push(`'archlens.${boolKey}' must be a boolean.`);
+        }
+      }
+      if (cfg.archlens.policyPath !== undefined && typeof cfg.archlens.policyPath !== 'string') {
+        errors.push("'archlens.policyPath' must be a string.");
+      }
+      if (
+        cfg.archlens.workbenchPort !== undefined &&
+        (!Number.isInteger(cfg.archlens.workbenchPort) || cfg.archlens.workbenchPort < 1 || cfg.archlens.workbenchPort > 65535)
+      ) {
+        errors.push("'archlens.workbenchPort' must be an integer between 1 and 65535.");
+      }
+    }
+  }
+
+  if (!Array.isArray(cfg.modules)) {
+    errors.push("Missing required 'modules' array.");
+  } else {
+    cfg.modules.forEach((mod, idx) => {
+      if (!isPlainObject(mod)) {
+        errors.push(`modules[${idx}] must be an object.`);
+        return;
+      }
+      if (typeof mod.name !== 'string' || !mod.name.trim()) {
+        errors.push(`modules[${idx}].name must be a non-empty string.`);
+      }
+      if (typeof mod.path !== 'string' || !mod.path.trim()) {
+        errors.push(`modules[${idx}].path must be a non-empty string.`);
+      }
+      for (const modStr of ['stack', 'language']) {
+        if (mod[modStr] !== undefined && typeof mod[modStr] !== 'string') {
+          errors.push(`modules[${idx}].${modStr} must be a string.`);
+        }
+      }
+      if (!isPlainObject(mod.commands)) {
+        errors.push(`modules[${idx}].commands must be an object.`);
+      } else {
+        for (const reqCmd of ['test', 'coverage']) {
+          if (mod.commands[reqCmd] !== undefined && !isCommandSpec(mod.commands[reqCmd])) {
+            errors.push(`modules[${idx}].commands.${reqCmd} must be a string or array of strings.`);
+          }
+        }
+        for (const optCmd of ['lint', 'build', 'mutation']) {
+          if (mod.commands[optCmd] !== undefined && mod.commands[optCmd] !== null && !isCommandSpec(mod.commands[optCmd])) {
+            errors.push(`modules[${idx}].commands.${optCmd} must be null, a string, or an array of strings.`);
+          }
+        }
+        if (mod.commands.coverageFile !== undefined && typeof mod.commands.coverageFile !== 'string') {
+          errors.push(`modules[${idx}].commands.coverageFile must be a string.`);
+        }
+      }
+      if (mod.thresholds !== undefined) {
+        if (!isPlainObject(mod.thresholds)) {
+          errors.push(`modules[${idx}].thresholds must be an object.`);
+        } else {
+          for (const tKey of ['diffCoverage', 'mutationScore']) {
+            const val = mod.thresholds[tKey];
+            if (val !== undefined && val !== null && (typeof val !== 'number' || Number.isNaN(val) || val < 0 || val > 100)) {
+              errors.push(`modules[${idx}].thresholds.${tKey} must be null or a number in [0, 100].`);
+            }
+          }
+        }
+      }
+    });
+  }
+
+  return {
+    valid: errors.length === 0,
+    exists: true,
+    configPath: cfgPath,
+    errors,
+    config: errors.length === 0 ? cfg : null
+  };
+}
+
 export function runDoctor(repoRoot = '.', { fix = false } = {}) {
   console.log('\n================================================================');
   console.log('🩺 AGENTIC SDLC FRAMEWORK DOCTOR & ENVIRONMENT HEALTHCHECK');
@@ -67,14 +252,27 @@ export function runDoctor(repoRoot = '.', { fix = false } = {}) {
   ];
 
   console.log('\n📂 Framework Assets & Documentation:');
+  const cfgValidation = validateConfigFile(repoRoot);
   const assetResults = [];
   for (const a of docAssets) {
-    const present = fileExists(path.resolve(repoRoot, a.path));
-    assetResults.push({ name: a.name, path: a.path, status: present, critical: a.critical });
+    const isCfg = a.path === '.agent/sdlc-config.json';
+    const present = isCfg ? cfgValidation.valid : fileExists(path.resolve(repoRoot, a.path));
+    assetResults.push({
+      name: a.name,
+      path: a.path,
+      status: present,
+      critical: a.critical,
+      ...(isCfg && cfgValidation.exists && !cfgValidation.valid ? { errors: cfgValidation.errors } : {})
+    });
     const symbol = present ? '✔' : a.critical ? '✖' : '⚠';
-    console.log(
-      `  ${symbol} ${a.name.padEnd(20)}: ${present ? 'Present (' + a.path + ')' : a.critical ? 'MISSING (Required)' : 'Optional / Recommended'}`
-    );
+    const detail = present
+      ? `Present (${a.path})`
+      : isCfg && cfgValidation.exists
+        ? `INVALID (${cfgValidation.errors[0] || 'schema violation'})`
+        : a.critical
+          ? 'MISSING (Required)'
+          : 'Optional / Recommended';
+    console.log(`  ${symbol} ${a.name.padEnd(20)}: ${detail}`);
   }
 
   const sessionStatus = getSessionStatus(repoRoot);
@@ -136,6 +334,7 @@ export function runDoctor(repoRoot = '.', { fix = false } = {}) {
     assets: assetResults,
     hooks,
     sessionStatus,
+    configValidation: cfgValidation,
     autoFixed
   };
 }
@@ -211,7 +410,7 @@ export function generateRegressionProof({
 
     const candidateFiles = [
       explicitFile,
-      `workbench/src/routes${routePath === '/' ? '' : routePath}/+page.svelte`,
+      routePath === '/' ? '.agent/workbench/index.html' : null,
       `src/routes${routePath === '/' ? '' : routePath}/+page.svelte`,
       `src/components/${componentName}.svelte`,
       `src/components/${componentName}.tsx`,
@@ -498,7 +697,7 @@ export function installCIWorkflow({ repoRoot = '.', force = false, runsOn = null
     configuredRunsOn = cfgRunsOn;
   }
 
-  let runsOnYaml = "${{ vars.SDLC_RUNS_ON || 'self-hosted' }}";
+  let runsOnYaml = "${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}";
   if (Array.isArray(configuredRunsOn) && configuredRunsOn.length > 0) {
     for (const item of configuredRunsOn) {
       if (/[\r\n]/.test(String(item))) {
@@ -565,10 +764,10 @@ jobs:
             node .agent/scripts/sdlc-engine.mjs drift check
           fi
 
-      - name: Detect SDLC Stack & Configure Environment
+      - name: Validate SDLC Configuration
         run: |
           if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
-            node .agent/scripts/sdlc-engine.mjs detect
+            node .agent/scripts/sdlc-engine.mjs config check
           fi
 
       - name: Verify Universal Quality Gate & Merkle Audit Chain
@@ -1464,7 +1663,12 @@ export function findAffectedTests(diffFiles = [], repoRoot = '.') {
   return Array.from(matchedTests);
 }
 
-export const findAffectededTests = findAffectedTests;
+/**
+ * @deprecated Use `findAffectedTests` (corrected spelling) instead.
+ */
+export function findAffectededTests(diffFiles = [], repoRoot = '.') {
+  return findAffectedTests(diffFiles, repoRoot);
+}
 
 /**
  * Shell-free variant of buildSingleTestCommand: returns `{ file, args }`
@@ -2632,7 +2836,7 @@ export function generateConfig(repoRoot = '.') {
     generatedAt: new Date().toISOString(),
     profile: modules.length > 1 ? 'polyglot-monorepo' : 'standard',
     ci: {
-      runsOn: "${{ vars.SDLC_RUNS_ON || 'self-hosted' }}"
+      runsOn: "${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}"
     },
     lanes: {
       trivialMaxLines: 25,
