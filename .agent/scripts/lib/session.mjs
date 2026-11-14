@@ -189,11 +189,12 @@ export function updateSession({
 
   session.updatedAt = new Date().toISOString();
 
+  const sessionKey = session.issueId || 'legacy';
   const sessions = current.sessions || {};
-  sessions[String(session.issueId || 'legacy')] = session;
+  sessions[String(sessionKey)] = session;
 
   const registry = {
-    activeSessionId: session.issueId ?? null,
+    activeSessionId: sessionKey,
     sessions
   };
 
@@ -223,14 +224,15 @@ export function switchSession(targetIssueId, repoRoot = '.') {
   }
 
   const targetSession = current.sessions[idKey];
+  const resolvedActiveId = targetSession.issueId || idKey;
   const registry = {
-    activeSessionId: targetSession.issueId,
+    activeSessionId: resolvedActiveId,
     sessions: current.sessions
   };
 
   writeFileAtomic(sessionPath, JSON.stringify(registry, null, 2));
-  console.log(`🔀 Switched active session to ticket #${targetSession.issueId} (Branch: ${targetSession.branch})`);
-  return { success: true, activeSessionId: targetSession.issueId, session: targetSession };
+  console.log(`🔀 Switched active session to ticket #${resolvedActiveId} (Branch: ${targetSession.branch})`);
+  return { success: true, activeSessionId: resolvedActiveId, session: targetSession };
 }
 
 export function listSessions(repoRoot = '.') {

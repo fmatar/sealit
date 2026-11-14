@@ -4340,6 +4340,10 @@ describe('Issue #132: Git Flow develop base, atomic session I/O, receipt allowli
       assert.equal(coreMod.readSessionRegistry(dir).active.branch, 'feature/legacy');
       assert.equal(coreMod.patchActiveSessionManifest(dir, { prNumber: 888 }), true);
       assert.equal(coreMod.readSessionFileState(dir).session.manifest.prNumber, 888);
+      sessMod.updateSession({ stage: 3, stageName: 'TDD', repoRoot: dir });
+      assert.equal(coreMod.readSessionFileState(dir).active, true);
+      assert.equal(coreMod.readSessionFileState(dir).session.stage, 3);
+      assert.equal(coreMod.readSessionRegistry(dir).active.stage, 3);
       assert.throws(
         () => sessMod.startSession({ issueId: 133, branch: 'feature/issue-#133', repoRoot: dir }),
         /Active SDLC workflow session already in progress for issue #unknown on branch feature\/legacy/
@@ -4416,7 +4420,7 @@ describe('Issue #132: Git Flow develop base, atomic session I/O, receipt allowli
       });
       assert.equal(verifiedDirty.valid, false, 'post-receipt code mutations must invalidate receipt verification');
 
-      // Forged or non-hex headSha option injection must also fail closed without passing options to git
+      // Validly HMAC-signed receipt with non-hex headSha option injection must STILL fail closed without passing options to git
       const badReceipt = {
         headSha: '--help',
         branch: 'feature/issue-#132-receipt',
@@ -4426,9 +4430,22 @@ describe('Issue #132: Git Flow develop base, atomic session I/O, receipt allowli
       const receiptKey = auditMod.loadReceiptKey(dir);
       auditMod.appendAuditRecord({
         event: 'STAGE_7_GATE_RECEIPT_SIGNED',
-        metadata: { ...badReceipt, hmacSignature: auditMod.signReceiptPayload(badReceipt, receiptKey) },
+        metadata: {
+          ...badReceipt,
+          signature: { alg: 'HMAC-SHA256', value: auditMod.signReceiptPayload(badReceipt, receiptKey) }
+        },
         repoRoot: dir
       });
+      assert.equal(
+        auditMod.verifyReceiptSignature(
+          {
+            ...badReceipt,
+            signature: { alg: 'HMAC-SHA256', value: auditMod.signReceiptPayload(badReceipt, receiptKey) }
+          },
+          receiptKey
+        ),
+        true
+      );
       const verifiedForged = auditMod.verifyGateReceipt({
         headSha: dirtySha,
         branch: 'feature/issue-#132-receipt',
