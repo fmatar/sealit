@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileExists, loadConfig, readFileSafe, resolveInsideRepo, writeFileAtomic } from './core.mjs';
+import { fileExists, readFileSafe, resolveInsideRepo, resolveQualityThresholds, writeFileAtomic } from './core.mjs';
 import { createTicket } from './pm-provider.mjs';
 import { appendDecisionEvent, parseProductMarkdown, syncDecisionMapMarkdown } from './decision-graph.mjs';
 import { appendAuditRecord } from './audit-chain.mjs';
@@ -10,32 +10,8 @@ export { parseProductMarkdown };
 const DAG_STATE_FILE = '.agent/product-dag-state.json';
 
 function resolveQualityBarsText(repoRoot = '.') {
-  const cfg = loadConfig(repoRoot) || {};
-  const gates = cfg?.gates || {};
-  const mods = Array.isArray(cfg?.modules) ? cfg.modules : [];
-  const covVals = mods
-    .map((m) => m?.thresholds?.diffCoverage)
-    .filter((v) => typeof v === 'number' && Number.isFinite(v));
-  const hasGateCov =
-    gates.minDiffCoverage !== null &&
-    gates.minDiffCoverage !== undefined &&
-    Number.isFinite(Number(gates.minDiffCoverage));
-  const minCov = hasGateCov
-    ? Number(gates.minDiffCoverage)
-    : typeof cfg?.testing?.coverageThreshold === 'number' && Number.isFinite(cfg.testing.coverageThreshold)
-      ? cfg.testing.coverageThreshold
-      : covVals.length > 0
-        ? Math.max(...covVals)
-        : 85;
-
-  const mutRaw = gates.minMutationScore !== undefined ? gates.minMutationScore : cfg?.testing?.mutationThreshold;
-  const allNullMut = mods.length > 0 && mods.every((m) => m?.thresholds && m.thresholds.mutationScore === null);
-  const mutVals = mods
-    .map((m) => m?.thresholds?.mutationScore)
-    .filter((v) => typeof v === 'number' && Number.isFinite(v));
-  const mutationDisabled =
-    mutRaw === null || mutRaw === false || (mutRaw === undefined && allNullMut);
-  if (mutationDisabled) {
+  const { minCov, minMut } = resolveQualityThresholds(repoRoot);
+  if (minMut === null) {
     return {
       covPhrase: `\`>= ${minCov}%\` diff line coverage`,
       mutPhrase: 'mutation testing disabled per config',
@@ -44,18 +20,12 @@ function resolveQualityBarsText(repoRoot = '.') {
       invariantClause: `(>=${minCov}% coverage)`
     };
   }
-  const mutNum =
-    mutRaw !== undefined && Number.isFinite(Number(mutRaw))
-      ? Number(mutRaw)
-      : mutVals.length > 0
-        ? Math.max(...mutVals)
-        : 52;
   return {
-    covPhrase: `\`>= ${minCov}%\` diff line coverage and \`>= ${mutNum}%\` mutation score`,
-    mutPhrase: `\`>= ${mutNum}%\` mutation score`,
-    prdMetric: `Diff Test Coverage \`>= ${minCov}%\`, Mutation Score \`>= ${mutNum}%\``,
-    srsMetric: `Minimum \`${minCov}%\` diff test coverage and \`${mutNum}%\` mutation score enforced prior to PR merge.`,
-    invariantClause: `(>=${minCov}% coverage, >=${mutNum}% mutation)`
+    covPhrase: `\`>= ${minCov}%\` diff line coverage and \`>= ${minMut}%\` mutation score`,
+    mutPhrase: `\`>= ${minMut}%\` mutation score`,
+    prdMetric: `Diff Test Coverage \`>= ${minCov}%\`, Mutation Score \`>= ${minMut}%\``,
+    srsMetric: `Minimum \`${minCov}%\` diff test coverage and \`${minMut}%\` mutation score enforced prior to PR merge.`,
+    invariantClause: `(>=${minCov}% coverage, >=${minMut}% mutation)`
   };
 }
 

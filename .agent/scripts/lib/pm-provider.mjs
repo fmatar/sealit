@@ -9,7 +9,7 @@ import {
   hasGitHubRemote,
   gitOutput,
   resolveDefaultBaseBranch,
-  loadConfig,
+  resolveQualityThresholds,
   writeFileAtomic
 } from './core.mjs';
 
@@ -55,26 +55,7 @@ function curlJsonRequest({ url, method = 'POST', headers = {}, body = null, cwd 
 }
 
 function resolveConfiguredQualityBars(repoRoot = '.') {
-  const cfg = loadConfig(repoRoot);
-  const mods = Array.isArray(cfg?.modules) ? cfg.modules : [];
-  const covVals = mods.map((m) => m?.thresholds?.diffCoverage).filter((v) => typeof v === 'number' && Number.isFinite(v));
-  const minCov =
-    typeof cfg?.testing?.coverageThreshold === 'number'
-      ? cfg.testing.coverageThreshold
-      : covVals.length > 0
-        ? Math.max(...covVals)
-        : 85;
-  const allNullMut = mods.length > 0 && mods.every((m) => m?.thresholds && m.thresholds.mutationScore === null);
-  const mutVals = mods.map((m) => m?.thresholds?.mutationScore).filter((v) => typeof v === 'number' && Number.isFinite(v));
-  const minMut =
-    cfg?.testing?.mutationThreshold !== undefined
-      ? cfg.testing.mutationThreshold
-      : allNullMut
-        ? null
-        : mutVals.length > 0
-          ? Math.max(...mutVals)
-          : 52;
-  return { minCov, minMut };
+  return resolveQualityThresholds(repoRoot);
 }
 
 export const CANONICAL_ISSUE_TEMPLATES = {
@@ -1146,6 +1127,31 @@ export function ensurePullRequest({
   };
 }
 
+function formatPillarFlag(val, isStale = false) {
+  if (val === true) return '✅ PASSED';
+  if (val === false) return '❌ FAILED';
+  if (val === 'na') return '⚪ N/A';
+  return isStale ? '⏳ STALE (re-run gate)' : '⏳ NOT VERIFIED';
+}
+
+function formatMetricPillar(rawVal, explicitPass, minThreshold, notConfiguredLabel = null) {
+  if (rawVal === null || rawVal === undefined || rawVal === '') {
+    return notConfiguredLabel || '⏳ NOT MEASURED';
+  }
+  const str = String(rawVal).includes('%') ? String(rawVal) : `${rawVal}%`;
+  const num = Number.parseFloat(str.replace('%', ''));
+  let passed = explicitPass;
+  if (passed !== true && passed !== false && Number.isFinite(num)) {
+    passed = minThreshold === null ? true : num >= minThreshold;
+  }
+  if (passed === false) {
+    const suffix = minThreshold !== null && Number.isFinite(num) && num < minThreshold ? ` (< ${minThreshold}%)` : '';
+    return `❌ ${str}${suffix}`;
+  }
+  if (passed === true) return `✅ ${str}`;
+  return `⏳ ${str}`;
+}
+
 export function formatConsolidatedReviewComment({
   issueId = null,
   prNumber = null,
@@ -1158,8 +1164,16 @@ export function formatConsolidatedReviewComment({
   body = '',
   coveragePct = null,
   mutationPct = null,
-  driftPassed = true,
-  wikiPassed = true,
+  coveragePassed = undefined,
+  mutationPassed = undefined,
+  testsPassed = undefined,
+  archPassed = undefined,
+  driftPassed = undefined,
+  contractPassed = undefined,
+  securityPassed = undefined,
+  flakePassed = undefined,
+  wikiPassed = undefined,
+  gatePillars = null,
   receiptId = null,
   repoRoot = '.'
 } = {}) {
@@ -1178,18 +1192,32 @@ export function formatConsolidatedReviewComment({
   const { minCov, minMut } = resolveConfiguredQualityBars(repoRoot);
   const mutReqLabel = minMut === null ? 'N/A (not configured)' : `\`>= ${minMut}%\``;
 
-  const covVal =
-    coveragePct !== null && coveragePct !== undefined
-      ? String(coveragePct).includes('%')
-        ? String(coveragePct)
-        : `${coveragePct}%`
-      : activeSess?.manifest?.coverageReport || `Verified (>= ${minCov}%)`;
-  const mutVal =
-    mutationPct !== null && mutationPct !== undefined
-      ? String(mutationPct).includes('%')
-        ? String(mutationPct)
-        : `${mutationPct}%`
-      : activeSess?.manifest?.mutationScore || (minMut === null ? 'N/A' : `Verified (>= ${minMut}% / N/A)`);
+  const recordedPillars = gatePillars || activeSess?.manifest?.gatePillars || null;
+  const pillarsStale = Boolean(
+    recordedPillars && recordedPillars.headSha && resolvedSha !== 'HEAD' && recordedPillars.headSha !== resolvedSha
+  );
+  const pickPillar = (explicitVal, key) => {
+    if (explicitVal !== undefined) return explicitVal;
+    if (!pillarsStale && recordedPillars && Object.prototype.hasOwnProperty.call(recordedPillars, key)) {
+      return recordedPillars[key];
+    }
+    return null;
+  };
+
+  const rawCov = coveragePct !== null && coveragePct !== undefined ? coveragePct : activeSess?.manifest?.coverageReport ?? null;
+  const rawMut = mutationPct !== null && mutationPct !== undefined ? mutationPct : activeSess?.manifest?.mutationScore ?? null;
+  const covStatus = formatMetricPillar(rawCov, pickPillar(coveragePassed, 'coveragePassed'), minCov);
+  const mutStatus = formatMetricPillar(
+    rawMut,
+    pickPillar(mutationPassed, 'mutationPassed'),
+    minMut,
+    minMut === null ? '⚪ N/A (not configured)' : null
+  );
+
+  const effectiveDrift =
+    pickPillar(driftPassed, 'driftPassed') === false || pickPillar(wikiPassed, 'wikiPassed') === false
+      ? false
+      : pickPillar(driftPassed, 'driftPassed');
 
   const subagent1Text =
     peerReviewSummary ||
@@ -1227,14 +1255,14 @@ export function formatConsolidatedReviewComment({
     `### 3. 📊 Strict 9-Pillar Quality Gate & Stage 7 Cryptographic Receipt`,
     `| # | Quality Gate Pillar | Requirement | Measured / Status |`,
     `| :--- | :--- | :--- | :--- |`,
-    `| 1 | **Unit & Integration Tests** | 100% Pass (F.I.R.S.T.) | ✅ PASSED |`,
-    `| 2 | **Diff Test Coverage** | \`>= ${minCov}%\` | ✅ ${covVal} |`,
-    `| 3 | **Mutation Kill Score** | ${mutReqLabel} | ✅ ${mutVal} |`,
-    `| 4 | **Archlens Concentric Rings** | Zero Inner -> Outer Imports | ✅ PASSED |`,
-    `| 5 | **Spec-Drift Sentinel** | \`PRODUCT.md\` / \`docs/adr/\` Sync | ${driftPassed ? '✅ PASSED' : '❌ FAILED'} |`,
-    `| 6 | **API Contract Drift** | Zero Breaking Schema Changes | ✅ PASSED |`,
-    `| 7 | **Security & CVE Audit** | Zero Secrets / High CVEs | ✅ PASSED |`,
-    `| 8 | **Flake Resistance** | Deterministic Multi-Run | ✅ PASSED |`,
+    `| 1 | **Unit & Integration Tests** | 100% Pass (F.I.R.S.T.) | ${formatPillarFlag(pickPillar(testsPassed, 'unitTestsPassed'), pillarsStale)} |`,
+    `| 2 | **Diff Test Coverage** | \`>= ${minCov}%\` | ${covStatus} |`,
+    `| 3 | **Mutation Kill Score** | ${mutReqLabel} | ${mutStatus} |`,
+    `| 4 | **Archlens Concentric Rings** | Zero Inner -> Outer Imports | ${formatPillarFlag(pickPillar(archPassed, 'archPassed'), pillarsStale)} |`,
+    `| 5 | **Spec-Drift Sentinel** | \`PRODUCT.md\` / \`docs/adr/\` Sync | ${formatPillarFlag(effectiveDrift, pillarsStale)} |`,
+    `| 6 | **API Contract Drift** | Zero Breaking Schema Changes | ${formatPillarFlag(pickPillar(contractPassed, 'contractPassed'), pillarsStale)} |`,
+    `| 7 | **Security & CVE Audit** | Zero Secrets / High CVEs | ${formatPillarFlag(pickPillar(securityPassed, 'securityPassed'), pillarsStale)} |`,
+    `| 8 | **Flake Resistance** | Deterministic Multi-Run | ${formatPillarFlag(pickPillar(flakePassed, 'flakePassed'), pillarsStale)} |`,
     `| 9 | **Stage 7 HMAC Receipt** | HMAC-SHA256 Signed in \`docs/AUDIT_CHAIN.jsonl\` | \`${resolvedReceiptId}\` |`
   ].join('\n');
 }

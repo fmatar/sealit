@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { loadConfig, parseTicketId } from './core.mjs';
+import { resolveQualityThresholds, parseTicketId } from './core.mjs';
 
 export const AUDIT_LEDGER_FILE = 'docs/AUDIT_CHAIN.jsonl';
 export const GENESIS_HASH = '0000000000000000000000000000000000000000000000000000000000000000';
@@ -255,31 +255,8 @@ export function verifyReceiptSignature(receipt, key) {
 export const VALID_RECEIPT_LANES = ['trivial', 'standard', 'full'];
 
 function resolveReceiptThresholds(repoRoot = '.') {
-  const cfgPath = path.resolve(repoRoot, '.agent/sdlc-config.json');
-  if (!fs.existsSync(cfgPath)) return { minCov: null, minMut: null };
-  const cfg = loadConfig(repoRoot);
-  const mods = Array.isArray(cfg.modules) ? cfg.modules : [];
-  const allNullCov = mods.length > 0 && mods.every((m) => m?.thresholds && m.thresholds.diffCoverage === null);
-  const covVals = mods.map((m) => m?.thresholds?.diffCoverage).filter((v) => typeof v === 'number' && Number.isFinite(v));
-  const minCov =
-    typeof cfg?.testing?.coverageThreshold === 'number'
-      ? cfg.testing.coverageThreshold
-      : allNullCov
-        ? null
-        : covVals.length > 0
-          ? Math.max(...covVals)
-          : 85;
-  const allNullMut = mods.length > 0 && mods.every((m) => m?.thresholds && m.thresholds.mutationScore === null);
-  const mutVals = mods.map((m) => m?.thresholds?.mutationScore).filter((v) => typeof v === 'number' && Number.isFinite(v));
-  const minMut =
-    cfg?.testing?.mutationThreshold !== undefined
-      ? cfg.testing.mutationThreshold
-      : allNullMut
-        ? null
-        : mutVals.length > 0
-          ? Math.max(...mutVals)
-          : 52;
-  return { minCov, minMut };
+  const thresholds = resolveQualityThresholds(repoRoot);
+  return thresholds.configExists ? thresholds : { minCov: null, minMut: null };
 }
 
 export function issueGateReceipt({
