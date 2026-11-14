@@ -4,7 +4,7 @@
   "generatedAt": "2026-10-25T22:24:00.000Z",
   "profile": "standard",
   "ci": {
-    "runsOn": "${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}"
+    "runsOn": "${{ vars.SDLC_RUNS_ON || 'local-agentic-sdlc-framework' }}"
   },
   "lanes": {
     "trivialMaxLines": 25,

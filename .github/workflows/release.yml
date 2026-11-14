@@ -45,7 +45,7 @@ jobs:
 
       - name: Verify Strict Quality Gate
         run: |
-          node .agent/scripts/sdlc-engine.mjs gate --strict
+          node .agent/scripts/sdlc-engine.mjs gate --strict --no-cache
 
       - name: Inspect Package Version & Release Tag
         id: version_check
@@ -65,7 +65,30 @@ jobs:
             echo "tag_exists=false" >> $GITHUB_OUTPUT
             echo "Release tag ${TAG} does not exist. Tag will be created."
           fi
+          RELEASE_EXISTS=false
           if command -v gh >/dev/null 2>&1 && gh release view "${TAG}" >/dev/null 2>&1; then
+            RELEASE_EXISTS=true
+          elif node -e "
+            const https = require('node:https');
+            const [owner, repo] = (process.env.GITHUB_REPOSITORY || '').split('/');
+            const tag = process.argv[1] || '';
+            if (!owner || !repo || !tag) process.exit(1);
+            const req = https.get({
+              hostname: 'api.github.com',
+              path: '/repos/' + owner + '/' + repo + '/releases/tags/' + encodeURIComponent(tag),
+              headers: {
+                'User-Agent': 'agentic-sdlc-release',
+                'Authorization': 'token ' + (process.env.GH_TOKEN || '')
+              }
+            }, (res) => {
+              res.resume();
+              process.exit(res.statusCode === 200 ? 0 : 1);
+            });
+            req.on('error', () => process.exit(1));
+          " "${TAG}" >/dev/null 2>&1; then
+            RELEASE_EXISTS=true
+          fi
+          if [ "$RELEASE_EXISTS" = "true" ]; then
             echo "release_exists=true" >> $GITHUB_OUTPUT
             echo "GitHub Release ${TAG} already exists."
           else
@@ -147,6 +170,10 @@ jobs:
                   res.on('data', chunk => data += chunk);
                   res.on('end', () => {
                     console.log('GitHub Release API Status:', res.statusCode);
+                    if (res.statusCode === 422 && data.includes('already_exists')) {
+                      console.log('GitHub Release already exists (already_exists); continuing idempotently.');
+                      return;
+                    }
                     if (res.statusCode >= 400) {
                       console.error('API Error:', data);
                       process.exit(1);

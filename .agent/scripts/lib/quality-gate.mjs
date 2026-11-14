@@ -161,8 +161,8 @@ export function generateRegressionProof({
     const pathUrl = ep.path || ep.url || `/api/v1/${targetName}`;
     let status = ep.expectedStatus || 200;
     let bodySample = ep.sampleResponse || { status: 'ok', timestamp };
-    let source = 'contract-sample';
-    let verified = Boolean(ep.file || ep.sampleResponse);
+    let source = ep.sampleResponse ? 'sample' : 'contract-sample';
+    let verified = false;
 
     if (ep.file && fileExists(path.resolve(repoRoot, ep.file))) {
       bodySample = readFileSafe(path.resolve(repoRoot, ep.file)) || bodySample;
@@ -238,7 +238,7 @@ export function generateRegressionProof({
       component: componentName,
       sourceFile,
       snapshotHash,
-      verified: true
+      verified: Boolean(sourceFile)
     };
   });
 
@@ -251,7 +251,7 @@ export function generateRegressionProof({
           .map(
             (p) =>
               `| \`${p.method}\` | \`${p.endpoint}\` | \`${p.status}\` | \`${p.responseHash.slice(0, 16)}...\` | ${
-                p.verified ? '✅ VERIFIED' : '⚠️ UNVERIFIED (fallback)'
+                p.verified ? '✅ VERIFIED' : p.source === 'sample' ? '⚠️ SAMPLE (not probed)' : '⚠️ UNVERIFIED (fallback)'
               } |`
           )
           .join('\n')
@@ -259,8 +259,15 @@ export function generateRegressionProof({
 
   const uiRows =
     uiProofs.length > 0
-      ? uiProofs.map((u) => `| \`${u.route}\` | \`${u.component}\` | \`${u.snapshotHash.slice(0, 16)}...\` | ✅ VERIFIED |`).join('\n')
-      : `| \`/\` | \`RootView\` | \`${fallbackUiHash}...\` | ✅ VERIFIED |`;
+      ? uiProofs
+          .map(
+            (u) =>
+              `| \`${u.route}\` | \`${u.component}\` | \`${u.snapshotHash.slice(0, 16)}...\` | ${
+                u.verified ? '✅ VERIFIED' : '⚠️ UNVERIFIED (fallback)'
+              } |`
+          )
+          .join('\n')
+      : `| \`/\` | \`RootView\` | \`${fallbackUiHash}...\` | ⚠️ SAMPLE (not probed) |`;
 
   const markdownProof = `# 🧾 Automated Delivery Regression Proof: ${targetName}
 **Generated:** ${timestamp}  
@@ -442,7 +449,12 @@ export function installCIWorkflow({ repoRoot = '.', force = false, runsOn = null
   const isDefaultRunsOn = (val) => {
     if (typeof val !== 'string') return false;
     const trimmed = val.trim();
-    return trimmed === 'ubuntu-latest' || trimmed === "${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}";
+    return (
+      trimmed === 'ubuntu-latest' ||
+      trimmed === 'self-hosted' ||
+      trimmed === "${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}" ||
+      trimmed === "${{ vars.SDLC_RUNS_ON || 'self-hosted' }}"
+    );
   };
 
   let cfgRunsOn = null;
@@ -484,7 +496,7 @@ export function installCIWorkflow({ repoRoot = '.', force = false, runsOn = null
     configuredRunsOn = cfgRunsOn;
   }
 
-  let runsOnYaml = "${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}";
+  let runsOnYaml = "${{ vars.SDLC_RUNS_ON || 'self-hosted' }}";
   if (Array.isArray(configuredRunsOn) && configuredRunsOn.length > 0) {
     for (const item of configuredRunsOn) {
       if (/[\r\n]/.test(String(item))) {
@@ -562,7 +574,7 @@ jobs:
           if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
             node .agent/scripts/sdlc-engine.mjs audit verify
             node .agent/scripts/sdlc-engine.mjs skill-audit
-            node .agent/scripts/sdlc-engine.mjs gate --strict
+            node .agent/scripts/sdlc-engine.mjs gate --strict --no-cache
           elif npm run | grep -q 'gate'; then
             npm run gate
           else
@@ -570,12 +582,23 @@ jobs:
           fi
 
       - name: Verify Signed Stage 7 Gate Receipt
-        if: github.event_name == 'pull_request' && github.base_ref == 'main'
+        if: github.event_name == 'pull_request'
         env:
           SDLC_RECEIPT_KEY: \${{ secrets.SDLC_RECEIPT_KEY }}
+          PR_HEAD_SHA: \${{ github.event.pull_request.head.sha }}
+          PR_HEAD_REPO: \${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: \${{ github.repository }}
         run: |
+          if [ "\$PR_HEAD_REPO" != "\$BASE_REPO" ]; then
+            echo "::warning::Skipping Stage 7 gate receipt verification for fork pull request (\$PR_HEAD_REPO)."
+            exit 0
+          fi
+          if [ -z "\$SDLC_RECEIPT_KEY" ]; then
+            echo "::error::Missing SDLC_RECEIPT_KEY secret: configure the repository secret SDLC_RECEIPT_KEY to verify Stage 7 gate receipts."
+            exit 1
+          fi
           if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
-            node .agent/scripts/sdlc-engine.mjs guard verify --sha "\${{ github.event.pull_request.head.sha }}"
+            node .agent/scripts/sdlc-engine.mjs guard verify --sha "\$PR_HEAD_SHA"
           fi
 `;
 
@@ -667,7 +690,7 @@ jobs:
 
       - name: Verify Strict Quality Gate
         run: |
-          node .agent/scripts/sdlc-engine.mjs gate --strict
+          node .agent/scripts/sdlc-engine.mjs gate --strict --no-cache
 
       - name: Inspect Package Version & Release Tag
         id: version_check
@@ -687,7 +710,30 @@ jobs:
             echo "tag_exists=false" >> \$GITHUB_OUTPUT
             echo "Release tag \${TAG} does not exist yet."
           fi
+          RELEASE_EXISTS=false
           if command -v gh >/dev/null 2>&1 && gh release view "\${TAG}" >/dev/null 2>&1; then
+            RELEASE_EXISTS=true
+          elif node -e "
+            const https = require('node:https');
+            const [owner, repo] = (process.env.GITHUB_REPOSITORY || '').split('/');
+            const tag = process.argv[1] || '';
+            if (!owner || !repo || !tag) process.exit(1);
+            const req = https.get({
+              hostname: 'api.github.com',
+              path: '/repos/' + owner + '/' + repo + '/releases/tags/' + encodeURIComponent(tag),
+              headers: {
+                'User-Agent': 'agentic-sdlc-release',
+                'Authorization': 'token ' + (process.env.GH_TOKEN || '')
+              }
+            }, (res) => {
+              res.resume();
+              process.exit(res.statusCode === 200 ? 0 : 1);
+            });
+            req.on('error', () => process.exit(1));
+          " "\${TAG}" >/dev/null 2>&1; then
+            RELEASE_EXISTS=true
+          fi
+          if [ "\$RELEASE_EXISTS" = "true" ]; then
             echo "release_exists=true" >> \$GITHUB_OUTPUT
             echo "GitHub Release \${TAG} already exists."
           else
@@ -769,6 +815,10 @@ jobs:
                   res.on('data', chunk => data += chunk);
                   res.on('end', () => {
                     console.log('GitHub Release API Status:', res.statusCode);
+                    if (res.statusCode === 422 && data.includes('already_exists')) {
+                      console.log('GitHub Release already exists (already_exists); continuing idempotently.');
+                      return;
+                    }
                     if (res.statusCode >= 400) {
                       console.error('API Error:', data);
                       process.exit(1);
@@ -1929,7 +1979,7 @@ export function generateReviewPlan({ repoRoot = '.', lane = null, maxDiffChars =
   const filesLabel = diffFiles.length > 0 ? diffFiles.join(', ') : 'none';
   const issueRef = String(issueId).startsWith('L-') || issueId === 'N/A' ? String(issueId) : `#${issueId}`;
   const diffContextBlock = [
-    `Base SHA: ${baseSha || 'main'} | HEAD SHA: ${headSha || 'working-tree'}`,
+    `Base SHA: ${baseSha || baseRef} | HEAD SHA: ${headSha || 'working-tree'}`,
     `Modified files (${diffFiles.length}): ${filesLabel}`,
     ...(diffStat ? [`Diff Stat:\n${diffStat}`] : []),
     `Unified Diff:\n\`\`\`diff\n${diff || '(no diff hunks detected)'}\n\`\`\``
@@ -1957,7 +2007,7 @@ export function generateReviewPlan({ repoRoot = '.', lane = null, maxDiffChars =
       {
         TypeName: 'research',
         Role: 'PR Peer & Architecture Reviewer',
-        Prompt: `Follow sdlc-gate review guidelines. Audit git diff against main on branch ${branch} for ticket ${issueRef} (standard lane, risk: ${risk.riskLevel}).
+        Prompt: `Follow sdlc-gate review guidelines. Audit git diff against ${baseRef} on branch ${branch} for ticket ${issueRef} (standard lane, risk: ${risk.riskLevel}).
 1. Audit logic correctness, behavioral test smells (no assertion-free tests), and F.I.R.S.T. isolation.
 2. Verify coverage metrics against .agent/sdlc-config.json thresholds.
 3. Inspect modified files for hardcoded secrets, unsafe shell interpolation, concentric layer inversions (.archlens/policy.json), and undeclared spec drift.
@@ -1986,7 +2036,7 @@ ${diffContextBlock}`
     {
       TypeName: 'research',
       Role: 'PR Peer Reviewer',
-      Prompt: `Follow sdlc-gate review guidelines. Audit git diff against main on branch ${branch} for ticket ${issueRef}.
+      Prompt: `Follow sdlc-gate review guidelines. Audit git diff against ${baseRef} on branch ${branch} for ticket ${issueRef}.
 1. Audit for behavioral test smells (no assertion-free tests, no trivial getters, no mock abuse) and F.I.R.S.T. isolation.
 2. Verify Dual-Gate metrics against .agent/sdlc-config.json thresholds.
 3. Verify README.md and CHANGELOG.md alignment when user-facing behavior changes.
@@ -2336,7 +2386,7 @@ export function generateConfig(repoRoot = '.') {
     generatedAt: new Date().toISOString(),
     profile: modules.length > 1 ? 'polyglot-monorepo' : 'standard',
     ci: {
-      runsOn: "${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}"
+      runsOn: "${{ vars.SDLC_RUNS_ON || 'self-hosted' }}"
     },
     lanes: {
       trivialMaxLines: 25,

@@ -690,7 +690,7 @@ describe('Issue #105: GitHub Actions quality-gate CI, configurable runners, loca
     assert.equal(defaultRes.created, true);
     const defaultYaml = fs.readFileSync(path.join(dir, '.github/workflows/sdlc-quality-gate.yml'), 'utf8');
     assert.match(defaultYaml, /permissions:\s*\n\s*contents:\s*read/);
-    assert.match(defaultYaml, /runs-on:\s*\$\{\{\s*vars\.SDLC_RUNS_ON\s*\|\|\s*'ubuntu-latest'\s*\}\}/);
+    assert.match(defaultYaml, /runs-on:\s*\$\{\{\s*vars\.SDLC_RUNS_ON\s*\|\|\s*'self-hosted'\s*\}\}/);
     assert.match(defaultYaml, /sdlc-engine\.mjs skill-audit/);
     assert.match(defaultYaml, /sdlc-engine\.mjs gate --strict/);
     assert.throws(
@@ -3189,5 +3189,310 @@ version = "2.0.5"
     assert.equal(fs.existsSync(path.join(dir, '.custom-hooks/pre-commit')), true);
     assert.equal(fs.existsSync(path.join(dir, '.custom-hooks/pre-merge-commit')), true);
     assert.equal(fs.existsSync(path.join(dir, '.custom-hooks/pre-push')), true);
+  });
+});
+
+// ===========================================================================
+// Audit hardening & base-branch alignment regressions
+// ===========================================================================
+describe('Audit hardening & base-branch alignment regressions', () => {
+  let dir;
+  beforeEach(() => {
+    dir = makeRepo();
+  });
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it('guard verify succeeds without --branch on detached HEAD, main, and develop, while rejecting wrong --branch', () => {
+    fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+    assert.equal(git(dir, 'checkout', '-b', 'feature/detached-verify').status, 0);
+    fs.writeFileSync(path.join(dir, 'src/mod.mjs'), 'export const ok = true;\n', 'utf8');
+    assert.equal(git(dir, 'add', 'src/mod.mjs').status, 0);
+    assert.equal(git(dir, 'commit', '-q', '-m', 'feat: add mod').status, 0);
+    const featureSha = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+
+    const receipt = issueGateReceipt({
+      issueId: '#200',
+      branch: 'feature/detached-verify',
+      headSha: featureSha,
+      lane: 'full',
+      coveragePct: 95,
+      mutationPct: 85,
+      peerReviewApproved: true,
+      reviewer: '@reviewer',
+      driftCheckPassed: true,
+      repoRoot: dir
+    });
+    assert.equal(receipt.success, true);
+
+    assert.equal(git(dir, 'checkout', '--detach', featureSha).status, 0);
+    const detachedCli = runCLI(['guard', 'verify', '--sha', featureSha], null, dir);
+    assert.equal(detachedCli.success, true);
+    assert.match(formatCLIResult(detachedCli, ['guard', 'verify']), /Verified Stage 7 gate receipt/i);
+
+    assert.equal(git(dir, 'checkout', 'main').status, 0);
+    const mainCli = runCLI(['guard', 'verify', '--sha', featureSha], null, dir);
+    assert.equal(mainCli.success, true);
+
+    assert.equal(git(dir, 'checkout', '-b', 'develop').status, 0);
+    const developCli = runCLI(['guard', 'verify', '--sha', featureSha], null, dir);
+    assert.equal(developCli.success, true);
+
+    const wrongBranchCli = runCLI(['guard', 'verify', '--sha', featureSha, '--branch', 'feature/wrong'], null, dir);
+    assert.equal(wrongBranchCli.success, false);
+  });
+
+  it('sdlc-quality-gate.yml, release.yml, and installCIWorkflow enforce --no-cache, safe receipt guards, and REST release fallback', () => {
+    const wfInstall = installCIWorkflow({ repoRoot: dir, force: true });
+    assert.equal(wfInstall.success, true);
+
+    const gateWfPaths = [
+      path.join(REPO_ROOT, '.github/workflows/sdlc-quality-gate.yml'),
+      path.join(dir, '.github/workflows/sdlc-quality-gate.yml')
+    ];
+    for (const wfPath of gateWfPaths) {
+      const content = fs.readFileSync(wfPath, 'utf8');
+      assert.match(content, /sdlc-engine\.mjs gate --strict --no-cache/);
+      const receiptStep = content.match(/- name: Verify Signed Stage 7 Gate Receipt[\s\S]*/)?.[0] || '';
+      assert.ok(receiptStep.length > 0, `Expected Verify Signed Stage 7 Gate Receipt step in ${wfPath}`);
+      assert.match(receiptStep, /if:\s*github\.event_name\s*==\s*'pull_request'/);
+      assert.equal(receiptStep.includes("github.base_ref == 'main'"), false);
+      assert.match(receiptStep, /PR_HEAD_SHA:\s*\$\{\{\s*github\.event\.pull_request\.head\.sha\s*\}\}/);
+      assert.match(receiptStep, /PR_HEAD_REPO:\s*\$\{\{\s*github\.event\.pull_request\.head\.repo\.full_name\s*\}\}/);
+      assert.match(receiptStep, /BASE_REPO:\s*\$\{\{\s*github\.repository\s*\}\}/);
+      assert.match(receiptStep, /\[\s*"\$PR_HEAD_REPO"\s*!=\s*"\$BASE_REPO"\s*\]/);
+      assert.match(receiptStep, /\[\s*-z\s*"\$SDLC_RECEIPT_KEY"\s*\]/);
+      assert.match(receiptStep, /::error::Missing SDLC_RECEIPT_KEY secret/);
+      assert.match(receiptStep, /exit 1/);
+      assert.equal(receiptStep.includes('.agent/.receipt-key'), false);
+      assert.match(receiptStep, /guard verify --sha "\$PR_HEAD_SHA"/);
+      assert.equal(receiptStep.includes('guard verify --sha "${{'), false);
+    }
+
+    const releaseWfPaths = [
+      path.join(REPO_ROOT, '.github/workflows/release.yml'),
+      path.join(dir, '.github/workflows/release.yml')
+    ];
+    for (const relPath of releaseWfPaths) {
+      const content = fs.readFileSync(relPath, 'utf8');
+      assert.match(content, /sdlc-engine\.mjs gate --strict --no-cache/);
+      assert.match(content, /\/releases\/tags\//);
+      assert.match(content, /res\.statusCode\s*===\s*422\s*&&\s*data\.includes\('already_exists'\)/);
+    }
+  });
+
+  it('product-dag and pm-provider read modules[].thresholds.mutationScore from sdlc-config.json and list 9 Verb Skills', () => {
+    fs.mkdirSync(path.join(dir, '.agent'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, '.agent/sdlc-config.json'),
+      JSON.stringify(
+        {
+          version: '1.0.0',
+          modules: [{ name: 'root', path: '.', thresholds: { diffCoverage: 88, mutationScore: 52 } }]
+        },
+        null,
+        2
+      ),
+      'utf8'
+    );
+
+    const initRes = productDagMod.initProductConstitution({
+      title: 'Config Bars System',
+      capabilities: [
+        {
+          id: 'CAP-01',
+          title: 'Core Capability',
+          problem: 'Problem',
+          inputs: 'Input',
+          processing: 'Process',
+          outputs: 'Output'
+        }
+      ],
+      autoProvisionGenesis: false,
+      repoRoot: dir
+    });
+    assert.equal(initRes.success, true);
+
+    const srsContent = fs.readFileSync(path.join(dir, 'docs/SRS.md'), 'utf8');
+    assert.match(srsContent, /88%/);
+    assert.match(srsContent, /52%/);
+    assert.equal(srsContent.includes('80%'), false);
+    assert.match(srsContent, /9 Verb Skills \(10 Canonical Skills\)/);
+    assert.match(srsContent, /\/sdlc-wiki/);
+    assert.equal(srsContent.includes('8 Verb Skills'), false);
+
+    const specMd = productDagMod.renderCapabilitySpecMarkdown({
+      capId: 'CAP-01',
+      title: 'Core Capability',
+      repoRoot: dir
+    });
+    assert.match(specMd, />=\s*88%/);
+    assert.match(specMd, />=\s*52%/);
+    assert.equal(specMd.includes('80%'), false);
+
+    const untemplatedIssue = pmMod.formatTemplatedIssue({
+      title: 'Add config bar support',
+      type: 'feat',
+      repoRoot: dir
+    });
+    assert.match(untemplatedIssue.body, />= 88% diff test coverage, >= 52% mutation/);
+
+    fs.mkdirSync(path.join(dir, '.github/ISSUE_TEMPLATE'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, '.github/ISSUE_TEMPLATE/feature_request.md'),
+      [
+        '---',
+        'name: Feature Request',
+        'labels: enhancement',
+        '---',
+        'A clear and concise description of what the problem is.',
+        'A clear and concise description of what you want to happen.',
+        '- [ ] Diff line coverage `>= 85%` and configured mutation score (`.agent/sdlc-config.json`)'
+      ].join('\n'),
+      'utf8'
+    );
+    const templatedIssue = pmMod.formatTemplatedIssue({
+      title: 'Add config bar support',
+      type: 'feat',
+      repoRoot: dir
+    });
+    assert.match(templatedIssue.body, /`>= 88%` and `>= 52%` mutation score/);
+  });
+
+  it('generateRegressionProof distinguishes verified UI/API proofs from unverified fallback or sample entries', () => {
+    fs.mkdirSync(path.join(dir, 'src/components'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'src/components/PresentView.svelte'), '<main>Present</main>\n', 'utf8');
+    fs.writeFileSync(path.join(dir, 'src/api-sample.json'), JSON.stringify({ ok: true }), 'utf8');
+
+    const res = qualityGateMod.generateRegressionProof({
+      targetName: 'proof-check',
+      apiEndpoints: [
+        { method: 'GET', path: '/api/no-sample' },
+        { method: 'GET', path: '/api/with-sample', sampleResponse: { ok: true } },
+        { method: 'GET', path: '/api/with-file', file: 'src/api-sample.json' }
+      ],
+      uiRoutes: [
+        { path: '/missing', component: 'MissingView' },
+        { path: '/present', component: 'PresentView', file: 'src/components/PresentView.svelte' }
+      ],
+      repoRoot: dir
+    });
+
+    assert.equal(res.success, true);
+    assert.equal(res.apiProofs[0].verified, false);
+    assert.equal(res.apiProofs[1].verified, false);
+    assert.equal(res.apiProofs[1].source, 'sample');
+    assert.equal(res.apiProofs[2].verified, true);
+    assert.equal(res.uiProofs[0].verified, false);
+    assert.equal(res.uiProofs[0].sourceFile, null);
+    assert.equal(res.uiProofs[1].verified, true);
+    assert.equal(res.uiProofs[1].sourceFile, 'src/components/PresentView.svelte');
+
+    const proofMd = fs.readFileSync(res.proofFilePath, 'utf8');
+    assert.match(proofMd, /`\/api\/no-sample`.*⚠️ UNVERIFIED \(fallback\)/);
+    assert.match(proofMd, /`\/api\/with-sample`.*⚠️ SAMPLE \(not probed\)/);
+    assert.match(proofMd, /`\/api\/with-file`.*✅ VERIFIED/);
+    assert.match(proofMd, /`\/missing`.*⚠️ UNVERIFIED \(fallback\)/);
+    assert.match(proofMd, /`\/present`.*✅ VERIFIED/);
+
+    const emptyRes = qualityGateMod.generateRegressionProof({ targetName: 'empty-proof', repoRoot: dir });
+    assert.match(emptyRes.markdown, /⚠️ SAMPLE \(not probed\)/);
+  });
+
+  it('generateReviewPlan targets develop instead of hardcoding main when develop branch exists', () => {
+    assert.equal(git(dir, 'checkout', '-b', 'develop').status, 0);
+    fs.mkdirSync(path.join(dir, 'src/auth'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'src/base.mjs'), 'export const base = 1;\n', 'utf8');
+    assert.equal(git(dir, 'add', 'src/base.mjs').status, 0);
+    assert.equal(git(dir, 'commit', '-q', '-m', 'chore: base develop commit').status, 0);
+
+    assert.equal(git(dir, 'checkout', '-b', 'feature/review-develop').status, 0);
+    fs.writeFileSync(path.join(dir, 'src/auth/jwt-verifier.mjs'), 'export function verifyJwtSignature() { return true; }\n', 'utf8');
+    assert.equal(git(dir, 'add', 'src/auth/jwt-verifier.mjs').status, 0);
+    assert.equal(git(dir, 'commit', '-q', '-m', 'feat: add jwt verifier').status, 0);
+
+    writeSession(dir, { issueId: '#201', branch: 'feature/review-develop', lane: 'full' });
+
+    const plan = generateReviewPlan({ repoRoot: dir, lane: 'full' });
+    assert.equal(plan.subagentsCount, 3);
+    for (const sub of plan.payload.Subagents) {
+      assert.match(sub.Prompt, /develop/);
+      assert.equal(sub.Prompt.includes('against main'), false);
+    }
+  });
+
+  it('workbench-server removes inline onclick handlers on dynamic node IDs and delegates via data-node-id', () => {
+    fs.mkdirSync(path.join(dir, '.agent'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, '.agent/decision-graph.jsonl'),
+      JSON.stringify({ type: 'CAPABILITY_REGISTERED', id: 'CAP-"\'\\01', label: 'Node with quotes', category: 'CAPABILITY', status: 'ACTIVE' }) + '\n',
+      'utf8'
+    );
+
+    const workbenchHtml = workbenchMod.renderWorkbenchHTML(dir);
+    const widgetRes = workbenchMod.generateArchitectureWidget({ repoRoot: dir, writeDefault: false });
+
+    for (const rendered of [workbenchHtml, widgetRes.html]) {
+      assert.match(rendered, /data-node-id="/);
+      assert.match(rendered, /\.closest\('\[data-node-id\]'\)/);
+      assert.equal(rendered.includes('onclick="inspectNode('), false);
+      assert.equal(rendered.includes('onclick="selectLineageNode('), false);
+    }
+  });
+
+  it('verifyGateReceipt rejects subsequent .agent/workbench/ commits and .gitignore excludes .agent/.audit-chain.lock', () => {
+    const gitignore = fs.readFileSync(path.join(REPO_ROOT, '.gitignore'), 'utf8');
+    assert.match(gitignore, /^\.agent\/\.audit-chain\.lock$/m);
+
+    assert.equal(git(dir, 'checkout', '-b', 'feature/workbench-tamper').status, 0);
+    fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'src/ok.mjs'), 'export const ok = true;\n', 'utf8');
+    assert.equal(git(dir, 'add', 'src/ok.mjs').status, 0);
+    assert.equal(git(dir, 'commit', '-q', '-m', 'feat: initial commit').status, 0);
+    const receiptSha = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+
+    const receipt = issueGateReceipt({
+      issueId: '#202',
+      branch: 'feature/workbench-tamper',
+      headSha: receiptSha,
+      lane: 'full',
+      coveragePct: 95,
+      mutationPct: 85,
+      peerReviewApproved: true,
+      reviewer: '@reviewer',
+      driftCheckPassed: true,
+      repoRoot: dir
+    });
+    assert.equal(receipt.success, true);
+
+    fs.mkdirSync(path.join(dir, '.agent/workbench'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.agent/workbench/injected.js'), 'console.log("pwn");\n', 'utf8');
+    assert.equal(git(dir, 'add', '-f', '.agent/workbench/injected.js').status, 0);
+    assert.equal(git(dir, 'commit', '-q', '-m', 'chore: modify workbench file after receipt').status, 0);
+    const postReceiptSha = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+
+    const verified = verifyGateReceipt({ headSha: postReceiptSha, branch: 'feature/workbench-tamper', repoRoot: dir });
+    assert.equal(verified.valid, false);
+
+    assert.equal(git(dir, 'add', '-f', '.agent/.receipt-key').status, 0);
+    assert.equal(auditChainMod.loadReceiptKey(dir), null);
+    const verifiedWithCommittedKey = verifyGateReceipt({
+      headSha: receiptSha,
+      branch: 'feature/workbench-tamper',
+      repoRoot: dir
+    });
+    assert.equal(verifiedWithCommittedKey.valid, false);
+  });
+
+  it('hasDevelopBranch reflects packed and deleted develop refs immediately without timestamp caching', () => {
+    assert.equal(coreMod.hasDevelopBranch(dir), false);
+    assert.equal(git(dir, 'checkout', '-b', 'develop').status, 0);
+    assert.equal(coreMod.hasDevelopBranch(dir), true);
+
+    assert.equal(git(dir, 'pack-refs', '--all').status, 0);
+    assert.equal(coreMod.hasDevelopBranch(dir), true);
+
+    assert.equal(git(dir, 'checkout', 'main').status, 0);
+    assert.equal(git(dir, 'branch', '-D', 'develop').status, 0);
+    assert.equal(coreMod.hasDevelopBranch(dir), false);
   });
 });

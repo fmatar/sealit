@@ -200,6 +200,20 @@ export function loadReceiptKey(repoRoot = '.', { create = false } = {}) {
   if (process.env.SDLC_RECEIPT_KEY) return Buffer.from(process.env.SDLC_RECEIPT_KEY, 'utf8');
   const keyPath = path.resolve(repoRoot, RECEIPT_KEY_FILE);
   if (fs.existsSync(keyPath)) {
+    try {
+      execFileSync('git', ['ls-files', '--error-unmatch', '--', RECEIPT_KEY_FILE], {
+        cwd: repoRoot,
+        stdio: 'pipe'
+      });
+      return null;
+    } catch {}
+    try {
+      execFileSync('git', ['cat-file', '-e', `HEAD:${RECEIPT_KEY_FILE}`], {
+        cwd: repoRoot,
+        stdio: 'pipe'
+      });
+      return null;
+    } catch {}
     const raw = fs.readFileSync(keyPath, 'utf8').trim();
     if (raw) return Buffer.from(raw, 'utf8');
   }
@@ -412,16 +426,20 @@ export function verifyGateReceipt({ headSha = null, branch = null, repoRoot = '.
     };
   }
 
+  const branchForLookup = branch && branch !== 'HEAD' ? branch : null;
   let targetSha = headSha;
-  if (!targetSha && branch) {
+  if (!targetSha && branchForLookup) {
     try {
-      targetSha = execFileSync('git', ['rev-parse', '--verify', '-q', '--end-of-options', branch], {
+      targetSha = execFileSync('git', ['rev-parse', '--verify', '-q', '--end-of-options', branchForLookup], {
         cwd: repoRoot,
         encoding: 'utf8',
         stdio: 'pipe'
       }).trim();
     } catch {}
   }
+
+  const effectiveBranch =
+    targetSha && branch && ['HEAD', 'develop', 'main', 'master'].includes(branch) ? null : branch;
 
   const key = loadReceiptKey(repoRoot);
   if (!key) {
@@ -454,15 +472,14 @@ export function verifyGateReceipt({ headSha = null, branch = null, repoRoot = '.
               f === 'docs/ARCH_TRACE.md' ||
               f === '.agent/arch-trace.jsonl' ||
               f === '.agent/decision-graph.jsonl' ||
-              f === '.agent/.sdlc-session.json' ||
-              f.startsWith('.agent/workbench/')
+              f === '.agent/.sdlc-session.json'
           )
         ) {
           shaMatch = true;
         }
       } catch {}
     }
-    const branchMatch = branch ? m.branch === branch : true;
+    const branchMatch = effectiveBranch ? m.branch === effectiveBranch : true;
     return shaMatch && branchMatch && m.peerReviewApproved === true && m.driftCheckPassed === true && verifyReceiptSignature(m, key);
   });
 
