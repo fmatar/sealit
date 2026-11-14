@@ -26,6 +26,7 @@ import {
   extractAddedLinesFromDiff,
   gitOutput,
   resolveQualityThresholds,
+  sameShaPrefix,
   parseTicketId,
   writeFileAtomic
 } from './lib/core.mjs';
@@ -672,12 +673,6 @@ function requireFreshReport(report, mod, repoRoot, startedAt) {
 }
 
 /** Runs the module's coverage command and parses a fresh report (fails closed). */
-function sameShaPrefix(a, b) {
-  return Boolean(
-    a && b && a !== 'HEAD' && b !== 'HEAD' && (a === b || (a.length >= 7 && b.length >= 7 && (a.startsWith(b) || b.startsWith(a))))
-  );
-}
-
 function mergeSessionGatePillars(repoRoot, updates = {}) {
   try {
     const current = getSessionStatus(repoRoot);

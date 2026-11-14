@@ -3584,7 +3584,7 @@ describe('Issue #131: Gate hunk diff coverage, unified thresholds, Red TDD & tru
       'utf8'
     );
 
-    // Explicit testing.* overrides modules.* consistently across every subsystem, EXCEPT mod.thresholds when passed directly
+    // Explicit testing.* overrides modules.* consistently across every subsystem (including when mod is passed)
     const resolved = coreMod.resolveQualityThresholds(dir);
     assert.equal(resolved.minCov, 78);
     assert.equal(resolved.minMut, 59);

@@ -16,6 +16,7 @@ import {
   runConfiguredCommand,
   resolveDefaultBaseBranch,
   resolveQualityThresholds,
+  sameShaPrefix,
   writeFileAtomic,
   parseTicketId
 } from './core.mjs';
@@ -1300,8 +1301,6 @@ export function generatePRSummary({ issueId = null, repoRoot = '.' } = {}) {
   ).trim();
 
   const currentHeadSha = (gitOutput(['rev-parse', 'HEAD'], repoRoot) || '').trim() || null;
-  const sameShaPrefix = (a, b) =>
-    Boolean(a && b && a !== 'HEAD' && b !== 'HEAD' && (a === b || (a.length >= 7 && b.length >= 7 && (a.startsWith(b) || b.startsWith(a)))));
   const covReport = activeSess?.manifest?.coverageReport || null;
   const mutReport = activeSess?.manifest?.mutationScore || null;
   const pillars = activeSess?.manifest?.gatePillars || null;

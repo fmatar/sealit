@@ -10,6 +10,7 @@ import {
   gitOutput,
   resolveDefaultBaseBranch,
   resolveQualityThresholds,
+  sameShaPrefix,
   writeFileAtomic
 } from './core.mjs';
 
@@ -1195,8 +1196,6 @@ export function formatConsolidatedReviewComment({
   const { minCov, minMut } = resolveConfiguredQualityBars(repoRoot);
   const mutReqLabel = minMut === null ? 'N/A (not configured)' : `\`>= ${minMut}%\``;
 
-  const sameShaPrefix = (a, b) =>
-    Boolean(a && b && a !== 'HEAD' && b !== 'HEAD' && (a === b || (a.length >= 7 && b.length >= 7 && (a.startsWith(b) || b.startsWith(a)))));
   const recordedPillars = gatePillars || activeSess?.manifest?.gatePillars || null;
   const pillarsStale = Boolean(
     recordedPillars && recordedPillars.headSha && resolvedSha !== 'HEAD' && !sameShaPrefix(recordedPillars.headSha, resolvedSha)

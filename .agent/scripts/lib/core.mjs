@@ -113,9 +113,18 @@ function resolveExplicitThreshold(explicitVal, fallbackFn) {
 }
 
 /**
+ * Checks whether two Git commit SHAs match (supporting full and >=7-char short SHAs).
+ */
+export function sameShaPrefix(a, b) {
+  return Boolean(
+    a && b && a !== 'HEAD' && b !== 'HEAD' && (a === b || (a.length >= 7 && b.length >= 7 && (a.startsWith(b) || b.startsWith(a))))
+  );
+}
+
+/**
  * Single canonical quality threshold resolver used by coverage/mutation parsers,
  * PR summaries, review comments, product/spec docs, and Stage 7 gate receipts.
- * Precedence: mod.thresholds > cfg.gates > cfg.testing > cfg.modules max > defaults.
+ * Precedence: cfg.gates > cfg.testing > mod.thresholds > cfg.modules max > defaults.
  */
 export function resolveQualityThresholds(repoRoot = '.', mod = null) {
   const cfgPath = path.resolve(repoRoot, '.agent/sdlc-config.json');
