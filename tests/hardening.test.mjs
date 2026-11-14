@@ -4625,7 +4625,7 @@ describe('Issue #133: CI Portability, Config Validation, Wiki Stdout & Graph Fid
         path.join(dir, '.archlens/policy.json'),
         JSON.stringify({
           title: 'Dense Graph Test',
-          layers: [{ name: 'Ring 0: Core', patterns: ['src/'], ring: 0 }]
+          layers: [{ name: 'Ring 0: Core', paths: ['src/'], ring: 0 }]
         }),
         'utf8'
       );
@@ -4733,17 +4733,25 @@ describe('Issue #133: CI Portability, Config Validation, Wiki Stdout & Graph Fid
       // All field validation error paths
       const badCases = [
         [{ version: '', modules: [] }, /'version'/],
+        [{ version: '2.1.0', $schema: 123, generatedAt: 456, modules: [] }, /'\$schema'/],
         [{ version: '2.1.0', profile: 'invalid-profile', modules: [] }, /Invalid 'profile'/],
         [{ version: '2.1.0', ci: 'bad', modules: [] }, /'ci' must be an object/],
-        [{ version: '2.1.0', ci: { runsOn: '' }, modules: [] }, /'ci\.runsOn' must be a non-empty string without newline/],
+        [{ version: '2.1.0', ci: { runsOn: '' }, modules: [] }, /'ci\.runsOn' must be a non-empty string without control characters/],
+        [{ version: '2.1.0', ci: { runsOn: 'ubuntu-\x07bell' }, modules: [] }, /'ci\.runsOn' must be a non-empty string without control characters/],
         [{ version: '2.1.0', ci: { runsOn: ['ubuntu-latest', 'bad\nrunner'] }, modules: [] }, /Every entry in 'ci\.runsOn' array/],
         [{ version: '2.1.0', ci: { runsOn: [] }, modules: [] }, /'ci\.runsOn' must be a non-empty string or non-empty array/],
         [{ version: '2.1.0', lanes: 'bad', modules: [] }, /'lanes' must be an object/],
         [{ version: '2.1.0', lanes: { trivialMaxLines: 0, standardMaxLines: -5 }, modules: [] }, /'lanes\.trivialMaxLines'/],
         [{ version: '2.1.0', projectManagement: 'bad', modules: [] }, /'projectManagement' must be an object/],
-        [{ version: '2.1.0', projectManagement: { provider: 'bugzilla' }, modules: [] }, /projectManagement\.provider/],
+        [{ version: '2.1.0', projectManagement: { provider: 'bugzilla', key: 12, livingBoard: 34 }, modules: [] }, /projectManagement\.provider/],
+        [{ version: '2.1.0', archlens: 'bad', modules: [] }, /'archlens' must be an object/],
+        [{ version: '2.1.0', archlens: { enabled: 'yes', policyPath: 12, enforceInQualityGate: 'no', workbenchPort: 0 }, modules: [] }, /'archlens\.workbenchPort'/],
         [{ version: '2.1.0', modules: 'not-array' }, /Missing required 'modules' array/],
         [{ version: '2.1.0', modules: ['bad-mod'] }, /modules\[0\] must be an object/],
+        [{ version: '2.1.0', modules: [{ path: '.' }] }, /modules\[0\]\.name/],
+        [{ version: '2.1.0', modules: [{ name: 'root', path: '.' }] }, /modules\[0\]\.commands/],
+        [{ version: '2.1.0', modules: [{ name: 'root', path: '.', stack: 12, language: 34, commands: { test: 42, lint: 99, coverageFile: 7 } }] }, /modules\[0\]\.commands\.test/],
+        [{ version: '2.1.0', modules: [{ name: 'root', path: '.', commands: { test: 'node --test' }, thresholds: 'bad' }] }, /modules\[0\]\.thresholds must be an object/],
         [{ version: '2.1.0', modules: [{ path: '', thresholds: { diffCoverage: 150, mutationScore: -1 } }] }, /modules\[0\]\.path/]
       ];
       for (const [payload, expectedRegex] of badCases) {
@@ -4760,7 +4768,7 @@ describe('Issue #133: CI Portability, Config Validation, Wiki Stdout & Graph Fid
       }
 
       // runDoctor flags invalid config cleanly
-      fs.writeFileSync(cfgPath, JSON.stringify({ version: '2.1.0', modules: [{ path: '.', thresholds: { diffCoverage: 120 } }] }), 'utf8');
+      fs.writeFileSync(cfgPath, JSON.stringify({ version: '2.1.0', modules: [{ name: 'root', path: '.', commands: { test: 'node --test' }, thresholds: { diffCoverage: 120 } }] }), 'utf8');
       const doc = runDoctor(dir);
       assert.equal(doc.configValidation.valid, false);
       assert.equal(doc.assets.find((a) => a.path === '.agent/sdlc-config.json')?.status, false);
@@ -4770,16 +4778,30 @@ describe('Issue #133: CI Portability, Config Validation, Wiki Stdout & Graph Fid
       assert.equal(badSub.success, false);
       assert.equal(badSub.exitCode, 2);
 
-      // Valid config passes validate + formatCLIResult
+      // Valid config (including archlens + docs-only nullable diffCoverage) passes validate, schema parity, and formatCLIResult
+      const configSchema = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, '.agent/schemas/sdlc-config.schema.json'), 'utf8'));
+      assert.deepEqual(configSchema.properties.modules.items.properties.thresholds.properties.diffCoverage.type, ['number', 'null']);
       fs.writeFileSync(
         cfgPath,
         JSON.stringify({
+          $schema: './schemas/sdlc-config.schema.json',
           version: '2.1.0',
+          generatedAt: '2026-11-14T00:00:00.000Z',
           profile: 'custom',
           ci: { runsOn: ['ubuntu-latest'] },
           lanes: { trivialMaxLines: 25, standardMaxLines: 200 },
-          projectManagement: { provider: 'github' },
-          modules: [{ name: 'root', path: '.', thresholds: { diffCoverage: 85, mutationScore: 52 } }]
+          projectManagement: { provider: 'github', key: 'SDLC', livingBoard: 'docs/KANBAN.md' },
+          archlens: { enabled: true, policyPath: '.archlens/policy.json', enforceInQualityGate: true, workbenchPort: 8088 },
+          modules: [
+            {
+              name: 'root',
+              path: '.',
+              stack: 'nodejs-npm',
+              language: 'javascript',
+              commands: { test: 'node --test', lint: null, build: ['node', '-e', '0'], mutation: null, coverageFile: 'coverage/lcov.info' },
+              thresholds: { diffCoverage: null, mutationScore: null }
+            }
+          ]
         }),
         'utf8'
       );

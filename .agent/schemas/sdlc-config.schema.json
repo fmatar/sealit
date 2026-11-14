@@ -97,7 +97,7 @@
           "thresholds": {
             "type": "object",
             "properties": {
-              "diffCoverage": { "type": "number", "minimum": 0, "maximum": 100 },
+              "diffCoverage": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
               "mutationScore": { "type": ["number", "null"], "minimum": 0, "maximum": 100 }
             },
             "additionalProperties": true

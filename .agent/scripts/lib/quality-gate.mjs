@@ -56,8 +56,12 @@ export function validateConfigFile(repoRoot = '.', customConfigPath = null) {
     };
   }
 
+  const isPlainObject = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
+  const hasControlChar = (v) => /[\x00-\x1f\x7f]/.test(v);
+  const isCommandSpec = (v) => typeof v === 'string' || (Array.isArray(v) && v.every((item) => typeof item === 'string'));
+
   const errors = [];
-  if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) {
+  if (!isPlainObject(cfg)) {
     errors.push('Top-level config must be a JSON object.');
     return { valid: false, exists: true, configPath: cfgPath, errors, config: null };
   }
@@ -66,22 +70,28 @@ export function validateConfigFile(repoRoot = '.', customConfigPath = null) {
     errors.push("Missing or invalid 'version' string.");
   }
 
+  for (const optStr of ['$schema', 'generatedAt']) {
+    if (cfg[optStr] !== undefined && typeof cfg[optStr] !== 'string') {
+      errors.push(`'${optStr}' must be a string when present.`);
+    }
+  }
+
   if (cfg.profile !== undefined && !['standard', 'polyglot-monorepo', 'custom'].includes(cfg.profile)) {
     errors.push(`Invalid 'profile' '${cfg.profile}': expected standard, polyglot-monorepo, or custom.`);
   }
 
   if (cfg.ci !== undefined) {
-    if (!cfg.ci || typeof cfg.ci !== 'object' || Array.isArray(cfg.ci)) {
+    if (!isPlainObject(cfg.ci)) {
       errors.push("'ci' must be an object when present.");
     } else if (cfg.ci.runsOn !== undefined) {
       const ro = cfg.ci.runsOn;
       if (typeof ro === 'string') {
-        if (!ro.trim() || /[\r\n\0]/.test(ro)) {
-          errors.push("'ci.runsOn' must be a non-empty string without newline or NUL control characters.");
+        if (!ro.trim() || hasControlChar(ro)) {
+          errors.push("'ci.runsOn' must be a non-empty string without control characters.");
         }
       } else if (Array.isArray(ro) && ro.length > 0) {
         for (const item of ro) {
-          if (typeof item !== 'string' || !item.trim() || /[\r\n\0]/.test(item)) {
+          if (typeof item !== 'string' || !item.trim() || hasControlChar(item)) {
             errors.push("Every entry in 'ci.runsOn' array must be a non-empty string without control characters.");
             break;
           }
@@ -93,7 +103,7 @@ export function validateConfigFile(repoRoot = '.', customConfigPath = null) {
   }
 
   if (cfg.lanes !== undefined) {
-    if (!cfg.lanes || typeof cfg.lanes !== 'object' || Array.isArray(cfg.lanes)) {
+    if (!isPlainObject(cfg.lanes)) {
       errors.push("'lanes' must be an object when present.");
     } else {
       for (const key of ['trivialMaxLines', 'standardMaxLines']) {
@@ -105,13 +115,41 @@ export function validateConfigFile(repoRoot = '.', customConfigPath = null) {
   }
 
   if (cfg.projectManagement !== undefined) {
-    if (!cfg.projectManagement || typeof cfg.projectManagement !== 'object' || Array.isArray(cfg.projectManagement)) {
+    if (!isPlainObject(cfg.projectManagement)) {
       errors.push("'projectManagement' must be an object when present.");
-    } else if (
-      cfg.projectManagement.provider !== undefined &&
-      !['github', 'linear', 'jira', 'local'].includes(cfg.projectManagement.provider)
-    ) {
-      errors.push(`Invalid 'projectManagement.provider' '${cfg.projectManagement.provider}'.`);
+    } else {
+      if (
+        cfg.projectManagement.provider !== undefined &&
+        !['github', 'linear', 'jira', 'local'].includes(cfg.projectManagement.provider)
+      ) {
+        errors.push(`Invalid 'projectManagement.provider' '${cfg.projectManagement.provider}'.`);
+      }
+      for (const pmStr of ['key', 'livingBoard']) {
+        if (cfg.projectManagement[pmStr] !== undefined && typeof cfg.projectManagement[pmStr] !== 'string') {
+          errors.push(`'projectManagement.${pmStr}' must be a string.`);
+        }
+      }
+    }
+  }
+
+  if (cfg.archlens !== undefined) {
+    if (!isPlainObject(cfg.archlens)) {
+      errors.push("'archlens' must be an object when present.");
+    } else {
+      for (const boolKey of ['enabled', 'enforceInQualityGate']) {
+        if (cfg.archlens[boolKey] !== undefined && typeof cfg.archlens[boolKey] !== 'boolean') {
+          errors.push(`'archlens.${boolKey}' must be a boolean.`);
+        }
+      }
+      if (cfg.archlens.policyPath !== undefined && typeof cfg.archlens.policyPath !== 'string') {
+        errors.push("'archlens.policyPath' must be a string.");
+      }
+      if (
+        cfg.archlens.workbenchPort !== undefined &&
+        (!Number.isInteger(cfg.archlens.workbenchPort) || cfg.archlens.workbenchPort < 1 || cfg.archlens.workbenchPort > 65535)
+      ) {
+        errors.push("'archlens.workbenchPort' must be an integer between 1 and 65535.");
+      }
     }
   }
 
@@ -119,18 +157,47 @@ export function validateConfigFile(repoRoot = '.', customConfigPath = null) {
     errors.push("Missing required 'modules' array.");
   } else {
     cfg.modules.forEach((mod, idx) => {
-      if (!mod || typeof mod !== 'object' || Array.isArray(mod)) {
+      if (!isPlainObject(mod)) {
         errors.push(`modules[${idx}] must be an object.`);
         return;
+      }
+      if (typeof mod.name !== 'string' || !mod.name.trim()) {
+        errors.push(`modules[${idx}].name must be a non-empty string.`);
       }
       if (typeof mod.path !== 'string' || !mod.path.trim()) {
         errors.push(`modules[${idx}].path must be a non-empty string.`);
       }
-      if (mod.thresholds !== undefined && mod.thresholds !== null) {
-        for (const tKey of ['diffCoverage', 'mutationScore']) {
-          const val = mod.thresholds[tKey];
-          if (val !== undefined && val !== null && (typeof val !== 'number' || Number.isNaN(val) || val < 0 || val > 100)) {
-            errors.push(`modules[${idx}].thresholds.${tKey} must be null or a number in [0, 100].`);
+      for (const modStr of ['stack', 'language']) {
+        if (mod[modStr] !== undefined && typeof mod[modStr] !== 'string') {
+          errors.push(`modules[${idx}].${modStr} must be a string.`);
+        }
+      }
+      if (!isPlainObject(mod.commands)) {
+        errors.push(`modules[${idx}].commands must be an object.`);
+      } else {
+        for (const reqCmd of ['test', 'coverage']) {
+          if (mod.commands[reqCmd] !== undefined && !isCommandSpec(mod.commands[reqCmd])) {
+            errors.push(`modules[${idx}].commands.${reqCmd} must be a string or array of strings.`);
+          }
+        }
+        for (const optCmd of ['lint', 'build', 'mutation']) {
+          if (mod.commands[optCmd] !== undefined && mod.commands[optCmd] !== null && !isCommandSpec(mod.commands[optCmd])) {
+            errors.push(`modules[${idx}].commands.${optCmd} must be null, a string, or an array of strings.`);
+          }
+        }
+        if (mod.commands.coverageFile !== undefined && typeof mod.commands.coverageFile !== 'string') {
+          errors.push(`modules[${idx}].commands.coverageFile must be a string.`);
+        }
+      }
+      if (mod.thresholds !== undefined) {
+        if (!isPlainObject(mod.thresholds)) {
+          errors.push(`modules[${idx}].thresholds must be an object.`);
+        } else {
+          for (const tKey of ['diffCoverage', 'mutationScore']) {
+            const val = mod.thresholds[tKey];
+            if (val !== undefined && val !== null && (typeof val !== 'number' || Number.isNaN(val) || val < 0 || val > 100)) {
+              errors.push(`modules[${idx}].thresholds.${tKey} must be null or a number in [0, 100].`);
+            }
           }
         }
       }
