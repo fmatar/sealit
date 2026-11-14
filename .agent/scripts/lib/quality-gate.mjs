@@ -895,7 +895,16 @@ export function scaffoldReproductionTest({
   const ext = path.extname(guessedTarget).toLowerCase();
   const baseName = path.basename(guessedTarget, ext);
   const firstLine = cleanTrace ? cleanTrace.split('\n')[0] : 'Reproduction Failure';
-  const safeTraceComment = cleanTrace.replace(/\*\//g, '* /');
+  const sanitizeComment = (text) =>
+    String(text || '')
+      .replace(/\*\//g, '* /')
+      .replace(/"""/g, '\\"\\"\\"');
+  const sanitizeSingleLineComment = (text) => sanitizeComment(text).replace(/[\r\n]+/g, ' ');
+  const sanitizePyDoc = (text) => String(text || '').replace(/\\/g, '\\\\').replace(/"""/g, '\\"\\"\\"').replace(/\*\//g, '* /');
+  const safeTargetComment = sanitizeComment(guessedTarget);
+  const safeBaseComment = sanitizeComment(baseName);
+  const safeTraceComment = sanitizeComment(cleanTrace);
+  const safeFirstLineComment = sanitizeSingleLineComment(firstLine);
   const stamp = Date.now().toString().slice(-4);
 
   const testDir = path.resolve(repoRoot, 'tests/reproductions');
@@ -907,10 +916,10 @@ export function scaffoldReproductionTest({
 
   const headerComment = `/**
  * MANDATORY BUG REPRODUCTION HARNESS (Red-Green-Refactor TDD)
- * Target Source: ${guessedTarget}
+ * Target Source: ${safeTargetComment}
  * Stack / Error Trace:
  * ${safeTraceComment.split('\n').map((l) => ' * ' + l).join('\n')}
- * Bug Reproduction Harness: ${baseName}
+ * Bug Reproduction Harness: ${safeBaseComment}
  */`;
 
   if (ext === '.java') {
@@ -924,8 +933,8 @@ import static org.junit.jupiter.api.Assertions.*;
 public class ${className} {
     @Test
     void reproducesFailureBeforeFix() {
-        // Red Phase: Replace with invocation of ${baseName} triggering: ${firstLine.replace(/"/g, '\\"')}
-        fail("Unresolved defect in ${guessedTarget}: ${firstLine.replace(/"/g, '\\"')}");
+        // Red Phase: Replace with invocation of ${sanitizeSingleLineComment(baseName)} triggering: ${safeFirstLineComment}
+        fail(${JSON.stringify(`Unresolved defect in ${guessedTarget}: ${firstLine}`)});
     }
 }
 `;
@@ -934,14 +943,14 @@ public class ${className} {
     testFileName = `test_reproduce_${baseName.toLowerCase()}_${stamp}.py`;
     testContent = `"""
 MANDATORY BUG REPRODUCTION HARNESS (Red-Green-Refactor TDD)
-Target Source: ${guessedTarget}
-Bug Reproduction Harness: ${baseName}
-Trace: ${firstLine}
+Target Source: ${sanitizePyDoc(guessedTarget)}
+Bug Reproduction Harness: ${sanitizePyDoc(baseName)}
+Trace: ${sanitizePyDoc(firstLine)}
 """
 import pytest
 
 def test_reproduce_${baseName.toLowerCase().replace(/[^a-z0-9_]/g, '_')}():
-    # Red Phase: Invoking ${guessedTarget} must not raise ${firstLine}
+    # Red Phase: Invoking ${sanitizeSingleLineComment(guessedTarget)} must not raise ${safeFirstLineComment}
     pytest.fail(${JSON.stringify(`Unresolved defect in ${guessedTarget}: ${firstLine}`)})
 `;
   } else if (ext === '.go') {
@@ -953,7 +962,7 @@ package reproductions
 import "testing"
 
 func TestReproduce${baseName.replace(/[^a-zA-Z0-9]/g, '')}(t *testing.T) {
-\t// Red Phase: Invoking ${guessedTarget} must not fail with: ${firstLine}
+\t// Red Phase: Invoking ${sanitizeSingleLineComment(guessedTarget)} must not fail with: ${safeFirstLineComment}
 \tt.Fatalf("Unresolved defect in %s: %s", ${JSON.stringify(guessedTarget)}, ${JSON.stringify(firstLine)})
 }
 `;
@@ -963,7 +972,7 @@ func TestReproduce${baseName.replace(/[^a-zA-Z0-9]/g, '')}(t *testing.T) {
     testContent = `${headerComment}
 #[test]
 fn reproduce_${baseName.toLowerCase().replace(/[^a-z0-9_]/g, '_')}() {
-    panic!("Unresolved defect in ${guessedTarget}: ${firstLine.replace(/"/g, '\\"')}");
+    panic!("{}", ${JSON.stringify(`Unresolved defect in ${guessedTarget}: ${firstLine}`)});
 }
 `;
   } else {
@@ -1290,33 +1299,70 @@ export function generatePRSummary({ issueId = null, repoRoot = '.' } = {}) {
     ''
   ).trim();
 
+  const currentHeadSha = (gitOutput(['rev-parse', 'HEAD'], repoRoot) || '').trim() || null;
+  const sameShaPrefix = (a, b) =>
+    Boolean(a && b && a !== 'HEAD' && b !== 'HEAD' && (a === b || (a.length >= 7 && b.length >= 7 && (a.startsWith(b) || b.startsWith(a)))));
   const covReport = activeSess?.manifest?.coverageReport || null;
   const mutReport = activeSess?.manifest?.mutationScore || null;
   const pillars = activeSess?.manifest?.gatePillars || null;
+  const pillarsStale = Boolean(pillars?.headSha && currentHeadSha && !sameShaPrefix(pillars.headSha, currentHeadSha));
+  const covSha = activeSess?.manifest?.coverageHeadSha || pillars?.headSha || null;
+  const mutSha = activeSess?.manifest?.mutationHeadSha || pillars?.headSha || null;
+  const covStale = Boolean(covReport && currentHeadSha && (pillarsStale || (covSha && !sameShaPrefix(covSha, currentHeadSha))));
+  const mutStale = Boolean(mutReport && currentHeadSha && (pillarsStale || (mutSha && !sameShaPrefix(mutSha, currentHeadSha))));
   const covNum = covReport ? Number.parseFloat(String(covReport).replace('%', '')) : NaN;
   const mutNum = mutReport ? Number.parseFloat(String(mutReport).replace('%', '')) : NaN;
   const covStatusLabel = !covReport
     ? '⚪ PENDING'
-    : pillars?.coveragePassed === false || (minCov !== null && Number.isFinite(covNum) && covNum < minCov)
-      ? '❌ FAILED'
-      : '✅ PASSED';
+    : covStale
+      ? '⏳ STALE (re-run gate)'
+      : pillars?.coveragePassed === false || (minCov !== null && Number.isFinite(covNum) && covNum < minCov)
+        ? '❌ FAILED'
+        : '✅ PASSED';
   const mutStatusLabel =
     minMut === null && !mutReport
       ? '⚪ N/A'
       : !mutReport
         ? '⚪ PENDING'
-        : pillars?.mutationPassed === false || (minMut !== null && Number.isFinite(mutNum) && mutNum < minMut)
-          ? '❌ FAILED'
-          : '✅ PASSED';
+        : mutStale
+          ? '⏳ STALE (re-run gate)'
+          : pillars?.mutationPassed === false || (minMut !== null && Number.isFinite(mutNum) && mutNum < minMut)
+            ? '❌ FAILED'
+            : '✅ PASSED';
   const archStatusLabel = !archInfo.installed
     ? '⚪ SKIPPED'
-    : pillars?.archPassed === true
+    : pillarsStale
+      ? '⏳ STALE (re-run gate)'
+      : pillars?.archPassed === true
+        ? '✅ PASSED'
+        : pillars?.archPassed === false
+          ? '❌ FAILED'
+          : '⏳ PENDING';
+  const lintStatusLabel = pillarsStale
+    ? '⏳ STALE (re-run gate)'
+    : pillars?.lintPassed === true
       ? '✅ PASSED'
-      : pillars?.archPassed === false
+      : pillars?.lintPassed === false
         ? '❌ FAILED'
         : '⏳ PENDING';
-  const lintStatusLabel =
-    pillars?.lintPassed === true ? '✅ PASSED' : pillars?.lintPassed === false ? '❌ FAILED' : '⏳ PENDING';
+  const covAchievedDisplay = !covReport ? 'Not Measured' : covStale ? `${covReport} (stale prior commit)` : covReport;
+  const mutAchievedDisplay = !mutReport ? 'Not Measured' : mutStale ? `${mutReport} (stale prior commit)` : mutReport;
+  const archAchievedDisplay = !archInfo.installed
+    ? 'N/A'
+    : pillarsStale
+      ? 'Stale (prior commit)'
+      : pillars?.archPassed === true
+        ? 'Compliant'
+        : pillars?.archPassed === false
+          ? 'Violations Found'
+          : 'Configured';
+  const lintAchievedDisplay = pillarsStale
+    ? 'Stale (prior commit)'
+    : pillars?.lintPassed === true
+      ? 'Clean'
+      : pillars?.lintPassed === false
+        ? 'Violations Found'
+        : 'Not Run';
 
   const parsedTicket = parseTicketId(issue);
   const ticketDisplay =
@@ -1337,10 +1383,10 @@ export function generatePRSummary({ issueId = null, repoRoot = '.' } = {}) {
 ### 🛡️ Dual-Gate Quality Verification
 | Metric | Threshold | Achieved | Status |
 | :--- | :--- | :--- | :--- |
-| **Line & Branch Diff Coverage** | \`${covThreshLabel}\` | ${covReport || 'Not Measured'} | ${covStatusLabel} |
-| **Mutation Kill Score** | \`${mutThreshLabel}\` | ${mutReport || 'Not Measured'} | ${mutStatusLabel} |
-| **Archlens Clean Architecture** | 100% Policy | ${archInfo.installed ? (pillars?.archPassed === true ? 'Compliant' : pillars?.archPassed === false ? 'Violations Found' : 'Configured') : 'N/A'} | ${archStatusLabel} |
-| **Static Analysis & Linting** | 0 Violations | ${pillars?.lintPassed === true ? 'Clean' : pillars?.lintPassed === false ? 'Violations Found' : 'Not Run'} | ${lintStatusLabel} |
+| **Line & Branch Diff Coverage** | \`${covThreshLabel}\` | ${covAchievedDisplay} | ${covStatusLabel} |
+| **Mutation Kill Score** | \`${mutThreshLabel}\` | ${mutAchievedDisplay} | ${mutStatusLabel} |
+| **Archlens Clean Architecture** | 100% Policy | ${archAchievedDisplay} | ${archStatusLabel} |
+| **Static Analysis & Linting** | 0 Violations | ${lintAchievedDisplay} | ${lintStatusLabel} |
 
 ---
 
@@ -1908,6 +1954,8 @@ export function runFlakeCheck({ runs = 5, target = null, repoRoot = '.' } = {}) 
     return {
       success: true,
       flaky: false,
+      passed: true,
+      failedTestFiles: 0,
       message: 'No test files targeted or affected. Flake check skipped.',
       results: []
     };
@@ -1915,6 +1963,10 @@ export function runFlakeCheck({ runs = 5, target = null, repoRoot = '.' } = {}) 
 
   const results = [];
   let detectedFlakes = 0;
+  let failedTestFiles = 0;
+
+  const flakeEnv = { ...process.env };
+  delete flakeEnv.NODE_TEST_CONTEXT;
 
   for (const tFile of testFiles) {
     let passedCount = 0;
@@ -1923,7 +1975,7 @@ export function runFlakeCheck({ runs = 5, target = null, repoRoot = '.' } = {}) 
 
     for (let i = 1; i <= iterationCount; i++) {
       try {
-        execFileSync(singleTest.file, singleTest.args, { cwd: repoRoot, stdio: 'pipe' });
+        execFileSync(singleTest.file, singleTest.args, { cwd: repoRoot, stdio: 'pipe', env: flakeEnv });
         passedCount++;
       } catch {
         failedCount++;
@@ -1932,6 +1984,7 @@ export function runFlakeCheck({ runs = 5, target = null, repoRoot = '.' } = {}) 
 
     const isFlaky = passedCount > 0 && failedCount > 0;
     if (isFlaky) detectedFlakes++;
+    if (failedCount > 0) failedTestFiles++;
 
     results.push({
       testFile: tFile,
@@ -1946,8 +1999,10 @@ export function runFlakeCheck({ runs = 5, target = null, repoRoot = '.' } = {}) 
   return {
     success: true,
     flaky: detectedFlakes > 0,
+    passed: detectedFlakes === 0 && failedTestFiles === 0,
     totalTested: testFiles.length,
     flakyCount: detectedFlakes,
+    failedTestFiles,
     results
   };
 }

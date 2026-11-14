@@ -130,17 +130,17 @@ export function resolveQualityThresholds(repoRoot = '.', mod = null) {
   const mutVals = mods.map((m) => m?.thresholds?.mutationScore).filter((v) => typeof v === 'number' && Number.isFinite(v));
   const allNullMut = mods.length > 0 && mods.every((m) => m?.thresholds && m.thresholds.mutationScore === null);
 
-  const minCov = resolveExplicitThreshold(mod?.thresholds?.diffCoverage, () =>
-    resolveExplicitThreshold(gates.minDiffCoverage, () =>
-      resolveExplicitThreshold(testing.coverageThreshold, () =>
+  const minCov = resolveExplicitThreshold(gates.minDiffCoverage, () =>
+    resolveExplicitThreshold(testing.coverageThreshold, () =>
+      resolveExplicitThreshold(mod?.thresholds?.diffCoverage, () =>
         allNullCov ? null : covVals.length > 0 ? Math.max(...covVals) : DEFAULT_QUALITY_THRESHOLDS.diffCoverage
       )
     )
   );
 
-  const minMut = resolveExplicitThreshold(mod?.thresholds?.mutationScore, () =>
-    resolveExplicitThreshold(gates.minMutationScore, () =>
-      resolveExplicitThreshold(testing.mutationThreshold, () =>
+  const minMut = resolveExplicitThreshold(gates.minMutationScore, () =>
+    resolveExplicitThreshold(testing.mutationThreshold, () =>
+      resolveExplicitThreshold(mod?.thresholds?.mutationScore, () =>
         allNullMut ? null : mutVals.length > 0 ? Math.max(...mutVals) : DEFAULT_QUALITY_THRESHOLDS.mutationScore
       )
     )

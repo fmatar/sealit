@@ -672,6 +672,12 @@ function requireFreshReport(report, mod, repoRoot, startedAt) {
 }
 
 /** Runs the module's coverage command and parses a fresh report (fails closed). */
+function sameShaPrefix(a, b) {
+  return Boolean(
+    a && b && a !== 'HEAD' && b !== 'HEAD' && (a === b || (a.length >= 7 && b.length >= 7 && (a.startsWith(b) || b.startsWith(a))))
+  );
+}
+
 function mergeSessionGatePillars(repoRoot, updates = {}) {
   try {
     const current = getSessionStatus(repoRoot);
@@ -679,12 +685,15 @@ function mergeSessionGatePillars(repoRoot, updates = {}) {
     if (!activeSess) return;
     const headSha = (gitOutput(['rev-parse', 'HEAD'], repoRoot) || '').trim() || null;
     const prev = activeSess.manifest?.gatePillars;
-    const base =
-      prev && (!prev.headSha || !headSha || prev.headSha === headSha) ? { ...prev } : {};
+    const base = prev && (!prev.headSha || !headSha || sameShaPrefix(prev.headSha, headSha)) ? { ...prev } : {};
+    const cleaned = {};
+    for (const [k, v] of Object.entries(updates || {})) {
+      if (v !== undefined) cleaned[k] = v;
+    }
     const gatePillars = {
       ...base,
-      ...updates,
-      headSha,
+      ...cleaned,
+      ...(headSha ? { headSha } : prev?.headSha ? { headSha: prev.headSha } : {}),
       updatedAt: new Date().toISOString()
     };
     updateSession({ manifestUpdate: { gatePillars }, repoRoot });
@@ -700,7 +709,12 @@ function measureCoverage(mod, repoRoot) {
     fs.mkdirSync(path.dirname(path.resolve(cwd, mod.commands.coverageFile)), { recursive: true });
   }
   const startedAt = Date.now();
-  runConfiguredCommand(mod.commands.coverage, { stdio: 'inherit', cwd });
+  try {
+    runConfiguredCommand(mod.commands.coverage, { stdio: 'inherit', cwd });
+  } catch (err) {
+    mergeSessionGatePillars(repoRoot, { coveragePassed: false, unitTestsPassed: false });
+    throw err;
+  }
   return requireFreshReport(parseCoverageReport(repoRoot, mod), mod, repoRoot, startedAt);
 }
 
@@ -753,19 +767,30 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       if (affectedOnly) {
         const affectedTests = findAffectedTests(files, repoRoot);
         if (affectedTests.length > 0) {
-          for (const testFile of affectedTests) {
-            const single = buildSingleTestArgv(testFile, repoRoot);
-            execFileSync(single.file, single.args, { stdio: 'inherit', cwd: repoRoot });
+          try {
+            for (const testFile of affectedTests) {
+              const single = buildSingleTestArgv(testFile, repoRoot);
+              execFileSync(single.file, single.args, { stdio: 'inherit', cwd: repoRoot });
+            }
+          } catch (err) {
+            mergeSessionGatePillars(repoRoot, { unitTestsPassed: false });
+            throw err;
           }
+          mergeSessionGatePillars(repoRoot, { unitTestsPassed: true });
           result.affectedTests = affectedTests;
           return result;
         }
       }
 
       const activeModules = files.length > 0 ? matchFilesToModules(files, config.modules) : config.modules;
-      for (const mod of activeModules) {
-        const cwd = path.resolve(repoRoot, mod.path);
-        runConfiguredCommand(mod.commands.test, { stdio: 'inherit', cwd });
+      try {
+        for (const mod of activeModules) {
+          const cwd = path.resolve(repoRoot, mod.path);
+          runConfiguredCommand(mod.commands.test, { stdio: 'inherit', cwd });
+        }
+      } catch (err) {
+        mergeSessionGatePillars(repoRoot, { unitTestsPassed: false });
+        throw err;
       }
       mergeSessionGatePillars(repoRoot, { unitTestsPassed: true });
       result.activeModules = activeModules;
@@ -775,13 +800,18 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
     case 'coverage': {
       const files = getModifiedFiles(null, repoRoot);
       const activeModules = files.length > 0 ? matchFilesToModules(files, config.modules) : config.modules;
+      const currentHeadSha = (gitOutput(['rev-parse', 'HEAD'], repoRoot) || '').trim() || null;
       for (const mod of activeModules) {
         const hit = getGateCacheHit({ checkType: 'coverage', modulePath: mod.path, repoRoot });
         if (hit.hit && hit.entry?.result?.coverage && !args.includes('--no-cache')) {
           console.log(`⚡ [${mod.name}] Coverage cache hit (${hit.treeHash.slice(0, 10)}): ${hit.entry.result.coverage}`);
           try {
-            updateSession({ manifestUpdate: { coverageReport: hit.entry.result.coverage }, repoRoot });
+            updateSession({
+              manifestUpdate: { coverageReport: hit.entry.result.coverage, ...(currentHeadSha ? { coverageHeadSha: currentHeadSha } : {}) },
+              repoRoot
+            });
           } catch {}
+          mergeSessionGatePillars(repoRoot, { coveragePassed: true, unitTestsPassed: true });
           continue;
         }
         const covReport = measureCoverage(mod, repoRoot);
@@ -793,7 +823,10 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
           return result;
         }
         try {
-          updateSession({ manifestUpdate: { coverageReport: covReport.formatted }, repoRoot });
+          updateSession({
+            manifestUpdate: { coverageReport: covReport.formatted, ...(currentHeadSha ? { coverageHeadSha: currentHeadSha } : {}) },
+            repoRoot
+          });
         } catch {}
         mergeSessionGatePillars(repoRoot, { coveragePassed: true, unitTestsPassed: true });
         recordGateCache({
@@ -810,27 +843,39 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
     case 'mutation': {
       const files = getModifiedFiles(null, repoRoot);
       const activeModules = files.length > 0 ? matchFilesToModules(files, config.modules) : config.modules;
+      const currentHeadSha = (gitOutput(['rev-parse', 'HEAD'], repoRoot) || '').trim() || null;
       for (const mod of activeModules) {
-        if (mod.thresholds && mod.thresholds.mutationScore === null) {
-          console.log(`ℹ️  [${mod.name}] Mutation testing not configured (thresholds.mutationScore: null); receipts will record 'not-configured'.`);
+        if (resolveQualityThresholds(repoRoot, mod).minMut === null) {
+          console.log(`ℹ️  [${mod.name}] Mutation testing not configured (minMut: null); receipts will record 'not-configured'.`);
+          mergeSessionGatePillars(repoRoot, { mutationPassed: 'na' });
           continue;
         }
         const hit = getGateCacheHit({ checkType: 'mutation', modulePath: mod.path, repoRoot });
         if (hit.hit && hit.entry?.result?.mutation && !args.includes('--no-cache')) {
           console.log(`⚡ [${mod.name}] Mutation cache hit (${hit.treeHash.slice(0, 10)}): ${hit.entry.result.mutation}`);
           try {
-            updateSession({ manifestUpdate: { mutationScore: hit.entry.result.mutation }, repoRoot });
+            updateSession({
+              manifestUpdate: { mutationScore: hit.entry.result.mutation, ...(currentHeadSha ? { mutationHeadSha: currentHeadSha } : {}) },
+              repoRoot
+            });
           } catch {}
+          mergeSessionGatePillars(repoRoot, { mutationPassed: true });
           continue;
         }
         const cwd = path.resolve(repoRoot, mod.path);
         const startedAt = Date.now();
         if (!mod.commands?.mutation) {
           result.success = false;
+          mergeSessionGatePillars(repoRoot, { mutationPassed: false });
           console.error(`🛑 [${mod.name}] Mutation gate failed: no mutation command configured.`);
           return result;
         }
-        runConfiguredCommand(mod.commands.mutation, { stdio: 'inherit', cwd });
+        try {
+          runConfiguredCommand(mod.commands.mutation, { stdio: 'inherit', cwd });
+        } catch (err) {
+          mergeSessionGatePillars(repoRoot, { mutationPassed: false });
+          throw err;
+        }
 
         const mutReport = requireFreshReport(parseMutationReport(repoRoot, mod), mod, repoRoot, startedAt);
         result.mutationReport = mutReport;
@@ -843,7 +888,10 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
           return result;
         }
         try {
-          updateSession({ manifestUpdate: { mutationScore: mutReport.formatted }, repoRoot });
+          updateSession({
+            manifestUpdate: { mutationScore: mutReport.formatted, ...(currentHeadSha ? { mutationHeadSha: currentHeadSha } : {}) },
+            repoRoot
+          });
         } catch {}
         mergeSessionGatePillars(repoRoot, { mutationPassed: true });
         recordGateCache({
@@ -880,17 +928,23 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       result.lane = effectiveLane;
       const isStrict = args.includes('--strict');
       const allowOffline = args.includes('--allow-offline');
+      const currentHeadSha = (gitOutput(['rev-parse', 'HEAD'], repoRoot) || '').trim() || null;
       const gatePillars = {
         strict: isStrict,
-        ...(config.modules.some((m) => m.commands?.lint) ? { lintPassed: null } : { lintPassed: 'na' }),
-        coveragePassed: null,
-        unitTestsPassed: null
+        ...(!config.modules.some((m) => m.commands?.lint) ? { lintPassed: 'na' } : {})
       };
 
       for (const mod of config.modules) {
         const hit = getGateCacheHit({ checkType: 'gate', modulePath: mod.path, repoRoot });
         if (hit.hit && !args.includes('--no-cache') && !isStrict) {
           console.log(`⚡ [${mod.name}] SHA-256 Quality Gate Cache Hit (${hit.treeHash.slice(0, 10)})`);
+          if (mod.commands?.lint) {
+            gatePillars.lintPassed = gatePillars.lintPassed === false ? false : true;
+          }
+          if (hit.entry?.result?.coverage) {
+            gatePillars.coveragePassed = gatePillars.coveragePassed === false ? false : true;
+            gatePillars.unitTestsPassed = gatePillars.unitTestsPassed === false ? false : true;
+          }
           continue;
         }
         const cwd = path.resolve(repoRoot, mod.path);
@@ -921,7 +975,10 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         gatePillars.coveragePassed = gatePillars.coveragePassed === false ? false : true;
         gatePillars.unitTestsPassed = gatePillars.unitTestsPassed === false ? false : true;
         try {
-          updateSession({ manifestUpdate: { coverageReport: covReport.formatted }, repoRoot });
+          updateSession({
+            manifestUpdate: { coverageReport: covReport.formatted, ...(currentHeadSha ? { coverageHeadSha: currentHeadSha } : {}) },
+            repoRoot
+          });
         } catch {}
         recordGateCache({ checkType: 'gate', modulePath: mod.path, result: { passed: true, coverage: covReport.formatted }, repoRoot });
       }
@@ -954,7 +1011,13 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
           const flakeRes = runFlakeCheck({ runs: 3, repoRoot });
           result.flake = flakeRes;
           strictPillars.flakePassed = !flakeRes.flaky && flakeRes.passed !== false;
-          if (flakeRes.flaky) throw new Error(`Flaky Test Check failed: ${flakeRes.flakyCount} flaky test(s) detected.`);
+          if (flakeRes.flaky || flakeRes.passed === false) {
+            throw new Error(
+              flakeRes.flaky
+                ? `Flaky Test Check failed: ${flakeRes.flakyCount} flaky test(s) detected.`
+                : `Flaky Test Check failed: ${flakeRes.failedTestFiles || 1} test file(s) failed determinism check.`
+            );
+          }
 
           const contractRes = auditContractDrift({ repoRoot });
           result.contract = contractRes;
@@ -2084,10 +2147,12 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
           }
         }
 
+        const currentHeadSha = (gitOutput(['rev-parse', 'HEAD'], repoRoot) || '').trim() || undefined;
         const formattedComment = formatConsolidatedReviewComment({
           issueId: issueId || sessRes?.session?.issueId || null,
           prNumber: prNumber || sessRes?.session?.manifest?.prNumber || null,
           branch: sessRes?.session?.branch || null,
+          headSha: currentHeadSha,
           verdict,
           reviewer,
           peerReviewSummary,

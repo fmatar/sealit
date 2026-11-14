@@ -1134,13 +1134,16 @@ function formatPillarFlag(val, isStale = false) {
   return isStale ? '⏳ STALE (re-run gate)' : '⏳ NOT VERIFIED';
 }
 
-function formatMetricPillar(rawVal, explicitPass, minThreshold, notConfiguredLabel = null) {
+function formatMetricPillar(rawVal, explicitPass, minThreshold, notConfiguredLabel = null, isStale = false) {
   if (rawVal === null || rawVal === undefined || rawVal === '') {
     return notConfiguredLabel || '⏳ NOT MEASURED';
   }
   const str = String(rawVal).includes('%') ? String(rawVal) : `${rawVal}%`;
   const num = Number.parseFloat(str.replace('%', ''));
   let passed = explicitPass;
+  if (isStale && passed !== false) {
+    return `⏳ STALE (${str} from prior commit)`;
+  }
   if (passed !== true && passed !== false && Number.isFinite(num)) {
     passed = minThreshold === null ? true : num >= minThreshold;
   }
@@ -1192,9 +1195,11 @@ export function formatConsolidatedReviewComment({
   const { minCov, minMut } = resolveConfiguredQualityBars(repoRoot);
   const mutReqLabel = minMut === null ? 'N/A (not configured)' : `\`>= ${minMut}%\``;
 
+  const sameShaPrefix = (a, b) =>
+    Boolean(a && b && a !== 'HEAD' && b !== 'HEAD' && (a === b || (a.length >= 7 && b.length >= 7 && (a.startsWith(b) || b.startsWith(a)))));
   const recordedPillars = gatePillars || activeSess?.manifest?.gatePillars || null;
   const pillarsStale = Boolean(
-    recordedPillars && recordedPillars.headSha && resolvedSha !== 'HEAD' && recordedPillars.headSha !== resolvedSha
+    recordedPillars && recordedPillars.headSha && resolvedSha !== 'HEAD' && !sameShaPrefix(recordedPillars.headSha, resolvedSha)
   );
   const pickPillar = (explicitVal, key) => {
     if (explicitVal !== undefined) return explicitVal;
@@ -1204,14 +1209,21 @@ export function formatConsolidatedReviewComment({
     return null;
   };
 
-  const rawCov = coveragePct !== null && coveragePct !== undefined ? coveragePct : activeSess?.manifest?.coverageReport ?? null;
-  const rawMut = mutationPct !== null && mutationPct !== undefined ? mutationPct : activeSess?.manifest?.mutationScore ?? null;
-  const covStatus = formatMetricPillar(rawCov, pickPillar(coveragePassed, 'coveragePassed'), minCov);
+  const explicitCovProvided = coveragePct !== null && coveragePct !== undefined;
+  const explicitMutProvided = mutationPct !== null && mutationPct !== undefined;
+  const rawCov = explicitCovProvided ? coveragePct : activeSess?.manifest?.coverageReport ?? null;
+  const rawMut = explicitMutProvided ? mutationPct : activeSess?.manifest?.mutationScore ?? null;
+  const covSha = activeSess?.manifest?.coverageHeadSha || recordedPillars?.headSha || null;
+  const mutSha = activeSess?.manifest?.mutationHeadSha || recordedPillars?.headSha || null;
+  const covStale = !explicitCovProvided && Boolean(rawCov && resolvedSha !== 'HEAD' && (pillarsStale || (covSha && !sameShaPrefix(covSha, resolvedSha))));
+  const mutStale = !explicitMutProvided && Boolean(rawMut && resolvedSha !== 'HEAD' && (pillarsStale || (mutSha && !sameShaPrefix(mutSha, resolvedSha))));
+  const covStatus = formatMetricPillar(rawCov, pickPillar(coveragePassed, 'coveragePassed'), minCov, null, covStale);
   const mutStatus = formatMetricPillar(
     rawMut,
     pickPillar(mutationPassed, 'mutationPassed'),
     minMut,
-    minMut === null ? '⚪ N/A (not configured)' : null
+    minMut === null ? '⚪ N/A (not configured)' : null,
+    mutStale
   );
 
   const effectiveDrift =
