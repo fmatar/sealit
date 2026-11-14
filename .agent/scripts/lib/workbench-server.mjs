@@ -840,11 +840,15 @@ export function generateArchitectureWidget({ outputPath = null, repoRoot = '.', 
 
       const nodesGrid = document.getElementById('nodes-grid');
       nodesGrid.innerHTML = (STATE.graph.nodes || []).map(n =>
-        '<button type="button" onclick="inspectNode(\\'' + escapeHtml(n.id).replace(/'/g, '') + '\\')" class="node-item">' +
+        '<button type="button" data-node-id="' + escapeHtml(n.id) + '" class="node-item">' +
           '<div class="node-item-head"><span>' + escapeHtml(n.id) + '</span><span>' + escapeHtml(n.status || n.category) + '</span></div>' +
           '<div class="node-item-title">' + escapeHtml(n.label) + '</div>' +
         '</button>'
       ).join('');
+      nodesGrid.onclick = (ev) => {
+        const btn = ev.target && ev.target.closest ? ev.target.closest('[data-node-id]') : null;
+        if (btn) inspectNode(btn.getAttribute('data-node-id'));
+      };
 
       const snaps = STATE.arch.snapshots || [];
       const slider = document.getElementById('time-slider');
@@ -2139,7 +2143,7 @@ export function renderWorkbenchHTML(repoRoot = '.', getSessionStatusFn = getSess
               : statusStr.toLowerCase().includes('pending')
                 ? 'warn'
                 : 'pass';
-            return '<tr class="' + (isSel ? 'selected' : '') + '" style="cursor:pointer;" onclick="selectLineageNode(\\'' + escapeHtml(n.id).replace(/'/g, '') + '\\')">' +
+            return '<tr class="' + (isSel ? 'selected' : '') + '" style="cursor:pointer;" data-node-id="' + escapeHtml(n.id) + '">' +
               '<th class="mono">' + escapeHtml(n.id) + '</th>' +
               '<td class="mono" style="font-size:12px;">' + escapeHtml(n.category) + '</td>' +
               '<td>' + escapeHtml(n.label) + '</td>' +
@@ -2147,6 +2151,10 @@ export function renderWorkbenchHTML(repoRoot = '.', getSessionStatusFn = getSess
             '</tr>';
           }).join('');
         }
+        dgEl.onclick = (ev) => {
+          const row = ev.target && ev.target.closest ? ev.target.closest('[data-node-id]') : null;
+          if (row) selectLineageNode(row.getAttribute('data-node-id'));
+        };
       }
 
       const adrSelect = document.getElementById('adr-select');
@@ -2186,7 +2194,7 @@ export function renderWorkbenchHTML(repoRoot = '.', getSessionStatusFn = getSess
         return '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">' +
           list.map(e => {
             const targetId = dir === 'in' ? e.from : e.to;
-            return '<button type="button" class="action-btn mono" onclick="selectLineageNode(\\'' + escapeHtml(targetId).replace(/'/g, '') + '\\')">' +
+            return '<button type="button" class="action-btn mono" data-node-id="' + escapeHtml(targetId) + '">' +
               escapeHtml(e.from + ' [' + e.relation + '] -> ' + e.to) +
             '</button>';
           }).join('') +
@@ -2206,6 +2214,10 @@ export function renderWorkbenchHTML(repoRoot = '.', getSessionStatusFn = getSess
           '<div style="font-weight:700;font-size:12px;color:var(--ink-secondary);">Downstream Dependents / Governed By:</div>' +
           renderHopList(inbound, 'in') +
         '</div>';
+      body.onclick = (ev) => {
+        const btn = ev.target && ev.target.closest ? ev.target.closest('[data-node-id]') : null;
+        if (btn) selectLineageNode(btn.getAttribute('data-node-id'));
+      };
     }
 
     async function submitAdrDecision(action) {

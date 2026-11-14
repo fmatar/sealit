@@ -270,6 +270,8 @@ export function formatTemplatedIssue({
   const template = loadIssueTemplate({ type, repoRoot });
   const normType = (type || 'feat').toLowerCase();
   const isBug = normType === 'bug' || normType === 'fix' || normType === 'hotfix';
+  const { minCov, minMut } = resolveConfiguredQualityBars(repoRoot);
+  const mutClause = minMut !== null ? `, >= ${minMut}% mutation` : '';
 
   let renderedBody = '';
 
@@ -292,10 +294,18 @@ export function formatTemplatedIssue({
       t = t.replace(/A clear and concise description of what the problem is\.[^\n]*/i, probDesc);
       t = t.replace(/A clear and concise description of what you want to happen\.[^\n]*/i, solDesc);
     }
+    const mutPhrase =
+      minMut !== null
+        ? `and \`>= ${minMut}%\` mutation score (\`.agent/sdlc-config.json\`)`
+        : '(mutation testing disabled per `.agent/sdlc-config.json`)';
+    t = t
+      .replace(
+        /Diff line coverage `>= 85%` and configured mutation score \(`\.agent\/sdlc-config\.json`\)/gi,
+        `Diff line coverage \`>= ${minCov}%\` ${mutPhrase}`
+      )
+      .replace(/`>= 85%`/g, `\`>= ${minCov}%\``);
     renderedBody = t;
   } else {
-    const { minCov, minMut } = resolveConfiguredQualityBars(repoRoot);
-    const mutClause = minMut !== null ? `, >= ${minMut}% mutation` : '';
     if (isBug) {
       renderedBody =
         `### 🐛 Bug Description\n${problem || body || title}\n\n` +

@@ -453,26 +453,6 @@ export function hasGitHubRemote(repoRoot = '.') {
   return /github\.com/i.test(originUrl.trim());
 }
 
-const developBranchMemo = new Map();
-
-export function clearGitMemoCache() {
-  developBranchMemo.clear();
-}
-
-function getGitRefStamp(repoRoot = '.') {
-  const absRoot = path.resolve(repoRoot);
-  const parts = [];
-  for (const rel of ['.git/HEAD', '.git/refs/heads', '.git/refs/remotes', '.git/packed-refs']) {
-    try {
-      const st = fs.statSync(path.join(absRoot, rel), { bigint: true });
-      parts.push(String(st.mtimeNs));
-    } catch {
-      parts.push('0');
-    }
-  }
-  return `${absRoot}|${parts.join('|')}`;
-}
-
 /**
  * Returns a unified diff for one file: branch/commit diff + working tree diff,
  * and for unignored untracked files a synthetic all-added diff of its content.
@@ -563,20 +543,36 @@ export function getUnifiedDiffByFile(baseBranch = null, repoRoot = '.', files = 
 }
 
 export function hasDevelopBranch(repoRoot = '.') {
-  const key = getGitRefStamp(repoRoot);
-  if (developBranchMemo.has(key)) {
-    return developBranchMemo.get(key);
-  }
-  let result = false;
   try {
+    const absRoot = path.resolve(repoRoot);
+    const gitPath = path.join(absRoot, '.git');
+    if (fs.existsSync(gitPath) && fs.statSync(gitPath).isDirectory()) {
+      if (fs.existsSync(path.join(gitPath, 'refs', 'heads', 'develop'))) {
+        return true;
+      }
+      const remotesDir = path.join(gitPath, 'refs', 'remotes');
+      if (fs.existsSync(remotesDir)) {
+        for (const remote of fs.readdirSync(remotesDir, { withFileTypes: true })) {
+          if (remote.isDirectory() && fs.existsSync(path.join(remotesDir, remote.name, 'develop'))) {
+            return true;
+          }
+        }
+      }
+      const packedRefsPath = path.join(gitPath, 'packed-refs');
+      if (fs.existsSync(packedRefsPath)) {
+        const packed = fs.readFileSync(packedRefsPath, 'utf8');
+        if (/(^|\n)[0-9a-f]{40,}\s+refs\/(heads\/develop|remotes\/[^/\s]+\/develop)(\s|$)/.test(packed)) {
+          return true;
+        }
+      }
+      return false;
+    }
+
     const branches = gitOutput(['branch', '-a'], repoRoot) || '';
-    result = /(^|\n)[ *]*remotes\/[^/]+\/develop($|\n)|(^|\n)[ *]*develop($|\n)/.test(branches);
+    return /(^|\n)[ *]*remotes\/[^/]+\/develop($|\n)|(^|\n)[ *]*develop($|\n)/.test(branches);
   } catch {
-    result = false;
+    return false;
   }
-  if (developBranchMemo.size > 128) developBranchMemo.clear();
-  developBranchMemo.set(key, result);
-  return result;
 }
 
 export function resolveDefaultBaseBranch(repoRoot = '.') {

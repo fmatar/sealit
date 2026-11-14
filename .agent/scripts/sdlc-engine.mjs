@@ -1196,6 +1196,8 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
           else if (args[i] === '--branch' && args[i + 1]) branch = args[++i];
           else if (args[i].startsWith('--branch=')) branch = args[i].slice('--branch='.length);
         }
+        const explicitSha = Boolean(headSha);
+        const explicitBranch = Boolean(branch);
         if (!headSha) {
           try {
             headSha = execFileSync('git', ['rev-parse', 'HEAD'], {
@@ -1205,13 +1207,16 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
             }).trim() || null;
           } catch {}
         }
-        if (!branch) {
+        if (!explicitBranch && !explicitSha) {
           try {
-            branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+            const inferredBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
               cwd: repoRoot,
               encoding: 'utf8',
               stdio: 'pipe'
-            }).trim() || null;
+            }).trim();
+            if (inferredBranch && !['HEAD', 'develop', 'main', 'master'].includes(inferredBranch)) {
+              branch = inferredBranch;
+            }
           } catch {}
         }
         const verRes = verifyGateReceipt({ headSha, branch, repoRoot });

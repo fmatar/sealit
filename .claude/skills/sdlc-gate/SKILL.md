@@ -23,11 +23,11 @@ allowed-tools: Read, Write, Edit, Bash, Agent
    ```bash
    node .agent/scripts/sdlc-engine.mjs review plan --json
    ```
-   Inspect the returned `lane`, `subagentsCount`, `modifiedFiles`, `diffStat`, `diff`, and `payload.Subagents` list (each prompt embeds the changed file paths, `--stat`, and bounded unified diff against `main`).
+   Inspect the returned `lane`, `subagentsCount`, `modifiedFiles`, `diffStat`, `diff`, and `payload.Subagents` list (each prompt embeds the changed file paths, `--stat`, and bounded unified diff against the target base branch (`develop` or `main`)).
 
 2. **Dispatch Read-Only Reviewers with Concrete Context** (`standard` & `full` lanes):
    For each subagent in `review plan`, call `Agent` (`TypeName: "research"`) in parallel using its generated `Prompt` (which already contains the branch, `baseSha`/`headSha`, modified files, and unified `git diff`), supplemented with:
-   - Current branch name, base `main` SHA, and active ticket `#id`.
+   - Current branch name, target base branch (`develop` or `main`) SHA, and active ticket `#id`.
    - Measured coverage/mutation numbers from `.agent/.sdlc-session.json` and thresholds from `.agent/sdlc-config.json`.
    - Instruction to return a structured verdict: `verdict: approve | request-changes`, `blockers: [...]`, and concise `notes` for the PR comment (subagents are read-only and never run `review record` or `gh` themselves).
 

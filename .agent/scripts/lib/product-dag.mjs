@@ -12,10 +12,30 @@ const DAG_STATE_FILE = '.agent/product-dag-state.json';
 function resolveQualityBarsText(repoRoot = '.') {
   const cfg = loadConfig(repoRoot) || {};
   const gates = cfg?.gates || {};
-  const covNum = Number(gates.minDiffCoverage);
-  const minCov = Number.isFinite(covNum) ? covNum : 85;
-  const mutRaw = gates.minMutationScore;
-  if (mutRaw === null || mutRaw === false) {
+  const mods = Array.isArray(cfg?.modules) ? cfg.modules : [];
+  const covVals = mods
+    .map((m) => m?.thresholds?.diffCoverage)
+    .filter((v) => typeof v === 'number' && Number.isFinite(v));
+  const hasGateCov =
+    gates.minDiffCoverage !== null &&
+    gates.minDiffCoverage !== undefined &&
+    Number.isFinite(Number(gates.minDiffCoverage));
+  const minCov = hasGateCov
+    ? Number(gates.minDiffCoverage)
+    : typeof cfg?.testing?.coverageThreshold === 'number' && Number.isFinite(cfg.testing.coverageThreshold)
+      ? cfg.testing.coverageThreshold
+      : covVals.length > 0
+        ? Math.max(...covVals)
+        : 85;
+
+  const mutRaw = gates.minMutationScore !== undefined ? gates.minMutationScore : cfg?.testing?.mutationThreshold;
+  const allNullMut = mods.length > 0 && mods.every((m) => m?.thresholds && m.thresholds.mutationScore === null);
+  const mutVals = mods
+    .map((m) => m?.thresholds?.mutationScore)
+    .filter((v) => typeof v === 'number' && Number.isFinite(v));
+  const mutationDisabled =
+    mutRaw === null || mutRaw === false || (mutRaw === undefined && allNullMut);
+  if (mutationDisabled) {
     return {
       covPhrase: `\`>= ${minCov}%\` diff line coverage`,
       mutPhrase: 'mutation testing disabled per config',
@@ -24,7 +44,12 @@ function resolveQualityBarsText(repoRoot = '.') {
       invariantClause: `(>=${minCov}% coverage)`
     };
   }
-  const mutNum = mutRaw !== undefined && Number.isFinite(Number(mutRaw)) ? Number(mutRaw) : 80;
+  const mutNum =
+    mutRaw !== undefined && Number.isFinite(Number(mutRaw))
+      ? Number(mutRaw)
+      : mutVals.length > 0
+        ? Math.max(...mutVals)
+        : 52;
   return {
     covPhrase: `\`>= ${minCov}%\` diff line coverage and \`>= ${mutNum}%\` mutation score`,
     mutPhrase: `\`>= ${mutNum}%\` mutation score`,
@@ -187,7 +212,7 @@ ${traceRows}
 ### 2.1 Product Perspective (C4 Container View)
 \`\`\`mermaid
 flowchart TB
-    Operator["Developer / AI Coding Agent"] --> Router["/sdlc Router & 8 Verb Skills\n(.agent/skills/)"]
+    Operator["Developer / AI Coding Agent"] --> Router["/sdlc Router & 9 Verb Skills (10 Canonical Skills)\n(.agent/skills/)"]
     Router --> Engine["SDLC Universal Engine\n(.agent/scripts/sdlc-engine.mjs)"]
     Engine --> Domain["Modular Domain Libraries\n(.agent/scripts/lib/*.mjs)"]
     Domain --> Ledger["SHA-256 Merkle Audit Chain & Decision Graph\n(docs/AUDIT_CHAIN.jsonl, docs/DECISION_MAP.md)"]
@@ -200,7 +225,7 @@ flowchart TB
 
 ## 3. Specific Requirements (IEEE 29148)
 ### 3.1 External Interface Requirements
-- **3.1.1 Agent Slash-Command Interface**: 1 Universal Router (\`/sdlc\`) + 8 Verb Skills (\`/sdlc-flow\`, \`/sdlc-product\`, \`/sdlc-doctor\`, \`/sdlc-status\`, \`/sdlc-tdd\`, \`/sdlc-gate\`, \`/sdlc-adr\`, \`/sdlc-release\`).
+- **3.1.1 Agent Slash-Command Interface**: 1 Universal Router (\`/sdlc\`) + 9 Verb Skills (10 Canonical Skills: \`/sdlc-flow\`, \`/sdlc-product\`, \`/sdlc-doctor\`, \`/sdlc-status\`, \`/sdlc-tdd\`, \`/sdlc-gate\`, \`/sdlc-adr\`, \`/sdlc-wiki\`, \`/sdlc-release\`).
 - **3.1.2 CLI & NPX Interface**: \`npx github:fmatar/agentic-sdlc-framework install\` interactive ANSI TUI wizard and \`node .agent/scripts/sdlc-engine.mjs <command>\`.
 - **3.1.3 HTTP & Visual Workbench Interface**: Local HTTP server (\`http://localhost:4120\`) serving \`/api/arch-diff\`, \`/widget\`, and inline \`<agent-embed>\` snapshots.
 
