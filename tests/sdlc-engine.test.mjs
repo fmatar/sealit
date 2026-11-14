@@ -45,7 +45,7 @@ import {
   installCIWorkflow,
   assessRisk,
   generatePRSummary,
-  findAffectededTests,
+  findAffectedTests,
   checkArchDiff,
   runFlakeCheck,
   auditSecurity,
@@ -1254,7 +1254,7 @@ jobs:
       fs.mkdirSync(testDir, { recursive: true });
       fs.writeFileSync(path.join(testDir, 'UserService.test.mjs'), '// test code');
 
-      const affected = findAffectededTests(['src/UserService.mjs'], tmpDir);
+      const affected = findAffectedTests(['src/UserService.mjs'], tmpDir);
       assert.equal(affected.length, 1);
       assert.ok(affected[0].includes('UserService.test.mjs'));
     });

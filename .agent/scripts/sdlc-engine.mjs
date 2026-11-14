@@ -191,6 +191,7 @@ import {
   discoverModules,
   matchFilesToModules,
   generateConfig,
+  validateConfigFile,
   printPreview,
   auditSkills
 } from './lib/quality-gate.mjs';
@@ -368,6 +369,7 @@ export {
   discoverModules,
   matchFilesToModules,
   generateConfig,
+  validateConfigFile,
   printPreview,
   auditSkills,
   buildArchDiffPayload,
@@ -2031,6 +2033,23 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       return result;
     }
 
+    case 'config': {
+      const sub = (args[1] || 'check').toLowerCase();
+      result.subcommand = sub;
+      if (sub === 'check' || sub === 'validate') {
+        const validation = validateConfigFile(repoRoot, customConfigPath);
+        result.configValidation = validation;
+        result.success = validation.valid;
+        if (!validation.valid) {
+          result.exitCode = 1;
+        }
+        return result;
+      }
+      result.success = false;
+      result.exitCode = 2;
+      return result;
+    }
+
     case 'doctor': {
       const fix = args.includes('--fix');
       result.doctor = runDoctor(repoRoot, { fix });
@@ -2505,6 +2524,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         'Setup & Environment:',
         '  install [--agents gemini,claude,cursor,grok,windsurf,copilot] [--global] [--with-hooks] [--with-ci] [--yes]',
         '  detect                                                Auto-detect stack and write .agent/sdlc-config.json',
+        '  config check                                          Validate .agent/sdlc-config.json without synthesizing defaults',
         '  doctor [--fix]                                        Diagnose toolchain, assets & hook SHA-256 health (--fix heals)',
         '  interop <export> [--agent <all|id>]                   Provision agent rules & skills across supported runtimes',
         '  hooks install | protect [main develop] | ci-workflow  Install 4-Layer Git hooks, branch protection, or CI workflow',
@@ -2725,6 +2745,30 @@ export function formatCLIResult(res, args = []) {
 
   if (cmd === 'interop' && res.interop) {
     return `✅ Exported rules & skills for [${(res.interop.selectedAgents || []).join(', ')}] (${(res.interop.filesCreated || []).length} file(s) updated).`;
+  }
+
+  if (cmd === 'config' && res.configValidation) {
+    const cv = res.configValidation;
+    if (cv.valid) {
+      return `✅ Config Check: .agent/sdlc-config.json is valid (${cv.config?.modules?.length ?? 0} module(s), profile=${cv.config?.profile || 'standard'}).`;
+    }
+    return [`🛑 Config Check Failed (${cv.configPath}):`, ...cv.errors.map((e) => `  • ${e}`)].join('\n');
+  }
+
+  if ((cmd === 'wiki' || cmd === 'docs') && res.subcommand === 'map' && res.codeMap) {
+    const cm = res.codeMap;
+    const lines = [
+      `🗺️ Codebase Map: ${cm.title} (${cm.rings.length} ring(s), ${cm.modules.length} module(s), ${cm.skills.length} skill(s), ${cm.adrs.length} ADR(s))`
+    ];
+    for (const ring of cm.rings) {
+      lines.push(`  • ${ring.name} (${ring.modules.length} module(s))`);
+      for (const mod of ring.modules) {
+        lines.push(
+          `    - ${mod.path} | I=${mod.instability} (Ca=${mod.ca}, Ce=${mod.ce}, ${mod.lineCount} lines, ${mod.exports.length} exports)`
+        );
+      }
+    }
+    return lines.join('\n');
   }
 
   if (cmd === 'readme') {

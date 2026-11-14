@@ -12,7 +12,7 @@ permissions:
 jobs:
   quality-gate:
     name: Universal Quality Gate, Spec-Drift & Merkle Receipt Defense
-    runs-on: ${{ vars.SDLC_RUNS_ON || 'local-agentic-sdlc-framework' }}
+    runs-on: ${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}
 
     steps:
       - name: Checkout Code
@@ -50,10 +50,10 @@ jobs:
             node .agent/scripts/sdlc-engine.mjs drift check
           fi
 
-      - name: Detect SDLC Stack & Configure Environment
+      - name: Validate SDLC Configuration
         run: |
           if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
-            node .agent/scripts/sdlc-engine.mjs detect
+            node .agent/scripts/sdlc-engine.mjs config check
           fi
 
       - name: Verify Universal Quality Gate & Merkle Audit Chain

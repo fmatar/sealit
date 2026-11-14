@@ -690,7 +690,7 @@ describe('Issue #105: GitHub Actions quality-gate CI, configurable runners, loca
     assert.equal(defaultRes.created, true);
     const defaultYaml = fs.readFileSync(path.join(dir, '.github/workflows/sdlc-quality-gate.yml'), 'utf8');
     assert.match(defaultYaml, /permissions:\s*\n\s*contents:\s*read/);
-    assert.match(defaultYaml, /runs-on:\s*\$\{\{\s*vars\.SDLC_RUNS_ON\s*\|\|\s*'self-hosted'\s*\}\}/);
+    assert.match(defaultYaml, /runs-on:\s*\$\{\{\s*vars\.SDLC_RUNS_ON\s*\|\|\s*'ubuntu-latest'\s*\}\}/);
     assert.match(defaultYaml, /sdlc-engine\.mjs skill-audit/);
     assert.match(defaultYaml, /sdlc-engine\.mjs gate --strict/);
     assert.throws(
@@ -4505,6 +4505,202 @@ describe('Issue #132: Git Flow develop base, atomic session I/O, receipt allowli
         assert.equal(begun.branch.endsWith('-'), false, `branch slug must not end in hyphen: ${begun.branch}`);
       }
       assert.equal(new Set(localIds).size, 6, `local session IDs collided: ${localIds.join(', ')}`);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('Issue #133: CI Portability, Config Validation, Wiki Stdout & Graph Fidelity', () => {
+  it('defaults generated/tracked workflows and config runsOn to ubuntu-latest and enforces fail-closed config check in CI', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-133-ci-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'tmp-ci', version: '1.0.0' }), 'utf8');
+
+      // 1. generateConfig & installCIWorkflow default to ubuntu-latest fallback
+      const cfg = generateConfig(dir);
+      assert.equal(cfg.ci?.runsOn, "${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}");
+
+      const wfRes = installCIWorkflow({ repoRoot: dir, force: true });
+      assert.equal(wfRes.success, true);
+
+      for (const wfRel of [
+        '.github/workflows/sdlc-quality-gate.yml',
+        '.github/workflows/enforce-branch-flow.yml',
+        '.github/workflows/release.yml'
+      ]) {
+        const wf = fs.readFileSync(path.join(dir, wfRel), 'utf8');
+        assert.match(wf, /runs-on:\s*\$\{\{\s*vars\.SDLC_RUNS_ON\s*\|\|\s*'ubuntu-latest'\s*\}\}/, `${wfRel} must fallback to ubuntu-latest`);
+        assert.doesNotMatch(wf, /'self-hosted'/, `${wfRel} must not default to self-hosted`);
+      }
+
+      const generatedGateWf = fs.readFileSync(path.join(dir, '.github/workflows/sdlc-quality-gate.yml'), 'utf8');
+      assert.match(generatedGateWf, /actions\/checkout@v7/);
+      assert.match(generatedGateWf, /actions\/setup-node@v7/);
+      assert.match(generatedGateWf, /node \.agent\/scripts\/sdlc-engine\.mjs config check/);
+      assert.doesNotMatch(generatedGateWf, /node \.agent\/scripts\/sdlc-engine\.mjs detect\b/);
+
+      // 2. Checked-in repository config & workflows use portable ubuntu-latest fallback and fail-closed config check
+      const repoConfig = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, '.agent/sdlc-config.json'), 'utf8'));
+      assert.equal(repoConfig.ci?.runsOn, "${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}");
+
+      for (const repoWfRel of [
+        '.github/workflows/sdlc-quality-gate.yml',
+        '.github/workflows/enforce-branch-flow.yml',
+        '.github/workflows/publish-wiki.yml',
+        '.github/workflows/release.yml'
+      ]) {
+        const content = fs.readFileSync(path.join(REPO_ROOT, repoWfRel), 'utf8');
+        assert.match(content, /runs-on:\s*\$\{\{\s*vars\.SDLC_RUNS_ON\s*\|\|\s*'ubuntu-latest'\s*\}\}/, `Repo ${repoWfRel} must fallback to ubuntu-latest`);
+        assert.doesNotMatch(content, /local-agentic-sdlc-framework/, `Repo ${repoWfRel} must not hardcode local-agentic-sdlc-framework`);
+      }
+
+      const repoGateWf = fs.readFileSync(path.join(REPO_ROOT, '.github/workflows/sdlc-quality-gate.yml'), 'utf8');
+      assert.match(repoGateWf, /node \.agent\/scripts\/sdlc-engine\.mjs config check/);
+      assert.doesNotMatch(repoGateWf, /node \.agent\/scripts\/sdlc-engine\.mjs detect\b/);
+
+      // 3. CLI `config check` fails loudly without creating .agent/sdlc-config.json when missing or invalid
+      const execEngineIn = (cwd, cmdArgs) =>
+        spawnSync(process.execPath, [path.join(REPO_ROOT, '.agent/scripts/sdlc-engine.mjs'), ...cmdArgs], {
+          cwd,
+          encoding: 'utf8',
+          env: childEnv()
+        });
+
+      const missingRes = execEngineIn(dir, ['config', 'check']);
+      assert.notEqual(missingRes.status, 0, 'config check must exit non-zero when .agent/sdlc-config.json is missing');
+      assert.equal(fs.existsSync(path.join(dir, '.agent/sdlc-config.json')), false, 'config check must not synthesize missing config');
+
+      fs.mkdirSync(path.join(dir, '.agent'), { recursive: true });
+      fs.writeFileSync(path.join(dir, '.agent/sdlc-config.json'), '{broken json', 'utf8');
+      const brokenRes = execEngineIn(dir, ['config', 'check']);
+      assert.notEqual(brokenRes.status, 0, 'config check must exit non-zero on invalid JSON');
+
+      fs.writeFileSync(path.join(dir, '.agent/sdlc-config.json'), JSON.stringify({ version: '2.1.0', ci: { runsOn: 'bad\nrunner' }, modules: [] }), 'utf8');
+      const badSchemaRes = execEngineIn(dir, ['config', 'check']);
+      assert.notEqual(badSchemaRes.status, 0, 'config check must reject control characters in ci.runsOn');
+
+      fs.writeFileSync(path.join(dir, '.agent/sdlc-config.json'), JSON.stringify(cfg, null, 2), 'utf8');
+      const validRes = execEngineIn(dir, ['config', 'check']);
+      assert.equal(validRes.status, 0, `valid config check failed: ${validRes.stderr}`);
+      assert.match(validRes.stdout, /valid/i);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('emits human-readable stdout without --json for wiki map and core CLI verification commands', () => {
+    const wikiMapRes = engine(REPO_ROOT, 'wiki', 'map');
+    assert.equal(wikiMapRes.status, 0, `wiki map failed: ${wikiMapRes.stderr}`);
+    assert.ok(wikiMapRes.stdout.trim().length > 0, 'wiki map without --json must print stdout');
+    assert.match(wikiMapRes.stdout, /Codebase Map/i);
+    assert.match(wikiMapRes.stdout, /core\.mjs/);
+    assert.match(wikiMapRes.stdout, /\bI=/);
+
+    const wikiMapJsonRes = engine(REPO_ROOT, 'wiki', 'map', '--json');
+    assert.equal(wikiMapJsonRes.status, 0);
+    const parsedMap = JSON.parse(wikiMapJsonRes.stdout);
+    assert.ok(Array.isArray(parsedMap.codeMap?.modules));
+
+    for (const cmdArgs of [
+      ['wiki', 'audit'],
+      ['arch', 'diff'],
+      ['drift', 'check'],
+      ['audit', 'verify'],
+      ['config', 'check']
+    ]) {
+      const cliOut = engine(REPO_ROOT, ...cmdArgs);
+      assert.equal(cliOut.status, 0, `${cmdArgs.join(' ')} failed: ${cliOut.stderr}`);
+      assert.ok(cliOut.stdout.trim().length > 0, `${cmdArgs.join(' ')} without --json must emit deterministic stdout`);
+    }
+  });
+
+  it('renders all Mermaid dependency edges including >45 edges and intra-ring cycles in renderCodebaseMapMarkdown', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-133-wiki-edges-'));
+    try {
+      fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+      fs.mkdirSync(path.join(dir, '.archlens'), { recursive: true });
+      fs.mkdirSync(path.join(dir, 'wiki'), { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, '.archlens/policy.json'),
+        JSON.stringify({
+          title: 'Dense Graph Test',
+          layers: [{ name: 'Ring 0: Core', patterns: ['src/'], ring: 0 }]
+        }),
+        'utf8'
+      );
+
+      // Build 12 modules forming a complete graph minus self-loops -> 12 * 11 = 132 edges (>45) including tail cycle m10 <-> m11
+      const names = Array.from({ length: 12 }, (_, idx) => `m${String(idx).padStart(2, '0')}.mjs`);
+      for (let i = 0; i < names.length; i++) {
+        const imports = names
+          .filter((_, j) => j !== i)
+          .map((other, idx) => `import { fn_${idx} } from './${other}';`)
+          .join('\n');
+        fs.writeFileSync(path.join(dir, 'src', names[i]), `${imports}\nexport function fn_${i}() { return ${i}; }\n`, 'utf8');
+      }
+
+      const wikiMod = await import('../.agent/scripts/lib/wiki-sync.mjs');
+      const codeMap = wikiMod.buildWikiCodeMap(dir);
+      const md = wikiMod.renderCodebaseMapMarkdown(codeMap);
+
+      const mermaidBlock = md.match(/```mermaid\n([\s\S]*?)```/)?.[1] || '';
+      const edgeLines = mermaidBlock.split('\n').filter((line) => /^\s*M_\S+\s*-->\s*M_\S+\s*$/.test(line));
+      assert.equal(edgeLines.length, 132);
+      assert.ok(edgeLines.length > 50, `Expected >50 rendered edges without .slice(0, 45), got ${edgeLines.length}`);
+      assert.match(mermaidBlock, /M_src_m10_mjs --> M_src_m11_mjs/, 'tail intra-ring edge must not be truncated');
+      assert.match(mermaidBlock, /M_src_m11_mjs --> M_src_m10_mjs/, 'reverse cycle edge must not be truncated');
+
+      // Verify checked-in wiki/Codebase-Map.md also renders every import edge cleanly (none truncated at 45)
+      const repoMap = wikiMod.buildWikiCodeMap(REPO_ROOT);
+      const expectedRepoEdges = new Set();
+      const repoNodes = new Set(repoMap.modules.map((m) => m.path));
+      for (const m of repoMap.modules) {
+        for (const imp of m.imports) {
+          if (repoNodes.has(imp) && imp !== m.path) {
+            expectedRepoEdges.add(`${m.path}->${imp}`);
+          }
+        }
+      }
+      const checkedInMap = fs.readFileSync(path.join(REPO_ROOT, 'wiki/Codebase-Map.md'), 'utf8');
+      const checkedInMermaid = checkedInMap.match(/```mermaid\n([\s\S]*?)```/)?.[1] || '';
+      const checkedInEdges = checkedInMermaid.split('\n').filter((line) => /^\s*M_\S+\s*-->\s*M_\S+\s*$/.test(line));
+      assert.equal(
+        checkedInEdges.length,
+        expectedRepoEdges.size,
+        `wiki/Codebase-Map.md must render all ${expectedRepoEdges.size} module edges, got ${checkedInEdges.length}`
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('removes dead workbench/src/routes probe in generateRegressionProof and supports clean findAffectedTests API', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-133-hygiene-'));
+    try {
+      const qgSource = fs.readFileSync(path.join(REPO_ROOT, '.agent/scripts/lib/quality-gate.mjs'), 'utf8');
+      assert.equal(qgSource.includes('workbench/src/routes'), false, 'Dead workbench/src/routes probe must be removed');
+
+      fs.mkdirSync(path.join(dir, '.agent/workbench'), { recursive: true });
+      fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+      fs.mkdirSync(path.join(dir, 'tests'), { recursive: true });
+      fs.writeFileSync(path.join(dir, '.agent/workbench/index.html'), '<main>Live Workbench</main>\n', 'utf8');
+      fs.writeFileSync(path.join(dir, 'src/OrderEngine.mjs'), 'export const ok = true;\n', 'utf8');
+      fs.writeFileSync(path.join(dir, 'tests/OrderEngine.test.mjs'), '// unit test\n', 'utf8');
+
+      const proof = qualityGateMod.generateRegressionProof({
+        targetName: 'workbench',
+        uiRoutes: [{ path: '/' }, { path: '/nonexistent', component: 'GhostView' }],
+        repoRoot: dir
+      });
+      assert.equal(proof.uiProofs[0].verified, true);
+      assert.equal(proof.uiProofs[0].sourceFile, '.agent/workbench/index.html');
+      assert.equal(proof.uiProofs[1].verified, false);
+      assert.equal(proof.uiProofs[1].sourceFile, null);
+
+      const affected = qualityGateMod.findAffectedTests(['src/OrderEngine.mjs'], dir);
+      assert.deepEqual(affected, ['tests/OrderEngine.test.mjs']);
+      assert.deepEqual(qualityGateMod.findAffectededTests(['src/OrderEngine.mjs'], dir), ['tests/OrderEngine.test.mjs']);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
