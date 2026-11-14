@@ -10,11 +10,13 @@ import {
   detectPMProvider,
   getModifiedFiles,
   getUnifiedDiffByFile,
+  extractAddedLinesFromDiff,
   gitOutput,
   parseCommandArgv,
   runConfiguredCommand,
   resolveDefaultBaseBranch,
-  loadConfig,
+  resolveQualityThresholds,
+  sameShaPrefix,
   writeFileAtomic,
   parseTicketId
 } from './core.mjs';
@@ -894,7 +896,16 @@ export function scaffoldReproductionTest({
   const ext = path.extname(guessedTarget).toLowerCase();
   const baseName = path.basename(guessedTarget, ext);
   const firstLine = cleanTrace ? cleanTrace.split('\n')[0] : 'Reproduction Failure';
-  const escapedRegex = firstLine.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+  const sanitizeComment = (text) =>
+    String(text || '')
+      .replace(/\*\//g, '* /')
+      .replace(/"""/g, '\\"\\"\\"');
+  const sanitizeSingleLineComment = (text) => sanitizeComment(text).replace(/[\r\n]+/g, ' ');
+  const sanitizePyDoc = (text) => String(text || '').replace(/\\/g, '\\\\').replace(/"""/g, '\\"\\"\\"').replace(/\*\//g, '* /');
+  const safeTargetComment = sanitizeComment(guessedTarget);
+  const safeBaseComment = sanitizeComment(baseName);
+  const safeTraceComment = sanitizeComment(cleanTrace);
+  const safeFirstLineComment = sanitizeSingleLineComment(firstLine);
   const stamp = Date.now().toString().slice(-4);
 
   const testDir = path.resolve(repoRoot, 'tests/reproductions');
@@ -906,10 +917,10 @@ export function scaffoldReproductionTest({
 
   const headerComment = `/**
  * MANDATORY BUG REPRODUCTION HARNESS (Red-Green-Refactor TDD)
- * Target Source: ${guessedTarget}
+ * Target Source: ${safeTargetComment}
  * Stack / Error Trace:
- * ${cleanTrace.split('\n').map((l) => ' * ' + l).join('\n')}
- * Bug Reproduction Harness: ${baseName}
+ * ${safeTraceComment.split('\n').map((l) => ' * ' + l).join('\n')}
+ * Bug Reproduction Harness: ${safeBaseComment}
  */`;
 
   if (ext === '.java') {
@@ -923,8 +934,8 @@ import static org.junit.jupiter.api.Assertions.*;
 public class ${className} {
     @Test
     void reproducesFailureBeforeFix() {
-        // Red Phase: Replace with invocation of ${baseName} triggering: ${firstLine.replace(/"/g, '\\"')}
-        fail("Unresolved defect in ${guessedTarget}: ${firstLine.replace(/"/g, '\\"')}");
+        // Red Phase: Replace with invocation of ${sanitizeSingleLineComment(baseName)} triggering: ${safeFirstLineComment}
+        fail(${JSON.stringify(`Unresolved defect in ${guessedTarget}: ${firstLine}`)});
     }
 }
 `;
@@ -933,14 +944,14 @@ public class ${className} {
     testFileName = `test_reproduce_${baseName.toLowerCase()}_${stamp}.py`;
     testContent = `"""
 MANDATORY BUG REPRODUCTION HARNESS (Red-Green-Refactor TDD)
-Target Source: ${guessedTarget}
-Bug Reproduction Harness: ${baseName}
-Trace: ${firstLine}
+Target Source: ${sanitizePyDoc(guessedTarget)}
+Bug Reproduction Harness: ${sanitizePyDoc(baseName)}
+Trace: ${sanitizePyDoc(firstLine)}
 """
 import pytest
 
 def test_reproduce_${baseName.toLowerCase().replace(/[^a-z0-9_]/g, '_')}():
-    # Red Phase: Invoking ${guessedTarget} must not raise ${firstLine}
+    # Red Phase: Invoking ${sanitizeSingleLineComment(guessedTarget)} must not raise ${safeFirstLineComment}
     pytest.fail(${JSON.stringify(`Unresolved defect in ${guessedTarget}: ${firstLine}`)})
 `;
   } else if (ext === '.go') {
@@ -952,7 +963,7 @@ package reproductions
 import "testing"
 
 func TestReproduce${baseName.replace(/[^a-zA-Z0-9]/g, '')}(t *testing.T) {
-\t// Red Phase: Invoking ${guessedTarget} must not fail with: ${firstLine}
+\t// Red Phase: Invoking ${sanitizeSingleLineComment(guessedTarget)} must not fail with: ${safeFirstLineComment}
 \tt.Fatalf("Unresolved defect in %s: %s", ${JSON.stringify(guessedTarget)}, ${JSON.stringify(firstLine)})
 }
 `;
@@ -962,7 +973,7 @@ func TestReproduce${baseName.replace(/[^a-zA-Z0-9]/g, '')}(t *testing.T) {
     testContent = `${headerComment}
 #[test]
 fn reproduce_${baseName.toLowerCase().replace(/[^a-z0-9_]/g, '_')}() {
-    panic!("Unresolved defect in ${guessedTarget}: ${firstLine.replace(/"/g, '\\"')}");
+    panic!("{}", ${JSON.stringify(`Unresolved defect in ${guessedTarget}: ${firstLine}`)});
 }
 `;
   } else {
@@ -970,14 +981,13 @@ fn reproduce_${baseName.toLowerCase().replace(/[^a-z0-9_]/g, '_')}() {
 import assert from 'node:assert/strict';
 
 ${headerComment}
-describe('Bug Reproduction Harness: ${baseName}', () => {
+describe(${JSON.stringify(`Bug Reproduction Harness: ${baseName}`)}, () => {
   it('reproduces failure with failing assertion before applying fix', async () => {
     const targetModulePath = ${JSON.stringify(guessedTarget)};
     assert.ok(targetModulePath, 'Target module path must be defined');
 
-    await assert.rejects(async () => {
-      throw new Error(${JSON.stringify(firstLine)});
-    }, /${escapedRegex}/);
+    // Red Phase: Replace with real reproduction invoking targetModulePath before implementing fix.
+    assert.fail(\`Unresolved defect in \${targetModulePath}: \${${JSON.stringify(firstLine)}}\`);
   });
 });
 `;
@@ -1280,13 +1290,7 @@ export function generatePRSummary({ issueId = null, repoRoot = '.' } = {}) {
   const risk = assessRisk(diffFiles, repoRoot);
   const archInfo = inspectArchlens(repoRoot);
 
-  const cfg = loadConfig(repoRoot);
-  const mods = Array.isArray(cfg?.modules) ? cfg.modules : [];
-  const covVals = mods.map((m) => m?.thresholds?.diffCoverage).filter((v) => typeof v === 'number' && Number.isFinite(v));
-  const minCov = covVals.length > 0 ? Math.max(...covVals) : 85;
-  const allNullMut = mods.length > 0 && mods.every((m) => m?.thresholds && m.thresholds.mutationScore === null);
-  const mutVals = mods.map((m) => m?.thresholds?.mutationScore).filter((v) => typeof v === 'number' && Number.isFinite(v));
-  const minMut = allNullMut ? null : mutVals.length > 0 ? Math.max(...mutVals) : 52;
+  const { minCov, minMut } = resolveQualityThresholds(repoRoot);
 
   const statSummary = (
     gitOutput(['diff', '--stat', `origin/${baseRef}...HEAD`], repoRoot) ||
@@ -1296,11 +1300,73 @@ export function generatePRSummary({ issueId = null, repoRoot = '.' } = {}) {
     ''
   ).trim();
 
+  const currentHeadSha = (gitOutput(['rev-parse', 'HEAD'], repoRoot) || '').trim() || null;
   const covReport = activeSess?.manifest?.coverageReport || null;
   const mutReport = activeSess?.manifest?.mutationScore || null;
+  const pillars = activeSess?.manifest?.gatePillars || null;
+  const pillarsStale = Boolean(pillars?.headSha && currentHeadSha && !sameShaPrefix(pillars.headSha, currentHeadSha));
+  const covSha = activeSess?.manifest?.coverageHeadSha || pillars?.headSha || null;
+  const mutSha = activeSess?.manifest?.mutationHeadSha || pillars?.headSha || null;
+  const covStale = Boolean(covReport && currentHeadSha && (pillarsStale || (covSha && !sameShaPrefix(covSha, currentHeadSha))));
+  const mutStale = Boolean(mutReport && currentHeadSha && (pillarsStale || (mutSha && !sameShaPrefix(mutSha, currentHeadSha))));
+  const covNum = covReport ? Number.parseFloat(String(covReport).replace('%', '')) : NaN;
+  const mutNum = mutReport ? Number.parseFloat(String(mutReport).replace('%', '')) : NaN;
+  const covStatusLabel = !covReport
+    ? '⚪ PENDING'
+    : covStale
+      ? '⏳ STALE (re-run gate)'
+      : pillars?.coveragePassed === false || (minCov !== null && Number.isFinite(covNum) && covNum < minCov)
+        ? '❌ FAILED'
+        : '✅ PASSED';
+  const mutStatusLabel =
+    minMut === null && !mutReport
+      ? '⚪ N/A'
+      : !mutReport
+        ? '⚪ PENDING'
+        : mutStale
+          ? '⏳ STALE (re-run gate)'
+          : pillars?.mutationPassed === false || (minMut !== null && Number.isFinite(mutNum) && mutNum < minMut)
+            ? '❌ FAILED'
+            : '✅ PASSED';
+  const archStatusLabel = !archInfo.installed
+    ? '⚪ SKIPPED'
+    : pillarsStale
+      ? '⏳ STALE (re-run gate)'
+      : pillars?.archPassed === true
+        ? '✅ PASSED'
+        : pillars?.archPassed === false
+          ? '❌ FAILED'
+          : '⏳ PENDING';
+  const lintStatusLabel = pillarsStale
+    ? '⏳ STALE (re-run gate)'
+    : pillars?.lintPassed === true
+      ? '✅ PASSED'
+      : pillars?.lintPassed === false
+        ? '❌ FAILED'
+        : '⏳ PENDING';
+  const covAchievedDisplay = !covReport ? 'Not Measured' : covStale ? `${covReport} (stale prior commit)` : covReport;
+  const mutAchievedDisplay = !mutReport ? 'Not Measured' : mutStale ? `${mutReport} (stale prior commit)` : mutReport;
+  const archAchievedDisplay = !archInfo.installed
+    ? 'N/A'
+    : pillarsStale
+      ? 'Stale (prior commit)'
+      : pillars?.archPassed === true
+        ? 'Compliant'
+        : pillars?.archPassed === false
+          ? 'Violations Found'
+          : 'Configured';
+  const lintAchievedDisplay = pillarsStale
+    ? 'Stale (prior commit)'
+    : pillars?.lintPassed === true
+      ? 'Clean'
+      : pillars?.lintPassed === false
+        ? 'Violations Found'
+        : 'Not Run';
+
   const parsedTicket = parseTicketId(issue);
   const ticketDisplay =
     parsedTicket === null ? 'N/A' : typeof parsedTicket === 'number' ? `#${parsedTicket}` : String(parsedTicket);
+  const covThreshLabel = minCov === null ? 'N/A' : `>= ${minCov}%`;
   const mutThreshLabel = minMut === null ? 'N/A' : `>= ${minMut}%`;
 
   const summary = `## 📋 Pull Request Summary: ${ticketDisplay}
@@ -1316,10 +1382,10 @@ export function generatePRSummary({ issueId = null, repoRoot = '.' } = {}) {
 ### 🛡️ Dual-Gate Quality Verification
 | Metric | Threshold | Achieved | Status |
 | :--- | :--- | :--- | :--- |
-| **Line & Branch Diff Coverage** | \`>= ${minCov}%\` | ${covReport || 'Not Measured'} | ${covReport ? '✅ PASSED' : '⚪ PENDING'} |
-| **Mutation Kill Score** | \`${mutThreshLabel}\` | ${mutReport || 'Not Measured'} | ${mutReport ? '✅ PASSED' : '⚪ PENDING'} |
-| **Archlens Clean Architecture** | 100% Policy | ${archInfo.installed ? 'Compliant' : 'N/A'} | ${archInfo.installed ? '✅ PASSED' : '⚪ SKIPPED'} |
-| **Static Analysis & Linting** | 0 Violations | Clean | ✅ PASSED |
+| **Line & Branch Diff Coverage** | \`${covThreshLabel}\` | ${covAchievedDisplay} | ${covStatusLabel} |
+| **Mutation Kill Score** | \`${mutThreshLabel}\` | ${mutAchievedDisplay} | ${mutStatusLabel} |
+| **Archlens Clean Architecture** | 100% Policy | ${archAchievedDisplay} | ${archStatusLabel} |
+| **Static Analysis & Linting** | 0 Violations | ${lintAchievedDisplay} | ${lintStatusLabel} |
 
 ---
 
@@ -1446,8 +1512,120 @@ export function buildSingleTestCommand(testFile, repoRoot = '.') {
   return `node --test "${testFile}"`;
 }
 
+function normalizeCoverageSourcePath(rawSfPath, repoRoot, modDir) {
+  const absRoot = path.resolve(repoRoot);
+  const normRaw = String(rawSfPath || '').trim().replace(/\\/g, '/');
+  if (!normRaw) return '';
+  if (path.isAbsolute(normRaw)) {
+    return path.relative(absRoot, path.resolve(normRaw)).replace(/\\/g, '/').replace(/^\.\//, '');
+  }
+  const fromMod = path.relative(absRoot, path.resolve(modDir, normRaw)).replace(/\\/g, '/').replace(/^\.\//, '');
+  if (!fromMod.startsWith('..')) return fromMod;
+  return normRaw.replace(/^\.\//, '');
+}
+
+function parseLcovFileRecords(raw, repoRoot, modDir) {
+  const records = new Map();
+  let current = null;
+  let totalLf = 0;
+  let totalLh = 0;
+  let hasPerLineData = false;
+
+  const ensureRecord = (sfPath) => {
+    const key = normalizeCoverageSourcePath(sfPath, repoRoot, modDir);
+    if (!key) return null;
+    if (!records.has(key)) {
+      records.set(key, { daLines: new Map(), brdaLines: new Map(), lf: 0, lh: 0 });
+    }
+    return records.get(key);
+  };
+
+  for (const rawLine of String(raw).split('\n')) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (line.startsWith('SF:')) {
+      current = ensureRecord(line.slice(3));
+    } else if (line.startsWith('DA:') && current) {
+      const parts = line.slice(3).split(',');
+      const lineNo = parseInt(parts[0], 10);
+      const hits = parseInt(parts[1], 10) || 0;
+      if (Number.isFinite(lineNo) && lineNo > 0) {
+        hasPerLineData = true;
+        current.daLines.set(lineNo, (current.daLines.get(lineNo) || 0) + hits);
+      }
+    } else if (line.startsWith('BRDA:') && current) {
+      const parts = line.slice(5).split(',');
+      const lineNo = parseInt(parts[0], 10);
+      const taken = parts[3] === '-' ? 0 : parseInt(parts[3], 10) || 0;
+      if (Number.isFinite(lineNo) && lineNo > 0) {
+        if (!current.brdaLines.has(lineNo)) current.brdaLines.set(lineNo, []);
+        current.brdaLines.get(lineNo).push(taken);
+      }
+    } else if (line.startsWith('LF:')) {
+      const lf = parseInt(line.slice(3), 10) || 0;
+      totalLf += lf;
+      if (current) current.lf += lf;
+    } else if (line.startsWith('LH:')) {
+      const lh = parseInt(line.slice(3), 10) || 0;
+      totalLh += lh;
+      if (current) current.lh += lh;
+    } else if (line === 'end_of_record') {
+      current = null;
+    }
+  }
+
+  return { records, totalLf, totalLh, hasPerLineData };
+}
+
+function computeLcovDiffIntersection(records, repoRoot, mod) {
+  if (!fileExists(path.resolve(repoRoot, '.git'))) {
+    return { diffApplicable: false, diffLineCoverage: null, diffBranchCoverage: null, diffLinesCovered: 0, diffLinesTotal: 0 };
+  }
+  const allModified = getModifiedFiles(null, repoRoot);
+  const modPrefix =
+    mod?.path && mod.path !== '.' ? mod.path.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '') : null;
+  const scopedFiles = modPrefix
+    ? allModified.filter((f) => f === modPrefix || f.startsWith(`${modPrefix}/`))
+    : allModified;
+  if (scopedFiles.length === 0) {
+    return { diffApplicable: false, diffLineCoverage: null, diffBranchCoverage: null, diffLinesCovered: 0, diffLinesTotal: 0 };
+  }
+
+  const diffsByFile = getUnifiedDiffByFile(null, repoRoot, scopedFiles);
+  let diffLinesTotal = 0;
+  let diffLinesCovered = 0;
+  let diffBranchesTotal = 0;
+  let diffBranchesCovered = 0;
+
+  for (const filePath of scopedFiles) {
+    const rec = records.get(filePath);
+    if (!rec || rec.daLines.size === 0) continue;
+    const addedLines = extractAddedLinesFromDiff(diffsByFile.get(filePath) || '');
+    for (const lineNo of addedLines) {
+      if (!rec.daLines.has(lineNo)) continue;
+      diffLinesTotal++;
+      if ((rec.daLines.get(lineNo) || 0) > 0) diffLinesCovered++;
+      const branches = rec.brdaLines.get(lineNo);
+      if (branches && branches.length > 0) {
+        for (const taken of branches) {
+          diffBranchesTotal++;
+          if (taken > 0) diffBranchesCovered++;
+        }
+      }
+    }
+  }
+
+  if (diffLinesTotal === 0) {
+    return { diffApplicable: false, diffLineCoverage: null, diffBranchCoverage: null, diffLinesCovered: 0, diffLinesTotal: 0 };
+  }
+  const diffLineCoverage = Number(((diffLinesCovered / diffLinesTotal) * 100).toFixed(2));
+  const diffBranchCoverage =
+    diffBranchesTotal > 0 ? Number(((diffBranchesCovered / diffBranchesTotal) * 100).toFixed(2)) : null;
+  return { diffApplicable: true, diffLineCoverage, diffBranchCoverage, diffLinesCovered, diffLinesTotal };
+}
+
 export function parseCoverageReport(repoRoot = '.', mod = null) {
-  const threshold = mod?.thresholds?.diffCoverage ?? 85;
+  const { minCov: threshold } = resolveQualityThresholds(repoRoot, mod);
   const modDir = mod?.path && mod.path !== '.' ? path.resolve(repoRoot, mod.path) : path.resolve(repoRoot);
 
   const candidates = [
@@ -1473,36 +1651,62 @@ export function parseCoverageReport(repoRoot = '.', mod = null) {
         const linePct = Number(data.total?.lines?.pct ?? data.lines?.pct);
         const branchPct = Number(data.total?.branches?.pct ?? data.branches?.pct ?? linePct);
         if (!Number.isNaN(linePct)) {
+          const rounded = Number(linePct.toFixed(2));
           return {
             found: true,
             file: relPath,
-            lineCoverage: Number(linePct.toFixed(2)),
+            lineCoverage: rounded,
+            repoLineCoverage: rounded,
+            diffLineCoverage: null,
+            diffApplicable: false,
             branchCoverage: Number(branchPct.toFixed(2)),
             formatted: `${linePct.toFixed(1)}%`,
             threshold,
-            passed: linePct >= threshold
+            passed: threshold === null ? true : linePct >= threshold
           };
         }
       } catch {}
     }
 
     if (relPath.endsWith('lcov.info') || relPath.endsWith('.lcov')) {
-      let lf = 0;
-      let lh = 0;
-      for (const line of raw.split('\n')) {
-        if (line.startsWith('LF:')) lf += parseInt(line.slice(3), 10) || 0;
-        else if (line.startsWith('LH:')) lh += parseInt(line.slice(3), 10) || 0;
+      const { records, totalLf, totalLh, hasPerLineData } = parseLcovFileRecords(raw, repoRoot, modDir);
+      let daTotal = 0;
+      let daCovered = 0;
+      if (totalLf === 0 && hasPerLineData) {
+        for (const rec of records.values()) {
+          for (const hits of rec.daLines.values()) {
+            daTotal++;
+            if (hits > 0) daCovered++;
+          }
+        }
       }
+      const lf = totalLf > 0 ? totalLf : daTotal;
+      const lh = totalLf > 0 ? totalLh : daCovered;
       if (lf > 0) {
-        const pct = (lh / lf) * 100;
+        const repoPct = Number(((lh / lf) * 100).toFixed(2));
+        const diffMetrics = hasPerLineData
+          ? computeLcovDiffIntersection(records, repoRoot, mod)
+          : { diffApplicable: false, diffLineCoverage: null, diffBranchCoverage: null, diffLinesCovered: 0, diffLinesTotal: 0 };
+        const effectivePct = diffMetrics.diffApplicable ? diffMetrics.diffLineCoverage : repoPct;
+        const passed = threshold === null ? true : effectivePct >= threshold;
+        const reason =
+          !passed && diffMetrics.diffApplicable
+            ? `Diff line coverage ${effectivePct.toFixed(1)}% (${diffMetrics.diffLinesCovered}/${diffMetrics.diffLinesTotal} changed lines) < ${threshold}% (${relPath}; repo-wide ${repoPct.toFixed(1)}%)`
+            : undefined;
         return {
           found: true,
           file: relPath,
-          lineCoverage: Number(pct.toFixed(2)),
-          branchCoverage: null,
-          formatted: `${pct.toFixed(1)}%`,
+          lineCoverage: effectivePct,
+          repoLineCoverage: repoPct,
+          diffLineCoverage: diffMetrics.diffLineCoverage,
+          diffApplicable: diffMetrics.diffApplicable,
+          diffLinesCovered: diffMetrics.diffLinesCovered,
+          diffLinesTotal: diffMetrics.diffLinesTotal,
+          branchCoverage: diffMetrics.diffBranchCoverage,
+          formatted: `${effectivePct.toFixed(1)}%`,
           threshold,
-          passed: pct >= threshold
+          passed,
+          ...(reason ? { reason } : {})
         };
       }
     }
@@ -1524,14 +1728,18 @@ export function parseCoverageReport(repoRoot = '.', mod = null) {
           const total = missed + covered;
           if (total > 0) {
             const pct = (covered / total) * 100;
+            const rounded = Number(pct.toFixed(2));
             return {
               found: true,
               file: relPath,
-              lineCoverage: Number(pct.toFixed(2)),
+              lineCoverage: rounded,
+              repoLineCoverage: rounded,
+              diffLineCoverage: null,
+              diffApplicable: false,
               branchCoverage: null,
               formatted: `${pct.toFixed(1)}%`,
               threshold,
-              passed: pct >= threshold
+              passed: threshold === null ? true : pct >= threshold
             };
           }
         }
@@ -1542,14 +1750,18 @@ export function parseCoverageReport(repoRoot = '.', mod = null) {
       const match = raw.match(/line-rate=["']([0-9.]+)["']/);
       if (match) {
         const pct = parseFloat(match[1]) * 100;
+        const rounded = Number(pct.toFixed(2));
         return {
           found: true,
           file: relPath,
-          lineCoverage: Number(pct.toFixed(2)),
+          lineCoverage: rounded,
+          repoLineCoverage: rounded,
+          diffLineCoverage: null,
+          diffApplicable: false,
           branchCoverage: null,
           formatted: `${pct.toFixed(1)}%`,
           threshold,
-          passed: pct >= threshold
+          passed: threshold === null ? true : pct >= threshold
         };
       }
     }
@@ -1569,14 +1781,18 @@ export function parseCoverageReport(repoRoot = '.', mod = null) {
       }
       if (totalStmts > 0) {
         const pct = (coveredStmts / totalStmts) * 100;
+        const rounded = Number(pct.toFixed(2));
         return {
           found: true,
           file: relPath,
-          lineCoverage: Number(pct.toFixed(2)),
+          lineCoverage: rounded,
+          repoLineCoverage: rounded,
+          diffLineCoverage: null,
+          diffApplicable: false,
           branchCoverage: null,
           formatted: `${pct.toFixed(1)}%`,
           threshold,
-          passed: pct >= threshold
+          passed: threshold === null ? true : pct >= threshold
         };
       }
     }
@@ -1587,6 +1803,9 @@ export function parseCoverageReport(repoRoot = '.', mod = null) {
     found: false,
     file: null,
     lineCoverage: null,
+    repoLineCoverage: null,
+    diffLineCoverage: null,
+    diffApplicable: false,
     branchCoverage: null,
     formatted: null,
     threshold,
@@ -1614,7 +1833,7 @@ function isMutantExempted(exemptions, { id = null, file = null, mutator = null, 
 }
 
 export function parseMutationReport(repoRoot = '.', mod = null) {
-  const threshold = mod?.thresholds?.mutationScore ?? 80;
+  const { minMut: threshold } = resolveQualityThresholds(repoRoot, mod);
   const modDir = mod?.path && mod.path !== '.' ? path.resolve(repoRoot, mod.path) : path.resolve(repoRoot);
   const exemptions = getExemptions(repoRoot);
 
@@ -1652,7 +1871,7 @@ export function parseMutationReport(repoRoot = '.', mod = null) {
           formatted: `${score.toFixed(1)}%`,
           threshold,
           exemptedCount: 0,
-          passed: score >= threshold
+          passed: threshold === null ? true : score >= threshold
         };
       }
       if (total > 0 || exemptedCount > 0) {
@@ -1664,7 +1883,7 @@ export function parseMutationReport(repoRoot = '.', mod = null) {
           formatted: `${score.toFixed(1)}%`,
           threshold,
           exemptedCount,
-          passed: score >= threshold
+          passed: threshold === null ? true : score >= threshold
         };
       }
     } catch {}
@@ -1706,7 +1925,7 @@ export function parseMutationReport(repoRoot = '.', mod = null) {
         formatted: `${score.toFixed(1)}%`,
         threshold,
         exemptedCount,
-        passed: score >= threshold
+        passed: threshold === null ? true : score >= threshold
       };
     }
   }
@@ -1734,6 +1953,8 @@ export function runFlakeCheck({ runs = 5, target = null, repoRoot = '.' } = {}) 
     return {
       success: true,
       flaky: false,
+      passed: true,
+      failedTestFiles: 0,
       message: 'No test files targeted or affected. Flake check skipped.',
       results: []
     };
@@ -1741,6 +1962,10 @@ export function runFlakeCheck({ runs = 5, target = null, repoRoot = '.' } = {}) 
 
   const results = [];
   let detectedFlakes = 0;
+  let failedTestFiles = 0;
+
+  const flakeEnv = { ...process.env };
+  delete flakeEnv.NODE_TEST_CONTEXT;
 
   for (const tFile of testFiles) {
     let passedCount = 0;
@@ -1749,7 +1974,7 @@ export function runFlakeCheck({ runs = 5, target = null, repoRoot = '.' } = {}) 
 
     for (let i = 1; i <= iterationCount; i++) {
       try {
-        execFileSync(singleTest.file, singleTest.args, { cwd: repoRoot, stdio: 'pipe' });
+        execFileSync(singleTest.file, singleTest.args, { cwd: repoRoot, stdio: 'pipe', env: flakeEnv });
         passedCount++;
       } catch {
         failedCount++;
@@ -1758,6 +1983,7 @@ export function runFlakeCheck({ runs = 5, target = null, repoRoot = '.' } = {}) 
 
     const isFlaky = passedCount > 0 && failedCount > 0;
     if (isFlaky) detectedFlakes++;
+    if (failedCount > 0) failedTestFiles++;
 
     results.push({
       testFile: tFile,
@@ -1772,14 +1998,23 @@ export function runFlakeCheck({ runs = 5, target = null, repoRoot = '.' } = {}) 
   return {
     success: true,
     flaky: detectedFlakes > 0,
+    passed: detectedFlakes === 0 && failedTestFiles === 0,
     totalTested: testFiles.length,
     flakyCount: detectedFlakes,
+    failedTestFiles,
     results
   };
 }
 
-export function auditSecurity(repoRoot = '.') {
+export function auditSecurity(repoRoot = '.', options = {}) {
   console.log('🔒 Auditing Git Diff for Secret Leaks, Sensitive Keys & Package CVEs...');
+  const allowOffline = Boolean(options?.allowOffline);
+  const strictMode =
+    options?.strict !== undefined
+      ? Boolean(options.strict)
+      : process.env.CI === 'true' || process.env.CI === '1';
+  const execFn = typeof options?.execFn === 'function' ? options.execFn : execFileSync;
+
   const diffFiles = getModifiedFiles(null, repoRoot);
   const diffsByFile = getUnifiedDiffByFile(null, repoRoot, diffFiles);
   const secretViolations = [];
@@ -1820,12 +2055,13 @@ export function auditSecurity(repoRoot = '.') {
 
   let packageAuditPassed = true;
   let packageAuditStatus = 'not-applicable';
+  let packageAuditError = null;
   if (
     fileExists(path.resolve(repoRoot, 'package.json')) &&
     (fileExists(path.resolve(repoRoot, 'package-lock.json')) || fileExists(path.resolve(repoRoot, 'npm-shrinkwrap.json')))
   ) {
     try {
-      execFileSync('npm', ['audit', '--audit-level=high', '--json'], {
+      execFn('npm', ['audit', '--audit-level=high', '--json'], {
         cwd: repoRoot,
         stdio: 'pipe',
         encoding: 'utf8',
@@ -1842,8 +2078,17 @@ export function auditSecurity(repoRoot = '.') {
       if (vulns && Number(vulns.high || 0) + Number(vulns.critical || 0) > 0) {
         packageAuditPassed = false;
         packageAuditStatus = 'vulnerable';
+      } else if (allowOffline) {
+        packageAuditPassed = true;
+        packageAuditStatus = 'offline-bypassed';
+        packageAuditError = err?.message || 'npm audit unavailable offline (explicitly bypassed)';
+      } else if (strictMode) {
+        packageAuditPassed = false;
+        packageAuditStatus = 'audit-error';
+        packageAuditError = err?.message || 'npm audit failed in strict/CI mode';
       } else {
         packageAuditStatus = 'skipped-offline';
+        packageAuditError = err?.message || 'npm audit unavailable offline';
       }
     }
   }
@@ -1856,7 +2101,8 @@ export function auditSecurity(repoRoot = '.') {
     secretViolations,
     packageAuditPassed,
     packageAuditStatus,
-    recommendation: clean ? 'Ready to push.' : 'Resolve hardcoded secrets and high-severity dependencies.'
+    ...(packageAuditError ? { packageAuditError } : {}),
+    recommendation: clean ? 'Ready to push.' : 'Resolve hardcoded secrets, high-severity dependencies, or offline audit failures.'
   };
 }
 

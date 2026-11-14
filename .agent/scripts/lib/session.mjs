@@ -7,6 +7,7 @@ import {
   getModifiedFiles,
   normalizeTicketId,
   parseTicketId,
+  resolveQualityThresholds,
   writeFileAtomic
 } from './core.mjs';
 import { createPMIssue, transitionPMState, syncKanbanBoard, ensurePullRequest } from './pm-provider.mjs';
@@ -492,11 +493,7 @@ export function receiptInputsFromSession(session, { driftCheckPassed, repoRoot =
     ? null
     : parsePct(manifest.mutationScore ?? manifest.mutationPct ?? manifest.mutation);
   if (mutationPct === undefined && !isDocsOnly && lane === 'full') {
-    try {
-      const cfg = JSON.parse(readFileSafe(path.resolve(repoRoot, '.agent/sdlc-config.json')) || '{}');
-      const mods = Array.isArray(cfg.modules) ? cfg.modules : [];
-      if (mods.length > 0 && mods.every((m) => m?.thresholds && m.thresholds.mutationScore === null)) mutationPct = null;
-    } catch {}
+    if (resolveQualityThresholds(repoRoot).minMut === null) mutationPct = null;
   }
   const review = manifest.peerReview;
   return {

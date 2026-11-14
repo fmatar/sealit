@@ -3496,3 +3496,723 @@ describe('Audit hardening & base-branch alignment regressions', () => {
     assert.equal(coreMod.hasDevelopBranch(dir), false);
   });
 });
+
+// ===========================================================================
+// Issue #131: Real hunk diff coverage, unified thresholds, Red TDD harness,
+//             truthful review pillars & fail-closed offline security audit
+// ===========================================================================
+describe('Issue #131: Gate hunk diff coverage, unified thresholds, Red TDD & truthful review', () => {
+  let dir;
+  beforeEach(() => {
+    dir = makeRepo();
+  });
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it('enforces real hunk diff coverage on LCOV diffs even when repo-wide coverage exceeds threshold', () => {
+    // Establish develop base branch with a well-covered baseline module (90/100 lines covered = 90%)
+    assert.equal(git(dir, 'checkout', '-b', 'develop').status, 0);
+    fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+    const baseLines = Array.from({ length: 100 }, (_, i) => `export const c${i} = ${i};`).join('\n') + '\n';
+    fs.writeFileSync(path.join(dir, 'src/math.mjs'), baseLines, 'utf8');
+    git(dir, 'add', 'src/math.mjs');
+    assert.equal(git(dir, 'commit', '-q', '-m', 'feat: baseline math module').status, 0);
+
+    // Branch to feature branch and add 10 new executable lines in hunk (lines 101..110)
+    assert.equal(git(dir, 'checkout', '-b', 'feature/issue-131-diff-cov').status, 0);
+    const addedLines = Array.from({ length: 10 }, (_, i) => `export function f${i}() { return ${i}; }`).join('\n') + '\n';
+    fs.writeFileSync(path.join(dir, 'src/math.mjs'), baseLines + addedLines, 'utf8');
+    git(dir, 'add', 'src/math.mjs');
+    assert.equal(git(dir, 'commit', '-q', '-m', 'feat: add untested hunk lines').status, 0);
+
+    // LCOV has 95/110 covered overall (86.4% >= 85%) ONLY because baseline lines are covered;
+    // the 10 changed hunk lines (101..110) all have 0 hits -> diff coverage is 0%!
+    const lcovLines = ['TN:', 'SF:src/math.mjs'];
+    for (let ln = 1; ln <= 100; ln++) lcovLines.push(`DA:${ln},${ln <= 95 ? 1 : 0}`);
+    for (let ln = 101; ln <= 110; ln++) lcovLines.push(`DA:${ln},0`);
+    lcovLines.push('LF:110', 'LH:95', 'end_of_record', '');
+    fs.mkdirSync(path.join(dir, 'coverage'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'coverage/lcov.info'), lcovLines.join('\n'), 'utf8');
+
+    const failRes = parseCoverageReport(dir, { path: '.', thresholds: { diffCoverage: 85 } });
+    assert.equal(failRes.found, true);
+    assert.equal(failRes.diffApplicable, true);
+    assert.ok(failRes.repoLineCoverage > 85, `expected repo coverage > 85, got ${failRes.repoLineCoverage}`);
+    assert.equal(failRes.diffLineCoverage, 0);
+    assert.equal(failRes.lineCoverage, 0);
+    assert.equal(failRes.passed, false);
+
+    // Now cover lines 101..110 in the hunk even if overall repo coverage stays at 60/110 (54.5%)
+    const passLcov = ['TN:', 'SF:src/math.mjs'];
+    for (let ln = 1; ln <= 100; ln++) passLcov.push(`DA:${ln},${ln <= 50 ? 1 : 0}`);
+    for (let ln = 101; ln <= 110; ln++) passLcov.push(`DA:${ln},1`);
+    passLcov.push('LF:110', 'LH:60', 'end_of_record', '');
+    fs.writeFileSync(path.join(dir, 'coverage/lcov.info'), passLcov.join('\n'), 'utf8');
+
+    const passRes = parseCoverageReport(dir, { path: '.', thresholds: { diffCoverage: 85 } });
+    assert.equal(passRes.found, true);
+    assert.equal(passRes.diffApplicable, true);
+    assert.equal(passRes.diffLineCoverage, 100);
+    assert.equal(passRes.lineCoverage, 100);
+    assert.equal(passRes.passed, true);
+
+    // Docs-only branch (no executable source hunk changes) falls back cleanly with diffApplicable: false
+    assert.equal(git(dir, 'checkout', 'develop').status, 0);
+    assert.equal(git(dir, 'checkout', '-b', 'feature/issue-131-docs-only').status, 0);
+    fs.writeFileSync(path.join(dir, 'README.md'), '# updated docs\n', 'utf8');
+    git(dir, 'add', 'README.md');
+    assert.equal(git(dir, 'commit', '-q', '-m', 'docs: update readme').status, 0);
+    fs.writeFileSync(path.join(dir, 'coverage/lcov.info'), passLcov.join('\n'), 'utf8');
+
+    const docsRes = parseCoverageReport(dir, { path: '.', thresholds: { diffCoverage: 85 } });
+    assert.equal(docsRes.found, true);
+    assert.equal(docsRes.diffApplicable, false);
+    assert.equal(docsRes.diffLineCoverage, null);
+    assert.equal(docsRes.passed, false); // repoLineCoverage 54.5% < 85%
+  });
+
+  it('resolves coverage & mutation thresholds identically across core, parsers, receipts, product-dag, pm-provider, and PR summary', () => {
+    assert.equal(typeof coreMod.resolveQualityThresholds, 'function');
+
+    fs.mkdirSync(path.join(dir, '.agent'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, '.agent/sdlc-config.json'),
+      JSON.stringify({
+        version: '2.1.0',
+        testing: { coverageThreshold: 78, mutationThreshold: 59 },
+        modules: [{ name: 'root', path: '.', thresholds: { diffCoverage: 91, mutationScore: 63 } }]
+      }),
+      'utf8'
+    );
+
+    // Explicit testing.* overrides modules.* consistently across every subsystem (including when mod is passed)
+    const resolved = coreMod.resolveQualityThresholds(dir);
+    assert.equal(resolved.minCov, 78);
+    assert.equal(resolved.minMut, 59);
+
+    fs.mkdirSync(path.join(dir, 'coverage'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'coverage/coverage-summary.json'),
+      JSON.stringify({ total: { lines: { pct: 80 }, branches: { pct: 80 } } }),
+      'utf8'
+    );
+    const covDefaultMod = parseCoverageReport(dir);
+    assert.equal(covDefaultMod.threshold, 78);
+    assert.equal(covDefaultMod.passed, true);
+
+    fs.mkdirSync(path.join(dir, 'reports/mutation'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'reports/mutation/mutation.json'),
+      JSON.stringify({ mutationScore: 61, files: {} }),
+      'utf8'
+    );
+    const mutDefaultMod = parseMutationReport(dir);
+    assert.equal(mutDefaultMod.threshold, 59);
+    assert.equal(mutDefaultMod.passed, true);
+
+    const prSummary = qualityGateMod.generatePRSummary({ issueId: 131, repoRoot: dir });
+    assert.match(prSummary.markdown, />= 78%/);
+    assert.match(prSummary.markdown, />= 59%/);
+
+    const reviewMd = pmMod.formatConsolidatedReviewComment({ issueId: 131, headSha: 'abc12345', repoRoot: dir });
+    assert.match(reviewMd, />= 78%/);
+    assert.match(reviewMd, />= 59%/);
+
+    const receiptCheck = auditChainMod.issueGateReceipt({
+      issueId: 131,
+      branch: 'feature/issue-131',
+      coveragePct: 79,
+      mutationPct: 58,
+      peerReviewApproved: true,
+      reviewer: '@rev',
+      driftCheckPassed: true,
+      repoRoot: dir
+    });
+    assert.equal(receiptCheck.success, false);
+    assert.deepEqual(receiptCheck.missing, ['mutationPct']);
+
+    // Check module-only config with no testing/gates section
+    fs.writeFileSync(
+      path.join(dir, '.agent/sdlc-config.json'),
+      JSON.stringify({
+        version: '2.1.0',
+        modules: [{ name: 'root', path: '.', thresholds: { diffCoverage: 91, mutationScore: 63 } }]
+      }),
+      'utf8'
+    );
+    assert.equal(parseCoverageReport(dir).threshold, 91);
+    assert.equal(parseCoverageReport(dir).passed, false);
+    assert.equal(parseMutationReport(dir).threshold, 63);
+    assert.equal(parseMutationReport(dir).passed, false);
+  });
+
+  it('scaffoldReproductionTest generates a Red failing JS test that fails execution prior to fixing', () => {
+    const cleanScaf = qualityGateMod.scaffoldReproductionTest({
+      errorTrace: 'TypeError: boom\n    at AuthController (/app/src/routes/auth.mjs:15:3)',
+      repoRoot: dir
+    });
+    assert.equal(cleanScaf.success, true);
+    const run = spawnSync(process.execPath, ['--test', cleanScaf.testPath], {
+      cwd: dir,
+      encoding: 'utf8',
+      env: childEnv()
+    });
+    assert.doesNotMatch(run.stdout + run.stderr, /SyntaxError/, 'generated test must be valid JavaScript');
+    assert.notEqual(run.status, 0, 'scaffolded Red reproduction test must fail before applying fix');
+
+    // Trace containing `*/` must not prematurely terminate the JSDoc comment and cause SyntaxError
+    const slashStarScaf = qualityGateMod.scaffoldReproductionTest({
+      errorTrace: 'Error: bad */ comment token\n    at AuthController (/app/src/routes/auth.mjs:16:3)',
+      repoRoot: dir
+    });
+    const run2 = spawnSync(process.execPath, ['--test', slashStarScaf.testPath], {
+      cwd: dir,
+      encoding: 'utf8',
+      env: childEnv()
+    });
+    assert.doesNotMatch(run2.stdout + run2.stderr, /SyntaxError/, 'trace with */ must not break JSDoc block');
+    assert.notEqual(run2.status, 0);
+  });
+
+  it('formatConsolidatedReviewComment and generatePRSummary report unverified/failed pillars truthfully', () => {
+    const unverifiedMd = pmMod.formatConsolidatedReviewComment({
+      issueId: 131,
+      branch: 'feature/issue-131',
+      headSha: '1111222233334444',
+      verdict: 'approve',
+      repoRoot: dir
+    });
+    assert.doesNotMatch(unverifiedMd, /Unit & Integration Tests[^\n]*✅ PASSED/);
+    assert.doesNotMatch(unverifiedMd, /Archlens Concentric Rings[^\n]*✅ PASSED/);
+    assert.doesNotMatch(unverifiedMd, /Security & CVE Audit[^\n]*✅ PASSED/);
+    assert.doesNotMatch(unverifiedMd, /Diff Test Coverage[^\n]*✅ Verified/);
+
+    const failedMd = pmMod.formatConsolidatedReviewComment({
+      issueId: 131,
+      branch: 'feature/issue-131',
+      headSha: '1111222233334444',
+      verdict: 'request_changes',
+      coveragePct: '42.0%',
+      mutationPct: '10.0%',
+      testsPassed: false,
+      archPassed: false,
+      securityPassed: false,
+      driftPassed: false,
+      repoRoot: dir
+    });
+    assert.match(failedMd, /Diff Test Coverage[^\n]*❌ 42\.0%/);
+    assert.match(failedMd, /Mutation Kill Score[^\n]*❌ 10\.0%/);
+    assert.match(failedMd, /Archlens Concentric Rings[^\n]*❌ FAILED/);
+    assert.match(failedMd, /Security & CVE Audit[^\n]*❌ FAILED/);
+    assert.match(failedMd, /Spec-Drift Sentinel[^\n]*❌ FAILED/);
+
+    // Session with failing coverage must not print ✅ PASSED in generatePRSummary
+    writeSession(dir, {
+      issueId: '131',
+      branch: 'feature/issue-131',
+      type: 'fix',
+      manifest: { coverageReport: '42.0%' }
+    });
+    const pr = qualityGateMod.generatePRSummary({ issueId: 131, repoRoot: dir });
+    assert.doesNotMatch(pr.markdown, /Line & Branch Diff Coverage[^\n]*✅ PASSED/);
+    assert.match(pr.markdown, /Line & Branch Diff Coverage[^\n]*❌ FAILED/);
+  });
+
+  it('auditSecurity fails closed when npm audit errors in strict/CI mode unless --allow-offline is set', () => {
+    fs.writeFileSync(
+      path.join(dir, 'package-lock.json'),
+      JSON.stringify({ name: 'tmp', version: '0.0.1', packages: { '': { version: '0.0.1' } } }),
+      'utf8'
+    );
+    const offlineExec = () => {
+      const err = new Error('getaddrinfo ENOTFOUND registry.npmjs.org');
+      err.stdout = '';
+      err.stderr = 'npm error code ENOTFOUND';
+      throw err;
+    };
+
+    const strictFail = qualityGateMod.auditSecurity(dir, { strict: true, execFn: offlineExec });
+    assert.equal(strictFail.passed, false);
+    assert.equal(strictFail.packageAuditPassed, false);
+    assert.equal(strictFail.packageAuditStatus, 'audit-error');
+
+    const bypassed = qualityGateMod.auditSecurity(dir, { strict: true, allowOffline: true, execFn: offlineExec });
+    assert.equal(bypassed.passed, true);
+    assert.equal(bypassed.packageAuditPassed, true);
+    assert.equal(bypassed.packageAuditStatus, 'offline-bypassed');
+
+    const vulnExec = () => {
+      const err = new Error('vulnerabilities found');
+      err.stdout = JSON.stringify({ metadata: { vulnerabilities: { high: 2, critical: 1 } } });
+      throw err;
+    };
+    const vulnRes = qualityGateMod.auditSecurity(dir, { strict: true, allowOffline: true, execFn: vulnExec });
+    assert.equal(vulnRes.passed, false);
+    assert.equal(vulnRes.packageAuditStatus, 'vulnerable');
+
+    const prevCI = process.env.CI;
+    try {
+      process.env.CI = 'true';
+      const ciFail = qualityGateMod.auditSecurity(dir, { execFn: offlineExec });
+      assert.equal(ciFail.passed, false);
+      assert.equal(ciFail.packageAuditStatus, 'audit-error');
+    } finally {
+      if (prevCI === undefined) delete process.env.CI;
+      else process.env.CI = prevCI;
+    }
+  });
+
+  it('extractAddedLinesFromDiff, untracked LCOV diff hunks, gates.* precedence, and gatePillars headSha freshness work end-to-end', () => {
+    const parsed = coreMod.extractAddedLinesFromDiff([
+      'diff --git a/src/a.mjs b/src/a.mjs',
+      '--- a/src/a.mjs',
+      '+++ b/src/a.mjs',
+      '@@ -2,3 +2,4 @@',
+      ' const keep = 1;',
+      '-const old = 2;',
+      '+const next = 2;',
+      '+++ b/literal-content-stays-inside-hunk',
+      '@@ -10,0 +11,2 @@',
+      '+export const x = 1;',
+      '+export const y = 2;'
+    ].join('\n'));
+    assert.deepEqual([...parsed], [3, 4, 11, 12]);
+
+    // gates.* overrides testing.* and modules.*; explicit null disables mutation
+    fs.mkdirSync(path.join(dir, '.agent'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, '.agent/sdlc-config.json'),
+      JSON.stringify({
+        version: '2.1.0',
+        gates: { minDiffCoverage: 92, minMutationScore: null },
+        testing: { coverageThreshold: 70, mutationThreshold: 55 },
+        modules: [{ name: 'root', path: '.', commands: { test: 'node -e 0', coverage: 'node -e 0' }, thresholds: { diffCoverage: 85, mutationScore: 80 } }]
+      }),
+      'utf8'
+    );
+    const gateBars = coreMod.resolveQualityThresholds(dir);
+    assert.equal(gateBars.minCov, 92);
+    assert.equal(gateBars.minMut, null);
+    const disabledPrd = productDagMod.renderProductPrdMarkdown({ title: 'Demo', repoRoot: dir });
+    assert.ok(disabledPrd.includes('Diff Test Coverage `>= 92%`'));
+    assert.equal(disabledPrd.includes('Mutation Score'), false);
+
+    // Run `gate` on active session and verify gatePillars headSha + stale detection on next commit
+    assert.equal(git(dir, 'checkout', '-b', 'develop').status, 0);
+    assert.equal(git(dir, 'checkout', '-b', 'feature/issue-131-pillars').status, 0);
+    // Also verify untracked new working-tree file LCOV diff intersection (`core.mjs` synthesized diff without @@ header)
+    fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+    fs.mkdirSync(path.join(dir, 'coverage'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'src/untracked.mjs'), 'export function u() {\n  return 42;\n}\n', 'utf8');
+    fs.writeFileSync(
+      path.join(dir, 'coverage/lcov.info'),
+      ['TN:', 'SF:src/untracked.mjs', 'DA:1,0', 'DA:2,0', 'LF:2', 'LH:0', 'end_of_record', ''].join('\n'),
+      'utf8'
+    );
+    const untrackedFail = parseCoverageReport(dir, { path: '.', thresholds: { diffCoverage: 85 } });
+    assert.equal(untrackedFail.diffApplicable, true);
+    assert.equal(untrackedFail.diffLineCoverage, 0);
+    assert.equal(untrackedFail.passed, false);
+    fs.rmSync(path.join(dir, 'src/untracked.mjs'));
+
+    fs.writeFileSync(
+      path.join(dir, '.agent/sdlc-config.json'),
+      JSON.stringify({
+        version: '2.1.0',
+        modules: [
+          {
+            name: 'root',
+            path: '.',
+            commands: {
+              test: 'node -e 0',
+              coverage: `node -e "const fs=require('fs');fs.mkdirSync('coverage',{recursive:true});fs.writeFileSync('coverage/lcov.info',['TN:','SF:src/new.mjs','DA:1,1','DA:2,1','LF:2','LH:2','end_of_record'].join('\\n'))"`,
+              lint: 'node -e 0'
+            },
+            thresholds: { diffCoverage: 85, mutationScore: null }
+          }
+        ]
+      }),
+      'utf8'
+    );
+    fs.writeFileSync(path.join(dir, 'src/new.mjs'), 'export const a = 1;\nexport const b = 2;\n', 'utf8');
+    git(dir, 'add', 'src/new.mjs');
+    assert.equal(git(dir, 'commit', '-q', '-m', 'feat: add new module').status, 0);
+
+    startSession({ issueId: 131, title: 'pillars test', type: 'fix', lane: 'standard', branch: 'feature/issue-131-pillars', repoRoot: dir });
+    const head1 = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+
+    // Run gate (non-strict) via CLI and verify lintPassed/coveragePassed/unitTestsPassed recorded
+    const gateRun = engine(dir, 'gate', '--no-cache');
+    assert.equal(gateRun.status, 0, gateRun.stdout + gateRun.stderr);
+
+    const freshComment = pmMod.formatConsolidatedReviewComment({ issueId: 131, headSha: head1, verdict: 'approve', repoRoot: dir });
+    assert.match(freshComment, /Unit & Integration Tests[^\n]*✅ PASSED/);
+    assert.match(freshComment, /Diff Test Coverage[^\n]*✅ 100\.0%/);
+
+    // Advance HEAD with a new commit -> prior gatePillars become STALE for new headSha
+    fs.writeFileSync(path.join(dir, 'src/new.mjs'), 'export const a = 1;\nexport const b = 3;\n', 'utf8');
+    git(dir, 'add', 'src/new.mjs');
+    assert.equal(git(dir, 'commit', '-q', '-m', 'feat: modify after gate').status, 0);
+    const head2 = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+
+    const staleComment = pmMod.formatConsolidatedReviewComment({ issueId: 131, headSha: head2, verdict: 'approve', repoRoot: dir });
+    assert.match(staleComment, /Unit & Integration Tests[^\n]*⏳ STALE/);
+    assert.doesNotMatch(staleComment, /Unit & Integration Tests[^\n]*✅ PASSED/);
+  });
+});
+
+describe('Issue #131 Review Blocker Regressions', () => {
+  const cleanChildEnv = () => {
+    const env = { ...process.env };
+    delete env.GIT_DIR;
+    delete env.GIT_WORK_TREE;
+    delete env.GIT_INDEX_FILE;
+    delete env.NODE_TEST_CONTEXT;
+    return env;
+  };
+
+  const initTempRepo = async (prefix) => {
+    const { execFileSync } = await import('node:child_process');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+    const gitExec = (args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8', env: cleanChildEnv(), stdio: 'pipe' }).trim();
+    gitExec(['init']);
+    gitExec(['config', 'user.email', 'test@example.com']);
+    gitExec(['config', 'user.name', 'Test User']);
+    fs.mkdirSync(path.join(dir, '.agent'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'README.md'), '# Temp Repo\n', 'utf8');
+    gitExec(['add', '.']);
+    gitExec(['commit', '-m', 'init']);
+    const sha1 = gitExec(['rev-parse', 'HEAD']);
+    return { dir, gitExec, execFileSync, sha1 };
+  };
+
+  it('B1/BLK-01: formatConsolidatedReviewComment and generatePRSummary mark stale coverage/mutation from prior commit as STALE', async () => {
+    const { dir, gitExec, sha1 } = await initTempRepo('sdlc-b1-stale-');
+    try {
+      const pmMod = await import('../.agent/scripts/lib/pm-provider.mjs');
+      const qgMod = await import('../.agent/scripts/lib/quality-gate.mjs');
+      fs.writeFileSync(
+        path.join(dir, '.agent/sdlc-config.json'),
+        JSON.stringify({
+          version: '1.0.0',
+          modules: [{ name: 'root', path: '.', commands: {}, thresholds: { diffCoverage: 85, mutationScore: 80 } }]
+        }),
+        'utf8'
+      );
+      fs.writeFileSync(
+        path.join(dir, '.agent/.sdlc-session.json'),
+        JSON.stringify({
+          issueId: 131,
+          branch: 'feature/issue-#131-b1',
+          lane: 'full',
+          manifest: {
+            coverageReport: '94.0%',
+            mutationScore: '86.0%',
+            gatePillars: {
+              strict: true,
+              headSha: sha1,
+              unitTestsPassed: true,
+              coveragePassed: true,
+              mutationPassed: true,
+              lintPassed: true,
+              securityPassed: true,
+              archPassed: true,
+              flakePassed: true,
+              contractPassed: true,
+              auditChainValid: true,
+              driftPassed: true,
+              wikiPassed: true,
+              readmePassed: true
+            }
+          }
+        }),
+        'utf8'
+      );
+
+      // Advance HEAD after gate ran on sha1
+      fs.writeFileSync(path.join(dir, 'app.js'), 'export const x = 2;\n', 'utf8');
+      gitExec(['add', 'app.js']);
+      gitExec(['commit', '-m', 'second commit invalidates prior metrics']);
+      const sha2 = gitExec(['rev-parse', 'HEAD']);
+      assert.notEqual(sha2, sha1);
+
+      const staleReview = pmMod.formatConsolidatedReviewComment({
+        issueId: 131,
+        headSha: sha2,
+        verdict: 'approve',
+        repoRoot: dir
+      });
+      assert.equal(staleReview.includes('✅ 94.0%'), false, 'stale coverage from prior commit must not render green');
+      assert.equal(staleReview.includes('✅ 86.0%'), false, 'stale mutation from prior commit must not render green');
+      assert.match(staleReview, /STALE/i);
+
+      const staleSummary = qgMod.generatePRSummary({ issueId: 131, repoRoot: dir });
+      assert.equal(staleSummary.markdown.includes('✅ 94.0%'), false, 'PR summary must not render stale prior-commit coverage as green');
+      assert.equal(staleSummary.markdown.includes('✅ 86.0%'), false, 'PR summary must not render stale prior-commit mutation as green');
+      assert.equal(staleSummary.markdown.includes('✅ PASSED'), false, 'PR summary must not render stale prior-commit gate pillars as PASSED');
+      assert.match(staleSummary.markdown, /STALE/i);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('B2/BLK-02: gatePillars preserve same-SHA pass flags across trivial/cached gates, record failed command runs as false, and fail runFlakeCheck on 0% pass', async () => {
+    const { dir, gitExec, execFileSync } = await initTempRepo('sdlc-b2-pillars-');
+    try {
+      const qgMod = await import('../.agent/scripts/lib/quality-gate.mjs');
+      const sessMod = await import('../.agent/scripts/lib/session.mjs');
+      const enginePath = path.resolve('.agent/scripts/sdlc-engine.mjs');
+      const runEngine = (cliArgs) =>
+        execFileSync(process.execPath, [enginePath, ...cliArgs], {
+          cwd: dir,
+          encoding: 'utf8',
+          env: { ...cleanChildEnv(), CI: 'false' },
+          stdio: 'pipe'
+        });
+
+      gitExec(['checkout', '-b', 'feature/issue-#131-b2']);
+      fs.mkdirSync(path.join(dir, 'test'), { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, 'test/fail.test.mjs'),
+        'import { it } from "node:test"; import assert from "node:assert/strict"; it("always fails", () => { assert.equal(1, 2); });\n',
+        'utf8'
+      );
+      fs.writeFileSync(
+        path.join(dir, '.agent/sdlc-config.json'),
+        JSON.stringify({
+          version: '1.0.0',
+          modules: [
+            {
+              name: 'root',
+              path: '.',
+              commands: {
+                lint: 'node -e "process.exit(0)"',
+                test: 'node -e "process.exit(1)"',
+                coverage: 'node -e "process.exit(1)"'
+              },
+              thresholds: { diffCoverage: 85, mutationScore: null }
+            }
+          ]
+        }),
+        'utf8'
+      );
+      gitExec(['add', 'test/fail.test.mjs', '.agent/sdlc-config.json']);
+      gitExec(['commit', '-m', 'setup config and failing test']);
+      const headSha = gitExec(['rev-parse', 'HEAD']);
+
+      sessMod.startSession({
+        issueId: 131,
+        branch: 'feature/issue-#131-b2',
+        lane: 'full',
+        repoRoot: dir
+      });
+      sessMod.updateSession({
+        manifestUpdate: {
+          gatePillars: {
+            strict: true,
+            headSha,
+            lintPassed: true,
+            coveragePassed: true,
+            unitTestsPassed: true,
+            securityPassed: true,
+            updatedAt: '2026-01-01T00:00:00.000Z'
+          }
+        },
+        repoRoot: dir
+      });
+
+      // Stage/create only a trivial docs change so --lane trivial is respected
+      fs.mkdirSync(path.join(dir, 'docs'), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'docs/note.md'), '# Note\n', 'utf8');
+
+      // 1. Trivial gate on same SHA must update updatedAt/lintPassed WITHOUT wiping unitTestsPassed/coveragePassed
+      runEngine(['gate', '--lane', 'trivial', '--reason', 'docs only']);
+      const sessAfterTrivial = sessMod.getSessionStatus(dir).session;
+      assert.notEqual(sessAfterTrivial.manifest.gatePillars.updatedAt, '2026-01-01T00:00:00.000Z');
+      assert.equal(sessAfterTrivial.manifest.gatePillars.lintPassed, true);
+      assert.equal(sessAfterTrivial.manifest.gatePillars.unitTestsPassed, true);
+      assert.equal(sessAfterTrivial.manifest.gatePillars.coveragePassed, true);
+
+      // 2. Failing `test` command must record unitTestsPassed: false even when command throws
+      let testThrew = false;
+      try {
+        runEngine(['test']);
+      } catch {
+        testThrew = true;
+      }
+      assert.equal(testThrew, true);
+      const sessAfterFailedTest = sessMod.getSessionStatus(dir).session;
+      assert.equal(sessAfterFailedTest.manifest.gatePillars.unitTestsPassed, false);
+
+      // Reset coveragePassed/unitTestsPassed to true on same SHA, then verify failing `coverage` records false
+      sessMod.updateSession({
+        manifestUpdate: {
+          gatePillars: {
+            ...sessAfterFailedTest.manifest.gatePillars,
+            coveragePassed: true,
+            unitTestsPassed: true
+          }
+        },
+        repoRoot: dir
+      });
+      let covThrew = false;
+      try {
+        runEngine(['coverage', '--no-cache']);
+      } catch {
+        covThrew = true;
+      }
+      assert.equal(covThrew, true);
+      const sessAfterFailedCov = sessMod.getSessionStatus(dir).session;
+      assert.equal(sessAfterFailedCov.manifest.gatePillars.coveragePassed, false);
+      assert.equal(sessAfterFailedCov.manifest.gatePillars.unitTestsPassed, false);
+
+      // 3. Failing 0%-pass test suite must fail runFlakeCheck and `flake-check` CLI
+      const flakeRes = qgMod.runFlakeCheck({ runs: 2, target: 'test/fail.test.mjs', repoRoot: dir });
+      assert.equal(flakeRes.flaky, false);
+      assert.equal(flakeRes.passed, false);
+      assert.equal(flakeRes.results[0].failed, 2);
+
+      let flakeCliFailed = false;
+      try {
+        runEngine(['flake-check', '--runs', '2', '--target', 'test/fail.test.mjs']);
+      } catch {
+        flakeCliFailed = true;
+      }
+      assert.equal(flakeCliFailed, true, 'flake-check CLI must exit non-zero when all runs fail');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('B3/BLK-03: resolves identical thresholds (gates > testing > mod.thresholds) across coverage, mutation, receipts, PR summary, and review', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-b3-precedence-'));
+    try {
+      const coreMod = await import('../.agent/scripts/lib/core.mjs');
+      const qgMod = await import('../.agent/scripts/lib/quality-gate.mjs');
+      const sessMod = await import('../.agent/scripts/lib/session.mjs');
+
+      fs.mkdirSync(path.join(dir, '.agent'), { recursive: true });
+      fs.mkdirSync(path.join(dir, 'coverage'), { recursive: true });
+      fs.mkdirSync(path.join(dir, 'reports/mutation'), { recursive: true });
+
+      const mod = { name: 'app', path: '.', thresholds: { diffCoverage: 92, mutationScore: 65 } };
+      // Case A: testing.* overrides mod.thresholds everywhere (including null mutationThreshold)
+      fs.writeFileSync(
+        path.join(dir, '.agent/sdlc-config.json'),
+        JSON.stringify({
+          version: '1.0.0',
+          testing: { coverageThreshold: 78, mutationThreshold: null },
+          modules: [mod]
+        }),
+        'utf8'
+      );
+
+      const resA = coreMod.resolveQualityThresholds(dir);
+      const resAMod = coreMod.resolveQualityThresholds(dir, mod);
+      assert.equal(resA.minCov, 78);
+      assert.equal(resA.minMut, null);
+      assert.equal(resAMod.minCov, 78);
+      assert.equal(resAMod.minMut, null);
+
+      fs.writeFileSync(
+        path.join(dir, 'coverage/coverage-summary.json'),
+        JSON.stringify({ total: { lines: { pct: 80 }, branches: { pct: 80 } } }),
+        'utf8'
+      );
+      const covA = qgMod.parseCoverageReport(dir, mod);
+      assert.equal(covA.threshold, 78);
+      assert.equal(covA.passed, true);
+
+      const receiptIn = sessMod.receiptInputsFromSession(
+        { lane: 'full', manifest: { coverageReport: '80.0%' } },
+        { driftCheckPassed: true, repoRoot: dir }
+      );
+      assert.equal(receiptIn.mutationPct, null, 'null testing.mutationThreshold must make mutationPct null on full-lane receipts');
+
+      // Case B: gates.* overrides testing.* and mod.thresholds everywhere
+      fs.writeFileSync(
+        path.join(dir, '.agent/sdlc-config.json'),
+        JSON.stringify({
+          version: '1.0.0',
+          gates: { minDiffCoverage: 90, minMutationScore: 72 },
+          testing: { coverageThreshold: 76, mutationThreshold: 55 },
+          modules: [mod]
+        }),
+        'utf8'
+      );
+      const resB = coreMod.resolveQualityThresholds(dir);
+      const resBMod = coreMod.resolveQualityThresholds(dir, mod);
+      assert.equal(resB.minCov, 90);
+      assert.equal(resB.minMut, 72);
+      assert.equal(resBMod.minCov, 90);
+      assert.equal(resBMod.minMut, 72);
+
+      fs.writeFileSync(
+        path.join(dir, 'reports/mutation/mutation.json'),
+        JSON.stringify({ files: { 'a.js': { mutants: [{ status: 'Killed' }, { status: 'Killed' }, { status: 'Killed' }, { status: 'Survived' }] } } }),
+        'utf8'
+      );
+      // 75% >= 72% -> passes
+      const mutB = qgMod.parseMutationReport(dir, mod);
+      assert.equal(mutB.threshold, 72);
+      assert.equal(mutB.passed, true);
+
+      // Case C: ad-hoc mod.thresholds without gates/testing in config still takes effect
+      fs.unlinkSync(path.join(dir, '.agent/sdlc-config.json'));
+      const resC = coreMod.resolveQualityThresholds(dir, { thresholds: { diffCoverage: 88, mutationScore: 70 } });
+      assert.equal(resC.minCov, 88);
+      assert.equal(resC.minMut, 70);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('BLK-04: scaffoldReproductionTest safely escapes backslashes, quotes, Rust braces, Python """ and */ across polyglot templates', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-blk04-escape-'));
+    try {
+      const qgMod = await import('../.agent/scripts/lib/quality-gate.mjs');
+      const { execFileSync } = await import('node:child_process');
+      const nastyTrace = 'Fail C:\\tmp\\x "q" `bt` ${x} """triple""" {foo:bar} */ panic!';
+
+      const targets = [
+        { file: 'src/App.java', lang: 'java' },
+        { file: 'src/app.py', lang: 'python' },
+        { file: 'src/app.go', lang: 'go' },
+        { file: 'src/app.rs', lang: 'rust' },
+        { file: 'src/app.mjs', lang: 'javascript' }
+      ];
+
+      for (const { file, lang } of targets) {
+        const dirInject = path.posix.join(path.posix.dirname(file), 'bad_*/_"inject"', path.posix.basename(file));
+        const res = qgMod.scaffoldReproductionTest({
+          errorTrace: `${nastyTrace}\n  at ${file}:12`,
+          targetFile: dirInject,
+          repoRoot: dir
+        });
+        assert.equal(res.language, lang);
+        assert.equal(res.testContent.includes('"""triple"""'), false, `${lang} must escape triple quotes`);
+        if (lang !== 'python') {
+          const harnessIdx = res.testContent.indexOf('Bug Reproduction Harness:');
+          const blockCloseIdx = res.testContent.indexOf('*/');
+          assert.ok(harnessIdx !== -1 && blockCloseIdx > harnessIdx, `${lang} JSDoc block comment must not terminate prematurely`);
+          assert.ok(res.testContent.slice(0, blockCloseIdx).includes('* / panic!'), `${lang} JSDoc block comment must escape */`);
+        }
+
+        if (lang === 'rust') {
+          assert.match(res.testContent, /panic!\("\{\}",/, 'Rust panic! must use "{}" format placeholder so braces in trace never break compilation');
+        }
+        if (lang === 'python') {
+          try {
+            execFileSync('python3', ['-m', 'py_compile', res.testPath], { cwd: dir, stdio: 'pipe' });
+          } catch (err) {
+            if (err?.code !== 'ENOENT') throw err;
+          }
+        }
+        if (lang === 'javascript') {
+          execFileSync(process.execPath, ['--check', res.testPath], { cwd: dir, stdio: 'pipe' });
+        }
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

@@ -98,6 +98,72 @@ export function loadConfig(repoRoot = '.') {
   }
 }
 
+export const DEFAULT_QUALITY_THRESHOLDS = Object.freeze({
+  diffCoverage: 85,
+  mutationScore: 80
+});
+
+function resolveExplicitThreshold(explicitVal, fallbackFn) {
+  if (explicitVal === null || explicitVal === false) return null;
+  if (explicitVal !== undefined) {
+    const n = Number(explicitVal);
+    if (Number.isFinite(n)) return n;
+  }
+  return fallbackFn();
+}
+
+/**
+ * Checks whether two Git commit SHAs match (supporting full and >=7-char short SHAs).
+ */
+export function sameShaPrefix(a, b) {
+  return Boolean(
+    a && b && a !== 'HEAD' && b !== 'HEAD' && (a === b || (a.length >= 7 && b.length >= 7 && (a.startsWith(b) || b.startsWith(a))))
+  );
+}
+
+/**
+ * Single canonical quality threshold resolver used by coverage/mutation parsers,
+ * PR summaries, review comments, product/spec docs, and Stage 7 gate receipts.
+ * Precedence: cfg.gates > cfg.testing > mod.thresholds > cfg.modules max > defaults.
+ */
+export function resolveQualityThresholds(repoRoot = '.', mod = null) {
+  const cfgPath = path.resolve(repoRoot, '.agent/sdlc-config.json');
+  const configExists = fileExists(cfgPath);
+  const cfg = configExists ? loadConfig(repoRoot) : {};
+  const gates = cfg?.gates || {};
+  const testing = cfg?.testing || {};
+  const mods = Array.isArray(cfg?.modules) ? cfg.modules : [];
+
+  const covVals = mods.map((m) => m?.thresholds?.diffCoverage).filter((v) => typeof v === 'number' && Number.isFinite(v));
+  const allNullCov = mods.length > 0 && mods.every((m) => m?.thresholds && m.thresholds.diffCoverage === null);
+  const mutVals = mods.map((m) => m?.thresholds?.mutationScore).filter((v) => typeof v === 'number' && Number.isFinite(v));
+  const allNullMut = mods.length > 0 && mods.every((m) => m?.thresholds && m.thresholds.mutationScore === null);
+
+  const minCov = resolveExplicitThreshold(gates.minDiffCoverage, () =>
+    resolveExplicitThreshold(testing.coverageThreshold, () =>
+      resolveExplicitThreshold(mod?.thresholds?.diffCoverage, () =>
+        allNullCov ? null : covVals.length > 0 ? Math.max(...covVals) : DEFAULT_QUALITY_THRESHOLDS.diffCoverage
+      )
+    )
+  );
+
+  const minMut = resolveExplicitThreshold(gates.minMutationScore, () =>
+    resolveExplicitThreshold(testing.mutationThreshold, () =>
+      resolveExplicitThreshold(mod?.thresholds?.mutationScore, () =>
+        allNullMut ? null : mutVals.length > 0 ? Math.max(...mutVals) : DEFAULT_QUALITY_THRESHOLDS.mutationScore
+      )
+    )
+  );
+
+  return {
+    minCov,
+    minMut,
+    diffCoverage: minCov,
+    mutationScore: minMut,
+    configExists
+  };
+}
+
 export function readSessionRegistry(repoRoot = '.') {
   const sessionPath = path.resolve(repoRoot, '.agent/.sdlc-session.json');
   if (!fileExists(sessionPath)) {
@@ -540,6 +606,49 @@ export function getUnifiedDiffByFile(baseBranch = null, repoRoot = '.', files = 
     }
   }
   return diffMap;
+}
+
+/**
+ * Extracts 1-based added/modified new-file line numbers from unified diff output,
+ * supporting both git hunk headers (`@@ -old +new @@`) and synthesized untracked diffs.
+ */
+export function extractAddedLinesFromDiff(unifiedDiff = '') {
+  const addedLines = new Set();
+  if (!unifiedDiff) return addedLines;
+
+  let newLine = 1;
+  let inHunk = false;
+  let expectingHeaderHunk = false;
+
+  for (const line of String(unifiedDiff).split('\n')) {
+    if (line.startsWith('diff --git ')) {
+      inHunk = false;
+      expectingHeaderHunk = true;
+      continue;
+    }
+    const hunkMatch = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+    if (hunkMatch) {
+      newLine = parseInt(hunkMatch[1], 10);
+      inHunk = true;
+      expectingHeaderHunk = false;
+      continue;
+    }
+    if (!expectingHeaderHunk && !inHunk && line.startsWith('+++ b/')) {
+      // Synthesized untracked diff (`+++ b/<file>\n+...` without `@@` headers)
+      newLine = 1;
+      inHunk = true;
+      continue;
+    }
+    if (!inHunk) continue;
+    if (line.startsWith('\\')) continue;
+    if (line.startsWith('+')) {
+      addedLines.add(newLine);
+      newLine++;
+    } else if (line.startsWith(' ')) {
+      newLine++;
+    }
+  }
+  return addedLines;
 }
 
 export function hasDevelopBranch(repoRoot = '.') {
