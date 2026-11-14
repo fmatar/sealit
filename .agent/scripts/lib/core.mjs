@@ -79,12 +79,21 @@ export function resolveInsideRepo(repoRoot = '.', relPath = '') {
   return resolved;
 }
 
+let atomicWriteCounter = 0;
+
 export function writeFileAtomic(filePath, content, options = 'utf8') {
   const dir = path.dirname(filePath);
   fs.mkdirSync(dir, { recursive: true });
-  const tmpPath = path.join(dir, `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`);
-  fs.writeFileSync(tmpPath, content, options);
-  fs.renameSync(tmpPath, filePath);
+  const tmpPath = path.join(dir, `.${path.basename(filePath)}.${process.pid}.${Date.now()}.${++atomicWriteCounter}.tmp`);
+  try {
+    fs.writeFileSync(tmpPath, content, options);
+    fs.renameSync(tmpPath, filePath);
+  } catch (err) {
+    try {
+      fs.unlinkSync(tmpPath);
+    } catch {}
+    throw err;
+  }
 }
 
 export function loadConfig(repoRoot = '.') {
@@ -165,36 +174,33 @@ export function resolveQualityThresholds(repoRoot = '.', mod = null) {
 }
 
 export function readSessionRegistry(repoRoot = '.') {
-  const sessionPath = path.resolve(repoRoot, '.agent/.sdlc-session.json');
-  if (!fileExists(sessionPath)) {
+  const state = readSessionFileState(repoRoot);
+  if (!state.exists) {
     return { exists: false, active: null, activeSessionId: null, sessions: {}, raw: null };
   }
-  try {
-    const data = JSON.parse(readFileSafe(sessionPath) || '{}');
-    if (data && data.sessions && typeof data.sessions === 'object') {
-      const active = data.activeSessionId ? data.sessions[data.activeSessionId] || null : null;
-      return {
-        exists: true,
-        active,
-        activeSessionId: data.activeSessionId || null,
-        sessions: data.sessions,
-        raw: data
-      };
-    }
-    if (data && data.active) {
-      const id = normalizeTicketId(data.issueId) || String(data.issueId || '');
-      return {
-        exists: true,
-        active: data,
-        activeSessionId: id,
-        sessions: id ? { [id]: data } : {},
-        raw: data
-      };
-    }
-    return { exists: true, active: null, activeSessionId: null, sessions: {}, raw: data };
-  } catch {
+  if (state.error) {
     return { exists: true, active: null, activeSessionId: null, sessions: {}, raw: null };
   }
+  if (state.registry) {
+    return {
+      exists: true,
+      active: state.session,
+      activeSessionId: state.activeSessionId || null,
+      sessions: state.sessions,
+      raw: state.registry
+    };
+  }
+  if (state.active && state.session) {
+    const id = normalizeTicketId(state.session.issueId) || String(state.session.issueId || '');
+    return {
+      exists: true,
+      active: state.session,
+      activeSessionId: id,
+      sessions: id ? { [id]: state.session } : {},
+      raw: state.session
+    };
+  }
+  return { exists: true, active: null, activeSessionId: null, sessions: {}, raw: state.raw ?? null };
 }
 
 export function execCommand(cmd, options = {}) {
@@ -592,7 +598,12 @@ export function getUnifiedDiffByFile(baseBranch = null, repoRoot = '.', files = 
   appendUnifiedDiffChunks(workingDiff, diffMap);
 
   const untrackedOut = gitOutput(['ls-files', '--others', '--exclude-standard'], repoRoot) || '';
-  const untrackedSet = new Set(untrackedOut.split('\n').map((s) => s.trim()).filter(Boolean));
+  const untrackedSet = new Set(
+    untrackedOut
+      .split('\n')
+      .map((s) => s.trim())
+      .filter((f) => Boolean(f) && !isEphemeralUntrackedSdlcFile(f))
+  );
   const candidateFiles = Array.isArray(files) && files.length > 0 ? files : Array.from(untrackedSet);
   for (const file of candidateFiles) {
     if (!diffMap.has(file) && untrackedSet.has(file)) {
@@ -730,25 +741,36 @@ export function readSessionFileState(repoRoot = '.') {
   }
   try {
     const data = JSON.parse(content);
-    if (data.sessions && typeof data.sessions === 'object') {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      return { exists: true, active: false, session: null, activeSessionId: null, sessions: {}, registry: null, error: 'Invalid session file structure' };
+    }
+    if (data.sessions && typeof data.sessions === 'object' && !Array.isArray(data.sessions)) {
       const activeId = data.activeSessionId;
-      const activeSession = activeId && data.sessions[activeId] ? data.sessions[activeId] : null;
+      const activeSession =
+        activeId !== null &&
+        activeId !== undefined &&
+        Object.prototype.hasOwnProperty.call(data.sessions, activeId)
+          ? data.sessions[activeId]
+          : null;
       return {
         exists: true,
         active: !!activeSession?.active,
         session: activeSession,
         activeSessionId: activeId,
         sessions: data.sessions,
-        registry: data
+        registry: data,
+        raw: data
       };
     }
+    const hasLegacySession = Boolean(data.issueId || data.active);
     return {
       exists: true,
       active: !!data.active,
-      session: data.issueId ? data : null,
+      session: hasLegacySession ? data : null,
       activeSessionId: data.issueId || null,
       sessions: data.issueId ? { [data.issueId]: data } : {},
-      registry: null
+      registry: null,
+      raw: data
     };
   } catch {
     return { exists: true, active: false, session: null, activeSessionId: null, sessions: {}, registry: null, error: 'Corrupted session file' };
@@ -760,15 +782,21 @@ export function patchActiveSessionManifest(repoRoot = '.', manifestPatch = {}) {
   if (!fileExists(sessionPath)) return false;
   try {
     const data = JSON.parse(readFileSafe(sessionPath) || '{}');
-    if (data.sessions && typeof data.sessions === 'object') {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return false;
+    if (data.sessions && typeof data.sessions === 'object' && !Array.isArray(data.sessions)) {
       const activeId = data.activeSessionId;
-      if (activeId && data.sessions[activeId]) {
+      if (
+        activeId !== null &&
+        activeId !== undefined &&
+        Object.prototype.hasOwnProperty.call(data.sessions, activeId) &&
+        data.sessions[activeId]
+      ) {
         data.sessions[activeId].manifest = { ...(data.sessions[activeId].manifest || {}), ...manifestPatch };
         data.sessions[activeId].updatedAt = new Date().toISOString();
         writeFileAtomic(sessionPath, JSON.stringify(data, null, 2));
         return true;
       }
-    } else if (data.issueId) {
+    } else if (data.issueId || data.active) {
       data.manifest = { ...(data.manifest || {}), ...manifestPatch };
       data.updatedAt = new Date().toISOString();
       writeFileAtomic(sessionPath, JSON.stringify(data, null, 2));

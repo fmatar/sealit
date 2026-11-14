@@ -427,13 +427,20 @@ export function verifyGateReceipt({ headSha = null, branch = null, repoRoot = '.
     .filter((r) => r.event === 'STAGE_7_GATE_RECEIPT_SIGNED' && r.metadata)
     .reverse();
 
+  const isHexSha = (sha) => /^[0-9a-f]{7,64}$/i.test(String(sha || '').trim());
+
   const matched = receipts.find((r) => {
     const m = r.metadata;
-    let shaMatch = targetSha ? m.headSha === targetSha : true;
-    if (!shaMatch && targetSha && m.headSha) {
+    const branchMatch = effectiveBranch ? m.branch === effectiveBranch : true;
+    if (!branchMatch || m.peerReviewApproved !== true || m.driftCheckPassed !== true || !verifyReceiptSignature(m, key)) {
+      return false;
+    }
+    if (!targetSha) return true;
+    if (m.headSha === targetSha) return true;
+    if (isHexSha(m.headSha) && isHexSha(targetSha)) {
       try {
-        execFileSync('git', ['merge-base', '--is-ancestor', m.headSha, targetSha], { cwd: repoRoot, stdio: 'pipe' });
-        const diffFiles = execFileSync('git', ['diff', '--name-only', m.headSha, targetSha], {
+        execFileSync('git', ['merge-base', '--is-ancestor', '--', m.headSha, targetSha], { cwd: repoRoot, stdio: 'pipe' });
+        const diffFiles = execFileSync('git', ['diff', '--name-only', m.headSha, targetSha, '--'], {
           cwd: repoRoot,
           encoding: 'utf8',
           stdio: 'pipe'
@@ -454,12 +461,11 @@ export function verifyGateReceipt({ headSha = null, branch = null, repoRoot = '.
               f === '.agent/.sdlc-session.json'
           )
         ) {
-          shaMatch = true;
+          return true;
         }
       } catch {}
     }
-    const branchMatch = effectiveBranch ? m.branch === effectiveBranch : true;
-    return shaMatch && branchMatch && m.peerReviewApproved === true && m.driftCheckPassed === true && verifyReceiptSignature(m, key);
+    return false;
   });
 
   if (!matched) {

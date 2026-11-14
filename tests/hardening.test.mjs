@@ -4275,7 +4275,7 @@ describe('Issue #132: Git Flow develop base, atomic session I/O, receipt allowli
       assert.ok(allRingFiles.includes('docs/tiny.md'));
       assert.equal(allRingFiles.includes('src/develop-only-auth.js'), false, 'buildArchDiffPayload must diff against develop when present');
 
-      // 3. `sdlc-engine triage --json` must evaluate diff relative to develop
+      // 3. `sdlc-engine triage --json` must evaluate diff relative to develop without polluting repo with sdlc-config.json
       const enginePath = path.resolve('.agent/scripts/sdlc-engine.mjs');
       const triageOut = execFileSync(process.execPath, [enginePath, 'triage', '--json'], {
         cwd: dir,
@@ -4286,6 +4286,17 @@ describe('Issue #132: Git Flow develop base, atomic session I/O, receipt allowli
       const triageJson = JSON.parse(triageOut.slice(triageOut.indexOf('{')));
       assert.equal(triageJson.triage.riskLevel, 'LOW');
       assert.equal(triageJson.triage.computedLane, 'trivial');
+      assert.equal(fs.existsSync(path.join(dir, '.agent/sdlc-config.json')), false, 'read-only triage must not write .agent/sdlc-config.json');
+
+      // Explicitly passing --base=main includes develop's auth file and escalates to full
+      const triageMainOut = execFileSync(process.execPath, [enginePath, 'triage', '--base=main', '--json'], {
+        cwd: dir,
+        encoding: 'utf8',
+        env: cleanChildEnv(),
+        stdio: 'pipe'
+      });
+      const triageMainJson = JSON.parse(triageMainOut.slice(triageMainOut.indexOf('{')));
+      assert.equal(triageMainJson.triage.computedLane, 'full');
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -4305,13 +4316,34 @@ describe('Issue #132: Git Flow develop base, atomic session I/O, receipt allowli
       const coreMod = await import('../.agent/scripts/lib/core.mjs');
       sessMod.startSession({ issueId: 132, branch: 'feature/issue-#132-atomic', lane: 'full', repoRoot: dir });
       sessMod.updateSession({ stage: 3, stageName: 'TDD', manifestUpdate: { prNumber: 999 }, repoRoot: dir });
-      sessMod.recordExemption({ mutantId: 'm1', file: 'a.mjs', reason: 'equivalent mutant', approvedBy: 'tester', repoRoot: dir });
+      const exIds = [];
+      for (let i = 0; i < 5; i++) {
+        const res = sessMod.recordExemption({ mutantId: `m${i}`, file: 'a.mjs', reason: 'equivalent mutant', approvedBy: 'tester', repoRoot: dir });
+        exIds.push(res.exemption.id);
+      }
+      assert.equal(new Set(exIds).size, 5, `exemption IDs collided: ${exIds.join(', ')}`);
 
       assert.equal(pmMod.resolveOpenPRNumber({ repoRoot: dir }), 999);
       assert.equal(coreMod.readSessionFileState(dir).session.stage, 3);
-      assert.equal(sessMod.getExemptions(dir).length, 1);
+      assert.equal(sessMod.getExemptions(dir).length, 5);
       const agentFiles = fs.readdirSync(path.join(dir, '.agent'));
       assert.equal(agentFiles.some((f) => f.endsWith('.tmp')), false, 'atomic writes must leave zero .tmp leftovers');
+
+      // Legacy flat session object with active: true and omitted issueId must not regress or throw TypeError
+      fs.writeFileSync(
+        path.join(dir, '.agent/.sdlc-session.json'),
+        JSON.stringify({ active: true, branch: 'feature/legacy', stage: 2, manifest: { checkpoints: {} } }, null, 2),
+        'utf8'
+      );
+      assert.equal(coreMod.readSessionFileState(dir).active, true);
+      assert.equal(coreMod.readSessionFileState(dir).session.branch, 'feature/legacy');
+      assert.equal(coreMod.readSessionRegistry(dir).active.branch, 'feature/legacy');
+      assert.equal(coreMod.patchActiveSessionManifest(dir, { prNumber: 888 }), true);
+      assert.equal(coreMod.readSessionFileState(dir).session.manifest.prNumber, 888);
+      assert.throws(
+        () => sessMod.startSession({ issueId: 133, branch: 'feature/issue-#133', repoRoot: dir }),
+        /Active SDLC workflow session already in progress for issue #unknown on branch feature\/legacy/
+      );
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -4383,6 +4415,26 @@ describe('Issue #132: Git Flow develop base, atomic session I/O, receipt allowli
         repoRoot: dir
       });
       assert.equal(verifiedDirty.valid, false, 'post-receipt code mutations must invalidate receipt verification');
+
+      // Forged or non-hex headSha option injection must also fail closed without passing options to git
+      const badReceipt = {
+        headSha: '--help',
+        branch: 'feature/issue-#132-receipt',
+        peerReviewApproved: true,
+        driftCheckPassed: true
+      };
+      const receiptKey = auditMod.loadReceiptKey(dir);
+      auditMod.appendAuditRecord({
+        event: 'STAGE_7_GATE_RECEIPT_SIGNED',
+        metadata: { ...badReceipt, hmacSignature: auditMod.signReceiptPayload(badReceipt, receiptKey) },
+        repoRoot: dir
+      });
+      const verifiedForged = auditMod.verifyGateReceipt({
+        headSha: dirtySha,
+        branch: 'feature/issue-#132-receipt',
+        repoRoot: dir
+      });
+      assert.equal(verifiedForged.valid, false);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

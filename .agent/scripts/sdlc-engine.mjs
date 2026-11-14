@@ -2285,6 +2285,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         else if (args[i].startsWith('--reason=')) reason = args[i].slice('--reason='.length);
         else if ((args[i] === '--intent' || args[i] === '--title') && args[i + 1]) intent = args[++i];
         else if (args[i] === '--base' && args[i + 1]) baseBranch = args[++i];
+        else if (args[i].startsWith('--base=')) baseBranch = args[i].slice('--base='.length);
         else if (!args[i].startsWith('-')) files.push(args[i]);
       }
       const sess = getSessionStatus(repoRoot);

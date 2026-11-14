@@ -21,7 +21,6 @@ import { generatePRSummary, triageChange } from './quality-gate.mjs';
 import { generateArchitectureWidget, ensureWorkbenchRunning } from './workbench-server.mjs';
 import { auditWiki } from './wiki-sync.mjs';
 
-const SESSION_FILE = '.sdlc-session.json';
 const SESSION_LANE_RANK = { trivial: 0, standard: 1, full: 2 };
 
 export function getSessionPath(repoRoot = '.') {
@@ -68,9 +67,9 @@ export function startSession({
   }
 
   const normalizedIssueId = Number(issueId) || issueId;
-  if (current.active && String(current.session?.issueId) !== String(normalizedIssueId) && !worktree && !force) {
+  if (current.active && String(current.session?.issueId ?? '') !== String(normalizedIssueId) && !worktree && !force) {
     throw new Error(
-      `Active SDLC workflow session already in progress for issue #${current.session.issueId} on branch ${current.session.branch}. To run concurrent tasks, use Git Worktree isolation (--worktree <path>) or subagent Workspace: 'branch'.`
+      `Active SDLC workflow session already in progress for issue #${current.session?.issueId ?? 'unknown'} on branch ${current.session?.branch || 'unknown'}. To run concurrent tasks, use Git Worktree isolation (--worktree <path>) or subagent Workspace: 'branch'.`
     );
   }
 
@@ -191,10 +190,10 @@ export function updateSession({
   session.updatedAt = new Date().toISOString();
 
   const sessions = current.sessions || {};
-  sessions[String(session.issueId)] = session;
+  sessions[String(session.issueId || 'legacy')] = session;
 
   const registry = {
-    activeSessionId: session.issueId,
+    activeSessionId: session.issueId ?? null,
     sessions
   };
 
@@ -398,7 +397,8 @@ export function recordExemption({ mutantId, file, reason, approvedBy = 'human-re
   let ledger = { exemptions: [] };
   if (fileExists(exPath)) {
     try {
-      ledger = JSON.parse(readFileSafe(exPath)) || { exemptions: [] };
+      const parsed = JSON.parse(readFileSafe(exPath));
+      ledger = parsed && Array.isArray(parsed.exemptions) ? parsed : { exemptions: [] };
     } catch {
       ledger = { exemptions: [] };
     }
