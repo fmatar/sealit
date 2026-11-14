@@ -764,7 +764,7 @@ describe('Issue #105: GitHub Actions quality-gate CI, configurable runners, loca
     assert.equal(out, 'SAFE_EXEC');
   });
 
-  it('engine & library modules contain zero execSync calls outside legacy coreMod.execCommand shim and zero shell interpolations', () => {
+  it('engine & library modules contain zero execSync/exec calls, zero legacy shell wrappers, and zero shell interpolations', async () => {
     const collectMjs = (dirPath) => {
       const out = [];
       for (const entry of fs.readdirSync(dirPath, { withFileTypes: true })) {
@@ -775,23 +775,26 @@ describe('Issue #105: GitHub Actions quality-gate CI, configurable runners, loca
       return out;
     };
     const mjsFiles = collectMjs(SCRIPTS_SRC);
-    assert.ok(mjsFiles.length >= 10, 'Expected to scan all .agent/scripts/**/*.mjs modules');
+    assert.ok(mjsFiles.length >= 14, 'Expected to scan all .agent/scripts/**/*.mjs modules');
     for (const abs of mjsFiles) {
       const rel = path.relative(REPO_ROOT, abs).replace(/\\/g, '/');
       const src = fs.readFileSync(abs, 'utf8');
-      if (rel !== '.agent/scripts/lib/core.mjs') {
-        assert.equal(
-          /\bexecSync\b/.test(src),
-          false,
-          `Expected zero execSync references in ${rel}`
-        );
-      }
+      assert.equal(
+        /\bexecSync\b/.test(src),
+        false,
+        `Expected zero execSync references in ${rel}`
+      );
       assert.equal(
         /(?:execSync|exec)\(\s*`[^`]*\$\{/.test(src),
         false,
         `Expected zero interpolated shell strings in ${rel}`
       );
     }
+    const engineMod = await import('../.agent/scripts/sdlc-engine.mjs');
+    assert.equal('execCommand' in coreMod, false, 'Expected execCommand removed from Ring 0 core.mjs');
+    assert.equal('execAsync' in coreMod, false, 'Expected execAsync removed from Ring 0 core.mjs');
+    assert.equal('execCommand' in engineMod, false, 'Expected execCommand removed from sdlc-engine.mjs');
+    assert.equal('execAsync' in engineMod, false, 'Expected execAsync removed from sdlc-engine.mjs');
   });
 
   it('ships valid local JSON schema and dogfoods configurable runner workflows in repository', () => {
@@ -1731,14 +1734,14 @@ describe('Issue #114: Documentation alignment & Archlens repository link hygiene
     assert.doesNotMatch(traceWiki, /\.agent\/gate-receipts\.jsonl/);
     assert.match(traceWiki, /STAGE_7_GATE_RECEIPT_SIGNED/);
 
-    // buildWikiCodeMap must honor .archlens/policy.json concentric rings (4 / 6 / 6 / 1) with zero outward imports
+    // buildWikiCodeMap must honor .archlens/policy.json concentric rings (4 / 6 / 10 / 1) with zero outward imports
     const codeMap = buildWikiCodeMap(REPO_ROOT);
     assert.deepEqual(
       codeMap.rings.map((r) => ({ name: r.name, count: r.modules.length })),
       [
         { name: 'Ring 0: domain-core', count: 4 },
         { name: 'Ring 1: governance-models', count: 6 },
-        { name: 'Ring 2: adapters-orchestrators', count: 6 },
+        { name: 'Ring 2: adapters-orchestrators', count: 10 },
         { name: 'Ring 3: cli-entrypoints', count: 1 }
       ]
     );
@@ -4811,5 +4814,214 @@ describe('Issue #133: CI Portability, Config Validation, Wiki Stdout & Graph Fid
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+// ===========================================================================
+// Issue #134: Wave 2 Clean Architecture Cycle Breakup & Quality-Gate Decomposition
+// ===========================================================================
+describe('Issue #134: Ring 2 cycle breakup, quality-gate decomposition, intra-layer cycle checkArchDiff, Archlens policy alignment, and Ring 0 shell removal', () => {
+  it('detects intra-ring mutual cycles, transitive cycles, and dynamic import()/require() violations while ignoring comments', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-134-archdiff-'));
+    try {
+      git(dir, 'init', '-q');
+      git(dir, 'config', 'user.email', 'test@example.com');
+      git(dir, 'config', 'user.name', 'Test User');
+      git(dir, 'checkout', '-q', '-b', 'develop');
+
+      fs.mkdirSync(path.join(dir, '.archlens'), { recursive: true });
+      fs.mkdirSync(path.join(dir, 'src/domain'), { recursive: true });
+      fs.mkdirSync(path.join(dir, 'src/usecases'), { recursive: true });
+      fs.mkdirSync(path.join(dir, 'src/adapters'), { recursive: true });
+
+      fs.writeFileSync(
+        path.join(dir, '.archlens/policy.json'),
+        JSON.stringify({
+          title: 'cycle-test',
+          src: 'src',
+          prefix: null,
+          hierarchical: true,
+          order: ['domain', 'usecases', 'adapters'],
+          levels: [['src/domain'], ['src/usecases'], ['src/adapters']],
+          lang: 'typescript'
+        }),
+        'utf8'
+      );
+
+      // Baseline on develop: adapters/a.mjs imports adapters/b.mjs (valid intra-ring one-way edge) + commented/method-call fake imports
+      fs.writeFileSync(
+        path.join(dir, 'src/domain/entity.mjs'),
+        '// import { db } from "../adapters/b.mjs";\n/*\n * placeholder comment\n */\nexport const id = 1;\n',
+        'utf8'
+      );
+      fs.writeFileSync(
+        path.join(dir, 'src/usecases/order.mjs'),
+        'import { id } from "../domain/entity.mjs";\nconst auth = { require: (x) => x };\nauth.require("../adapters/b.mjs");\nexport const runOrder = () => id;\n',
+        'utf8'
+      );
+      fs.writeFileSync(path.join(dir, 'src/adapters/b.mjs'), 'import { id } from "../domain/entity.mjs";\nexport const bFn = () => id;\n', 'utf8');
+      fs.writeFileSync(path.join(dir, 'src/adapters/a.mjs'), 'import { bFn } from "./b.mjs";\nexport const aFn = () => bFn();\n', 'utf8');
+
+      git(dir, 'add', '.');
+      git(dir, 'commit', '-q', '--no-verify', '-m', 'chore: baseline acyclic graph');
+
+      const { checkArchDiff } = await import('../.agent/scripts/lib/arch-trace.mjs');
+      const baselineRes = checkArchDiff(dir);
+      assert.equal(baselineRes.enabled, true);
+      assert.equal(baselineRes.passed, true);
+      assert.equal(baselineRes.cyclesCount, 0);
+
+      // Adding a line inside an existing block comment in domain/entity.mjs must be ignored cleanly
+      fs.writeFileSync(
+        path.join(dir, 'src/domain/entity.mjs'),
+        '// import { db } from "../adapters/b.mjs";\n/*\n * import { bFn } from "../adapters/b.mjs";\n */\nexport const id = 1;\n',
+        'utf8'
+      );
+      const commentEditRes = checkArchDiff(dir);
+      assert.equal(commentEditRes.passed, true);
+      assert.equal(commentEditRes.cyclesCount, 0);
+
+      // Introduce an intra-ring mutual cycle (adapters/b <-> a), a 3-node transitive cycle (c -> d -> e -> c), AND dynamic import + re-export inversion in usecases
+      fs.writeFileSync(
+        path.join(dir, 'src/adapters/b.mjs'),
+        'import { id } from "../domain/entity.mjs";\nconst aMod = require("./a.mjs");\nexport const bFn = () => id + Boolean(aMod);\n',
+        'utf8'
+      );
+      fs.writeFileSync(path.join(dir, 'src/adapters/c.mjs'), 'import { dFn } from "./d.mjs";\nexport const cFn = () => dFn();\n', 'utf8');
+      fs.writeFileSync(path.join(dir, 'src/adapters/d.mjs'), 'import { eFn } from "./e.mjs";\nexport const dFn = () => eFn();\n', 'utf8');
+      fs.writeFileSync(path.join(dir, 'src/adapters/e.mjs'), 'import { cFn } from "./c.mjs";\nexport const eFn = () => cFn();\n', 'utf8');
+      fs.writeFileSync(
+        path.join(dir, 'src/usecases/order.mjs'),
+        'import { id } from "../domain/entity.mjs";\nexport { cFn } from "../adapters/c.mjs";\nexport async function runOrder() { return (await import("../adapters/b.mjs")).bFn() + id; }\n',
+        'utf8'
+      );
+
+      const badRes = checkArchDiff(dir);
+      assert.equal(badRes.passed, false);
+      assert.ok(badRes.cyclesCount >= 2, `Expected both 2-node and 3-node cycles detected, got ${JSON.stringify(badRes)}`);
+      assert.ok(badRes.violations.some((v) => v.type === 'CYCLE' && /a\.mjs/.test(v.rule) && /b\.mjs/.test(v.rule)));
+      assert.ok(badRes.violations.some((v) => v.type === 'CYCLE' && /c\.mjs/.test(v.rule) && /d\.mjs/.test(v.rule) && /e\.mjs/.test(v.rule)));
+      assert.ok(badRes.violations.some((v) => v.sourceLayer === 'usecases' && v.targetLayer === 'adapters' && v.imported.includes('b.mjs')));
+      assert.ok(badRes.violations.some((v) => v.sourceLayer === 'usecases' && v.targetLayer === 'adapters' && v.imported.includes('c.mjs')));
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps the .agent/scripts module graph 100% acyclic with zero Ring 2 circular dependencies', async () => {
+    const wikiMod = await import('../.agent/scripts/lib/wiki-sync.mjs');
+    const codeMap = wikiMod.buildWikiCodeMap(REPO_ROOT);
+
+    // Build full adjacency list from inspectSourceModule across all engine/lib modules
+    const graph = new Map();
+    for (const mod of codeMap.modules) {
+      graph.set(
+        mod.path,
+        mod.imports.filter((imp) => codeMap.modules.some((m) => m.path === imp))
+      );
+    }
+
+    const visited = new Set();
+    const stack = new Set();
+    const trace = [];
+    const foundCycles = [];
+    const dfs = (node) => {
+      visited.add(node);
+      stack.add(node);
+      trace.push(node);
+      for (const next of graph.get(node) || []) {
+        if (!visited.has(next)) {
+          dfs(next);
+        } else if (stack.has(next)) {
+          const idx = trace.indexOf(next);
+          foundCycles.push(trace.slice(idx).concat(next));
+        }
+      }
+      trace.pop();
+      stack.delete(node);
+    };
+    for (const modPath of graph.keys()) {
+      if (!visited.has(modPath)) dfs(modPath);
+    }
+
+    assert.deepEqual(foundCycles, [], `Expected zero cycles across .agent/scripts, found: ${JSON.stringify(foundCycles)}`);
+
+    // Verify specific broken Ring 2 cycle pairs
+    const byPath = new Map(codeMap.modules.map((m) => [m.path, m.imports]));
+    assert.equal(byPath.get('.agent/scripts/lib/arch-trace.mjs')?.includes('.agent/scripts/lib/session.mjs'), false);
+    assert.equal(byPath.get('.agent/scripts/lib/workbench-server.mjs')?.includes('.agent/scripts/lib/session.mjs'), false);
+    assert.equal(byPath.get('.agent/scripts/lib/wiki-sync.mjs')?.includes('.agent/scripts/lib/installer.mjs'), false);
+    assert.equal(byPath.get('.agent/scripts/lib/session.mjs')?.includes('.agent/scripts/lib/quality-gate.mjs'), false);
+    assert.deepEqual(byPath.get('.agent/scripts/lib/core.mjs'), []);
+
+    // Verify live repo checkArchDiff passes with zero cycles
+    const { checkArchDiff } = await import('../.agent/scripts/lib/arch-trace.mjs');
+    const liveArch = checkArchDiff(REPO_ROOT);
+    assert.equal(liveArch.enabled, true);
+    assert.equal(liveArch.passed, true);
+    assert.equal(liveArch.cyclesCount, 0);
+  });
+
+  it('decomposes quality-gate.mjs into 4 focused modules while preserving 100% of public named exports and aligned .archlens/policy.json', async () => {
+    const decomposedFiles = [
+      '.agent/scripts/lib/coverage-mutation.mjs',
+      '.agent/scripts/lib/security-audit.mjs',
+      '.agent/scripts/lib/doctor-ci.mjs',
+      '.agent/scripts/lib/triage-review.mjs'
+    ];
+    for (const rel of decomposedFiles) {
+      const abs = path.join(REPO_ROOT, rel);
+      assert.equal(fs.existsSync(abs), true, `Expected decomposed module ${rel} to exist`);
+      const lineCount = fs.readFileSync(abs, 'utf8').split('\n').length;
+      assert.ok(lineCount > 50 && lineCount < 1400, `Expected ${rel} to be cohesive, got ${lineCount} lines`);
+    }
+
+    const qgLineCount = fs.readFileSync(path.join(REPO_ROOT, '.agent/scripts/lib/quality-gate.mjs'), 'utf8').split('\n').length;
+    assert.ok(qgLineCount < 120, `Expected slim quality-gate.mjs barrel (<120 lines), got ${qgLineCount}`);
+
+    const expectedExports = [
+      'validateConfigFile',
+      'runDoctor',
+      'generateRegressionProof',
+      'monitorCanaryHealthAndWatchdog',
+      'installCIWorkflow',
+      'exportAgentRules',
+      'scaffoldReproductionTest',
+      'assessRisk',
+      'VALID_LANES',
+      'LANE_RANK',
+      'triageChange',
+      'generatePRSummary',
+      'findAffectedTests',
+      'findAffectededTests',
+      'buildSingleTestArgv',
+      'buildSingleTestCommand',
+      'parseCoverageReport',
+      'parseMutationReport',
+      'runFlakeCheck',
+      'auditSecurity',
+      'suggestMutationStrengthening',
+      'resolveAdHocTargets',
+      'generateReviewPlan',
+      'inspectCIWorkflows',
+      'detectStackInDir',
+      'discoverModules',
+      'matchFilesToModules',
+      'generateConfig',
+      'printPreview',
+      'auditSkills'
+    ];
+    const engineMod = await import('../.agent/scripts/sdlc-engine.mjs');
+    for (const sym of expectedExports) {
+      assert.notEqual(qualityGateMod[sym], undefined, `Expected quality-gate.mjs to preserve export '${sym}'`);
+      assert.notEqual(engineMod[sym], undefined, `Expected sdlc-engine.mjs to preserve export '${sym}'`);
+    }
+
+    // Repo .archlens/policy.json uses Archlens MCP canonical order/levels schema covering all 21 modules
+    const repoPolicy = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, '.archlens/policy.json'), 'utf8'));
+    assert.equal('layers' in repoPolicy, false, 'Repo .archlens/policy.json must omit legacy layers key for Archlens MCP');
+    assert.equal(Array.isArray(repoPolicy.order), true);
+    assert.equal(Array.isArray(repoPolicy.levels), true);
+    assert.deepEqual(repoPolicy.levels.map((grp) => grp.length), [4, 6, 10, 1]);
   });
 });

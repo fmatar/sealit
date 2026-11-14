@@ -1,10 +1,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileExists, readFileSafe, parseFrontmatter, writeFileAtomic } from './core.mjs';
+import {
+  fileExists,
+  readFileSafe,
+  parseFrontmatter,
+  writeFileAtomic,
+  CANONICAL_SDLC_SKILLS,
+  DEPRECATED_SDLC_SKILLS
+} from './core.mjs';
 import { parseProductMarkdown } from './product-dag.mjs';
 import { listADRs } from './adr-drift.mjs';
 import { parseMermaidDiagram } from './arch-trace.mjs';
-import { CANONICAL_SDLC_SKILLS, DEPRECATED_SDLC_SKILLS } from './installer.mjs';
 
 /**
  * Default Concentric Clean Architecture Ring Classification for the SDLC Engine & Target Repos
@@ -24,6 +30,10 @@ const DEFAULT_ENGINE_RING_MAP = {
   'installer.mjs': { ring: 'Ring 2: Adapters & Enforcement', index: 2 },
   'wiki-sync.mjs': { ring: 'Ring 2: Adapters & Enforcement', index: 2 },
   'workbench-server.mjs': { ring: 'Ring 2: Adapters & Enforcement', index: 2 },
+  'doctor-ci.mjs': { ring: 'Ring 2: Adapters & Enforcement', index: 2 },
+  'security-audit.mjs': { ring: 'Ring 2: Adapters & Enforcement', index: 2 },
+  'triage-review.mjs': { ring: 'Ring 2: Adapters & Enforcement', index: 2 },
+  'coverage-mutation.mjs': { ring: 'Ring 2: Adapters & Enforcement', index: 2 },
   'quality-gate.mjs': { ring: 'Ring 2: Adapters & Enforcement', index: 2 },
   'session.mjs': { ring: 'Ring 2: Adapters & Enforcement', index: 2 },
   'sdlc-engine.mjs': { ring: 'Ring 3: CLI Router & Entrypoint', index: 3 }
@@ -133,6 +143,24 @@ export function inspectSourceModule(filePath, repoRoot = '.') {
     }
   }
 
+  // Also capture single-line & multi-line ESM re-export blocks (`export { a, b as c } [from '...']`)
+  if (/\.(mjs|js|cjs|ts|tsx|jsx|mts|cts)$/i.test(ext)) {
+    const reExportRe = /(?:^|\n)\s*export\s*\{([^}]+)\}(?:\s*from\s*['"][^'"]+['"])?/g;
+    let reMatch;
+    while ((reMatch = reExportRe.exec(raw)) !== null) {
+      const startLine = raw.slice(0, reMatch.index).split('\n').length;
+      for (const spec of reMatch[1].split(',')) {
+        const aliasSplit = spec.trim().split(/\s+as\s+/);
+        const exportedName = (aliasSplit[1] || aliasSplit[0] || '').replace(/^(?:type|default)\s+/, '').trim();
+        if (exportedName && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(exportedName) && !exportedName.startsWith('_')) {
+          if (!exportsWithLines.some((e) => e.name === exportedName)) {
+            exportsWithLines.push({ name: exportedName, line: startLine });
+          }
+        }
+      }
+    }
+  }
+
   return {
     path: relPath,
     name: path.basename(relPath),
@@ -142,20 +170,52 @@ export function inspectSourceModule(filePath, repoRoot = '.') {
   };
 }
 
+function matchesArchlensLayerPath(lowerRelPath, rawPath, policyPrefix = '') {
+  const cleanPrefix = String(policyPrefix || '').replace(/\\/g, '/').toLowerCase().replace(/^\/+|\/+$/g, '');
+  const p = String(rawPath || '').replace(/\\/g, '/').toLowerCase().replace(/^\/+|\/+$/g, '');
+  if (!p) return false;
+  const candidates = cleanPrefix && !p.startsWith(`${cleanPrefix}/`) ? [p, `${cleanPrefix}/${p}`] : [p];
+  return candidates.some(
+    (c) =>
+      lowerRelPath === c ||
+      lowerRelPath.startsWith(`${c}/`) ||
+      lowerRelPath.endsWith(`/${c}`) ||
+      lowerRelPath.includes(`/${c}/`)
+  );
+}
+
 /**
  * Resolves the Archlens Concentric Ring for a given file path using `.archlens/policy.json`
  * and fallback Clean Architecture conventions.
  */
 export function resolveArchlensRing(relPath, policy = null) {
-  const lower = relPath.replace(/\\/g, '/').toLowerCase();
+  const lower = relPath.replace(/\\/g, '/').toLowerCase().replace(/^\/+|\/+$/g, '');
+  const policyPrefix = policy?.prefix || '';
   if (policy && Array.isArray(policy.layers)) {
     for (let i = 0; i < policy.layers.length; i++) {
       const layer = policy.layers[i];
-      const paths = (layer.paths || [layer.name])
-        .filter(Boolean)
-        .map((p) => String(p).replace(/\\/g, '/').toLowerCase());
-      if (paths.some((p) => lower === p || lower.startsWith(`${p}/`) || lower.includes(`/${p}/`))) {
+      const rawPaths = (layer.paths || [layer.name]).filter(Boolean);
+      if (rawPaths.some((p) => matchesArchlensLayerPath(lower, p, policyPrefix))) {
         return { ring: `Ring ${i}: ${layer.name}`, index: i };
+      }
+    }
+  } else if (policy && Array.isArray(policy.order)) {
+    for (let i = 0; i < policy.order.length; i++) {
+      const layerName = policy.order[i];
+      const levelEntry = Array.isArray(policy.levels)
+        ? policy.levels[i]
+        : policy.levels && typeof policy.levels === 'object'
+          ? policy.levels[layerName]
+          : null;
+      const rawPaths = (
+        Array.isArray(levelEntry)
+          ? levelEntry
+          : Array.isArray(levelEntry?.paths)
+            ? levelEntry.paths
+            : [layerName]
+      ).filter(Boolean);
+      if (rawPaths.some((p) => matchesArchlensLayerPath(lower, p, policyPrefix))) {
+        return { ring: `Ring ${i}: ${layerName}`, index: i };
       }
     }
   }

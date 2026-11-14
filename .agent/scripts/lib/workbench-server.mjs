@@ -3,8 +3,7 @@ import path from 'node:path';
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { fileExists, readFileSafe, getModifiedFiles, writeFileAtomic } from './core.mjs';
-import { getSessionStatus } from './session.mjs';
+import { fileExists, readFileSafe, getModifiedFiles, writeFileAtomic, readSessionStatus } from './core.mjs';
 import { buildDecisionGraph } from './decision-graph.mjs';
 import { parseProductMarkdown, planProductDAG, controlProductDAG } from './product-dag.mjs';
 import { listADRs, decideADR } from './adr-drift.mjs';
@@ -284,7 +283,7 @@ export function buildArchDiffPayload(repoRoot = '.') {
 }
 
 export function generateArchitectureWidget({ outputPath = null, repoRoot = '.', writeDefault = true } = {}) {
-  const sessionStatus = getSessionStatus(repoRoot);
+  const sessionStatus = readSessionStatus(repoRoot);
   const rawGraph = buildDecisionGraph(repoRoot);
   const compactGraph = {
     nodes: (rawGraph.nodes || []).map((n) => ({
@@ -898,7 +897,7 @@ export function generateArchitectureWidget({ outputPath = null, repoRoot = '.', 
   };
 }
 
-export function renderWorkbenchHTML(repoRoot = '.', getSessionStatusFn = getSessionStatus) {
+export function renderWorkbenchHTML(repoRoot = '.', getSessionStatusFn = readSessionStatus) {
   const sessionStatus =
     typeof getSessionStatusFn === 'function' ? getSessionStatusFn(repoRoot) : { active: false, session: null };
   const activeSess = sessionStatus.session;
@@ -2531,7 +2530,7 @@ export function createWorkbenchServer({
   host = '127.0.0.1',
   token = null,
   repoRoot = '.',
-  getSessionStatusFn = getSessionStatus
+  getSessionStatusFn = readSessionStatus
 } = {}) {
   const sseClients = new Set();
   const accessToken = token || crypto.randomBytes(24).toString('hex');

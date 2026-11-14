@@ -7,7 +7,7 @@ import { execFileSync } from 'node:child_process';
 import {
   fileExists,
   readFileSafe,
-  execCommand,
+  runConfiguredCommand,
   detectStackInDir,
   inspectCIWorkflows,
   discoverModules,
@@ -95,14 +95,14 @@ describe('Universal SDLC Engine: Comprehensive Functional & Governance Test Suit
       assert.equal(readFileSafe(path.join(tmpDir, 'nonexistent.json')), null);
     });
 
-    it('safely executes shell commands and returns output', () => {
-      const output = execCommand('echo "test-engine"');
+    it('safely executes configured commands without a shell and returns output', () => {
+      const output = runConfiguredCommand(['node', '-e', 'process.stdout.write("test-engine")'], { encoding: 'utf8', stdio: 'pipe' });
       assert.ok(output.includes('test-engine'));
     });
 
-    it('safely handles failing shell commands when throwOnError is false', () => {
-      const output = execCommand('nonexistent_command_12345 2>&1 || true', { throwOnError: false });
-      assert.ok(typeof output === 'string');
+    it('rejects shell operators and handles non-zero exit cleanly in runConfiguredCommand', () => {
+      assert.throws(() => runConfiguredCommand('nonexistent_command_12345 2>&1 || true'), /Refusing shell compound command/);
+      assert.throws(() => runConfiguredCommand(['node', '-e', 'process.exit(2)'], { stdio: 'pipe' }));
     });
   });
 
@@ -1303,8 +1303,13 @@ jobs:
       assert.equal(scafRes.layersCount, 4);
 
       const policyContent = JSON.parse(fs.readFileSync(scafRes.path, 'utf8'));
-      assert.equal(policyContent.architecture, 'Clean Architecture (Concentric Rings)');
-      assert.equal(policyContent.layers.length, 4);
+      assert.equal(typeof policyContent.src, 'string');
+      assert.equal(Array.isArray(policyContent.order), true);
+      assert.equal(policyContent.order.length, 4);
+      assert.equal(Array.isArray(policyContent.levels), true);
+      assert.equal(policyContent.levels.length, 4);
+      assert.equal('layers' in policyContent, false, 'Archlens MCP schema must use order/levels rather than legacy layers field');
+      assert.equal('architecture' in policyContent, false, 'Archlens MCP schema must omit unrecognized architecture field');
     });
 
     it('provides tailored auto-strengthening recommendations for surviving mutants', () => {

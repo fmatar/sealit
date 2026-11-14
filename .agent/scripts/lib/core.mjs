@@ -1,9 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { execSync, execFileSync, exec } from 'node:child_process';
-import { promisify } from 'node:util';
-
-const execPromise = promisify(exec);
+import { execFileSync } from 'node:child_process';
 
 // --- Environment Variables Loader (.env support without external dependencies) ---
 
@@ -203,15 +200,6 @@ export function readSessionRegistry(repoRoot = '.') {
   return { exists: true, active: null, activeSessionId: null, sessions: {}, raw: state.raw ?? null };
 }
 
-export function execCommand(cmd, options = {}) {
-  try {
-    return execSync(cmd, { stdio: 'pipe', encoding: 'utf8', ...options });
-  } catch (error) {
-    if (options.throwOnError) throw error;
-    return error.stdout || error.stderr || '';
-  }
-}
-
 /**
  * Parses a configured command specification (string or argv array) into `{ file, args }`
  * without invoking a shell, rejecting compound shell operators (`&&`, `||`, `;`, `|`, `>`, `<`, `` ` ``, `$()`).
@@ -337,21 +325,6 @@ export function parseCommandArgv(cmdSpec) {
 export function runConfiguredCommand(cmdSpec, options = {}) {
   const { file, args } = parseCommandArgv(cmdSpec);
   return execFileSync(file, args, options);
-}
-
-export async function execAsync(cmd, options = {}) {
-  try {
-    const { stdout, stderr } = await execPromise(cmd, { encoding: 'utf8', ...options });
-    return { ok: true, stdout: stdout || '', stderr: stderr || '' };
-  } catch (error) {
-    if (options.throwOnError) throw error;
-    return {
-      ok: false,
-      stdout: error.stdout || '',
-      stderr: error.stderr || error.message || '',
-      error
-    };
-  }
 }
 
 export async function runParallelTasks(tasks = [], concurrency = 4) {
@@ -804,4 +777,66 @@ export function patchActiveSessionManifest(repoRoot = '.', manifestPatch = {}) {
     }
   } catch {}
   return false;
+}
+
+export const DEPRECATED_SDLC_SKILLS = [
+  'sdlc-analyze',
+  'sdlc-arch-trace',
+  'sdlc-docs-wiki',
+  'sdlc-feature-spec',
+  'sdlc-help',
+  'sdlc-init',
+  'sdlc-initialize',
+  'sdlc-kanban',
+  'sdlc-peer-review',
+  'sdlc-quality-gate',
+  'sdlc-release-changelog',
+  'sdlc-review-gate',
+  'sdlc-tdd-implement',
+  'sdlc-test-coverage'
+];
+
+export const CANONICAL_SDLC_SKILLS = [
+  'sdlc',
+  'sdlc-adr',
+  'sdlc-doctor',
+  'sdlc-flow',
+  'sdlc-gate',
+  'sdlc-product',
+  'sdlc-release',
+  'sdlc-status',
+  'sdlc-tdd',
+  'sdlc-wiki'
+];
+
+export function getExemptionsPath(repoRoot = '.') {
+  return path.resolve(repoRoot, '.agent', 'sdlc-exemptions.json');
+}
+
+export function getExemptions(repoRoot = '.') {
+  const exPath = getExemptionsPath(repoRoot);
+  if (!fileExists(exPath)) return [];
+  try {
+    const data = JSON.parse(readFileSafe(exPath));
+    return Array.isArray(data.exemptions) ? data.exemptions : [];
+  } catch {
+    return [];
+  }
+}
+
+export function readSessionStatus(repoRoot = '.') {
+  const state = readSessionFileState(repoRoot);
+  if (!state.exists) {
+    return { active: false, session: null, registry: null };
+  }
+  if (state.error) {
+    return { active: false, session: null, registry: null, error: state.error };
+  }
+  return {
+    active: state.active,
+    session: state.session,
+    activeSessionId: state.activeSessionId,
+    sessions: state.sessions,
+    registry: state.registry
+  };
 }

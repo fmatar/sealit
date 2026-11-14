@@ -15,7 +15,7 @@ import {
 
 import {
   // Core & Async Pool
-  execAsync,
+  runConfiguredCommand,
   runParallelTasks,
   // Content-Addressable SHA-256 Gate Cache
   computeTreeHash,
@@ -152,9 +152,13 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
   // 1. Async Parallel Subprocess Engine & Content-Addressable SHA-256 Cache
   // =========================================================================
   describe('1. Async Parallel Pool & Content-Addressable SHA-256 Gate Cache', () => {
-    it('executes async commands and runs parallel tasks with concurrency limits', async () => {
-      const out = await execAsync('echo "async-pool-ok"', { cwd: tmpDir });
-      assert.ok(out.stdout.includes('async-pool-ok'));
+    it('executes shell-free configured commands and runs parallel tasks with concurrency limits', async () => {
+      const out = runConfiguredCommand(['node', '-e', 'process.stdout.write("async-pool-ok")'], {
+        cwd: tmpDir,
+        encoding: 'utf8',
+        stdio: 'pipe'
+      });
+      assert.ok(out.includes('async-pool-ok'));
 
       const order = [];
       const tasks = [1, 2, 3, 4, 5].map((n) => async () => {
@@ -846,6 +850,24 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
       assert.equal(archRes.violationsCount, 1);
       assert.equal(archRes.violations[0].sourceLayer, 'UseCaseRing');
       assert.equal(archRes.violations[0].targetLayer, 'AdapterRing');
+
+      // resolveArchlensRing handles legacy layers, canonical order+levels (array/object), trailing slashes, and nested basenames
+      assert.equal(
+        resolveArchlensRing('src/custom/a.mjs', { order: ['custom'], levels: [['/src/custom/']] }).index,
+        0
+      );
+      assert.equal(
+        resolveArchlensRing('pkg/src/custom', { order: ['base', 'custom'], levels: { base: ['src/base'], custom: ['src/custom'] } }).index,
+        1
+      );
+      assert.equal(
+        resolveArchlensRing('packages/svc/usecases/run.ts', {
+          prefix: 'packages/svc',
+          order: ['domain', 'usecases'],
+          levels: [['domain'], ['usecases']]
+        }).index,
+        1
+      );
 
       // Polyglot reproduction test generation (.py, .java, .go, .rs)
       const pyRepro = scaffoldReproductionTest({
