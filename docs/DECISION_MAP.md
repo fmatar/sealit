@@ -79,6 +79,7 @@ flowchart TD
   _109["Ticket #109 (feature/issue-#109-right-size-all-sdlc-skills-and-upgrade-c)"]
   _111["Ticket #111 (feature/issue-#111-slim-npm-package-retire-duplicate-svelte)"]
   _L_124000["Ticket #L-124000 (feature/L-124000-fix-git-flow-enforce-merges-to-develop-b)"]
+  _131["Ticket #131 (feature/issue-#131-gate-diff-coverage-thresholds-tdd)"]
   CAP_01 -->|specified_by| SPEC_01
   CAP_02 -->|specified_by| SPEC_02
   CAP_03 -->|specified_by| SPEC_03
