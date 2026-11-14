@@ -8,10 +8,6 @@
 
 ```mermaid
 flowchart TD
-  INV_01["INV-01: Zero direct commits, merges, or pushes to main or develop; feature PRs merge into develop (default base branch), PRs targeting main must originate exclusively from develop, and releases trigger when develop merges to main"]
-  INV_02["INV-02: Changes require an active SDLC session and risk-proportional Dual-Gate verification (`trivial`, `standard`, or `full` lane) meeting the coverage, mutation, and peer-review thresholds configured in `.agent/sdlc-config.json`"]
-  INV_03["INV-03: All spec drift must be recorded via an ADR (docs/adr/ADR-00X.md) and synchronized with PRODUCT.md"]
-  INV_04["INV-04: Zero shell command interpolation of untrusted user/markdown inputs in PM, Git, or test runner execution paths"]
   CAP_01["CAP-01: Core Domain & Architecture Foundation"]
   SPEC_01["SPEC-01 (docs/specs/cap-01-composite-stage-session.md)"]
   CAP_02["CAP-02: Shell Injection Remediation & Polyglot Test Runners (#69)"]
@@ -34,6 +30,10 @@ flowchart TD
   SPEC_10["SPEC-10 (docs/specs/cap-10-unified-multi-provider-ticket-engine-issue-templ.md)"]
   CAP_11["CAP-11: Technical Writer Skill (`sdlc-wiki`) & Archlens AST-to-Wiki Sync (#90)"]
   SPEC_11["SPEC-11 (docs/specs/cap-11-technical-writer-archlens-wiki-sync.md)"]
+  INV_01["INV-01: Zero direct commits, merges, or pushes to main or develop; feature PRs merge into develop (default base branch), PRs targeting main must originate exclusively from develop, and releases trigger when develop merges to main"]
+  INV_02["INV-02: Changes require an active SDLC session and risk-proportional Dual-Gate verification (`trivial`, `standard`, or `full` lane) meeting the coverage, mutation, and peer-review thresholds configured in `.agent/sdlc-config.json`"]
+  INV_03["INV-03: All spec drift must be recorded via an ADR (docs/adr/ADR-00X.md) and synchronized with PRODUCT.md"]
+  INV_04["INV-04: Zero shell command interpolation of untrusted user/markdown inputs in PM, Git, or test runner execution paths"]
   ADR_009["ADR-009: Align README, Wiki, PRD and SRS Documentation with v0.4.0 Architecture and Archlens Links"]
   _114["Ticket #114 (feature/issue-#114-refresh-readme-md-wiki-srs-documentation)"]
   ADR_010["ADR-010: Standardize on 10 Canonical SDLC Skills, Neutralize Engineering Terminology, and Compact README Workflow Diagram"]
@@ -43,13 +43,15 @@ flowchart TD
   ADR_012["ADR-012: Reset Package, Plugin, and Documentation Version Baseline to 0.0.1"]
   _120["Ticket #120 (feature/issue-#120-reset-release-baseline-to-version-0-0-1)"]
   ADR_013["ADR-013: Harden Release Gate, Opt-In Issue Creation, Universal ADR Approval, Diff Review Plans, and Node 24 CI Actions"]
+  L_122000["Ticket L-122000"]
   ADR_014["ADR-014: Canonical Git Flow: Enforce Merges to Develop, Block Direct PRs to Main, and Automate Production Releases on Develop Merge"]
+  L_124000["Ticket L-124000"]
+  ADR_015["ADR-015: Harden Stage 7 Gate Receipts, Ring 0 Primitives, and Git Flow Verification"]
+  L_128000["Ticket L-128000"]
   ADR_COMPACT_v0_3_0["Compacted 8 ADR(s) into SRS.md (v0.3.0)"]
   createdAt__2026_11_03T18_52_42_656Z["createdAt: 2026-11-03T18:52:42.656Z"]
   ADR_COMPACT_v0_4_0["Compacted 6 ADR(s) into SRS.md (v0.4.0)"]
   createdAt__2026_11_12T18_08_28_446Z["createdAt: 2026-11-12T18:08:28.446Z"]
-  L_122000["L-122000"]
-  L_124000["L-124000"]
   _SDLC_INIT["Ticket #SDLC-INIT (feature/arch-traceability-governance)"]
   _24["Ticket #24 (feature/issue-#24-api-contract-drift-sentinel)"]
   _25["Ticket #25 (feature/issue-#25-bug-reproduce-generator)"]
@@ -76,6 +78,7 @@ flowchart TD
   _107["Ticket #107 (feature/issue-#107-risk-proportional-execution-lanes-and-sp)"]
   _109["Ticket #109 (feature/issue-#109-right-size-all-sdlc-skills-and-upgrade-c)"]
   _111["Ticket #111 (feature/issue-#111-slim-npm-package-retire-duplicate-svelte)"]
+  _L_124000["Ticket #L-124000 (feature/L-124000-fix-git-flow-enforce-merges-to-develop-b)"]
   CAP_01 -->|specified_by| SPEC_01
   CAP_02 -->|specified_by| SPEC_02
   CAP_03 -->|specified_by| SPEC_03
@@ -119,12 +122,17 @@ flowchart TD
   _120 -->|triggered_drift_adr| ADR_012
   CAP_06 -.->|ADR Drift| ADR_012
   ADR_009 -.->|ADR Drift| ADR_012
+  L_122000 -->|triggered_drift_adr| ADR_013
   CAP_01 -.->|ADR Drift| ADR_013
   CAP_03 -.->|ADR Drift| ADR_013
   CAP_06 -.->|ADR Drift| ADR_013
+  L_124000 -->|triggered_drift_adr| ADR_014
   CAP_01 -.->|ADR Drift| ADR_014
   CAP_04 -.->|ADR Drift| ADR_014
   CAP_06 -.->|ADR Drift| ADR_014
+  L_128000 -->|triggered_drift_adr| ADR_015
+  CAP_01 -.->|ADR Drift| ADR_015
+  CAP_04 -.->|ADR Drift| ADR_015
   CAP_01 -->|realized_by| ADR_COMPACT_v0_3_0
   CAP_02 -->|realized_by| ADR_COMPACT_v0_3_0
   CAP_03 -->|realized_by| ADR_COMPACT_v0_3_0
@@ -145,8 +153,6 @@ flowchart TD
   CAP_05 -->|realized_by| ADR_COMPACT_v0_4_0
   CAP_07 -->|realized_by| ADR_COMPACT_v0_4_0
   CAP_08 -->|realized_by| ADR_COMPACT_v0_4_0
-  L_122000 -.->|ADR Drift| ADR_013
-  L_124000 -.->|ADR Drift| ADR_014
 ```
 
 ---
@@ -159,8 +165,17 @@ flowchart TD
 | **ADR-010** | Standardize on 10 Canonical SDLC Skills, Neutralize Engineering Terminology, and Compact README Workflow Diagram | `technical` | `accepted` | #116 | CAP-05, CAP-07, CAP-08, CAP-11 |
 | **ADR-011** | Strict sdlc Namespace Isolation and Decoupling from Standalone Coding-Persona Skills | `technical` | `accepted` | #118 | CAP-05, CAP-07, CAP-08, ADR-010 |
 | **ADR-012** | Reset Package, Plugin, and Documentation Version Baseline to 0.0.1 | `technical` | `accepted` | #120 | CAP-06, ADR-009 |
-| **ADR-013** | Harden Release Gate, Opt-In Issue Creation, Universal ADR Approval, Diff Review Plans, and Node 24 CI Actions | `technical` | `accepted` | N/A | CAP-01, CAP-03, CAP-06 |
-| **ADR-014** | Canonical Git Flow: Enforce Merges to Develop, Block Direct PRs to Main, and Automate Production Releases on Develop Merge | `technical` | `accepted` | N/A | CAP-01, CAP-04, CAP-06 |
+| **ADR-013** | Harden Release Gate, Opt-In Issue Creation, Universal ADR Approval, Diff Review Plans, and Node 24 CI Actions | `technical` | `accepted` | L-122000 | CAP-01, CAP-03, CAP-06 |
+| **ADR-014** | Canonical Git Flow: Enforce Merges to Develop, Block Direct PRs to Main, and Automate Production Releases on Develop Merge | `technical` | `accepted` | L-124000 | CAP-01, CAP-04, CAP-06 |
+| **ADR-015** | Harden Stage 7 Gate Receipts, Ring 0 Primitives, and Git Flow Verification | `technical` | `accepted` | L-128000 | CAP-01, CAP-04 |
+| **ADR-001** | Decompose sdlc-engine.mjs into Modular Domain Libraries with SHA-256 Gate Cache and SvelteKit 5 Decision Workbench | `technical` | `compacted` | #63 | CAP-01 |
+| **ADR-002** | Consolidate 14 Skills into 6 Schema-Valid Skills, Add Composite Stage CLI, and Enforce Real Dual-Gate Verification | `architectural` | `compacted` | #68 | CAP-01, CAP-02, CAP-03, CAP-04, CAP-05, CAP-06 |
+| **ADR-003** | Replace Legacy Shell/Java Installers with Native npx Interactive Multi-Agent Installer Wizard | `architectural` | `compacted` | #75 | CAP-06, CAP-07 |
+| **ADR-004** | Introduce /sdlc Universal Router and 8 Verb-Driven Command Skills | `architectural` | `compacted` | #81 | CAP-05, CAP-07, CAP-08 |
+| **ADR-005** | Adopt Two-Tier PRD and IEEE 29148 SRS Specification Governance in sdlc-product | `architectural` | `compacted` | #84 | CAP-05, CAP-08, CAP-09 |
+| **ADR-006** | Unified Multi-Provider Ticket Engine and Canonical Issue Templates | `technical` | `compacted` | N/A | CAP-02, CAP-09, CAP-10 |
+| **ADR-007** | Introduce sdlc-wiki Technical Writer Skill and Deterministic Archlens AST-to-Wiki Synchronization Engine | `architectural` | `compacted` | #90 | CAP-05, CAP-06, CAP-08, CAP-11 |
+| **ADR-008** | Fail-closed enforcement: exit codes, signed measured receipts, authenticated workbench | `technical` | `compacted` | #91 | createdAt: 2026-11-03T18:52:42.656Z |
 
 ---
 
@@ -171,7 +186,7 @@ flowchart TD
 | **CAP-01** | Core Domain & Architecture Foundation | `PLANNED` |
 | **CAP-02** | Shell Injection Remediation & Polyglot Test Runners (#69) | `AMENDED (ADR-006)` |
 | **CAP-03** | Real Coverage/Mutation Parsers & Policy ArchDiff (#70) | `AMENDED (ADR-013)` |
-| **CAP-04** | Live Canary Watchdog, Real Proofs & Polyglot Reproduce (#71) | `AMENDED (ADR-014)` |
+| **CAP-04** | Live Canary Watchdog, Real Proofs & Polyglot Reproduce (#71) | `AMENDED (ADR-015)` |
 | **CAP-05** | Consolidate 14 Skills into 6 Schema-Valid Core Skills (#72) | `AMENDED (ADR-011)` |
 | **CAP-06** | Dogfooding Configuration, Docs Sync & Full Test Suite (#73) | `AMENDED (ADR-014)` |
 | **CAP-07** | Native `npx` Multi-Agent Interactive Installer & Legacy Installer Removal (#75) | `AMENDED (ADR-011)` |

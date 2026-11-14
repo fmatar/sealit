@@ -43,13 +43,22 @@ cat << 'EOF' >> "$OUTPUT_FILE"
 | :--- | :--- | :--- | :--- | :--- |
 EOF
 
-# Parse issues into columns and traceability matrix using python
-python3 - "$ISSUES_JSON" << 'PYEOF' >> "$OUTPUT_FILE"
+# Parse issues into columns and traceability matrix using python (via temp file to avoid E2BIG on large JSON)
+ISSUES_TMP_FILE=$(mktemp)
+trap 'rm -f "$ISSUES_TMP_FILE"' EXIT
+printf '%s' "$ISSUES_JSON" > "$ISSUES_TMP_FILE"
+python3 - "$ISSUES_TMP_FILE" << 'PYEOF' >> "$OUTPUT_FILE"
 import json
 import sys
 import re
 
-raw = sys.argv[1] if len(sys.argv) > 1 else "[]"
+raw = "[]"
+if len(sys.argv) > 1 and sys.argv[1]:
+    try:
+        with open(sys.argv[1], 'r', encoding='utf-8') as f:
+            raw = f.read()
+    except Exception:
+        raw = "[]"
 try:
     issues = json.loads(raw)
 except Exception:

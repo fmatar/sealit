@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { fileExists, readFileSafe } from './core.mjs';
+import { fileExists, readFileSafe, writeFileAtomic } from './core.mjs';
 import { parseProductMarkdown } from './product-dag.mjs';
 
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -293,7 +293,9 @@ function inspectRepoMetadata(absRoot) {
         displayName = humanizeSlug(pkg.name);
       }
       if (pkg.version) version = pkg.version;
-      if (pkg.license) license = pkg.license;
+      if (pkg.license) {
+        license = typeof pkg.license === 'string' ? pkg.license : pkg.license.type || pkg.license.name || license;
+      }
       if (pkg.description) description = pkg.description;
       if (typeof pkg.bin === 'string') {
         binName = pkgName.replace(/^@[^/]+\//, '');
@@ -395,6 +397,18 @@ function buildArchetypeDefaults(meta, archetype, absRoot) {
     const crateName = meta.pkgName.replace(/-/g, '_');
     quickstartSnippet = `use ${crateName}::Client;\n\nfn main() {\n    let client = Client::default();\n    println!("{:?}", client.ping());\n}`;
     expectedOutput = `Ok(Status { healthy: true })`;
+  } else if (meta.ecosystem === 'go') {
+    installCommand = `go get ${meta.pkgName}`;
+    codeLang = 'go';
+    quickstartLang = 'go';
+    quickstartSnippet = `package main\n\nimport "fmt"\n\nfunc main() {\n\tfmt.Println("${meta.shortName} ready")\n}`;
+    expectedOutput = `${meta.shortName} ready`;
+  } else if (meta.ecosystem === 'java') {
+    installCommand = `mvn dependency:get -Dartifact=${meta.pkgName}:${meta.version}`;
+    codeLang = 'java';
+    quickstartLang = 'java';
+    quickstartSnippet = `// ${meta.displayName} client usage\nvar client = Client.createDefault();\nSystem.out.println(client.status());`;
+    expectedOutput = `Status[healthy=true]`;
   }
 
   const cliHeroProof = hasDemoGif
@@ -455,6 +469,17 @@ export function scaffoldReadme({
     meta.product?.vision ||
     `${projectName} for engineering teams that eliminates manual boilerplate with deterministic defaults.`;
 
+  const readmePath = path.join(absRoot, 'README.md');
+  if (fileExists(readmePath) && !force) {
+    return {
+      written: false,
+      path: 'README.md',
+      archetype: selectedArchetype,
+      createdAssets: [],
+      reason: 'README.md already exists; pass --force to regenerate.'
+    };
+  }
+
   const createdAssets = [];
   if (withAssets) {
     const docsDir = path.join(absRoot, 'docs');
@@ -462,44 +487,32 @@ export function scaffoldReadme({
 
     const lightSvgPath = path.join(docsDir, 'logo-light.svg');
     if (force || !fileExists(lightSvgPath)) {
-      fs.writeFileSync(lightSvgPath, renderThemeWordmarkSvg({ title: projectName, mode: 'light' }), 'utf8');
+      writeFileAtomic(lightSvgPath, renderThemeWordmarkSvg({ title: projectName, mode: 'light' }));
       createdAssets.push('docs/logo-light.svg');
     }
 
     const darkSvgPath = path.join(docsDir, 'logo-dark.svg');
     if (force || !fileExists(darkSvgPath)) {
-      fs.writeFileSync(darkSvgPath, renderThemeWordmarkSvg({ title: projectName, mode: 'dark' }), 'utf8');
+      writeFileAtomic(darkSvgPath, renderThemeWordmarkSvg({ title: projectName, mode: 'dark' }));
       createdAssets.push('docs/logo-dark.svg');
     }
 
     const llmsPath = path.join(absRoot, 'llms.txt');
     if (force || !fileExists(llmsPath)) {
-      fs.writeFileSync(llmsPath, renderLlmsTxt({ title: projectName, hook: oneSentenceHook, repoRoot: absRoot }), 'utf8');
+      writeFileAtomic(llmsPath, renderLlmsTxt({ title: projectName, hook: oneSentenceHook, repoRoot: absRoot }));
       createdAssets.push('llms.txt');
     }
 
     if (selectedArchetype === 'cli') {
       const tapePath = path.join(docsDir, 'demo.tape');
       if (force || !fileExists(tapePath)) {
-        fs.writeFileSync(
+        writeFileAtomic(
           tapePath,
-          renderVhsDemoTape({ title: projectName, demoCmd: `${meta.binName} --help`, outputPath: 'docs/demo.gif' }),
-          'utf8'
+          renderVhsDemoTape({ title: projectName, demoCmd: `${meta.binName} --help`, outputPath: 'docs/demo.gif' })
         );
         createdAssets.push('docs/demo.tape');
       }
     }
-  }
-
-  const readmePath = path.join(absRoot, 'README.md');
-  if (fileExists(readmePath) && !force) {
-    return {
-      written: false,
-      path: 'README.md',
-      archetype: selectedArchetype,
-      createdAssets,
-      reason: 'README.md already exists; pass --force to regenerate.'
-    };
   }
 
   const localTemplate = path.join(absRoot, 'docs/templates/README_TEMPLATE.md');
@@ -610,7 +623,7 @@ export function scaffoldReadme({
     rendered = rendered.replace(/^- \*\*AI Coding Agent Context\*\*:\s*\[`llms\.txt`\]\(\.\/llms\.txt\)\n?/m, '');
   }
 
-  fs.writeFileSync(readmePath, rendered, 'utf8');
+  writeFileAtomic(readmePath, rendered);
   return {
     written: true,
     path: 'README.md',

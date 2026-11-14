@@ -1,7 +1,81 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { fileExists, readFileSafe, parseFrontmatter, detectPMProvider, hasGitHubRemote, gitOutput, resolveDefaultBaseBranch } from './core.mjs';
+import {
+  fileExists,
+  readFileSafe,
+  parseFrontmatter,
+  detectPMProvider,
+  hasGitHubRemote,
+  gitOutput,
+  resolveDefaultBaseBranch,
+  loadConfig,
+  writeFileAtomic
+} from './core.mjs';
+
+function sanitizeCurlHeaderVal(val) {
+  return String(val ?? '')
+    .replace(/[\r\n]/g, '')
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"');
+}
+
+function curlJsonRequest({ url, method = 'POST', headers = {}, body = null, cwd = '.', execFn = execFileSync }) {
+  const configLines = Object.entries(headers)
+    .filter(([, v]) => v !== undefined && v !== null)
+    .map(([k, v]) => `header = "${sanitizeCurlHeaderVal(`${k}: ${v}`)}"`);
+  const args = ['-sS', '-K', '-', '-w', '\n%{http_code}', '-X', method, url];
+  if (body !== null && body !== undefined) {
+    args.push('-d', typeof body === 'string' ? body : JSON.stringify(body));
+  }
+  const raw = execFn('curl', args, {
+    cwd,
+    stdio: 'pipe',
+    encoding: 'utf8',
+    input: configLines.join('\n') + (configLines.length > 0 ? '\n' : '')
+  });
+  const lines = String(raw || '').replace(/\r?\n$/, '').split(/\r?\n/);
+  let bodyText = String(raw || '').trim();
+  if (lines.length >= 2 && /^[1-5]\d{2}$/.test(lines[lines.length - 1].trim())) {
+    const statusCode = Number(lines.pop().trim());
+    bodyText = lines.join('\n').trim();
+    if (statusCode >= 400) {
+      throw new Error(`HTTP ${statusCode} from ${url}: ${bodyText.slice(0, 200)}`);
+    }
+  }
+  const parsed = bodyText ? JSON.parse(bodyText) : {};
+  if (Array.isArray(parsed?.errors) && parsed.errors.length > 0) {
+    const msg = parsed.errors.map((e) => e?.message || JSON.stringify(e)).join('; ');
+    throw new Error(`GraphQL error from ${url}: ${msg}`);
+  }
+  if (Array.isArray(parsed?.errorMessages) && parsed.errorMessages.length > 0) {
+    throw new Error(`API error from ${url}: ${parsed.errorMessages.join('; ')}`);
+  }
+  return parsed;
+}
+
+function resolveConfiguredQualityBars(repoRoot = '.') {
+  const cfg = loadConfig(repoRoot);
+  const mods = Array.isArray(cfg?.modules) ? cfg.modules : [];
+  const covVals = mods.map((m) => m?.thresholds?.diffCoverage).filter((v) => typeof v === 'number' && Number.isFinite(v));
+  const minCov =
+    typeof cfg?.testing?.coverageThreshold === 'number'
+      ? cfg.testing.coverageThreshold
+      : covVals.length > 0
+        ? Math.max(...covVals)
+        : 85;
+  const allNullMut = mods.length > 0 && mods.every((m) => m?.thresholds && m.thresholds.mutationScore === null);
+  const mutVals = mods.map((m) => m?.thresholds?.mutationScore).filter((v) => typeof v === 'number' && Number.isFinite(v));
+  const minMut =
+    cfg?.testing?.mutationThreshold !== undefined
+      ? cfg.testing.mutationThreshold
+      : allNullMut
+        ? null
+        : mutVals.length > 0
+          ? Math.max(...mutVals)
+          : 52;
+  return { minCov, minMut };
+}
 
 export const CANONICAL_ISSUE_TEMPLATES = {
   '.github/ISSUE_TEMPLATE/feature_request.md': `---
@@ -24,7 +98,7 @@ A clear and concise description of what you want to happen.
 
 ### 🛡️ Clean Code & Dual-Gate Guarantees
 - [ ] Failing Red test written before production code (\`/sdlc-tdd\`)
-- [ ] Diff line coverage \`>= 85%\` and mutation score \`>= 80%\`
+- [ ] Diff line coverage \`>= 85%\` and configured mutation score (\`.agent/sdlc-config.json\`)
 - [ ] Zero concentric ring violations (\`.archlens/policy.json\`)
 `,
   '.github/ISSUE_TEMPLATE/bug_report.md': `---
@@ -98,7 +172,7 @@ A clear and concise description of what you want to happen.
 | :--- | :--- | :--- |
 | **Red-Green-Refactor TDD** | Red -> Green -> Refactor | ✅ Verified |
 | **Diff Test Coverage** | \`>= 85%\` | ✅ Verified |
-| **Mutation Score** | \`>= 80%\` | ✅ Verified |
+| **Mutation Score** | Per \`.agent/sdlc-config.json\` | ✅ Verified |
 | **Archlens Ring Audit** | Zero Inner -> Outer Ring Imports | ✅ Verified |
 | **Spec-Drift Sentinel** | \`sdlc-engine drift check\` | ✅ Verified |
 | **Stage 7 Merkle Receipt** | Signed in \`docs/AUDIT_CHAIN.jsonl\` | ✅ Verified |
@@ -196,6 +270,8 @@ export function formatTemplatedIssue({
   const template = loadIssueTemplate({ type, repoRoot });
   const normType = (type || 'feat').toLowerCase();
   const isBug = normType === 'bug' || normType === 'fix' || normType === 'hotfix';
+  const { minCov, minMut } = resolveConfiguredQualityBars(repoRoot);
+  const mutClause = minMut !== null ? `, >= ${minMut}% mutation` : '';
 
   let renderedBody = '';
 
@@ -208,9 +284,9 @@ export function formatTemplatedIssue({
       const envInfo = environment || '- OS: mac / linux\n- Runtime: node.js';
 
       t = t.replace(/A clear and concise description of what the bug is\./i, bugDesc);
-      t = t.replace(/Steps to reproduce the behavior:[\s\S]*?(?=\*\*Expected|\n\n\*\*|$)/i, `Steps to reproduce the behavior:\n${reproSteps}\n`);
+      t = t.replace(/Steps to reproduce the behavior:[\s\S]*?(?=\*\*Expected|\n\n(?:\*\*|### )|$)/i, `Steps to reproduce the behavior:\n${reproSteps}\n`);
       t = t.replace(/A clear and concise description of what you expected to happen\.[^\n]*/i, expBehavior);
-      t = t.replace(/- OS: \[e\.g\. iOS\][\s\S]*?(?=$|\n\n)/i, envInfo);
+      t = t.replace(/- OS: \[e\.g\. [^\]]+\][\s\S]*?(?=$|\n\n)/i, envInfo);
     } else {
       const probDesc = problem || body || `Enhancement required for ${title}.`;
       const solDesc = solution || acceptanceCriteria || body || 'Deliver complete end-to-end functionality adhering to Concentric Clean Architecture and TDD.';
@@ -218,6 +294,16 @@ export function formatTemplatedIssue({
       t = t.replace(/A clear and concise description of what the problem is\.[^\n]*/i, probDesc);
       t = t.replace(/A clear and concise description of what you want to happen\.[^\n]*/i, solDesc);
     }
+    const mutPhrase =
+      minMut !== null
+        ? `and \`>= ${minMut}%\` mutation score (\`.agent/sdlc-config.json\`)`
+        : '(mutation testing disabled per `.agent/sdlc-config.json`)';
+    t = t
+      .replace(
+        /Diff line coverage `>= 85%` and configured mutation score \(`\.agent\/sdlc-config\.json`\)/gi,
+        `Diff line coverage \`>= ${minCov}%\` ${mutPhrase}`
+      )
+      .replace(/`>= 85%`/g, `\`>= ${minCov}%\``);
     renderedBody = t;
   } else {
     if (isBug) {
@@ -230,7 +316,7 @@ export function formatTemplatedIssue({
       renderedBody =
         `### 🎯 Problem Statement & User Value\n${problem || body || title}\n\n` +
         `### 🚀 Solution & Acceptance Criteria\n${solution || acceptanceCriteria || body || 'Complete implementation with Dual-Gate test and mutation coverage.'}\n\n` +
-        `### 🛡️ Clean Code Guarantees\n- 100% test pass rate with Red-Green-Refactor TDD\n- >= 85% diff test coverage\n- Zero direct pushes to protected branches\n`;
+        `### 🛡️ Clean Code Guarantees\n- 100% test pass rate with Red-Green-Refactor TDD\n- >= ${minCov}% diff test coverage${mutClause}\n- Zero direct pushes to protected branches\n`;
     }
   }
 
@@ -251,18 +337,23 @@ export function updateLocalKanbanState(repoRoot, targetId, normalizedState) {
   if (!fs.existsSync(kanbanPath)) return false;
   try {
     const content = fs.readFileSync(kanbanPath, 'utf8');
-    const ticketMarker = String(targetId).startsWith('#') ? String(targetId) : `#${targetId}`;
-    const rawMarker = String(targetId);
-    if (!content.includes(ticketMarker) && !content.includes(rawMarker)) return false;
+    const cleanId = String(targetId).replace(/^#/, '');
+    const escapedId = cleanId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const isAlphaKey = /^[A-Z]+-\d+$/i.test(cleanId);
+    const ticketRe = isAlphaKey
+      ? new RegExp(`(?<![A-Za-z0-9-])#?${escapedId}(?![A-Za-z0-9-])`)
+      : new RegExp(`(?:^|[^\\w#])#${escapedId}(?!\\d)|(?:^|\\s)${escapedId}:`);
+    const ticketMarker = isAlphaKey ? cleanId : `#${cleanId}`;
+    if (!ticketRe.test(content)) return false;
 
     const lines = content.split('\n');
     const updatedLines = [];
     for (const line of lines) {
-      if ((line.includes(ticketMarker) || line.includes(`${rawMarker}:`)) && line.startsWith('|')) {
+      if (ticketRe.test(line) && line.startsWith('|')) {
         const cells = line.split('|').map((c) => c.trim());
         if (cells.length === 7) {
           const itemContent =
-            cells.slice(1, 6).find((c) => c.includes(ticketMarker) || c.includes(`${rawMarker}:`)) || ticketMarker;
+            cells.slice(1, 6).find((c) => ticketRe.test(c)) || ticketMarker;
           let c1 = '',
             c2 = '',
             c3 = '',
@@ -277,7 +368,7 @@ export function updateLocalKanbanState(repoRoot, targetId, normalizedState) {
           else if (normalizedState === 'done' || normalizedState === 'closed') c5 = itemContent;
           updatedLines.push(`| ${c1} | ${c2} | ${c3} | ${c4} | ${c5} |`);
           continue;
-        } else if (cells.length === 8 && cells[1].includes(ticketMarker)) {
+        } else if (cells.length === 8 && ticketRe.test(cells[1])) {
           updatedLines.push(
             `| ${cells[1]} | \`status:${normalizedState}\` | ${cells[3]} | ${cells[4]} | ${cells[5]} | ${cells[6]} |`
           );
@@ -286,7 +377,7 @@ export function updateLocalKanbanState(repoRoot, targetId, normalizedState) {
       }
       updatedLines.push(line);
     }
-    fs.writeFileSync(kanbanPath, updatedLines.join('\n'), 'utf8');
+    writeFileAtomic(kanbanPath, updatedLines.join('\n'));
     return true;
   } catch {
     return false;
@@ -324,7 +415,7 @@ function mirrorTicketToKanban(repoRoot, { issueId, prefix, fullTitle }) {
         `| **${displayId}** | \`status:ready\` | ${priority} | Core | Current | ${fullTitle} |\n` +
         content.slice(insertPos);
     }
-    fs.writeFileSync(kanbanPath, content, 'utf8');
+    writeFileAtomic(kanbanPath, content);
   }
   return kanbanPath;
 }
@@ -507,26 +598,21 @@ export function transitionPMState({ issueId, state = 'in-progress', repoRoot = '
   if (pm.provider === 'linear') {
     try {
       const apiKey = process.env.LINEAR_API_KEY || '';
+      const linearHeaders = {
+        Authorization: apiKey,
+        'Content-Type': 'application/json'
+      };
       const statesQuery = JSON.stringify({
         query: `query WorkflowStates { workflowStates(first: 50) { nodes { id name type } } }`
       });
-      const statesOut = execFn(
-        'curl',
-        [
-          '-s',
-          '-X',
-          'POST',
-          'https://api.linear.app/graphql',
-          '-H',
-          `Authorization: ${apiKey}`,
-          '-H',
-          'Content-Type: application/json',
-          '-d',
-          statesQuery
-        ],
-        { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
-      );
-      const parsedStates = statesOut ? JSON.parse(statesOut) : {};
+      const parsedStates = curlJsonRequest({
+        url: 'https://api.linear.app/graphql',
+        method: 'POST',
+        headers: linearHeaders,
+        body: statesQuery,
+        cwd: repoRoot,
+        execFn
+      });
       const stateNodes = parsedStates?.data?.workflowStates?.nodes || [];
       let matchedState = stateNodes.find((s) => s.name?.toLowerCase() === statusDisplayName.toLowerCase());
       if (!matchedState) {
@@ -545,22 +631,14 @@ export function transitionPMState({ issueId, state = 'in-progress', repoRoot = '
           query: `mutation IssueUpdate($id: String!, $stateId: String!) { issueUpdate(id: $id, input: { stateId: $stateId }) { success } }`,
           variables: { id: String(targetId), stateId: String(matchedState.id) }
         });
-        execFn(
-          'curl',
-          [
-            '-s',
-            '-X',
-            'POST',
-            'https://api.linear.app/graphql',
-            '-H',
-            `Authorization: ${apiKey}`,
-            '-H',
-            'Content-Type: application/json',
-            '-d',
-            updatePayload
-          ],
-          { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
-        );
+        curlJsonRequest({
+          url: 'https://api.linear.app/graphql',
+          method: 'POST',
+          headers: linearHeaders,
+          body: updatePayload,
+          cwd: repoRoot,
+          execFn
+        });
         return {
           success: true,
           provider: 'linear',
@@ -570,56 +648,62 @@ export function transitionPMState({ issueId, state = 'in-progress', repoRoot = '
           stateId: matchedState.id
         };
       }
-    } catch {}
-
-    return {
-      success: true,
-      provider: 'linear',
-      issueId: targetId,
-      state: normalizedState,
-      statusDisplayName
-    };
+      return {
+        success: false,
+        provider: 'linear',
+        issueId: targetId,
+        state: normalizedState,
+        statusDisplayName,
+        error: `No matching Linear workflow state found for '${statusDisplayName}'.`
+      };
+    } catch (err) {
+      return {
+        success: false,
+        provider: 'linear',
+        issueId: targetId,
+        state: normalizedState,
+        statusDisplayName,
+        error: err?.message || String(err)
+      };
+    }
   }
 
   if (pm.provider === 'jira') {
     try {
       const baseUrl = (process.env.JIRA_BASE_URL || 'https://jira.example.com').replace(/\/$/, '');
       const auth = Buffer.from(`${process.env.JIRA_EMAIL || 'bot'}:${process.env.JIRA_API_TOKEN || ''}`).toString('base64');
-      const transitionsUrl = `${baseUrl}/rest/api/3/issue/${targetId}/transitions`;
-      const getOut = execFn(
-        'curl',
-        ['-s', '-X', 'GET', transitionsUrl, '-H', `Authorization: Basic ${auth}`, '-H', 'Accept: application/json'],
-        { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
-      );
-      const transitionsData = getOut ? JSON.parse(getOut) : {};
+      const encodedId = encodeURIComponent(String(targetId));
+      const transitionsUrl = `${baseUrl}/rest/api/3/issue/${encodedId}/transitions`;
+      const transitionsData = curlJsonRequest({
+        url: transitionsUrl,
+        method: 'GET',
+        headers: {
+          Authorization: `Basic ${auth}`,
+          Accept: 'application/json'
+        },
+        cwd: repoRoot,
+        execFn
+      });
       const transitions = transitionsData.transitions || [];
-      let matchedTransition = transitions.find(
+      const matchedTransition = transitions.find(
         (t) =>
           t.name?.toLowerCase() === statusDisplayName.toLowerCase() ||
           t.to?.name?.toLowerCase() === statusDisplayName.toLowerCase() ||
           t.name?.toLowerCase().includes(statusDisplayName.toLowerCase())
       );
-      if (!matchedTransition && transitions.length > 0) {
-        matchedTransition = transitions[0];
-      }
       if (matchedTransition?.id) {
         const postBody = JSON.stringify({ transition: { id: String(matchedTransition.id) } });
-        execFn(
-          'curl',
-          [
-            '-s',
-            '-X',
-            'POST',
-            transitionsUrl,
-            '-H',
-            `Authorization: Basic ${auth}`,
-            '-H',
-            'Content-Type: application/json',
-            '-d',
-            postBody
-          ],
-          { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
-        );
+        curlJsonRequest({
+          url: transitionsUrl,
+          method: 'POST',
+          headers: {
+            Authorization: `Basic ${auth}`,
+            'Content-Type': 'application/json'
+          },
+          body: postBody,
+          cwd: repoRoot,
+          execFn
+        });
         return {
           success: true,
           provider: 'jira',
@@ -629,15 +713,24 @@ export function transitionPMState({ issueId, state = 'in-progress', repoRoot = '
           transitionId: matchedTransition.id
         };
       }
-    } catch {}
-
-    return {
-      success: true,
-      provider: 'jira',
-      issueId: targetId,
-      state: normalizedState,
-      statusDisplayName
-    };
+      return {
+        success: false,
+        provider: 'jira',
+        issueId: targetId,
+        state: normalizedState,
+        statusDisplayName,
+        error: `No matching Jira workflow transition found for '${statusDisplayName}'.`
+      };
+    } catch (err) {
+      return {
+        success: false,
+        provider: 'jira',
+        issueId: targetId,
+        state: normalizedState,
+        statusDisplayName,
+        error: err?.message || String(err)
+      };
+    }
   }
 
   return {
@@ -728,27 +821,22 @@ export function createTicket({
   if (pm.provider === 'linear') {
     try {
       const apiKey = process.env.LINEAR_API_KEY || '';
+      const linearHeaders = {
+        Authorization: apiKey,
+        'Content-Type': 'application/json'
+      };
       const teamKey = process.env.LINEAR_TEAM_KEY || '';
       const teamsQuery = JSON.stringify({
         query: `query Teams { teams(first: 10) { nodes { id key name } } }`
       });
-      const teamsOut = execFn(
-        'curl',
-        [
-          '-s',
-          '-X',
-          'POST',
-          'https://api.linear.app/graphql',
-          '-H',
-          `Authorization: ${apiKey}`,
-          '-H',
-          'Content-Type: application/json',
-          '-d',
-          teamsQuery
-        ],
-        { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
-      );
-      const teamsData = teamsOut ? JSON.parse(teamsOut) : {};
+      const teamsData = curlJsonRequest({
+        url: 'https://api.linear.app/graphql',
+        method: 'POST',
+        headers: linearHeaders,
+        body: teamsQuery,
+        cwd: repoRoot,
+        execFn
+      });
       const teams = teamsData?.data?.teams?.nodes || [];
       const matchedTeam = (teamKey && teams.find((t) => t.key?.toLowerCase() === teamKey.toLowerCase())) || teams[0];
       const teamId = matchedTeam?.id || 'TEAM-DEFAULT';
@@ -766,23 +854,14 @@ export function createTicket({
         }
       });
 
-      const createOut = execFn(
-        'curl',
-        [
-          '-s',
-          '-X',
-          'POST',
-          'https://api.linear.app/graphql',
-          '-H',
-          `Authorization: ${apiKey}`,
-          '-H',
-          'Content-Type: application/json',
-          '-d',
-          createMutation
-        ],
-        { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
-      );
-      const created = createOut ? JSON.parse(createOut) : {};
+      const created = curlJsonRequest({
+        url: 'https://api.linear.app/graphql',
+        method: 'POST',
+        headers: linearHeaders,
+        body: createMutation,
+        cwd: repoRoot,
+        execFn
+      });
       const issueNode = created?.data?.issueCreate?.issue;
       if (issueNode && (issueNode.identifier || issueNode.id)) {
         const issueId = issueNode.identifier || issueNode.id;
@@ -833,23 +912,17 @@ export function createTicket({
         }
       });
 
-      const createOut = execFn(
-        'curl',
-        [
-          '-s',
-          '-X',
-          'POST',
-          `${baseUrl}/rest/api/3/issue`,
-          '-H',
-          `Authorization: Basic ${auth}`,
-          '-H',
-          'Content-Type: application/json',
-          '-d',
-          payload
-        ],
-        { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' }
-      );
-      const created = createOut ? JSON.parse(createOut) : {};
+      const created = curlJsonRequest({
+        url: `${baseUrl}/rest/api/3/issue`,
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${auth}`,
+          'Content-Type': 'application/json'
+        },
+        body: payload,
+        cwd: repoRoot,
+        execFn
+      });
       if (created.key || created.id) {
         const issueId = created.key || created.id;
         const url = `${baseUrl}/browse/${issueId}`;
@@ -907,13 +980,13 @@ function patchActiveSessionManifest(repoRoot = '.', manifestPatch = {}) {
       if (activeId && data.sessions[activeId]) {
         data.sessions[activeId].manifest = { ...(data.sessions[activeId].manifest || {}), ...manifestPatch };
         data.sessions[activeId].updatedAt = new Date().toISOString();
-        fs.writeFileSync(sessionPath, JSON.stringify(data, null, 2), 'utf8');
+        writeFileAtomic(sessionPath, JSON.stringify(data, null, 2));
         return true;
       }
     } else if (data.issueId) {
       data.manifest = { ...(data.manifest || {}), ...manifestPatch };
       data.updatedAt = new Date().toISOString();
-      fs.writeFileSync(sessionPath, JSON.stringify(data, null, 2), 'utf8');
+      writeFileAtomic(sessionPath, JSON.stringify(data, null, 2));
       return true;
     }
   } catch {}
@@ -1102,18 +1175,21 @@ export function formatConsolidatedReviewComment({
   const isApproved = String(verdict || 'approve').toLowerCase() === 'approve';
   const verdictBadge = isApproved ? '✅ APPROVED' : '❌ CHANGES REQUESTED';
 
+  const { minCov, minMut } = resolveConfiguredQualityBars(repoRoot);
+  const mutReqLabel = minMut === null ? 'N/A (not configured)' : `\`>= ${minMut}%\``;
+
   const covVal =
     coveragePct !== null && coveragePct !== undefined
       ? String(coveragePct).includes('%')
         ? String(coveragePct)
         : `${coveragePct}%`
-      : activeSess?.manifest?.coverageReport || 'Verified (>= 85%)';
+      : activeSess?.manifest?.coverageReport || `Verified (>= ${minCov}%)`;
   const mutVal =
     mutationPct !== null && mutationPct !== undefined
       ? String(mutationPct).includes('%')
         ? String(mutationPct)
         : `${mutationPct}%`
-      : activeSess?.manifest?.mutationScore || 'Verified (>= 80% / N/A)';
+      : activeSess?.manifest?.mutationScore || (minMut === null ? 'N/A' : `Verified (>= ${minMut}% / N/A)`);
 
   const subagent1Text =
     peerReviewSummary ||
@@ -1124,7 +1200,7 @@ export function formatConsolidatedReviewComment({
     archSecuritySummary ||
     'Verified `.archlens/policy.json` Concentric Clean Architecture ring boundaries (`Core -> UseCase -> Adapter`), zero API contract drift, and zero leaked secrets or high-severity CVEs.';
 
-  const resolvedReceiptId = receiptId || `GATE-RECEIPT-#${resolvedIssue}-${shortSha}`;
+  const resolvedReceiptId = receiptId || 'PENDING (not yet signed)';
 
   return [
     `## 🛡️ Agentic SDLC Peer Review & Quality Gate Verdict`,
@@ -1152,14 +1228,14 @@ export function formatConsolidatedReviewComment({
     `| # | Quality Gate Pillar | Requirement | Measured / Status |`,
     `| :--- | :--- | :--- | :--- |`,
     `| 1 | **Unit & Integration Tests** | 100% Pass (F.I.R.S.T.) | ✅ PASSED |`,
-    `| 2 | **Diff Test Coverage** | \`>= 85%\` | ✅ ${covVal} |`,
-    `| 3 | **Mutation Kill Score** | \`>= 80%\` (or N/A) | ✅ ${mutVal} |`,
+    `| 2 | **Diff Test Coverage** | \`>= ${minCov}%\` | ✅ ${covVal} |`,
+    `| 3 | **Mutation Kill Score** | ${mutReqLabel} | ✅ ${mutVal} |`,
     `| 4 | **Archlens Concentric Rings** | Zero Inner -> Outer Imports | ✅ PASSED |`,
     `| 5 | **Spec-Drift Sentinel** | \`PRODUCT.md\` / \`docs/adr/\` Sync | ${driftPassed ? '✅ PASSED' : '❌ FAILED'} |`,
     `| 6 | **API Contract Drift** | Zero Breaking Schema Changes | ✅ PASSED |`,
     `| 7 | **Security & CVE Audit** | Zero Secrets / High CVEs | ✅ PASSED |`,
     `| 8 | **Flake Resistance** | Deterministic Multi-Run | ✅ PASSED |`,
-    `| 9 | **Stage 7 Merkle Receipt** | HMAC-SHA256 Signed in \`docs/AUDIT_CHAIN.jsonl\` | \`${resolvedReceiptId}\` |`
+    `| 9 | **Stage 7 HMAC Receipt** | HMAC-SHA256 Signed in \`docs/AUDIT_CHAIN.jsonl\` | \`${resolvedReceiptId}\` |`
   ].join('\n');
 }
 
@@ -1234,8 +1310,9 @@ export function postPMComment({
 
   if (pm.provider === 'jira') {
     try {
+      const commentIssueId = resolvedIssueId || targetId;
       const auth = Buffer.from(`${process.env.JIRA_EMAIL || 'bot'}:${process.env.JIRA_API_TOKEN || ''}`).toString('base64');
-      const url = `${(process.env.JIRA_BASE_URL || 'https://jira.example.com').replace(/\/$/, '')}/rest/api/3/issue/${issueId}/comment`;
+      const url = `${(process.env.JIRA_BASE_URL || 'https://jira.example.com').replace(/\/$/, '')}/rest/api/3/issue/${encodeURIComponent(String(commentIssueId))}/comment`;
       const bodyPayload = JSON.stringify({
         body: {
           type: 'doc',
@@ -1243,13 +1320,19 @@ export function postPMComment({
           content: [{ type: 'paragraph', content: [{ type: 'text', text: comment }] }]
         }
       });
-      execFn(
-        'curl',
-        ['-s', '-X', 'POST', url, '-H', `Authorization: Basic ${auth}`, '-H', 'Content-Type: application/json', '-d', bodyPayload],
-        { cwd: repoRoot, stdio: 'pipe' }
-      );
-      console.log(`💬 [JIRA] Review comment posted to Jira issue ${issueId}`);
-      return { success: true, provider: 'jira', targetId: issueId, comment };
+      curlJsonRequest({
+        url,
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${auth}`,
+          'Content-Type': 'application/json'
+        },
+        body: bodyPayload,
+        cwd: repoRoot,
+        execFn
+      });
+      console.log(`💬 [JIRA] Review comment posted to Jira issue ${commentIssueId}`);
+      return { success: true, provider: 'jira', targetId: commentIssueId, comment };
     } catch (err) {
       console.warn(`⚠️ Jira comment failed: ${err.message}. Falling back to local KANBAN.md.`);
     }
@@ -1257,28 +1340,24 @@ export function postPMComment({
 
   if (pm.provider === 'linear') {
     try {
+      const commentIssueId = resolvedIssueId || targetId;
       const gql = JSON.stringify({
         query: `mutation CreateComment($issueId: String!, $body: String!) { commentCreate(input: { issueId: $issueId, body: $body }) { success } }`,
-        variables: { issueId: String(issueId), body: comment }
+        variables: { issueId: String(commentIssueId), body: comment }
       });
-      execFn(
-        'curl',
-        [
-          '-s',
-          '-X',
-          'POST',
-          'https://api.linear.app/graphql',
-          '-H',
-          `Authorization: ${process.env.LINEAR_API_KEY || ''}`,
-          '-H',
-          'Content-Type: application/json',
-          '-d',
-          gql
-        ],
-        { cwd: repoRoot, stdio: 'pipe' }
-      );
-      console.log(`💬 [LINEAR] Review comment posted to Linear issue ${issueId}`);
-      return { success: true, provider: 'linear', targetId: issueId, comment };
+      curlJsonRequest({
+        url: 'https://api.linear.app/graphql',
+        method: 'POST',
+        headers: {
+          Authorization: process.env.LINEAR_API_KEY || '',
+          'Content-Type': 'application/json'
+        },
+        body: gql,
+        cwd: repoRoot,
+        execFn
+      });
+      console.log(`💬 [LINEAR] Review comment posted to Linear issue ${commentIssueId}`);
+      return { success: true, provider: 'linear', targetId: commentIssueId, comment };
     } catch (err) {
       console.warn(`⚠️ Linear comment failed: ${err.message}. Falling back to local KANBAN.md.`);
     }
@@ -1302,7 +1381,7 @@ export function postPMComment({
     content = content + `\n\n${commentSectionHeader}${commentBlock}`;
   }
 
-  fs.writeFileSync(kanbanPath, content, 'utf8');
+  writeFileAtomic(kanbanPath, content);
   console.log(`💬 [LOCAL KANBAN] Review comment recorded in docs/KANBAN.md for #${targetId}`);
   return { success: true, provider: 'local', targetId, comment, file: 'docs/KANBAN.md' };
 }
@@ -1317,39 +1396,89 @@ export function syncKanbanBoard(repoRoot = '.') {
     try {
       let content = fs.readFileSync(kanbanPath, 'utf8');
       content = content.replace(/> \*\*Last Synced\*\*: `[^`]+`/, `> **Last Synced**: \`${now}\``);
-      fs.writeFileSync(kanbanPath, content, 'utf8');
+      writeFileAtomic(kanbanPath, content);
     } catch {}
   }
   return { success: true, provider: pm.provider, kanbanPath, syncedAt: now };
 }
 
-export function pollCIPRChecks(prNumber, { timeoutSeconds = 300, pollIntervalSeconds = 15, repoRoot = '.' } = {}) {
+export function pollCIPRChecks(
+  prNumber,
+  { timeoutSeconds = 300, pollIntervalSeconds = 15, repoRoot = '.', execFn = execFileSync } = {}
+) {
   console.log(`🛰️ Polling remote CI/CD status checks for PR #${prNumber} (timeout: ${timeoutSeconds}s)...`);
   const startTime = Date.now();
-  const safeSleepSeconds = String(Math.max(1, Math.min(60, Number(pollIntervalSeconds) || 15)));
+  const sleepMs = Math.max(50, Math.min(60000, Math.round((Number(pollIntervalSeconds) || 15) * 1000)));
+  const sleepBuf = new Int32Array(new SharedArrayBuffer(4));
+
+  const evaluateChecks = (checks) => {
+    if (!Array.isArray(checks)) return null;
+    const failed = checks.filter(
+      (c) =>
+        ['fail', 'cancel'].includes(String(c?.bucket || '').toLowerCase()) ||
+        ['FAILURE', 'ERROR', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE'].includes(
+          String(c?.state || '').toUpperCase()
+        )
+    );
+    if (failed.length > 0) {
+      return {
+        status: 'failed',
+        failedNames: failed.map((c) => c.name || 'unknown'),
+        checks
+      };
+    }
+    const pending = checks.filter(
+      (c) =>
+        String(c?.bucket || '').toLowerCase() === 'pending' ||
+        ['PENDING', 'QUEUED', 'IN_PROGRESS', 'WAITING', 'REQUESTED'].includes(String(c?.state || '').toUpperCase())
+    );
+    if (pending.length > 0) {
+      return { status: 'pending', checks };
+    }
+    return { status: 'passed', checks };
+  };
 
   while (Date.now() - startTime < timeoutSeconds * 1000) {
     try {
-      const output = execFileSync('gh', ['pr', 'checks', String(prNumber)], {
+      const output = execFn('gh', ['pr', 'checks', String(prNumber), '--json', 'name,state,bucket'], {
         cwd: repoRoot,
         encoding: 'utf8',
         stdio: 'pipe'
       });
-      if (output.includes('fail') || output.includes('error')) {
-        return { success: false, passed: false, error: 'Remote CI check failure detected.', output };
+      const checks = JSON.parse(String(output || '[]').trim() || '[]');
+      const verdict = evaluateChecks(checks);
+      if (verdict?.status === 'failed') {
+        return {
+          success: false,
+          passed: false,
+          error: `Remote CI check failure detected: ${verdict.failedNames.join(', ')}`,
+          checks: verdict.checks,
+          output
+        };
       }
-      if (output.includes('pending') || output.includes('running')) {
-        execFileSync('sleep', [safeSleepSeconds]);
+      if (verdict?.status === 'pending') {
+        Atomics.wait(sleepBuf, 0, 0, sleepMs);
         continue;
       }
-      return { success: true, passed: true, output };
+      return { success: true, passed: true, checks: verdict?.checks || [], output };
     } catch (err) {
-      if (err.stdout && (err.stdout.includes('fail') || err.stdout.includes('error'))) {
-        return { success: false, passed: false, error: 'Remote CI check failure detected.', output: err.stdout };
+      const rawErrOut = String(err?.stdout || '').trim();
+      if (rawErrOut.startsWith('[')) {
+        try {
+          const checks = JSON.parse(rawErrOut);
+          const verdict = evaluateChecks(checks);
+          if (verdict?.status === 'failed') {
+            return {
+              success: false,
+              passed: false,
+              error: `Remote CI check failure detected: ${verdict.failedNames.join(', ')}`,
+              checks: verdict.checks,
+              output: rawErrOut
+            };
+          }
+        } catch {}
       }
-      try {
-        execFileSync('sleep', [safeSleepSeconds]);
-      } catch {}
+      Atomics.wait(sleepBuf, 0, 0, sleepMs);
     }
   }
 

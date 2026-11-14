@@ -44,21 +44,46 @@ jobs:
             npm install --no-audit --no-fund
           fi
 
+      - name: Verify Spec Drift
+        run: |
+          if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
+            node .agent/scripts/sdlc-engine.mjs drift check
+          fi
+
       - name: Detect SDLC Stack & Configure Environment
         run: |
           if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
             node .agent/scripts/sdlc-engine.mjs detect
           fi
 
-      - name: Verify Universal Quality Gate, Spec Drift & Merkle Audit Chain
+      - name: Verify Universal Quality Gate & Merkle Audit Chain
         run: |
           if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
-            node .agent/scripts/sdlc-engine.mjs drift check
             node .agent/scripts/sdlc-engine.mjs audit verify
             node .agent/scripts/sdlc-engine.mjs skill-audit
-            node .agent/scripts/sdlc-engine.mjs gate --strict
+            node .agent/scripts/sdlc-engine.mjs gate --strict --no-cache
           elif npm run | grep -q 'gate'; then
             npm run gate
           else
             npm test
+          fi
+
+      - name: Verify Signed Stage 7 Gate Receipt
+        if: github.event_name == 'pull_request'
+        env:
+          SDLC_RECEIPT_KEY: ${{ secrets.SDLC_RECEIPT_KEY }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
+        run: |
+          if [ "$PR_HEAD_REPO" != "$BASE_REPO" ]; then
+            echo "::warning::Skipping Stage 7 gate receipt verification for fork pull request ($PR_HEAD_REPO)."
+            exit 0
+          fi
+          if [ -z "$SDLC_RECEIPT_KEY" ]; then
+            echo "::error::Missing SDLC_RECEIPT_KEY secret: configure the repository secret SDLC_RECEIPT_KEY to verify Stage 7 gate receipts."
+            exit 1
+          fi
+          if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
+            node .agent/scripts/sdlc-engine.mjs guard verify --sha "$PR_HEAD_SHA"
           fi

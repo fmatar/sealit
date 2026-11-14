@@ -10,6 +10,7 @@ coverage/
 .agent/.cache/
 .agent/.sdlc-session.json
 .agent/.receipt-key
+.agent/.audit-chain.lock
 .agent/skills/*/scripts/bin/
 **/skills/*/scripts/bin/
 .agent/workbench/index.html

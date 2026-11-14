@@ -1,9 +1,123 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileExists, readFileSafe } from './core.mjs';
+import { fileExists, normalizeTicketId, parseTicketId, readFileSafe, writeFileAtomic } from './core.mjs';
 
 export const DECISION_GRAPH_FILE = '.agent/decision-graph.jsonl';
 export const DECISION_MAP_MD = 'docs/DECISION_MAP.md';
+
+export function parseProductMarkdown(repoRoot = '.') {
+  const productPath = path.resolve(repoRoot, 'PRODUCT.md');
+  if (!fileExists(productPath)) {
+    return {
+      exists: false,
+      title: null,
+      vision: '',
+      capabilities: [],
+      invariants: [],
+      adrs: []
+    };
+  }
+
+  const raw = readFileSafe(productPath) || '';
+  const titleMatch = raw.match(/^#\s+(?:🏛️\s*Product Constitution:\s*)?(.+)$/m);
+  const title = titleMatch ? titleMatch[1].trim() : 'Product';
+  const visionMatch = raw.match(/##\s*1\.\s*Product Vision\s*\n+([^\n#]+)/i);
+  const vision = visionMatch ? visionMatch[1].trim() : '';
+
+  const capabilities = [];
+  const invariants = [];
+  const adrs = [];
+
+  for (const line of raw.split('\n')) {
+    const capMatch = line.match(/^\|\s*(CAP-\d+)\s*\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|/);
+    if (capMatch) {
+      const dependsRaw = capMatch[4].trim();
+      const dependsOn =
+        dependsRaw === 'None' || dependsRaw === '-'
+          ? []
+          : dependsRaw.split(',').map((s) => s.trim()).filter(Boolean);
+      capabilities.push({
+        id: capMatch[1].trim(),
+        title: capMatch[2].trim(),
+        spec: capMatch[3].trim().replace(/`/g, ''),
+        dependsOn,
+        status: capMatch[5].trim().replace(/`/g, '')
+      });
+      continue;
+    }
+
+    const invMatch = line.match(/^-\s*\*\*(INV-\d+)\*\*:\s*(.+)$/);
+    if (invMatch) {
+      invariants.push({
+        id: invMatch[1].trim(),
+        text: invMatch[2].trim()
+      });
+      continue;
+    }
+
+    const adrMatch = line.match(/^\|\s*(ADR-\d+)\s*\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|/);
+    if (adrMatch) {
+      adrs.push({
+        id: adrMatch[1].trim(),
+        title: adrMatch[2].trim(),
+        scope: adrMatch[3].trim().replace(/`/g, ''),
+        status: adrMatch[4].trim().replace(/`/g, ''),
+        ticket: adrMatch[5].trim(),
+        supersedes: adrMatch[6].trim()
+      });
+    }
+  }
+
+  return {
+    exists: true,
+    productPath,
+    title,
+    vision,
+    capabilities,
+    invariants,
+    adrs
+  };
+}
+
+export function listADRs(repoRoot = '.') {
+  const adrDir = path.resolve(repoRoot, 'docs/adr');
+  if (!fileExists(adrDir)) return [];
+
+  const files = fs
+    .readdirSync(adrDir)
+    .filter((f) => f.startsWith('ADR-') && f.endsWith('.md'))
+    .sort();
+
+  const adrs = [];
+  for (const file of files) {
+    const full = path.join(adrDir, file);
+    const raw = readFileSafe(full) || '';
+    const idMatch = file.match(/^(ADR-\d+)/);
+    const id = idMatch ? idMatch[1] : file.replace(/\.md$/, '');
+    const title = (raw.match(/^title:\s*(.+)$/m) || raw.match(/^#\s+(.+)$/m) || [null, id])[1].trim();
+    const status = (raw.match(/^status:\s*(.+)$/m) || [null, 'accepted'])[1].trim();
+    const scope = (raw.match(/^scope:\s*(.+)$/m) || [null, 'technical'])[1].trim();
+    const ticketMatch = raw.match(/^ticket:\s*(.+)$/m);
+    const supersedesRaw = (raw.match(/^supersedes:\s*(.+)$/m) || [null, ''])[1].trim();
+    const supersedes = supersedesRaw ? supersedesRaw.split(',').map((s) => s.trim()).filter(Boolean) : [];
+    const createdAt = (raw.match(/^createdAt:\s*(.+)$/m) || [null, ''])[1].trim();
+
+    adrs.push({
+      id,
+      title,
+      status,
+      scope,
+      ticketId: ticketMatch ? parseTicketId(ticketMatch[1]) : null,
+      supersedes,
+      createdAt,
+      file: `docs/adr/${file}`,
+      fullPath: full,
+      content: raw
+    });
+  }
+
+  return adrs;
+}
 
 export function appendDecisionEvent({
   type = 'DECISION_NODE',
@@ -27,7 +141,7 @@ export function appendDecisionEvent({
     label: label || id,
     category,
     status,
-    ticketId: ticketId ? Number(ticketId) || ticketId : null,
+    ticketId: parseTicketId(ticketId),
     linksTo: Array.isArray(linksTo) ? linksTo : [],
     metadata
   };
@@ -39,6 +153,7 @@ export function appendDecisionEvent({
 export function buildDecisionGraph(repoRoot = '.') {
   const nodesMap = new Map();
   const edges = [];
+  const edgeKeys = new Set();
   const timeline = [];
   const driftPivots = [];
 
@@ -51,15 +166,15 @@ export function buildDecisionGraph(repoRoot = '.') {
       else if (id.startsWith('SPEC-')) category = 'SPEC';
       else if (id.startsWith('ADR-')) category = 'ADR';
       else if (id.startsWith('ARCH-')) category = 'ARCH';
-      else if (id.startsWith('#') || id.startsWith('TICKET-')) category = 'TICKET';
+      else if (id.startsWith('#') || id.startsWith('TICKET-') || /^L-\d+$/i.test(id)) category = 'TICKET';
 
       nodesMap.set(id, {
         id,
         label: defaults.label || id,
         category,
         status: defaults.status || 'active',
-        ticketId: defaults.ticketId || null,
-        timestamp: defaults.timestamp || new Date().toISOString(),
+        ticketId: defaults.ticketId ?? null,
+        timestamp: defaults.timestamp || null,
         metadata: defaults.metadata || {}
       });
     } else if (defaults.label || defaults.status || defaults.metadata) {
@@ -75,115 +190,108 @@ export function buildDecisionGraph(repoRoot = '.') {
     if (!from || !to || from === to) return;
     ensureNode(from);
     ensureNode(to);
-    const exists = edges.some((e) => e.from === from && e.to === to && e.relation === relation);
-    if (!exists) {
+    const key = `${from}|${to}|${relation}`;
+    if (!edgeKeys.has(key)) {
+      edgeKeys.add(key);
       edges.push({ from, to, relation });
     }
   };
 
-  // 1. Hydrate from PRODUCT.md if present
-  const productPath = path.resolve(repoRoot, 'PRODUCT.md');
-  if (fileExists(productPath)) {
-    const raw = readFileSafe(productPath) || '';
-    const lines = raw.split('\n');
-    for (const line of lines) {
-      const capMatch = line.match(/^\|\s*(CAP-\d+)\s*\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|/);
-      if (capMatch) {
-        const capId = capMatch[1].trim();
-        const title = capMatch[2].trim();
-        const specCell = capMatch[3].trim();
-        const depsCell = capMatch[4].trim();
-        const statusCell = capMatch[5].trim();
-
-        ensureNode(capId, {
-          label: `${capId}: ${title}`,
-          category: 'CAPABILITY',
-          status: statusCell.replace(/`/g, '')
+  // 1. Hydrate from shared Ring 0 PRODUCT.md parser
+  const product = parseProductMarkdown(repoRoot);
+  if (product.exists) {
+    for (const cap of product.capabilities) {
+      ensureNode(cap.id, {
+        label: `${cap.id}: ${cap.title}`,
+        category: 'CAPABILITY',
+        status: cap.status
+      });
+      if (cap.spec && cap.spec !== 'N/A' && cap.spec !== '-') {
+        const specId = `SPEC-${cap.id.split('-')[1]}`;
+        ensureNode(specId, {
+          label: `${specId} (${cap.spec})`,
+          category: 'SPEC',
+          metadata: { path: cap.spec }
         });
-
-        if (specCell && specCell !== 'N/A' && specCell !== '-') {
-          const specId = `SPEC-${capId.split('-')[1]}`;
-          ensureNode(specId, {
-            label: `${specId} (${specCell.replace(/`/g, '')})`,
-            category: 'SPEC',
-            metadata: { path: specCell.replace(/`/g, '') }
-          });
-          addEdge(capId, specId, 'specified_by');
-        }
-
-        if (depsCell && depsCell !== 'None' && depsCell !== '-') {
-          for (const dep of depsCell.split(',').map((s) => s.trim()).filter(Boolean)) {
-            addEdge(capId, dep, 'depends_on');
-          }
-        }
+        addEdge(cap.id, specId, 'specified_by');
       }
-
-      const invMatch = line.match(/^-\s*\*\*(INV-\d+)\*\*:\s*(.+)$/);
-      if (invMatch) {
-        ensureNode(invMatch[1].trim(), {
-          label: `${invMatch[1].trim()}: ${invMatch[2].trim()}`,
-          category: 'INVARIANT',
-          status: 'enforced'
-        });
+      for (const dep of cap.dependsOn || []) {
+        addEdge(cap.id, dep, 'depends_on');
       }
+    }
+    for (const inv of product.invariants) {
+      ensureNode(inv.id, {
+        label: `${inv.id}: ${inv.text}`,
+        category: 'INVARIANT',
+        status: 'enforced'
+      });
     }
   }
 
-  // 2. Hydrate from docs/adr/*.md
-  const adrDir = path.resolve(repoRoot, 'docs/adr');
-  if (fileExists(adrDir)) {
-    try {
-      const files = fs.readdirSync(adrDir).filter((f) => f.startsWith('ADR-') && f.endsWith('.md')).sort();
-      for (const file of files) {
-        const full = path.join(adrDir, file);
-        const content = readFileSafe(full) || '';
-        const idMatch = file.match(/^(ADR-\d+)/);
-        const adrId = idMatch ? idMatch[1] : file.replace(/\.md$/, '');
-        const titleMatch = content.match(/^title:\s*(.+)$/m) || content.match(/^#\s+(.+)$/m);
-        const statusMatch = content.match(/^status:\s*(.+)$/m);
-        const scopeMatch = content.match(/^scope:\s*(.+)$/m);
-        const ticketMatch = content.match(/^ticket:\s*#?(\d+)/m);
-        const supersedesMatch = content.match(/^supersedes:\s*(.+)$/m);
-        const createdMatch = content.match(/^createdAt:\s*(.+)$/m);
+  // 2. Hydrate from shared Ring 0 docs/adr/*.md parser
+  const adrs = listADRs(repoRoot);
+  for (const adr of adrs) {
+    ensureNode(adr.id, {
+      label: `${adr.id}: ${adr.title}`,
+      category: 'ADR',
+      status: adr.status,
+      ticketId: adr.ticketId,
+      timestamp: adr.createdAt || null,
+      metadata: { file: adr.file, scope: adr.scope, supersedes: adr.supersedes, content: adr.content }
+    });
 
-        const title = titleMatch ? titleMatch[1].trim() : adrId;
-        const status = statusMatch ? statusMatch[1].trim() : 'accepted';
-        const scope = scopeMatch ? scopeMatch[1].trim() : 'technical';
-        const ticketId = ticketMatch ? Number(ticketMatch[1]) : null;
-        const supersedes = supersedesMatch
-          ? supersedesMatch[1].split(',').map((s) => s.trim()).filter(Boolean)
-          : [];
+    driftPivots.push({
+      id: adr.id,
+      title: adr.title,
+      scope: adr.scope,
+      status: adr.status,
+      ticketId: adr.ticketId,
+      supersedes: adr.supersedes,
+      file: adr.file
+    });
 
-        ensureNode(adrId, {
-          label: `${adrId}: ${title}`,
-          category: 'ADR',
-          status,
-          ticketId,
-          timestamp: createdMatch ? createdMatch[1].trim() : new Date().toISOString(),
-          metadata: { file: `docs/adr/${file}`, scope, supersedes, content }
-        });
+    if (adr.ticketId !== null && adr.ticketId !== undefined) {
+      const tNodeId = typeof adr.ticketId === 'number' ? `#${adr.ticketId}` : String(adr.ticketId);
+      ensureNode(tNodeId, { label: `Ticket ${tNodeId}`, category: 'TICKET', ticketId: adr.ticketId });
+      addEdge(tNodeId, adr.id, 'triggered_drift_adr');
+    }
 
-        driftPivots.push({
-          id: adrId,
-          title,
-          scope,
-          status,
-          ticketId,
-          supersedes,
-          file: `docs/adr/${file}`
-        });
+    for (const sup of adr.supersedes || []) {
+      addEdge(sup, adr.id, 'amended_by_adr');
+    }
+  }
 
-        if (ticketId) {
-          const tNodeId = `#${ticketId}`;
-          ensureNode(tNodeId, { label: `Ticket #${ticketId}`, category: 'TICKET', ticketId });
-          addEdge(tNodeId, adrId, 'triggered_drift_adr');
-        }
-
-        for (const sup of supersedes) {
-          addEdge(sup, adrId, 'amended_by_adr');
+  // 2b. Hydrate compacted ADRs from docs/SRS.md if any exist
+  const srsPath = path.resolve(repoRoot, 'docs/SRS.md');
+  if (fileExists(srsPath)) {
+    const srsRaw = readFileSafe(srsPath) || '';
+    const secIdx = srsRaw.indexOf('## Compacted Architectural Decisions');
+    if (secIdx !== -1) {
+      const section = srsRaw.slice(secIdx);
+      const seenAdrIds = new Set(driftPivots.map((d) => d.id));
+      for (const line of section.split('\n')) {
+        const m = line.match(/^\|\s*`?(ADR-\d+)`?\s*\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|/);
+        if (m) {
+          const id = m[1].trim();
+          if (seenAdrIds.has(id)) continue;
+          seenAdrIds.add(id);
+          const title = m[2].trim();
+          const scope = m[3].trim().replace(/`/g, '');
+          const ticketId = parseTicketId(m[4].trim());
+          const supRaw = m[5].trim();
+          const supersedes = supRaw && supRaw !== 'None' && supRaw !== '-' ? supRaw.split(',').map((s) => s.trim()).filter(Boolean) : [];
+          driftPivots.push({
+            id,
+            title,
+            scope,
+            status: 'compacted',
+            ticketId,
+            supersedes,
+            file: 'docs/SRS.md'
+          });
         }
       }
-    } catch {}
+    }
   }
 
   // 3. Hydrate from .agent/decision-graph.jsonl
@@ -207,7 +315,16 @@ export function buildDecisionGraph(repoRoot = '.') {
           if (evt.type === 'CAPABILITY_SPEC_SCAFFOLDED' || evt.type === 'CAPABILITY_REGISTERED') {
             addEdge(evt.id, target, 'depends_on');
           } else if (evt.type === 'ADR_CREATED' || evt.type === 'ADR_DECIDED') {
-            if (String(target).startsWith('#')) continue;
+            const strTarget = String(target);
+            const normTarget = normalizeTicketId(strTarget);
+            const normEvtTicket = normalizeTicketId(evt.ticketId);
+            if (
+              strTarget.startsWith('#') ||
+              (normEvtTicket && normTarget === normEvtTicket) ||
+              /^(L-\d+|[A-Z]+-\d+|\d+)$/i.test(strTarget)
+            ) {
+              continue;
+            }
             addEdge(target, evt.id, 'amended_by_adr');
           } else {
             addEdge(target, evt.id, 'realized_by');
@@ -257,7 +374,6 @@ export function buildDecisionGraph(repoRoot = '.') {
 export function syncDecisionMapMarkdown(repoRoot = '.') {
   const graph = buildDecisionGraph(repoRoot);
   const mapPath = path.resolve(repoRoot, DECISION_MAP_MD);
-  fs.mkdirSync(path.dirname(mapPath), { recursive: true });
 
   const sanitizeId = (id) => String(id).replace(/[^a-zA-Z0-9_]/g, '_');
   const mermaidLines = ['flowchart TD'];
@@ -275,20 +391,21 @@ export function syncDecisionMapMarkdown(repoRoot = '.') {
     mermaidLines.push(`  ${fromId} ${arrow} ${toId}`);
   }
 
+  const escPipe = (s) => String(s || '').replace(/\|/g, '/');
   const adrRows =
     graph.driftPivots.length > 0
       ? graph.driftPivots
-          .map(
-            (a) =>
-              `| **${a.id}** | ${a.title} | \`${a.scope}\` | \`${a.status}\` | ${a.ticketId ? '#' + a.ticketId : 'N/A'} | ${a.supersedes.join(', ') || 'None'} |`
-          )
+          .map((a) => {
+            const tRef = a.ticketId === null || a.ticketId === undefined ? 'N/A' : typeof a.ticketId === 'number' ? `#${a.ticketId}` : String(a.ticketId);
+            return `| **${a.id}** | ${escPipe(a.title)} | \`${a.scope}\` | \`${a.status}\` | ${tRef} | ${(a.supersedes || []).join(', ') || 'None'} |`;
+          })
           .join('\n')
       : '| *None* | No architectural drift ADRs recorded yet | - | - | - | - |';
 
   const capNodes = graph.nodes.filter((n) => n.category === 'CAPABILITY');
   const capRows =
     capNodes.length > 0
-      ? capNodes.map((c) => `| **${c.id}** | ${c.label.replace(/^CAP-\d+:\s*/, '')} | \`${c.status}\` |`).join('\n')
+      ? capNodes.map((c) => `| **${c.id}** | ${escPipe(c.label.replace(/^CAP-\d+:\s*/, ''))} | \`${c.status}\` |`).join('\n')
       : '| *None* | Run `sdlc-engine product init` to initialize `PRODUCT.md` | - |';
 
   const markdown = `# 🗺️ Causal Decision Graph & Architecture Lineage (\`DECISION_MAP.md\`)
@@ -320,7 +437,7 @@ ${adrRows}
 ${capRows}
 `;
 
-  fs.writeFileSync(mapPath, markdown, 'utf8');
+  writeFileAtomic(mapPath, markdown);
 
   return {
     success: true,

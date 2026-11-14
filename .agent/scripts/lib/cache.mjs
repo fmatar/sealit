@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { fileExists, readFileSafe } from './core.mjs';
+import { fileExists, readFileSafe, writeFileAtomic } from './core.mjs';
 
 const CACHE_REL_PATH = '.agent/.cache/gate-cache.json';
 
@@ -12,13 +12,20 @@ export function getGateCachePath(repoRoot = '.') {
 
 /**
  * Computes a deterministic SHA-256 hash representing the exact state of files
- * in a module (both git HEAD commit and any uncommitted modifications/untracked files).
+ * in a module (both git HEAD commit and any uncommitted modifications/untracked files)
+ * as well as governance config (`.agent/sdlc-config.json`, `.archlens/policy.json`).
  */
 export function computeTreeHash(repoRoot = '.', modulePath = '.') {
   const absRoot = path.resolve(repoRoot);
   const absMod = path.resolve(absRoot, modulePath);
   const hash = crypto.createHash('sha256');
   hash.update(`module:${modulePath}\n`);
+
+  for (const cfgRel of ['.agent/sdlc-config.json', '.archlens/policy.json']) {
+    const cfgAbs = path.resolve(absRoot, cfgRel);
+    const cfgContent = fileExists(cfgAbs) ? readFileSafe(cfgAbs) || '' : '';
+    hash.update(`cfg:${cfgRel}:${cfgContent}\n`);
+  }
 
   let gitAvailable = false;
   try {
@@ -43,7 +50,10 @@ export function computeTreeHash(repoRoot = '.', modulePath = '.') {
     for (const line of statusOut.split('\n')) {
       const trimmed = line.trim();
       if (trimmed.startsWith('?? ')) {
-        const relFile = trimmed.slice(3).trim();
+        let relFile = trimmed.slice(3).trim();
+        if (relFile.startsWith('"') && relFile.endsWith('"')) {
+          relFile = relFile.slice(1, -1).replace(/\\(.)/g, '$1');
+        }
         if (relFile.startsWith('.agent')) continue;
         const fullFile = path.resolve(absRoot, relFile);
         if (fs.existsSync(fullFile) && fs.statSync(fullFile).isFile()) {
@@ -89,8 +99,7 @@ function loadCacheStore(repoRoot = '.') {
 
 function saveCacheStore(repoRoot, store) {
   const cachePath = getGateCachePath(repoRoot);
-  fs.mkdirSync(path.dirname(cachePath), { recursive: true });
-  fs.writeFileSync(cachePath, JSON.stringify(store, null, 2), 'utf8');
+  writeFileAtomic(cachePath, JSON.stringify(store, null, 2));
 }
 
 export function getGateCacheHit({ checkType = 'gate', modulePath = '.', repoRoot = '.' } = {}) {

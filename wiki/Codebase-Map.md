@@ -17,75 +17,75 @@ In accordance with Concentric **Clean Architecture** and [Archlens](https://gith
 ```mermaid
 flowchart TD
   subgraph Ring0 ["Ring 0: domain-core"]
-    audit_chain_mjs["audit-chain.mjs (12 exports, I=0)"]
-    cache_mjs["cache.mjs (6 exports, I=0.5)"]
-    core_mjs["core.mjs (18 exports, I=0)"]
-    decision_graph_mjs["decision-graph.mjs (5 exports, I=0.17)"]
+    M__agent_scripts_lib_audit_chain_mjs["audit-chain.mjs (12 exports, I=0.13)"]
+    M__agent_scripts_lib_cache_mjs["cache.mjs (6 exports, I=0.5)"]
+    M__agent_scripts_lib_core_mjs["core.mjs (25 exports, I=0)"]
+    M__agent_scripts_lib_decision_graph_mjs["decision-graph.mjs (7 exports, I=0.17)"]
   end
   subgraph Ring1 ["Ring 1: governance-models"]
-    adr_drift_mjs["adr-drift.mjs (6 exports, I=0.3)"]
-    dossier_mjs["dossier.mjs (2 exports, I=0.6)"]
-    git_guard_mjs["git-guard.mjs (8 exports, I=0.5)"]
-    pm_provider_mjs["pm-provider.mjs (16 exports, I=0.17)"]
-    product_dag_mjs["product-dag.mjs (9 exports, I=0.44)"]
-    readme_sync_mjs["readme-sync.mjs (9 exports, I=0.67)"]
+    M__agent_scripts_lib_adr_drift_mjs["adr-drift.mjs (5 exports, I=0.3)"]
+    M__agent_scripts_lib_dossier_mjs["dossier.mjs (2 exports, I=0.75)"]
+    M__agent_scripts_lib_git_guard_mjs["git-guard.mjs (8 exports, I=0.5)"]
+    M__agent_scripts_lib_pm_provider_mjs["pm-provider.mjs (16 exports, I=0.17)"]
+    M__agent_scripts_lib_product_dag_mjs["product-dag.mjs (8 exports, I=0.44)"]
+    M__agent_scripts_lib_readme_sync_mjs["readme-sync.mjs (9 exports, I=0.67)"]
   end
   subgraph Ring2 ["Ring 2: adapters-orchestrators"]
-    arch_trace_mjs["arch-trace.mjs (5 exports, I=0.25)"]
-    installer_mjs["installer.mjs (26 exports, I=0.57)"]
-    quality_gate_mjs["quality-gate.mjs (29 exports, I=0.8)"]
-    session_mjs["session.mjs (16 exports, I=0.69)"]
-    wiki_sync_mjs["wiki-sync.mjs (6 exports, I=0.75)"]
-    workbench_server_mjs["workbench-server.mjs (7 exports, I=0.78)"]
+    M__agent_scripts_lib_arch_trace_mjs["arch-trace.mjs (5 exports, I=0.25)"]
+    M__agent_scripts_lib_installer_mjs["installer.mjs (26 exports, I=0.57)"]
+    M__agent_scripts_lib_quality_gate_mjs["quality-gate.mjs (29 exports, I=0.8)"]
+    M__agent_scripts_lib_session_mjs["session.mjs (16 exports, I=0.69)"]
+    M__agent_scripts_lib_wiki_sync_mjs["wiki-sync.mjs (6 exports, I=0.71)"]
+    M__agent_scripts_lib_workbench_server_mjs["workbench-server.mjs (7 exports, I=0.78)"]
   end
   subgraph Ring3 ["Ring 3: cli-entrypoints"]
-    sdlc_engine_mjs["sdlc-engine.mjs (4 exports, I=1)"]
+    M__agent_scripts_sdlc_engine_mjs["sdlc-engine.mjs (4 exports, I=1)"]
   end
-  sdlc_engine_mjs --> core_mjs
-  sdlc_engine_mjs --> cache_mjs
-  sdlc_engine_mjs --> audit_chain_mjs
-  sdlc_engine_mjs --> decision_graph_mjs
-  sdlc_engine_mjs --> product_dag_mjs
-  sdlc_engine_mjs --> adr_drift_mjs
-  sdlc_engine_mjs --> dossier_mjs
-  sdlc_engine_mjs --> git_guard_mjs
-  sdlc_engine_mjs --> pm_provider_mjs
-  sdlc_engine_mjs --> installer_mjs
-  sdlc_engine_mjs --> session_mjs
-  sdlc_engine_mjs --> arch_trace_mjs
-  sdlc_engine_mjs --> quality_gate_mjs
-  sdlc_engine_mjs --> workbench_server_mjs
-  sdlc_engine_mjs --> wiki_sync_mjs
-  sdlc_engine_mjs --> readme_sync_mjs
-  adr_drift_mjs --> core_mjs
-  adr_drift_mjs --> decision_graph_mjs
-  adr_drift_mjs --> audit_chain_mjs
-  arch_trace_mjs --> core_mjs
-  arch_trace_mjs --> session_mjs
-  cache_mjs --> core_mjs
-  decision_graph_mjs --> core_mjs
-  dossier_mjs --> core_mjs
-  dossier_mjs --> product_dag_mjs
-  dossier_mjs --> adr_drift_mjs
-  git_guard_mjs --> core_mjs
-  git_guard_mjs --> audit_chain_mjs
-  git_guard_mjs --> adr_drift_mjs
-  installer_mjs --> core_mjs
-  installer_mjs --> arch_trace_mjs
-  installer_mjs --> git_guard_mjs
-  installer_mjs --> pm_provider_mjs
-  pm_provider_mjs --> core_mjs
-  product_dag_mjs --> core_mjs
-  product_dag_mjs --> pm_provider_mjs
-  product_dag_mjs --> decision_graph_mjs
-  product_dag_mjs --> audit_chain_mjs
-  quality_gate_mjs --> core_mjs
-  quality_gate_mjs --> session_mjs
-  quality_gate_mjs --> pm_provider_mjs
-  quality_gate_mjs --> audit_chain_mjs
-  quality_gate_mjs --> adr_drift_mjs
-  quality_gate_mjs --> git_guard_mjs
-  quality_gate_mjs --> arch_trace_mjs
+  M__agent_scripts_sdlc_engine_mjs --> M__agent_scripts_lib_core_mjs
+  M__agent_scripts_sdlc_engine_mjs --> M__agent_scripts_lib_cache_mjs
+  M__agent_scripts_sdlc_engine_mjs --> M__agent_scripts_lib_audit_chain_mjs
+  M__agent_scripts_sdlc_engine_mjs --> M__agent_scripts_lib_decision_graph_mjs
+  M__agent_scripts_sdlc_engine_mjs --> M__agent_scripts_lib_product_dag_mjs
+  M__agent_scripts_sdlc_engine_mjs --> M__agent_scripts_lib_adr_drift_mjs
+  M__agent_scripts_sdlc_engine_mjs --> M__agent_scripts_lib_dossier_mjs
+  M__agent_scripts_sdlc_engine_mjs --> M__agent_scripts_lib_git_guard_mjs
+  M__agent_scripts_sdlc_engine_mjs --> M__agent_scripts_lib_pm_provider_mjs
+  M__agent_scripts_sdlc_engine_mjs --> M__agent_scripts_lib_installer_mjs
+  M__agent_scripts_sdlc_engine_mjs --> M__agent_scripts_lib_session_mjs
+  M__agent_scripts_sdlc_engine_mjs --> M__agent_scripts_lib_arch_trace_mjs
+  M__agent_scripts_sdlc_engine_mjs --> M__agent_scripts_lib_quality_gate_mjs
+  M__agent_scripts_sdlc_engine_mjs --> M__agent_scripts_lib_workbench_server_mjs
+  M__agent_scripts_sdlc_engine_mjs --> M__agent_scripts_lib_wiki_sync_mjs
+  M__agent_scripts_sdlc_engine_mjs --> M__agent_scripts_lib_readme_sync_mjs
+  M__agent_scripts_lib_adr_drift_mjs --> M__agent_scripts_lib_core_mjs
+  M__agent_scripts_lib_adr_drift_mjs --> M__agent_scripts_lib_decision_graph_mjs
+  M__agent_scripts_lib_adr_drift_mjs --> M__agent_scripts_lib_audit_chain_mjs
+  M__agent_scripts_lib_arch_trace_mjs --> M__agent_scripts_lib_core_mjs
+  M__agent_scripts_lib_arch_trace_mjs --> M__agent_scripts_lib_session_mjs
+  M__agent_scripts_lib_audit_chain_mjs --> M__agent_scripts_lib_core_mjs
+  M__agent_scripts_lib_cache_mjs --> M__agent_scripts_lib_core_mjs
+  M__agent_scripts_lib_decision_graph_mjs --> M__agent_scripts_lib_core_mjs
+  M__agent_scripts_lib_dossier_mjs --> M__agent_scripts_lib_core_mjs
+  M__agent_scripts_lib_dossier_mjs --> M__agent_scripts_lib_product_dag_mjs
+  M__agent_scripts_lib_dossier_mjs --> M__agent_scripts_lib_adr_drift_mjs
+  M__agent_scripts_lib_git_guard_mjs --> M__agent_scripts_lib_core_mjs
+  M__agent_scripts_lib_git_guard_mjs --> M__agent_scripts_lib_audit_chain_mjs
+  M__agent_scripts_lib_git_guard_mjs --> M__agent_scripts_lib_adr_drift_mjs
+  M__agent_scripts_lib_installer_mjs --> M__agent_scripts_lib_core_mjs
+  M__agent_scripts_lib_installer_mjs --> M__agent_scripts_lib_arch_trace_mjs
+  M__agent_scripts_lib_installer_mjs --> M__agent_scripts_lib_git_guard_mjs
+  M__agent_scripts_lib_installer_mjs --> M__agent_scripts_lib_pm_provider_mjs
+  M__agent_scripts_lib_pm_provider_mjs --> M__agent_scripts_lib_core_mjs
+  M__agent_scripts_lib_product_dag_mjs --> M__agent_scripts_lib_core_mjs
+  M__agent_scripts_lib_product_dag_mjs --> M__agent_scripts_lib_pm_provider_mjs
+  M__agent_scripts_lib_product_dag_mjs --> M__agent_scripts_lib_decision_graph_mjs
+  M__agent_scripts_lib_product_dag_mjs --> M__agent_scripts_lib_audit_chain_mjs
+  M__agent_scripts_lib_quality_gate_mjs --> M__agent_scripts_lib_core_mjs
+  M__agent_scripts_lib_quality_gate_mjs --> M__agent_scripts_lib_session_mjs
+  M__agent_scripts_lib_quality_gate_mjs --> M__agent_scripts_lib_pm_provider_mjs
+  M__agent_scripts_lib_quality_gate_mjs --> M__agent_scripts_lib_audit_chain_mjs
+  M__agent_scripts_lib_quality_gate_mjs --> M__agent_scripts_lib_adr_drift_mjs
+  M__agent_scripts_lib_quality_gate_mjs --> M__agent_scripts_lib_git_guard_mjs
 ```
 
 ---
@@ -96,38 +96,38 @@ flowchart TD
 
 | Source Module | Lines | $Ca$ / $Ce$ | Instability ($I$) | Exported AST Symbols (Line #) | Wiki Coverage |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `.agent/scripts/lib/audit-chain.mjs` | 367 | 7 / 0 | `0` | `AUDIT_LEDGER_FILE` (L6), `GENESIS_HASH` (L7), `calculateRecordHash` (L9), `appendAuditRecord` (L14), `verifyAuditChain` (L58), `RECEIPT_KEY_FILE` (L150), `loadReceiptKey` (L158), `signReceiptPayload` (L183) +4 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
-| `.agent/scripts/lib/cache.mjs` | 162 | 1 / 1 | `0.5` | `getGateCachePath` (L9), `computeTreeHash` (L17), `getGateCacheHit` (L96), `recordGateCache` (L110), `getGateCacheStats` (L143), `clearGateCache` (L153) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md` |
-| `.agent/scripts/lib/core.mjs` | 438 | 15 / 0 | `0` | `loadEnv` (L10), `fileExists` (L40), `readFileSafe` (L48), `execCommand` (L56), `parseCommandArgv` (L69), `runConfiguredCommand` (L187), `execAsync` (L192), `runParallelTasks` (L207) +10 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md` |
-| `.agent/scripts/lib/decision-graph.mjs` | 332 | 5 / 1 | `0.17` | `DECISION_GRAPH_FILE` (L5), `DECISION_MAP_MD` (L6), `appendDecisionEvent` (L8), `buildDecisionGraph` (L39), `syncDecisionMapMarkdown` (L257) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
+| `.agent/scripts/lib/audit-chain.mjs` | 502 | 7 / 1 | `0.13` | `AUDIT_LEDGER_FILE` (L7), `GENESIS_HASH` (L8), `calculateRecordHash` (L10), `appendAuditRecord` (L53), `verifyAuditChain` (L99), `RECEIPT_KEY_FILE` (L191), `loadReceiptKey` (L199), `signReceiptPayload` (L241) +4 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
+| `.agent/scripts/lib/cache.mjs` | 171 | 1 / 1 | `0.5` | `getGateCachePath` (L9), `computeTreeHash` (L18), `getGateCacheHit` (L105), `recordGateCache` (L119), `getGateCacheStats` (L152), `clearGateCache` (L162) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md` |
+| `.agent/scripts/lib/core.mjs` | 595 | 16 / 0 | `0` | `loadEnv` (L10), `fileExists` (L40), `readFileSafe` (L48), `normalizeTicketId` (L56), `parseTicketId` (L63), `resolveInsideRepo` (L69), `writeFileAtomic` (L82), `loadConfig` (L90) +17 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md` |
+| `.agent/scripts/lib/decision-graph.mjs` | 449 | 5 / 1 | `0.17` | `DECISION_GRAPH_FILE` (L5), `DECISION_MAP_MD` (L6), `parseProductMarkdown` (L8), `listADRs` (L82), `appendDecisionEvent` (L122), `buildDecisionGraph` (L153), `syncDecisionMapMarkdown` (L374) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
 
 ### 🏛️ Ring 1: governance-models
 
 | Source Module | Lines | $Ca$ / $Ce$ | Instability ($I$) | Exported AST Symbols (Line #) | Wiki Coverage |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `.agent/scripts/lib/adr-drift.mjs` | 779 | 7 / 3 | `0.3` | `listADRs` (L53), `createADR` (L111), `decideADR` (L216), `compactADRs` (L289), `checkSpecDrift` (L529), `auditContractDrift` (L667) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
-| `.agent/scripts/lib/dossier.mjs` | 117 | 2 / 3 | `0.6` | `extractExportSignatures` (L7), `generateTicketDossier` (L23) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md` |
-| `.agent/scripts/lib/git-guard.mjs` | 420 | 3 / 3 | `0.5` | `verifyCommitGuard` (L42), `verifyMergeGuard` (L100), `verifyPushGuard` (L156), `buildHookTemplates` (L190), `inspectHooksHealth` (L260), `installHooks` (L306), `DEFAULT_QUALITY_GATE_CHECK` (L341), `applyBranchProtection` (L347) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
-| `.agent/scripts/lib/pm-provider.mjs` | 1382 | 5 / 1 | `0.17` | `CANONICAL_ISSUE_TEMPLATES` (L6), `scaffoldIssueTemplates` (L108), `loadIssueTemplate` (L130), `formatTemplatedIssue` (L184), `updateLocalKanbanState` (L249), `transitionPMState` (L332), `createTicket` (L652), `resolveOpenPRNumber` (L923) +8 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
-| `.agent/scripts/lib/product-dag.mjs` | 837 | 5 / 4 | `0.44` | `renderCapabilitySpecMarkdown` (L10), `renderProductPrdMarkdown` (L61), `renderProductSrsMarkdown` (L110), `initProductConstitution` (L185), `scaffoldCapabilitySpec` (L387), `parseProductMarkdown` (L563), `planProductDAG` (L637), `controlProductDAG` (L705) +1 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
-| `.agent/scripts/lib/readme-sync.mjs` | 898 | 1 / 2 | `0.67` | `escapeXml` (L105), `slugifyHeadingAnchor` (L114), `detectReadmeArchetype` (L137), `stripArchetypeBlocks` (L182), `renderThemeWordmarkSvg` (L199), `renderVhsDemoTape` (L223), `renderLlmsTxt` (L249), `scaffoldReadme` (L432) +1 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
+| `.agent/scripts/lib/adr-drift.mjs` | 853 | 7 / 3 | `0.3` | `createADR` (L86), `decideADR` (L206), `compactADRs` (L291), `checkSpecDrift` (L536), `auditContractDrift` (L730) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
+| `.agent/scripts/lib/dossier.mjs` | 130 | 1 / 3 | `0.75` | `extractExportSignatures` (L7), `generateTicketDossier` (L23) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md` |
+| `.agent/scripts/lib/git-guard.mjs` | 419 | 3 / 3 | `0.5` | `verifyCommitGuard` (L24), `verifyMergeGuard` (L82), `verifyPushGuard` (L157), `buildHookTemplates` (L191), `inspectHooksHealth` (L259), `installHooks` (L305), `DEFAULT_QUALITY_GATE_CHECK` (L340), `applyBranchProtection` (L346) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
+| `.agent/scripts/lib/pm-provider.mjs` | 1511 | 5 / 1 | `0.17` | `CANONICAL_ISSUE_TEMPLATES` (L80), `scaffoldIssueTemplates` (L182), `loadIssueTemplate` (L204), `formatTemplatedIssue` (L258), `updateLocalKanbanState` (L335), `transitionPMState` (L423), `createTicket` (L745), `resolveOpenPRNumber` (L996) +8 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
+| `.agent/scripts/lib/product-dag.mjs` | 845 | 5 / 4 | `0.44` | `renderCapabilitySpecMarkdown` (L62), `renderProductPrdMarkdown` (L115), `renderProductSrsMarkdown` (L166), `initProductConstitution` (L243), `scaffoldCapabilitySpec` (L446), `planProductDAG` (L626), `controlProductDAG` (L705), `deconstructEpic` (L759) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
+| `.agent/scripts/lib/readme-sync.mjs` | 911 | 1 / 2 | `0.67` | `escapeXml` (L105), `slugifyHeadingAnchor` (L114), `detectReadmeArchetype` (L137), `stripArchetypeBlocks` (L182), `renderThemeWordmarkSvg` (L199), `renderVhsDemoTape` (L223), `renderLlmsTxt` (L249), `scaffoldReadme` (L446) +1 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
 
 ### 🏛️ Ring 2: adapters-orchestrators
 
 | Source Module | Lines | $Ca$ / $Ce$ | Instability ($I$) | Exported AST Symbols (Line #) | Wiki Coverage |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `.agent/scripts/lib/arch-trace.mjs` | 427 | 6 / 2 | `0.25` | `checkArchDiff` (L6), `parseMermaidDiagram` (L156), `diffMermaidGraphs` (L228), `recordArchTrace` (L252), `scaffoldArchlensPolicy` (L366) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
-| `.agent/scripts/lib/installer.mjs` | 1485 | 3 / 4 | `0.57` | `DEPRECATED_SDLC_SKILLS` (L10), `CANONICAL_SDLC_SKILLS` (L27), `ARCHLENS_SKILL_PACKAGE` (L40), `DEFAULT_GITIGNORE_ENTRIES` (L42), `upsertGitignore` (L52), `pinArchlensMcpConfigs` (L66), `SUPPORTED_AGENTS` (L82), `getFrameworkVersion` (L150) +18 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md` |
-| `.agent/scripts/lib/quality-gate.mjs` | 2272 | 2 / 8 | `0.8` | `runDoctor` (L26), `generateRegressionProof` (L138), `monitorCanaryHealthAndWatchdog` (L299), `installCIWorkflow` (L412), `exportAgentRules` (L684), `scaffoldReproductionTest` (L701), `assessRisk` (L819), `VALID_LANES` (L893) +21 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md` |
-| `.agent/scripts/lib/session.mjs` | 877 | 4 / 9 | `0.69` | `getSessionPath` (L17), `getSessionStatus` (L21), `startSession` (L57), `updateSession` (L140), `switchSession` (L214), `listSessions` (L236), `renderDashboard` (L258), `resumeSession` (L295) +8 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Home.md`, `wiki/Skills-Reference.md` |
-| `.agent/scripts/lib/wiki-sync.mjs` | 749 | 2 / 6 | `0.75` | `inspectSourceModule` (L36), `resolveArchlensRing` (L104), `buildWikiCodeMap` (L138), `auditWiki` (L326), `renderCodebaseMapMarkdown` (L526), `syncWiki` (L677) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
-| `.agent/scripts/lib/workbench-server.mjs` | 2667 | 2 / 7 | `0.78` | `parseKanbanMarkdown` (L63), `parseArchTraceMarkdown` (L144), `buildArchDiffPayload` (L178), `generateArchitectureWidget` (L255), `renderWorkbenchHTML` (L853), `ensureWorkbenchRunning` (L2428), `createWorkbenchServer` (L2466) | `wiki/Architecture.md`, `wiki/Codebase-Map.md` |
+| `.agent/scripts/lib/arch-trace.mjs` | 492 | 6 / 2 | `0.25` | `checkArchDiff` (L16), `parseMermaidDiagram` (L191), `diffMermaidGraphs` (L268), `recordArchTrace` (L292), `scaffoldArchlensPolicy` (L431) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
+| `.agent/scripts/lib/installer.mjs` | 1513 | 3 / 4 | `0.57` | `DEPRECATED_SDLC_SKILLS` (L10), `CANONICAL_SDLC_SKILLS` (L27), `ARCHLENS_SKILL_PACKAGE` (L40), `DEFAULT_GITIGNORE_ENTRIES` (L42), `upsertGitignore` (L52), `pinArchlensMcpConfigs` (L66), `SUPPORTED_AGENTS` (L82), `getFrameworkVersion` (L150) +18 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md` |
+| `.agent/scripts/lib/quality-gate.mjs` | 2532 | 2 / 8 | `0.8` | `runDoctor` (L29), `generateRegressionProof` (L141), `monitorCanaryHealthAndWatchdog` (L325), `installCIWorkflow` (L438), `exportAgentRules` (L865), `scaffoldReproductionTest` (L882), `assessRisk` (L1000), `VALID_LANES` (L1074) +21 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md` |
+| `.agent/scripts/lib/session.mjs` | 899 | 4 / 9 | `0.69` | `getSessionPath` (L24), `getSessionStatus` (L28), `startSession` (L64), `updateSession` (L147), `switchSession` (L231), `listSessions` (L253), `renderDashboard` (L277), `resumeSession` (L314) +8 more | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Home.md`, `wiki/Skills-Reference.md` |
+| `.agent/scripts/lib/wiki-sync.mjs` | 796 | 2 / 5 | `0.71` | `inspectSourceModule` (L97), `resolveArchlensRing` (L149), `buildWikiCodeMap` (L183), `auditWiki` (L371), `renderCodebaseMapMarkdown` (L571), `syncWiki` (L724) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
+| `.agent/scripts/lib/workbench-server.mjs` | 2749 | 2 / 7 | `0.78` | `parseKanbanMarkdown` (L94), `parseArchTraceMarkdown` (L175), `buildArchDiffPayload` (L209), `generateArchitectureWidget` (L286), `renderWorkbenchHTML` (L901), `ensureWorkbenchRunning` (L2491), `createWorkbenchServer` (L2529) | `wiki/Architecture.md`, `wiki/Codebase-Map.md` |
 
 ### 🏛️ Ring 3: cli-entrypoints
 
 | Source Module | Lines | $Ca$ / $Ce$ | Instability ($I$) | Exported AST Symbols (Line #) | Wiki Coverage |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `.agent/scripts/sdlc-engine.mjs` | 2532 | 0 / 16 | `1` | `executeRelease` (L387), `runCLI` (L633), `formatCLIResult` (L2284), `cliExitCode` (L2513) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Home.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
+| `.agent/scripts/sdlc-engine.mjs` | 2664 | 0 / 16 | `1` | `executeRelease` (L431), `runCLI` (L685), `formatCLIResult` (L2401), `cliExitCode` (L2641) | `wiki/Architecture.md`, `wiki/Codebase-Map.md`, `wiki/Home.md`, `wiki/Skills-Reference.md`, `wiki/Traceability.md` |
 
 
 ---
@@ -153,10 +153,10 @@ flowchart TD
 
 | Capability ID | Title | Functional Spec | Status | Depends On |
 | :--- | :--- | :--- | :--- | :--- |
-| **CAP-01** | Composite Stage CLI & Session Hygiene (#68) | `docs/specs/cap-01-composite-stage-session.md` | `AMENDED (ADR-014)` | None |
+| **CAP-01** | Composite Stage CLI & Session Hygiene (#68) | `docs/specs/cap-01-composite-stage-session.md` | `AMENDED (ADR-015)` | None |
 | **CAP-02** | Shell Injection Remediation & Polyglot Test Runners (#69) | `docs/specs/cap-02-security-polyglot-runners.md` | `AMENDED (ADR-006)` | None |
 | **CAP-03** | Real Coverage/Mutation Parsers & Policy ArchDiff (#70) | `docs/specs/cap-03-real-dual-gate-archdiff.md` | `AMENDED (ADR-013)` | CAP-01, CAP-02 |
-| **CAP-04** | Live Canary Watchdog, Real Proofs & Polyglot Reproduce (#71) | `docs/specs/cap-04-live-probes-reproduce.md` | `AMENDED (ADR-014)` | CAP-02 |
+| **CAP-04** | Live Canary Watchdog, Real Proofs & Polyglot Reproduce (#71) | `docs/specs/cap-04-live-probes-reproduce.md` | `AMENDED (ADR-015)` | CAP-02 |
 | **CAP-05** | Consolidate 14 Skills into 6 Schema-Valid Core Skills (#72) | `docs/specs/cap-05-skill-consolidation.md` | `AMENDED (ADR-011)` | CAP-03, CAP-04 |
 | **CAP-06** | Dogfooding Configuration, Docs Sync & Full Test Suite (#73) | `docs/specs/cap-06-dogfood-docs-tests.md` | `AMENDED (ADR-014)` | CAP-05 |
 | **CAP-07** | Native `npx` Multi-Agent Interactive Installer & Legacy Installer Removal (#75) | `docs/specs/cap-07-npx-multi-agent-installer.md` | `AMENDED (ADR-011)` | CAP-06 |
@@ -177,6 +177,7 @@ flowchart TD
 | **ADR-012** | Reset Package, Plugin, and Documentation Version Baseline to 0.0.1 | `technical` | `accepted` | CAP-06, ADR-009 |
 | **ADR-013** | Harden Release Gate, Opt-In Issue Creation, Universal ADR Approval, Diff Review Plans, and Node 24 CI Actions | `technical` | `accepted` | CAP-01, CAP-03, CAP-06 |
 | **ADR-014** | Canonical Git Flow: Enforce Merges to Develop, Block Direct PRs to Main, and Automate Production Releases on Develop Merge | `technical` | `accepted` | CAP-01, CAP-04, CAP-06 |
+| **ADR-015** | Harden Stage 7 Gate Receipts, Ring 0 Primitives, and Git Flow Verification | `technical` | `accepted` | CAP-01, CAP-04 |
 
 ---
 

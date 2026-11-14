@@ -9,13 +9,16 @@ import {
   inspectArchlens,
   detectPMProvider,
   getModifiedFiles,
-  gitDiffForFile,
+  getUnifiedDiffByFile,
   gitOutput,
   parseCommandArgv,
   runConfiguredCommand,
-  resolveDefaultBaseBranch
+  resolveDefaultBaseBranch,
+  loadConfig,
+  writeFileAtomic,
+  parseTicketId
 } from './core.mjs';
-import { getSessionStatus } from './session.mjs';
+import { getSessionStatus, getExemptions } from './session.mjs';
 import { createTicket, scaffoldIssueTemplates } from './pm-provider.mjs';
 import { appendAuditRecord } from './audit-chain.mjs';
 import { auditContractDrift, checkSpecDrift } from './adr-drift.mjs';
@@ -158,14 +161,16 @@ export function generateRegressionProof({
     const pathUrl = ep.path || ep.url || `/api/v1/${targetName}`;
     let status = ep.expectedStatus || 200;
     let bodySample = ep.sampleResponse || { status: 'ok', timestamp };
-    let source = 'contract-sample';
+    let source = ep.sampleResponse ? 'sample' : 'contract-sample';
+    let verified = false;
 
     if (ep.file && fileExists(path.resolve(repoRoot, ep.file))) {
       bodySample = readFileSafe(path.resolve(repoRoot, ep.file)) || bodySample;
       source = ep.file;
+      verified = true;
     } else if (ep.liveProbe && /^https?:\/\//i.test(pathUrl)) {
       try {
-        const liveOut = execFileSync('curl', ['-s', '--max-time', '2', pathUrl], {
+        const liveOut = execFileSync('curl', ['-sS', '-f', '--max-time', '2', pathUrl], {
           cwd: repoRoot,
           encoding: 'utf8',
           stdio: 'pipe'
@@ -173,8 +178,15 @@ export function generateRegressionProof({
         if (liveOut) {
           bodySample = liveOut;
           source = 'live-http';
+          verified = true;
+        } else {
+          source = 'live-probe-fallback';
+          verified = false;
         }
-      } catch {}
+      } catch {
+        source = 'live-probe-fallback';
+        verified = false;
+      }
     }
 
     const hash = crypto.createHash('sha256').update(JSON.stringify({ method, pathUrl, status, bodySample })).digest('hex');
@@ -186,7 +198,7 @@ export function generateRegressionProof({
       status,
       source,
       responseHash: hash,
-      verified: true
+      verified
     };
   });
 
@@ -226,7 +238,7 @@ export function generateRegressionProof({
       component: componentName,
       sourceFile,
       snapshotHash,
-      verified: true
+      verified: Boolean(sourceFile)
     };
   });
 
@@ -235,13 +247,27 @@ export function generateRegressionProof({
 
   const apiRows =
     apiProofs.length > 0
-      ? apiProofs.map((p) => `| \`${p.method}\` | \`${p.endpoint}\` | \`${p.status}\` | \`${p.responseHash.slice(0, 16)}...\` | ✅ VERIFIED |`).join('\n')
-      : `| \`GET\` | \`/health\` | \`200\` | \`${fallbackApiHash}...\` | ✅ VERIFIED |`;
+      ? apiProofs
+          .map(
+            (p) =>
+              `| \`${p.method}\` | \`${p.endpoint}\` | \`${p.status}\` | \`${p.responseHash.slice(0, 16)}...\` | ${
+                p.verified ? '✅ VERIFIED' : p.source === 'sample' ? '⚠️ SAMPLE (not probed)' : '⚠️ UNVERIFIED (fallback)'
+              } |`
+          )
+          .join('\n')
+      : `| \`GET\` | \`/health\` | \`200\` | \`${fallbackApiHash}...\` | ⚠️ SAMPLE (not probed) |`;
 
   const uiRows =
     uiProofs.length > 0
-      ? uiProofs.map((u) => `| \`${u.route}\` | \`${u.component}\` | \`${u.snapshotHash.slice(0, 16)}...\` | ✅ VERIFIED |`).join('\n')
-      : `| \`/\` | \`RootView\` | \`${fallbackUiHash}...\` | ✅ VERIFIED |`;
+      ? uiProofs
+          .map(
+            (u) =>
+              `| \`${u.route}\` | \`${u.component}\` | \`${u.snapshotHash.slice(0, 16)}...\` | ${
+                u.verified ? '✅ VERIFIED' : '⚠️ UNVERIFIED (fallback)'
+              } |`
+          )
+          .join('\n')
+      : `| \`/\` | \`RootView\` | \`${fallbackUiHash}...\` | ⚠️ SAMPLE (not probed) |`;
 
   const markdownProof = `# 🧾 Automated Delivery Regression Proof: ${targetName}
 **Generated:** ${timestamp}  
@@ -270,7 +296,7 @@ ${uiRows}
 `;
 
   const proofFilePath = path.resolve(proofsDir, `${proofId}.md`);
-  fs.writeFileSync(proofFilePath, markdownProof, 'utf8');
+  writeFileAtomic(proofFilePath, markdownProof);
 
   appendAuditRecord({
     event: 'REGRESSION_PROOF_GENERATED',
@@ -369,8 +395,8 @@ export function monitorCanaryHealthAndWatchdog({
         rollbackOutput = err.message;
       }
     } else {
-      rollbackExecuted = true;
-      rollbackOutput = 'Simulated automatic deployment drain & rollback executed.';
+      rollbackExecuted = false;
+      rollbackOutput = 'No rollbackCommand configured; automatic deployment drain advisory logged (not executed).';
     }
 
     appendAuditRecord({
@@ -420,20 +446,57 @@ export function installCIWorkflow({ repoRoot = '.', force = false, runsOn = null
     return { success: true, created: false, path: workflowPath, reason: 'Already exists' };
   }
 
-  let configuredRunsOn = runsOn;
-  if (!configuredRunsOn) {
-    const cfgPath = path.resolve(repoRoot, '.agent/sdlc-config.json');
-    if (fileExists(cfgPath)) {
-      try {
-        const cfg = JSON.parse(readFileSafe(cfgPath) || '{}');
-        if (cfg?.ci?.runsOn) {
-          configuredRunsOn = cfg.ci.runsOn;
-        }
-      } catch {}
-    }
+  const isDefaultRunsOn = (val) => {
+    if (typeof val !== 'string') return false;
+    const trimmed = val.trim();
+    return (
+      trimmed === 'ubuntu-latest' ||
+      trimmed === 'self-hosted' ||
+      trimmed === "${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}" ||
+      trimmed === "${{ vars.SDLC_RUNS_ON || 'self-hosted' }}"
+    );
+  };
+
+  let cfgRunsOn = null;
+  const cfgPath = path.resolve(repoRoot, '.agent/sdlc-config.json');
+  if (fileExists(cfgPath)) {
+    try {
+      const cfg = JSON.parse(readFileSafe(cfgPath) || '{}');
+      if (cfg?.ci?.runsOn) {
+        cfgRunsOn = cfg.ci.runsOn;
+      }
+    } catch {}
   }
 
-  let runsOnYaml = "${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}";
+  let configuredRunsOn = runsOn;
+  if (!configuredRunsOn && cfgRunsOn && !isDefaultRunsOn(cfgRunsOn)) {
+    configuredRunsOn = cfgRunsOn;
+  }
+  if (!configuredRunsOn && fs.existsSync(workflowPath)) {
+    try {
+      const existingWorkflow = readFileSafe(workflowPath);
+      const runsOnMatch = existingWorkflow.match(/^[ \t]*runs-on:[ \t]*(.+)$/m);
+      if (runsOnMatch) {
+        let existingVal = runsOnMatch[1].replace(/\s+#.*$/, '').trim();
+        if (existingVal.startsWith('[') && existingVal.endsWith(']')) {
+          try {
+            const parsed = JSON.parse(existingVal);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              existingVal = parsed;
+            }
+          } catch {}
+        }
+        if (existingVal && !isDefaultRunsOn(existingVal)) {
+          configuredRunsOn = existingVal;
+        }
+      }
+    } catch {}
+  }
+  if (!configuredRunsOn && cfgRunsOn) {
+    configuredRunsOn = cfgRunsOn;
+  }
+
+  let runsOnYaml = "${{ vars.SDLC_RUNS_ON || 'self-hosted' }}";
   if (Array.isArray(configuredRunsOn) && configuredRunsOn.length > 0) {
     for (const item of configuredRunsOn) {
       if (/[\r\n]/.test(String(item))) {
@@ -494,27 +557,52 @@ jobs:
             npm install --no-audit --no-fund
           fi
 
+      - name: Verify Spec Drift
+        run: |
+          if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
+            node .agent/scripts/sdlc-engine.mjs drift check
+          fi
+
       - name: Detect SDLC Stack & Configure Environment
         run: |
           if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
             node .agent/scripts/sdlc-engine.mjs detect
           fi
 
-      - name: Verify Universal Quality Gate, Spec Drift & Merkle Audit Chain
+      - name: Verify Universal Quality Gate & Merkle Audit Chain
         run: |
           if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
-            node .agent/scripts/sdlc-engine.mjs drift check
             node .agent/scripts/sdlc-engine.mjs audit verify
             node .agent/scripts/sdlc-engine.mjs skill-audit
-            node .agent/scripts/sdlc-engine.mjs gate --strict
+            node .agent/scripts/sdlc-engine.mjs gate --strict --no-cache
           elif npm run | grep -q 'gate'; then
             npm run gate
           else
             npm test
           fi
+
+      - name: Verify Signed Stage 7 Gate Receipt
+        if: github.event_name == 'pull_request'
+        env:
+          SDLC_RECEIPT_KEY: \${{ secrets.SDLC_RECEIPT_KEY }}
+          PR_HEAD_SHA: \${{ github.event.pull_request.head.sha }}
+          PR_HEAD_REPO: \${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: \${{ github.repository }}
+        run: |
+          if [ "\$PR_HEAD_REPO" != "\$BASE_REPO" ]; then
+            echo "::warning::Skipping Stage 7 gate receipt verification for fork pull request (\$PR_HEAD_REPO)."
+            exit 0
+          fi
+          if [ -z "\$SDLC_RECEIPT_KEY" ]; then
+            echo "::error::Missing SDLC_RECEIPT_KEY secret: configure the repository secret SDLC_RECEIPT_KEY to verify Stage 7 gate receipts."
+            exit 1
+          fi
+          if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
+            node .agent/scripts/sdlc-engine.mjs guard verify --sha "\$PR_HEAD_SHA"
+          fi
 `;
 
-  fs.writeFileSync(workflowPath, workflowContent, 'utf8');
+  writeFileAtomic(workflowPath, workflowContent);
   console.log(`✅ GitHub Actions workflow scaffolded at ${workflowPath}`);
 
   const branchFlowPath = path.resolve(workflowDir, 'enforce-branch-flow.yml');
@@ -550,7 +638,7 @@ jobs:
           echo "Branch policy validated: PR targeting 'main' originates from 'develop'."
 `;
   if (!fs.existsSync(branchFlowPath) || force) {
-    fs.writeFileSync(branchFlowPath, branchFlowContent, 'utf8');
+    writeFileAtomic(branchFlowPath, branchFlowContent);
     console.log(`✅ GitHub Actions branch flow policy scaffolded at ${branchFlowPath}`);
   }
 
@@ -602,33 +690,75 @@ jobs:
 
       - name: Verify Strict Quality Gate
         run: |
-          node .agent/scripts/sdlc-engine.mjs gate --strict
+          node .agent/scripts/sdlc-engine.mjs gate --strict --no-cache
 
       - name: Inspect Package Version & Release Tag
         id: version_check
+        env:
+          GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}
         run: |
+          PKG_NAME=\$(node -p "require('./package.json').name || ''" || true)
           VERSION=\$(node -p "require('./package.json').version")
           TAG="v\${VERSION}"
+          echo "pkg_name=\${PKG_NAME}" >> \$GITHUB_OUTPUT
           echo "version=\${VERSION}" >> \$GITHUB_OUTPUT
           echo "tag=\${TAG}" >> \$GITHUB_OUTPUT
           if git rev-parse -q --verify "refs/tags/\${TAG}" >/dev/null 2>&1; then
             echo "tag_exists=true" >> \$GITHUB_OUTPUT
-            echo "Release tag \${TAG} already exists. Skipping release creation."
+            echo "Release tag \${TAG} already exists."
           else
             echo "tag_exists=false" >> \$GITHUB_OUTPUT
-            echo "Release tag \${TAG} does not exist. Release will be created."
+            echo "Release tag \${TAG} does not exist yet."
+          fi
+          RELEASE_EXISTS=false
+          if command -v gh >/dev/null 2>&1 && gh release view "\${TAG}" >/dev/null 2>&1; then
+            RELEASE_EXISTS=true
+          elif node -e "
+            const https = require('node:https');
+            const [owner, repo] = (process.env.GITHUB_REPOSITORY || '').split('/');
+            const tag = process.argv[1] || '';
+            if (!owner || !repo || !tag) process.exit(1);
+            const req = https.get({
+              hostname: 'api.github.com',
+              path: '/repos/' + owner + '/' + repo + '/releases/tags/' + encodeURIComponent(tag),
+              headers: {
+                'User-Agent': 'agentic-sdlc-release',
+                'Authorization': 'token ' + (process.env.GH_TOKEN || '')
+              }
+            }, (res) => {
+              res.resume();
+              process.exit(res.statusCode === 200 ? 0 : 1);
+            });
+            req.on('error', () => process.exit(1));
+          " "\${TAG}" >/dev/null 2>&1; then
+            RELEASE_EXISTS=true
+          fi
+          if [ "\$RELEASE_EXISTS" = "true" ]; then
+            echo "release_exists=true" >> \$GITHUB_OUTPUT
+            echo "GitHub Release \${TAG} already exists."
+          else
+            echo "release_exists=false" >> \$GITHUB_OUTPUT
+            echo "GitHub Release \${TAG} does not exist yet."
+          fi
+          if [ -n "\${PKG_NAME}" ] && npm view "\${PKG_NAME}@\${VERSION}" version >/dev/null 2>&1; then
+            echo "npm_published=true" >> \$GITHUB_OUTPUT
+            echo "npm package \${PKG_NAME}@\${VERSION} is already published."
+          else
+            echo "npm_published=false" >> \$GITHUB_OUTPUT
+            echo "npm package \${PKG_NAME}@\${VERSION} is not yet published."
           fi
 
       - name: Extract Release Notes from CHANGELOG.md
-        if: steps.version_check.outputs.tag_exists == 'false'
+        if: steps.version_check.outputs.release_exists == 'false'
         id: release_notes
         env:
           VERSION: \${{ steps.version_check.outputs.version }}
           TAG: \${{ steps.version_check.outputs.tag }}
         run: |
           awk -v ver="\$VERSION" '
-            \$0 ~ "^## \\\\[" ver "\\\\]" { found=1; next }
-            found && /^## \\[/ { exit }
+            { sub(/\\r\$/, "") }
+            index(\$0, "## [" ver "]") == 1 { found=1; next }
+            found && index(\$0, "## [") == 1 { exit }
             found { print }
           ' CHANGELOG.md > release-notes.md || true
           if [ ! -s release-notes.md ]; then
@@ -638,63 +768,73 @@ jobs:
           cat release-notes.md
 
       - name: Create Git Tag & GitHub Release
-        if: steps.version_check.outputs.tag_exists == 'false'
+        if: steps.version_check.outputs.tag_exists == 'false' || steps.version_check.outputs.release_exists == 'false'
         env:
           GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}
           TAG: \${{ steps.version_check.outputs.tag }}
           VERSION: \${{ steps.version_check.outputs.version }}
+          TAG_EXISTS: \${{ steps.version_check.outputs.tag_exists }}
+          RELEASE_EXISTS: \${{ steps.version_check.outputs.release_exists }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "\$TAG" -m "Release \$TAG"
-          git push origin "\$TAG"
-          if command -v gh >/dev/null 2>&1; then
-            gh release create "\$TAG" \\
-              --title "Release \$TAG" \\
-              --notes-file release-notes.md
-          else
-            node -e "
-              const fs = require('node:fs');
-              const https = require('node:https');
-              const body = fs.readFileSync('release-notes.md', 'utf8');
-              const payload = JSON.stringify({
-                tag_name: process.env.TAG,
-                name: 'Release ' + process.env.TAG,
-                body,
-                draft: false,
-                prerelease: false
-              });
-              const [owner, repo] = (process.env.GITHUB_REPOSITORY || '').split('/');
-              const req = https.request({
-                hostname: 'api.github.com',
-                path: '/repos/' + owner + '/' + repo + '/releases',
-                method: 'POST',
-                headers: {
-                  'User-Agent': 'agentic-sdlc-release',
-                  'Authorization': 'token ' + process.env.GH_TOKEN,
-                  'Content-Type': 'application/json',
-                  'Content-Length': Buffer.byteLength(payload)
-                }
-              }, res => {
-                let data = '';
-                res.on('data', chunk => data += chunk);
-                res.on('end', () => {
-                  console.log('GitHub Release API Status:', res.statusCode);
-                  if (res.statusCode >= 400) {
-                    console.error('API Error:', data);
-                    process.exit(1);
-                  }
-                  console.log('GitHub Release created successfully via REST API.');
+          if [ "\${TAG_EXISTS}" != "true" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag -a "\$TAG" -m "Release \$TAG"
+            git push origin "\$TAG"
+          fi
+          if [ "\${RELEASE_EXISTS}" != "true" ]; then
+            if command -v gh >/dev/null 2>&1; then
+              gh release create "\$TAG" \\
+                --title "Release \$TAG" \\
+                --notes-file release-notes.md
+            else
+              node -e "
+                const fs = require('node:fs');
+                const https = require('node:https');
+                const body = fs.readFileSync('release-notes.md', 'utf8');
+                const payload = JSON.stringify({
+                  tag_name: process.env.TAG,
+                  name: 'Release ' + process.env.TAG,
+                  body,
+                  draft: false,
+                  prerelease: false
                 });
-              });
-              req.on('error', err => { console.error(err); process.exit(1); });
-              req.write(payload);
-              req.end();
-            "
+                const [owner, repo] = (process.env.GITHUB_REPOSITORY || '').split('/');
+                const req = https.request({
+                  hostname: 'api.github.com',
+                  path: '/repos/' + owner + '/' + repo + '/releases',
+                  method: 'POST',
+                  headers: {
+                    'User-Agent': 'agentic-sdlc-release',
+                    'Authorization': 'token ' + process.env.GH_TOKEN,
+                    'Content-Type': 'application/json',
+                    'Content-Length': Buffer.byteLength(payload)
+                  }
+                }, res => {
+                  let data = '';
+                  res.on('data', chunk => data += chunk);
+                  res.on('end', () => {
+                    console.log('GitHub Release API Status:', res.statusCode);
+                    if (res.statusCode === 422 && data.includes('already_exists')) {
+                      console.log('GitHub Release already exists (already_exists); continuing idempotently.');
+                      return;
+                    }
+                    if (res.statusCode >= 400) {
+                      console.error('API Error:', data);
+                      process.exit(1);
+                    }
+                    console.log('GitHub Release created successfully via REST API.');
+                  });
+                });
+                req.on('error', err => { console.error(err); process.exit(1); });
+                req.write(payload);
+                req.end();
+              "
+            fi
           fi
 
       - name: Publish Package to NPM (When NPM_TOKEN is configured)
-        if: steps.version_check.outputs.tag_exists == 'false'
+        if: steps.version_check.outputs.npm_published == 'false'
         env:
           NODE_AUTH_TOKEN: \${{ secrets.NPM_TOKEN }}
         run: |
@@ -708,7 +848,7 @@ jobs:
           fi
 `;
   if (!fs.existsSync(releasePath) || force) {
-    fs.writeFileSync(releasePath, releaseContent, 'utf8');
+    writeFileAtomic(releasePath, releaseContent);
     console.log(`✅ GitHub Actions release workflow scaffolded at ${releasePath}`);
   }
 
@@ -858,7 +998,7 @@ describe('Bug Reproduction Harness: ${baseName}', () => {
 }
 
 export function assessRisk(diffFiles = [], repoRoot = '.') {
-  const files = diffFiles.length > 0 ? diffFiles : getModifiedFiles('main', repoRoot);
+  const files = diffFiles.length > 0 ? diffFiles : getModifiedFiles(null, repoRoot);
   let score = 0;
   const factors = [];
 
@@ -1135,11 +1275,22 @@ export function generatePRSummary({ issueId = null, repoRoot = '.' } = {}) {
   const branch = activeSess?.branch || 'current-branch';
   const type = activeSess?.type || 'feat';
 
-  const diffFiles = getModifiedFiles('main', repoRoot);
+  const baseRef = resolveDefaultBaseBranch(repoRoot);
+  const diffFiles = getModifiedFiles(null, repoRoot);
   const risk = assessRisk(diffFiles, repoRoot);
   const archInfo = inspectArchlens(repoRoot);
 
+  const cfg = loadConfig(repoRoot);
+  const mods = Array.isArray(cfg?.modules) ? cfg.modules : [];
+  const covVals = mods.map((m) => m?.thresholds?.diffCoverage).filter((v) => typeof v === 'number' && Number.isFinite(v));
+  const minCov = covVals.length > 0 ? Math.max(...covVals) : 85;
+  const allNullMut = mods.length > 0 && mods.every((m) => m?.thresholds && m.thresholds.mutationScore === null);
+  const mutVals = mods.map((m) => m?.thresholds?.mutationScore).filter((v) => typeof v === 'number' && Number.isFinite(v));
+  const minMut = allNullMut ? null : mutVals.length > 0 ? Math.max(...mutVals) : 52;
+
   const statSummary = (
+    gitOutput(['diff', '--stat', `origin/${baseRef}...HEAD`], repoRoot) ||
+    gitOutput(['diff', '--stat', `${baseRef}...HEAD`], repoRoot) ||
     gitOutput(['diff', '--stat', 'HEAD~1'], repoRoot) ||
     gitOutput(['diff', '--stat'], repoRoot) ||
     ''
@@ -1147,12 +1298,16 @@ export function generatePRSummary({ issueId = null, repoRoot = '.' } = {}) {
 
   const covReport = activeSess?.manifest?.coverageReport || null;
   const mutReport = activeSess?.manifest?.mutationScore || null;
+  const parsedTicket = parseTicketId(issue);
+  const ticketDisplay =
+    parsedTicket === null ? 'N/A' : typeof parsedTicket === 'number' ? `#${parsedTicket}` : String(parsedTicket);
+  const mutThreshLabel = minMut === null ? 'N/A' : `>= ${minMut}%`;
 
-  const summary = `## 📋 Pull Request Summary: #${issue}
+  const summary = `## 📋 Pull Request Summary: ${ticketDisplay}
 
 ### 🎯 Overview & Classification
 - **Type**: \`${type.toUpperCase()}\`
-- **Associated Ticket**: [#${issue}](https://github.com/org/repo/issues/${issue})
+- **Associated Ticket**: \`${ticketDisplay}\`
 - **Branch**: \`${branch}\`
 - **Pre-Flight Risk Profile**: \`${risk.riskLevel}\` (Score: ${risk.score})
 
@@ -1161,8 +1316,8 @@ export function generatePRSummary({ issueId = null, repoRoot = '.' } = {}) {
 ### 🛡️ Dual-Gate Quality Verification
 | Metric | Threshold | Achieved | Status |
 | :--- | :--- | :--- | :--- |
-| **Line & Branch Diff Coverage** | $\\ge 85\\%$ | ${covReport || 'Not Measured'} | ${covReport ? '✅ PASSED' : '⚪ PENDING'} |
-| **Mutation Kill Score** | $\\ge 80\\%$ | ${mutReport || 'Not Measured'} | ${mutReport ? '✅ PASSED' : '⚪ PENDING'} |
+| **Line & Branch Diff Coverage** | \`>= ${minCov}%\` | ${covReport || 'Not Measured'} | ${covReport ? '✅ PASSED' : '⚪ PENDING'} |
+| **Mutation Kill Score** | \`${mutThreshLabel}\` | ${mutReport || 'Not Measured'} | ${mutReport ? '✅ PASSED' : '⚪ PENDING'} |
 | **Archlens Clean Architecture** | 100% Policy | ${archInfo.installed ? 'Compliant' : 'N/A'} | ${archInfo.installed ? '✅ PASSED' : '⚪ SKIPPED'} |
 | **Static Analysis & Linting** | 0 Violations | Clean | ✅ PASSED |
 
@@ -1203,7 +1358,7 @@ ${statSummary || diffFiles.join('\n') || 'No modified files detected'}
 }
 
 export function findAffectedTests(diffFiles = [], repoRoot = '.') {
-  const files = diffFiles.length > 0 ? diffFiles : getModifiedFiles('main', repoRoot);
+  const files = diffFiles.length > 0 ? diffFiles : getModifiedFiles(null, repoRoot);
   const matchedTests = new Set();
 
   for (const file of files) {
@@ -1440,15 +1595,55 @@ export function parseCoverageReport(repoRoot = '.', mod = null) {
   };
 }
 
+function isMutantExempted(exemptions, { id = null, file = null, mutator = null, line = null } = {}) {
+  if (!Array.isArray(exemptions) || exemptions.length === 0) return false;
+  const normFile = file ? String(file).replace(/\\/g, '/') : null;
+  const fileLineKey = normFile && line !== null ? `${normFile}:${line}` : null;
+  return exemptions.some((ex) => {
+    const exId = ex?.mutantId ? String(ex.mutantId) : '';
+    const exFile = ex?.file ? String(ex.file).replace(/\\/g, '/') : null;
+    if (id && exId === String(id)) return true;
+    if (fileLineKey && exId === fileLineKey) return true;
+    if (exFile && normFile && (normFile === exFile || normFile.endsWith('/' + exFile))) {
+      if (!exId) return true;
+      if (line !== null && exId === String(line)) return true;
+      if (mutator && exId === String(mutator)) return true;
+    }
+    return false;
+  });
+}
+
 export function parseMutationReport(repoRoot = '.', mod = null) {
   const threshold = mod?.thresholds?.mutationScore ?? 80;
   const modDir = mod?.path && mod.path !== '.' ? path.resolve(repoRoot, mod.path) : path.resolve(repoRoot);
+  const exemptions = getExemptions(repoRoot);
 
   const strykerPath = path.resolve(modDir, 'reports/mutation/mutation.json');
   if (fileExists(strykerPath)) {
     try {
       const data = JSON.parse(readFileSafe(strykerPath) || '{}');
-      if (typeof data.mutationScore === 'number') {
+      let killed = 0;
+      let total = 0;
+      let exemptedCount = 0;
+      for (const [filePath, fileObj] of Object.entries(data.files || {})) {
+        for (const mutant of fileObj.mutants || []) {
+          if (mutant.status === 'Ignored' || mutant.status === 'CompileError') continue;
+          if (
+            isMutantExempted(exemptions, {
+              id: mutant.id,
+              file: filePath,
+              mutator: mutant.mutatorName,
+              line: mutant.location?.start?.line ?? null
+            })
+          ) {
+            exemptedCount++;
+            continue;
+          }
+          total++;
+          if (mutant.status === 'Killed' || mutant.status === 'Timeout') killed++;
+        }
+      }
+      if (typeof data.mutationScore === 'number' && exemptedCount === 0) {
         const score = Number(data.mutationScore.toFixed(2));
         return {
           found: true,
@@ -1456,26 +1651,19 @@ export function parseMutationReport(repoRoot = '.', mod = null) {
           mutationScore: score,
           formatted: `${score.toFixed(1)}%`,
           threshold,
+          exemptedCount: 0,
           passed: score >= threshold
         };
       }
-      let killed = 0;
-      let total = 0;
-      for (const fileObj of Object.values(data.files || {})) {
-        for (const mutant of fileObj.mutants || []) {
-          if (mutant.status === 'Ignored' || mutant.status === 'CompileError') continue;
-          total++;
-          if (mutant.status === 'Killed' || mutant.status === 'Timeout') killed++;
-        }
-      }
-      if (total > 0) {
-        const score = Number(((killed / total) * 100).toFixed(2));
+      if (total > 0 || exemptedCount > 0) {
+        const score = total > 0 ? Number(((killed / total) * 100).toFixed(2)) : 100;
         return {
           found: true,
           file: 'reports/mutation/mutation.json',
           mutationScore: score,
           formatted: `${score.toFixed(1)}%`,
           threshold,
+          exemptedCount,
           passed: score >= threshold
         };
       }
@@ -1485,16 +1673,39 @@ export function parseMutationReport(repoRoot = '.', mod = null) {
   const pitPath = path.resolve(modDir, 'target/pit-reports/mutations.xml');
   if (fileExists(pitPath)) {
     const raw = readFileSafe(pitPath) || '';
-    const allMatches = raw.match(/<mutation\s+[^>]*detected=['"](true|false)['"]/g) || [];
-    if (allMatches.length > 0) {
-      const detectedCount = allMatches.filter((m) => /detected=['"]true['"]/.test(m)).length;
-      const score = Number(((detectedCount / allMatches.length) * 100).toFixed(2));
+    const blockMatches = raw.match(/<mutation\s+[^>]*detected=['"](true|false)['"][\s\S]*?<\/mutation>/g) || [];
+    const attrMatches = raw.match(/<mutation\s+[^>]*detected=['"](true|false)['"][^>]*>/g) || [];
+    const entries = blockMatches.length > 0 ? blockMatches : attrMatches;
+    if (entries.length > 0) {
+      let total = 0;
+      let detectedCount = 0;
+      let exemptedCount = 0;
+      for (const m of entries) {
+        const srcMatch = m.match(/<sourceFile>([^<]+)<\/sourceFile>/);
+        const lineMatch = m.match(/<lineNumber>(\d+)<\/lineNumber>/);
+        const mutMatch = m.match(/<mutator>([^<]+)<\/mutator>/);
+        if (
+          isMutantExempted(exemptions, {
+            id: mutMatch ? mutMatch[1] : null,
+            file: srcMatch ? srcMatch[1] : null,
+            mutator: mutMatch ? mutMatch[1] : null,
+            line: lineMatch ? Number(lineMatch[1]) : null
+          })
+        ) {
+          exemptedCount++;
+          continue;
+        }
+        total++;
+        if (/detected=['"]true['"]/.test(m)) detectedCount++;
+      }
+      const score = total > 0 ? Number(((detectedCount / total) * 100).toFixed(2)) : 100;
       return {
         found: true,
         file: 'target/pit-reports/mutations.xml',
         mutationScore: score,
         formatted: `${score.toFixed(1)}%`,
         threshold,
+        exemptedCount,
         passed: score >= threshold
       };
     }
@@ -1516,7 +1727,7 @@ export function runFlakeCheck({ runs = 5, target = null, repoRoot = '.' } = {}) 
   const iterationCount = Math.max(2, Math.min(50, Number(runs) || 5));
   console.log(`🧪 Running Flaky Test Detector (${iterationCount} iterations)...`);
 
-  const diffFiles = getModifiedFiles('main', repoRoot);
+  const diffFiles = getModifiedFiles(null, repoRoot);
   const testFiles = target ? [target] : findAffectedTests(diffFiles, repoRoot);
 
   if (testFiles.length === 0) {
@@ -1569,7 +1780,8 @@ export function runFlakeCheck({ runs = 5, target = null, repoRoot = '.' } = {}) 
 
 export function auditSecurity(repoRoot = '.') {
   console.log('🔒 Auditing Git Diff for Secret Leaks, Sensitive Keys & Package CVEs...');
-  const diffFiles = getModifiedFiles('main', repoRoot);
+  const diffFiles = getModifiedFiles(null, repoRoot);
+  const diffsByFile = getUnifiedDiffByFile(null, repoRoot, diffFiles);
   const secretViolations = [];
 
   const secretPatterns = [
@@ -1584,17 +1796,21 @@ export function auditSecurity(repoRoot = '.') {
 
   for (const file of diffFiles) {
     try {
-      const diffOutput = gitDiffForFile(file, repoRoot);
+      const diffOutput = diffsByFile.get(file) || '';
+      if (!diffOutput) continue;
 
       const lines = diffOutput.split('\n');
+      let addedIdx = 0;
       for (const line of lines) {
         if (!line.startsWith('+') || line.startsWith('+++')) continue;
+        addedIdx++;
         for (const sp of secretPatterns) {
           if (sp.regex.test(line)) {
             secretViolations.push({
               file,
+              line: addedIdx,
               type: sp.name,
-              linePreview: line.slice(0, 40) + '...'
+              redacted: `[REDACTED:${sp.name}]`
             });
           }
         }
@@ -1609,7 +1825,12 @@ export function auditSecurity(repoRoot = '.') {
     (fileExists(path.resolve(repoRoot, 'package-lock.json')) || fileExists(path.resolve(repoRoot, 'npm-shrinkwrap.json')))
   ) {
     try {
-      execFileSync('npm', ['audit', '--audit-level=high', '--json'], { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' });
+      execFileSync('npm', ['audit', '--audit-level=high', '--json'], {
+        cwd: repoRoot,
+        stdio: 'pipe',
+        encoding: 'utf8',
+        maxBuffer: 16 * 1024 * 1024
+      });
       packageAuditStatus = 'clean';
     } catch (err) {
       const stdout = String(err?.stdout || '');
@@ -1724,7 +1945,8 @@ export function generateReviewPlan({ repoRoot = '.', lane = null, maxDiffChars =
   const activeSess = current.session;
   const issueId = activeSess?.issueId || 'N/A';
   const branch = activeSess?.branch || 'current-branch';
-  const diffFiles = getModifiedFiles('main', repoRoot);
+  const baseRef = resolveDefaultBaseBranch(repoRoot);
+  const diffFiles = getModifiedFiles(null, repoRoot);
   const risk = assessRisk(diffFiles, repoRoot);
   const resolvedLane = VALID_LANES.includes(lane)
     ? lane
@@ -1733,18 +1955,19 @@ export function generateReviewPlan({ repoRoot = '.', lane = null, maxDiffChars =
       : 'full';
 
   const baseSha =
-    (gitOutput(['merge-base', 'origin/main', 'HEAD'], repoRoot) ||
-      gitOutput(['merge-base', 'main', 'HEAD'], repoRoot) ||
+    (gitOutput(['merge-base', `origin/${baseRef}`, 'HEAD'], repoRoot) ||
+      gitOutput(['merge-base', baseRef, 'HEAD'], repoRoot) ||
       '').trim() || null;
   const headSha = (gitOutput(['rev-parse', 'HEAD'], repoRoot) || '').trim() || null;
   const diffStat = (
-    gitOutput(['diff', '--stat', 'origin/main...HEAD'], repoRoot) ||
-    gitOutput(['diff', '--stat', 'main...HEAD'], repoRoot) ||
+    gitOutput(['diff', '--stat', `origin/${baseRef}...HEAD`], repoRoot) ||
+    gitOutput(['diff', '--stat', `${baseRef}...HEAD`], repoRoot) ||
     gitOutput(['diff', '--stat', 'HEAD~1'], repoRoot) ||
     ''
   ).trim();
+  const diffsByFile = getUnifiedDiffByFile(baseRef, repoRoot, diffFiles);
   const rawDiff = diffFiles
-    .map((file) => gitDiffForFile(file, repoRoot))
+    .map((file) => diffsByFile.get(file) || '')
     .filter(Boolean)
     .join('\n');
   const budget = Math.max(1024, Number(maxDiffChars) || 40000);
@@ -1756,7 +1979,7 @@ export function generateReviewPlan({ repoRoot = '.', lane = null, maxDiffChars =
   const filesLabel = diffFiles.length > 0 ? diffFiles.join(', ') : 'none';
   const issueRef = String(issueId).startsWith('L-') || issueId === 'N/A' ? String(issueId) : `#${issueId}`;
   const diffContextBlock = [
-    `Base SHA: ${baseSha || 'main'} | HEAD SHA: ${headSha || 'working-tree'}`,
+    `Base SHA: ${baseSha || baseRef} | HEAD SHA: ${headSha || 'working-tree'}`,
     `Modified files (${diffFiles.length}): ${filesLabel}`,
     ...(diffStat ? [`Diff Stat:\n${diffStat}`] : []),
     `Unified Diff:\n\`\`\`diff\n${diff || '(no diff hunks detected)'}\n\`\`\``
@@ -1784,7 +2007,7 @@ export function generateReviewPlan({ repoRoot = '.', lane = null, maxDiffChars =
       {
         TypeName: 'research',
         Role: 'PR Peer & Architecture Reviewer',
-        Prompt: `Follow sdlc-gate review guidelines. Audit git diff against main on branch ${branch} for ticket ${issueRef} (standard lane, risk: ${risk.riskLevel}).
+        Prompt: `Follow sdlc-gate review guidelines. Audit git diff against ${baseRef} on branch ${branch} for ticket ${issueRef} (standard lane, risk: ${risk.riskLevel}).
 1. Audit logic correctness, behavioral test smells (no assertion-free tests), and F.I.R.S.T. isolation.
 2. Verify coverage metrics against .agent/sdlc-config.json thresholds.
 3. Inspect modified files for hardcoded secrets, unsafe shell interpolation, concentric layer inversions (.archlens/policy.json), and undeclared spec drift.
@@ -1813,7 +2036,7 @@ ${diffContextBlock}`
     {
       TypeName: 'research',
       Role: 'PR Peer Reviewer',
-      Prompt: `Follow sdlc-gate review guidelines. Audit git diff against main on branch ${branch} for ticket ${issueRef}.
+      Prompt: `Follow sdlc-gate review guidelines. Audit git diff against ${baseRef} on branch ${branch} for ticket ${issueRef}.
 1. Audit for behavioral test smells (no assertion-free tests, no trivial getters, no mock abuse) and F.I.R.S.T. isolation.
 2. Verify Dual-Gate metrics against .agent/sdlc-config.json thresholds.
 3. Verify README.md and CHANGELOG.md alignment when user-facing behavior changes.
@@ -2099,10 +2322,6 @@ export function discoverModules(repoRoot = '.') {
     } catch {}
   }
 
-  if (modules.length > 1 && modules.some((m) => m.path !== '.')) {
-    return modules.filter((m) => m.path !== '.' || modules.length === 1);
-  }
-
   if (modules.length === 0) {
     modules.push({
       name: 'default',
@@ -2167,7 +2386,7 @@ export function generateConfig(repoRoot = '.') {
     generatedAt: new Date().toISOString(),
     profile: modules.length > 1 ? 'polyglot-monorepo' : 'standard',
     ci: {
-      runsOn: "${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}"
+      runsOn: "${{ vars.SDLC_RUNS_ON || 'self-hosted' }}"
     },
     lanes: {
       trivialMaxLines: 25,
