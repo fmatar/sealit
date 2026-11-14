@@ -49,28 +49,47 @@ jobs:
 
       - name: Inspect Package Version & Release Tag
         id: version_check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION=$(node -p "require('./package.json').version")
+          PKG_NAME=$(node -p "require('./package.json').name")
           TAG="v${VERSION}"
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "pkg_name=${PKG_NAME}" >> $GITHUB_OUTPUT
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
           if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null 2>&1; then
             echo "tag_exists=true" >> $GITHUB_OUTPUT
-            echo "Release tag ${TAG} already exists. Skipping release creation."
+            echo "Release tag ${TAG} already exists."
           else
             echo "tag_exists=false" >> $GITHUB_OUTPUT
-            echo "Release tag ${TAG} does not exist. Release will be created."
+            echo "Release tag ${TAG} does not exist. Tag will be created."
+          fi
+          if command -v gh >/dev/null 2>&1 && gh release view "${TAG}" >/dev/null 2>&1; then
+            echo "release_exists=true" >> $GITHUB_OUTPUT
+            echo "GitHub Release ${TAG} already exists."
+          else
+            echo "release_exists=false" >> $GITHUB_OUTPUT
+            echo "GitHub Release ${TAG} does not exist. Release will be created."
+          fi
+          if npm view "${PKG_NAME}@${VERSION}" version >/dev/null 2>&1; then
+            echo "npm_published=true" >> $GITHUB_OUTPUT
+            echo "Package ${PKG_NAME}@${VERSION} is already published on npm."
+          else
+            echo "npm_published=false" >> $GITHUB_OUTPUT
+            echo "Package ${PKG_NAME}@${VERSION} is not yet published on npm."
           fi
 
       - name: Extract Release Notes from CHANGELOG.md
-        if: steps.version_check.outputs.tag_exists == 'false'
+        if: steps.version_check.outputs.release_exists == 'false'
         id: release_notes
         env:
           VERSION: ${{ steps.version_check.outputs.version }}
           TAG: ${{ steps.version_check.outputs.tag }}
         run: |
           awk -v ver="$VERSION" '
-            $0 ~ "^## \\[" ver "\\]" { found=1; next }
+            { sub(/\r$/, "") }
+            index($0, "## [" ver "]") == 1 { found=1; next }
             found && /^## \[/ { exit }
             found { print }
           ' CHANGELOG.md > release-notes.md || true
@@ -81,63 +100,69 @@ jobs:
           cat release-notes.md
 
       - name: Create Git Tag & GitHub Release
-        if: steps.version_check.outputs.tag_exists == 'false'
+        if: steps.version_check.outputs.tag_exists == 'false' || steps.version_check.outputs.release_exists == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.version_check.outputs.tag }}
           VERSION: ${{ steps.version_check.outputs.version }}
+          TAG_EXISTS: ${{ steps.version_check.outputs.tag_exists }}
+          RELEASE_EXISTS: ${{ steps.version_check.outputs.release_exists }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "$TAG" -m "Release $TAG"
-          git push origin "$TAG"
-          if command -v gh >/dev/null 2>&1; then
-            gh release create "$TAG" \
-              --title "Release $TAG" \
-              --notes-file release-notes.md
-          else
-            node -e "
-              const fs = require('node:fs');
-              const https = require('node:https');
-              const body = fs.readFileSync('release-notes.md', 'utf8');
-              const payload = JSON.stringify({
-                tag_name: process.env.TAG,
-                name: 'Release ' + process.env.TAG,
-                body,
-                draft: false,
-                prerelease: false
-              });
-              const [owner, repo] = (process.env.GITHUB_REPOSITORY || '').split('/');
-              const req = https.request({
-                hostname: 'api.github.com',
-                path: '/repos/' + owner + '/' + repo + '/releases',
-                method: 'POST',
-                headers: {
-                  'User-Agent': 'agentic-sdlc-release',
-                  'Authorization': 'token ' + process.env.GH_TOKEN,
-                  'Content-Type': 'application/json',
-                  'Content-Length': Buffer.byteLength(payload)
-                }
-              }, res => {
-                let data = '';
-                res.on('data', chunk => data += chunk);
-                res.on('end', () => {
-                  console.log('GitHub Release API Status:', res.statusCode);
-                  if (res.statusCode >= 400) {
-                    console.error('API Error:', data);
-                    process.exit(1);
-                  }
-                  console.log('GitHub Release created successfully via REST API.');
+          if [ "${TAG_EXISTS}" = "false" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag -a "$TAG" -m "Release $TAG"
+            git push origin "$TAG"
+          fi
+          if [ "${RELEASE_EXISTS}" = "false" ]; then
+            if command -v gh >/dev/null 2>&1; then
+              gh release create "$TAG" \
+                --title "Release $TAG" \
+                --notes-file release-notes.md
+            else
+              node -e "
+                const fs = require('node:fs');
+                const https = require('node:https');
+                const body = fs.readFileSync('release-notes.md', 'utf8');
+                const payload = JSON.stringify({
+                  tag_name: process.env.TAG,
+                  name: 'Release ' + process.env.TAG,
+                  body,
+                  draft: false,
+                  prerelease: false
                 });
-              });
-              req.on('error', err => { console.error(err); process.exit(1); });
-              req.write(payload);
-              req.end();
-            "
+                const [owner, repo] = (process.env.GITHUB_REPOSITORY || '').split('/');
+                const req = https.request({
+                  hostname: 'api.github.com',
+                  path: '/repos/' + owner + '/' + repo + '/releases',
+                  method: 'POST',
+                  headers: {
+                    'User-Agent': 'agentic-sdlc-release',
+                    'Authorization': 'token ' + process.env.GH_TOKEN,
+                    'Content-Type': 'application/json',
+                    'Content-Length': Buffer.byteLength(payload)
+                  }
+                }, res => {
+                  let data = '';
+                  res.on('data', chunk => data += chunk);
+                  res.on('end', () => {
+                    console.log('GitHub Release API Status:', res.statusCode);
+                    if (res.statusCode >= 400) {
+                      console.error('API Error:', data);
+                      process.exit(1);
+                    }
+                    console.log('GitHub Release created successfully via REST API.');
+                  });
+                });
+                req.on('error', err => { console.error(err); process.exit(1); });
+                req.write(payload);
+                req.end();
+              "
+            fi
           fi
 
       - name: Publish Package to NPM (When NPM_TOKEN is configured)
-        if: steps.version_check.outputs.tag_exists == 'false'
+        if: steps.version_check.outputs.npm_published == 'false'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |

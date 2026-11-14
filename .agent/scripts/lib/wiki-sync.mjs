@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileExists, readFileSafe, parseFrontmatter } from './core.mjs';
-import { extractExportSignatures } from './dossier.mjs';
+import { fileExists, readFileSafe, parseFrontmatter, writeFileAtomic } from './core.mjs';
 import { parseProductMarkdown } from './product-dag.mjs';
 import { listADRs } from './adr-drift.mjs';
 import { parseMermaidDiagram } from './arch-trace.mjs';
@@ -30,32 +29,85 @@ const DEFAULT_ENGINE_RING_MAP = {
   'sdlc-engine.mjs': { ring: 'Ring 3: CLI Router & Entrypoint', index: 3 }
 };
 
+function resolveLocalImportPath(absRoot, fromRelDir, target) {
+  const joined = path.posix.normalize(path.posix.join(fromRelDir, target));
+  if (!joined || joined.startsWith('..')) return joined;
+
+  const candidates = [joined];
+  if (joined.endsWith('.js')) {
+    const stem = joined.slice(0, -3);
+    candidates.push(`${stem}.ts`, `${stem}.tsx`, `${stem}.mjs`, `${stem}.jsx`);
+  } else if (joined.endsWith('.mjs')) {
+    candidates.push(`${joined.slice(0, -4)}.ts`);
+  }
+  const exts = ['.mjs', '.js', '.ts', '.tsx', '.jsx'];
+  for (const ext of exts) {
+    candidates.push(`${joined}${ext}`);
+  }
+  for (const ext of exts) {
+    candidates.push(`${joined}/index${ext}`);
+  }
+
+  for (const cand of candidates) {
+    const absCand = path.join(absRoot, cand);
+    if (fs.existsSync(absCand) && fs.statSync(absCand).isFile()) {
+      return cand;
+    }
+  }
+  return joined;
+}
+
+function getExportPatternsForExt(ext) {
+  switch (ext) {
+    case '.mjs':
+    case '.js':
+    case '.cjs':
+    case '.ts':
+    case '.tsx':
+    case '.jsx':
+    case '.mts':
+    case '.cts':
+      return [
+        /^export\s+(?:async\s+)?function\s+([A-Za-z0-9_]+)/,
+        /^export\s+class\s+([A-Za-z0-9_]+)/,
+        /^export\s+(?:const|let|var)\s+([A-Za-z0-9_]+)/,
+        /^export\s+(?:interface|type|enum)\s+([A-Za-z0-9_]+)/
+      ];
+    case '.py':
+      return [/^def\s+([A-Za-z0-9_]+)\s*\(/, /^class\s+([A-Za-z0-9_]+)/];
+    case '.rs':
+      return [/^pub\s+(?:async\s+)?fn\s+([A-Za-z0-9_]+)/, /^pub\s+(?:struct|enum|trait)\s+([A-Za-z0-9_]+)/];
+    case '.go':
+      return [/^func\s+(?:\([^)]+\)\s*)?([A-Z][A-Za-z0-9_]*)\s*\(/];
+    case '.java':
+    case '.kt':
+      return [/^\s*public\s+(?:static\s+)?(?:final\s+)?(?:class|interface|record|enum|[A-Za-z0-9_<>[\]]+)\s+([A-Za-z0-9_]+)/];
+    default:
+      return [
+        /^export\s+(?:async\s+)?function\s+([A-Za-z0-9_]+)/,
+        /^export\s+class\s+([A-Za-z0-9_]+)/,
+        /^export\s+(?:const|let|var)\s+([A-Za-z0-9_]+)/
+      ];
+  }
+}
+
 /**
  * Extracts exported symbols with line numbers and local import dependencies from a source file.
  */
 export function inspectSourceModule(filePath, repoRoot = '.') {
+  const absRoot = path.resolve(repoRoot);
   const absPath = path.resolve(repoRoot, filePath);
   const raw = readFileSafe(absPath) || '';
-  const relPath = path.relative(path.resolve(repoRoot), absPath).replace(/\\/g, '/');
+  const relPath = path.relative(absRoot, absPath).replace(/\\/g, '/');
   const lines = raw.split('\n');
+  const ext = path.extname(relPath).toLowerCase();
 
   const exportsWithLines = [];
   const localImports = [];
 
-  const exportPatterns = [
-    /^export\s+(?:async\s+)?function\s+([A-Za-z0-9_]+)/,
-    /^export\s+class\s+([A-Za-z0-9_]+)/,
-    /^export\s+(?:const|let|var)\s+([A-Za-z0-9_]+)/,
-    /^export\s+(?:interface|type|enum)\s+([A-Za-z0-9_]+)/,
-    /^def\s+([A-Za-z0-9_]+)\s*\(/,
-    /^class\s+([A-Za-z0-9_]+)/,
-    /^pub\s+(?:async\s+)?fn\s+([A-Za-z0-9_]+)/,
-    /^pub\s+(?:struct|enum|trait)\s+([A-Za-z0-9_]+)/,
-    /^func\s+(?:\([^)]+\)\s*)?([A-Z][A-Za-z0-9_]*)\s*\(/,
-    /^\s*public\s+(?:static\s+)?(?:final\s+)?(?:class|interface|record|enum|[A-Za-z0-9_<>[\]]+)\s+([A-Za-z0-9_]+)/
-  ];
-
+  const exportPatterns = getExportPatternsForExt(ext);
   const importRegex = /from\s+['"](\.[^'"]+)['"]|import\s+['"](\.[^'"]+)['"]/g;
+  const relDir = path.posix.dirname(relPath);
 
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim();
@@ -73,18 +125,11 @@ export function inspectSourceModule(filePath, repoRoot = '.') {
     while ((impMatch = importRegex.exec(trimmed)) !== null) {
       const target = impMatch[1] || impMatch[2];
       if (target) {
-        const resolvedRel = path.posix.normalize(path.posix.join(path.posix.dirname(relPath), target));
+        const resolvedRel = resolveLocalImportPath(absRoot, relDir, target);
         if (!localImports.includes(resolvedRel)) {
           localImports.push(resolvedRel);
         }
       }
-    }
-  }
-
-  if (exportsWithLines.length === 0) {
-    const fallbackSigs = extractExportSignatures(absPath);
-    for (const sig of fallbackSigs) {
-      exportsWithLines.push({ name: sig, line: 1 });
     }
   }
 
@@ -157,7 +202,7 @@ export function buildWikiCodeMap(repoRoot = '.') {
   if (fileExists(libDir)) {
     const entries = fs
       .readdirSync(libDir)
-      .filter((f) => f.endsWith('.mjs') || f.endsWith('.js') || f.endsWith('.ts'))
+      .filter((f) => /\.(mjs|js|ts|tsx|jsx)$/.test(f))
       .sort();
     for (const entry of entries) {
       moduleFiles.push(`.agent/scripts/lib/${entry}`);
@@ -173,7 +218,7 @@ export function buildWikiCodeMap(repoRoot = '.') {
           if (item.name.startsWith('.') || item.name === 'node_modules' || item.name === 'target') continue;
           const full = path.join(dir, item.name);
           if (item.isDirectory()) walk(full);
-          else if (/\.(mjs|js|ts|py|java|go|rs)$/.test(item.name) && !/\.(test|spec)\./.test(item.name)) {
+          else if (/\.(mjs|js|ts|tsx|jsx|py|java|go|rs)$/.test(item.name) && !/\.(test|spec)\./.test(item.name)) {
             const rel = path.relative(absRoot, full).replace(/\\/g, '/');
             if (!moduleFiles.includes(rel)) moduleFiles.push(rel);
           }
@@ -323,7 +368,7 @@ export function buildWikiCodeMap(repoRoot = '.') {
  * Audits `wiki/*.md` for broken file references, deprecated skill names, invalid Mermaid syntax,
  * and unmapped source modules or canonical skills.
  */
-export function auditWiki(repoRoot = '.', { strict = false } = {}) {
+export function auditWiki(repoRoot = '.', { strict = false, codeMap: precomputedMap = null } = {}) {
   const absRoot = path.resolve(repoRoot);
   const wikiDir = path.join(absRoot, 'wiki');
 
@@ -338,7 +383,7 @@ export function auditWiki(repoRoot = '.', { strict = false } = {}) {
     };
   }
 
-  const codeMap = buildWikiCodeMap(absRoot);
+  const codeMap = precomputedMap || buildWikiCodeMap(absRoot);
   const findings = [];
 
   const mdFiles = fs
@@ -486,7 +531,7 @@ export function auditWiki(repoRoot = '.', { strict = false } = {}) {
     if (mod.path.startsWith('.agent/scripts/') && mod.documentedIn.length === 0) {
       findings.push({
         rule: 'UNMAPPED_SOURCE_MODULE',
-        severity: strict ? 'ERROR' : 'ERROR',
+        severity: strict ? 'ERROR' : 'WARN',
         file: mod.path,
         line: 1,
         target: mod.name,
@@ -524,12 +569,14 @@ export function auditWiki(repoRoot = '.', { strict = false } = {}) {
  * source modules, AST export signatures, skills, product capabilities, and ADRs.
  */
 export function renderCodebaseMapMarkdown(codeMap) {
+  const moduleNodeId = (modPath) => 'M_' + String(modPath).replace(/[^A-Za-z0-9_]/g, '_');
+
   const ringSubgraphs = codeMap.rings
     .map((r, idx) => {
       const ringId = `Ring${idx}`;
       const modNodes = r.modules
         .map((m) => {
-          const safeId = m.name.replace(/[^A-Za-z0-9_]/g, '_');
+          const safeId = moduleNodeId(m.path);
           return `    ${safeId}["${m.name} (${m.exports.length} exports, I=${m.instability})"]`;
         })
         .join('\n');
@@ -538,7 +585,7 @@ export function renderCodebaseMapMarkdown(codeMap) {
     .join('\n');
 
   const importEdges = [];
-  const nameByPath = new Map(codeMap.modules.map((m) => [m.path, m.name.replace(/[^A-Za-z0-9_]/g, '_')]));
+  const nameByPath = new Map(codeMap.modules.map((m) => [m.path, moduleNodeId(m.path)]));
   for (const mod of codeMap.modules) {
     const fromId = nameByPath.get(mod.path);
     for (const imp of mod.imports) {
@@ -717,7 +764,7 @@ export function syncWiki({ repoRoot = '.', generateMissing = false } = {}) {
     for (const def of defaults) {
       const target = path.join(wikiDir, def.name);
       if (!fileExists(target)) {
-        fs.writeFileSync(target, def.title, 'utf8');
+        writeFileAtomic(target, def.title);
         updatedFiles.push(`wiki/${def.name}`);
       }
     }
@@ -727,14 +774,14 @@ export function syncWiki({ repoRoot = '.', generateMissing = false } = {}) {
   const initialMap = buildWikiCodeMap(absRoot);
   const mapMarkdown = renderCodebaseMapMarkdown(initialMap);
   const codeMapPath = path.join(wikiDir, 'Codebase-Map.md');
-  fs.writeFileSync(codeMapPath, mapMarkdown, 'utf8');
+  writeFileAtomic(codeMapPath, mapMarkdown);
   if (!updatedFiles.includes('wiki/Codebase-Map.md')) {
     updatedFiles.push('wiki/Codebase-Map.md');
   }
 
-  // Re-compute map & audit now that Codebase-Map.md is written
+  // Re-compute map & audit now that Codebase-Map.md is written (reuse finalMap in auditWiki)
   const finalMap = buildWikiCodeMap(absRoot);
-  const audit = auditWiki(absRoot);
+  const audit = auditWiki(absRoot, { codeMap: finalMap });
 
   return {
     success: audit.passed,

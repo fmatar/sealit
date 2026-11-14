@@ -3,7 +3,7 @@ import path from 'node:path';
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { fileExists, readFileSafe, getModifiedFiles } from './core.mjs';
+import { fileExists, readFileSafe, getModifiedFiles, writeFileAtomic } from './core.mjs';
 import { getSessionStatus } from './session.mjs';
 import { buildDecisionGraph } from './decision-graph.mjs';
 import { parseProductMarkdown, planProductDAG, controlProductDAG } from './product-dag.mjs';
@@ -22,16 +22,46 @@ const MIME_TYPES = {
   '.ico': 'image/x-icon'
 };
 
-function readJsonBody(req) {
-  return new Promise((resolve) => {
-    let raw = '';
-    req.on('data', (chunk) => (raw += chunk));
+function escapeHtml(value = '') {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function readJsonBody(req, maxBytes = 65536) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let totalBytes = 0;
+    let rejected = false;
+    req.on('data', (chunk) => {
+      if (rejected) return;
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+      totalBytes += buf.length;
+      if (totalBytes > maxBytes) {
+        rejected = true;
+        chunks.length = 0;
+        req.pause();
+        const err = new Error(`Request body exceeds ${maxBytes} bytes limit.`);
+        err.statusCode = 413;
+        reject(err);
+        return;
+      }
+      chunks.push(buf);
+    });
     req.on('end', () => {
+      if (rejected) return;
+      const raw = Buffer.concat(chunks).toString('utf8');
       try {
         resolve(raw ? JSON.parse(raw) : {});
       } catch {
         resolve({});
       }
+    });
+    req.on('error', (err) => {
+      if (!rejected) reject(err);
     });
   });
 }
@@ -48,7 +78,8 @@ function parseMarkdownLink(cell = '') {
   const match = cleaned.match(/\[([^\]]+)\]\(([^)]+)\)/);
   if (match) {
     const label = match[1].trim();
-    const url = match[2].trim();
+    const rawUrl = match[2].trim();
+    const url = /^https?:\/\//i.test(rawUrl) ? rawUrl : null;
     const idMatch = label.match(/^(#[A-Za-z0-9_-]+)\s*(.*)$/);
     return {
       id: idMatch ? idMatch[1] : label,
@@ -252,7 +283,7 @@ export function buildArchDiffPayload(repoRoot = '.') {
   };
 }
 
-export function generateArchitectureWidget({ outputPath = null, repoRoot = '.' } = {}) {
+export function generateArchitectureWidget({ outputPath = null, repoRoot = '.', writeDefault = true } = {}) {
   const sessionStatus = getSessionStatus(repoRoot);
   const rawGraph = buildDecisionGraph(repoRoot);
   const compactGraph = {
@@ -694,7 +725,17 @@ export function generateArchitectureWidget({ outputPath = null, repoRoot = '.' }
   </div>
 
   <script>
-    const STATE = ${embeddedState};
+    window.__INITIAL_STATE__ = ${embeddedState};
+    const STATE = window.__INITIAL_STATE__;
+
+    function escapeHtml(value) {
+      return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
 
     function switchTab(tab) {
       for (const t of ['rings', 'lineage', 'timemachine', 'waves']) {
@@ -722,14 +763,14 @@ export function generateArchitectureWidget({ outputPath = null, repoRoot = '.' }
         return;
       }
       label.textContent = 'Entry ' + (idx + 1) + ' of ' + snaps.length + ' (' + (snap.timestamp || '').slice(0, 16).replace('T', ' ') + ')';
-      const diagList = (snap.diagramChanges || []).map(d => '<li class="mono">' + d.diagram + ' &mdash; ' + d.summary + '</li>').join('');
+      const diagList = (snap.diagramChanges || []).map(d => '<li class="mono">' + escapeHtml(d.diagram) + ' &mdash; ' + escapeHtml(d.summary) + '</li>').join('');
       box.innerHTML =
         '<div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;font-weight:600;border-bottom:1px solid var(--rule);padding-bottom:8px;margin-bottom:8px;">' +
-          '<span>Ticket: <code class="mono">' + (snap.ticket || 'N/A') + '</code> &middot; Branch: <code class="mono">' + (snap.branch || 'main') + '</code></span>' +
-          '<span>Commit: <code class="mono">' + (snap.commitSha || 'HEAD') + '</code> &middot; Seal: <strong>' + (snap.status || 'PASSED') + '</strong></span>' +
+          '<span>Ticket: <code class="mono">' + escapeHtml(snap.ticket || 'N/A') + '</code> &middot; Branch: <code class="mono">' + escapeHtml(snap.branch || 'main') + '</code></span>' +
+          '<span>Commit: <code class="mono">' + escapeHtml(snap.commitSha || 'HEAD') + '</code> &middot; Seal: <strong>' + escapeHtml(snap.status || 'PASSED') + '</strong></span>' +
         '</div>' +
-        '<p style="margin:0 0 8px 0;color:var(--ink-secondary);"><strong>Checkpoint Rationale:</strong> ' + (snap.reason || 'Architectural verification checkpoint') + '</p>' +
-        (diagList ? '<ul style="margin:0;padding-left:18px;">' + diagList + '</ul>' : '<p style="margin:0;color:var(--ink-secondary);" class="mono">Modified Files: ' + ((snap.modifiedFiles || []).length) + '</p>');
+        '<p style="margin:0 0 8px 0;color:var(--ink-secondary);"><strong>Checkpoint Rationale:</strong> ' + escapeHtml(snap.reason || 'Architectural verification checkpoint') + '</p>' +
+        (diagList ? '<ul style="margin:0;padding-left:18px;">' + diagList + '</ul>' : '<p style="margin:0;color:var(--ink-secondary);" class="mono">Modified Files: ' + escapeHtml((snap.modifiedFiles || []).length) + '</p>');
     }
 
     function inspectNode(nodeId) {
@@ -740,9 +781,9 @@ export function generateArchitectureWidget({ outputPath = null, repoRoot = '.' }
         .filter(e => e.from === node.id || e.to === node.id)
         .map(e => e.from + ' [' + e.relation + '] -> ' + e.to);
       el.innerHTML =
-        '<div style="font-weight:700;color:var(--ink);">' + node.id + ' &mdash; ' + node.label + '</div>' +
-        '<div style="margin-top:4px;color:var(--ink-secondary);">Category: <code class="mono">' + node.category + '</code> &middot; Governance Status: <code class="mono">' + (node.status || 'ACTIVE') + '</code></div>' +
-        (connected.length ? '<div style="margin-top:6px;color:var(--cobalt);" class="mono">' + connected.join(' | ') + '</div>' : '<div style="margin-top:6px;color:var(--ink-muted);">Standalone constitutional node.</div>');
+        '<div style="font-weight:700;color:var(--ink);">' + escapeHtml(node.id) + ' &mdash; ' + escapeHtml(node.label) + '</div>' +
+        '<div style="margin-top:4px;color:var(--ink-secondary);">Category: <code class="mono">' + escapeHtml(node.category) + '</code> &middot; Governance Status: <code class="mono">' + escapeHtml(node.status || 'ACTIVE') + '</code></div>' +
+        (connected.length ? '<div style="margin-top:6px;color:var(--cobalt);" class="mono">' + connected.map(c => escapeHtml(c)).join(' | ') + '</div>' : '<div style="margin-top:6px;color:var(--ink-muted);">Standalone constitutional node.</div>');
     }
 
     function init() {
@@ -773,11 +814,11 @@ export function generateArchitectureWidget({ outputPath = null, repoRoot = '.' }
       const ringsGrid = document.getElementById('rings-grid');
       const ringEntries = Object.entries(STATE.arch.rings || {});
       ringsGrid.innerHTML = ringEntries.map(([ringName, files]) => {
-        const preview = files.slice(0, 4).map(f => '<div class="mono">' + f + '</div>').join('');
+        const preview = files.slice(0, 4).map(f => '<div class="mono">' + escapeHtml(f) + '</div>').join('');
         const more = files.length > 4 ? '<div style="color:var(--ink-muted);">+' + (files.length - 4) + ' additional file(s)</div>' : '';
         return '<tr>' +
-          '<td style="font-weight:600;">' + ringName + '</td>' +
-          '<td class="mono">' + files.length + '</td>' +
+          '<td style="font-weight:600;">' + escapeHtml(ringName) + '</td>' +
+          '<td class="mono">' + escapeHtml(files.length) + '</td>' +
           '<td>' + (files.length > 0 ? preview + more : '<span style="color:var(--ink-muted);">In Balance (Unchanged)</span>') + '</td>' +
         '</tr>';
       }).join('');
@@ -787,21 +828,21 @@ export function generateArchitectureWidget({ outputPath = null, repoRoot = '.' }
       const rootHash = STATE.audit?.merkleRoot || '0000000000000000';
       if (latest && (latest.diagramChanges || []).length > 0) {
         diffBox.innerHTML =
-          '<div style="margin-bottom:8px;"><strong>SHA-256 Merkle Root:</strong> <code class="mono">' + rootHash.slice(0, 24) + '...</code></div>' +
-          '<div style="font-weight:600;margin-bottom:4px;">Latest Mermaid AST Graph Diff (' + latest.ticket + '):</div>' +
-          latest.diagramChanges.map(d => '<div class="mono">&bull; ' + d.diagram + ': ' + d.summary + '</div>').join('');
+          '<div style="margin-bottom:8px;"><strong>SHA-256 Merkle Root:</strong> <code class="mono">' + escapeHtml(rootHash.slice(0, 24)) + '...</code></div>' +
+          '<div style="font-weight:600;margin-bottom:4px;">Latest Mermaid AST Graph Diff (' + escapeHtml(latest.ticket) + '):</div>' +
+          latest.diagramChanges.map(d => '<div class="mono">&bull; ' + escapeHtml(d.diagram) + ': ' + escapeHtml(d.summary) + '</div>').join('');
       } else {
         diffBox.innerHTML =
-          '<div style="margin-bottom:8px;"><strong>SHA-256 Merkle Root:</strong> <code class="mono">' + rootHash.slice(0, 24) + '...</code></div>' +
+          '<div style="margin-bottom:8px;"><strong>SHA-256 Merkle Root:</strong> <code class="mono">' + escapeHtml(rootHash.slice(0, 24)) + '...</code></div>' +
           '<div style="font-weight:600;">Latest Architectural Checkpoint:</div>' +
-          '<div style="color:var(--ink-secondary);margin-top:4px;">' + (latest ? (latest.reason + ' (' + latest.ticket + ' on ' + latest.branch + ')') : 'Zero breaking diagram mutations recorded.') + '</div>';
+          '<div style="color:var(--ink-secondary);margin-top:4px;">' + (latest ? (escapeHtml(latest.reason) + ' (' + escapeHtml(latest.ticket) + ' on ' + escapeHtml(latest.branch) + ')') : 'Zero breaking diagram mutations recorded.') + '</div>';
       }
 
       const nodesGrid = document.getElementById('nodes-grid');
       nodesGrid.innerHTML = (STATE.graph.nodes || []).map(n =>
-        '<button type="button" onclick="inspectNode(\\'' + n.id.replace(/'/g, '') + '\\')" class="node-item">' +
-          '<div class="node-item-head"><span>' + n.id + '</span><span>' + (n.status || n.category) + '</span></div>' +
-          '<div class="node-item-title">' + n.label + '</div>' +
+        '<button type="button" onclick="inspectNode(\\'' + escapeHtml(n.id).replace(/'/g, '') + '\\')" class="node-item">' +
+          '<div class="node-item-head"><span>' + escapeHtml(n.id) + '</span><span>' + escapeHtml(n.status || n.category) + '</span></div>' +
+          '<div class="node-item-title">' + escapeHtml(n.label) + '</div>' +
         '</button>'
       ).join('');
 
@@ -814,9 +855,9 @@ export function generateArchitectureWidget({ outputPath = null, repoRoot = '.' }
       const wavesTbody = document.getElementById('waves-tbody');
       wavesTbody.innerHTML = (STATE.dag?.waves || []).map(w =>
         '<tr>' +
-          '<td class="mono" style="font-weight:600;">Wave ' + w.wave + '</td>' +
+          '<td class="mono" style="font-weight:600;">Wave ' + escapeHtml(w.wave) + '</td>' +
           '<td>' + (w.parallelizable ? 'Parallelizable Fork-Join' : 'Sequential Gate') + '</td>' +
-          '<td>' + (w.items || []).map(it => '<div class="mono"><strong>' + it.id + '</strong>: ' + it.title + ' (' + it.status + ')</div>').join('') + '</td>' +
+          '<td>' + (w.items || []).map(it => '<div class="mono"><strong>' + escapeHtml(it.id) + '</strong>: ' + escapeHtml(it.title) + ' (' + escapeHtml(it.status) + ')</div>').join('') + '</td>' +
         '</tr>'
       ).join('');
 
@@ -829,20 +870,23 @@ export function generateArchitectureWidget({ outputPath = null, repoRoot = '.' }
 </html>`;
 
   const defaultWidgetPath = path.resolve(repoRoot, '.agent/workbench/index.html');
-  fs.mkdirSync(path.dirname(defaultWidgetPath), { recursive: true });
-  fs.writeFileSync(defaultWidgetPath, html, 'utf8');
-
   let writtenPath = defaultWidgetPath;
+  if (writeDefault) {
+    fs.mkdirSync(path.dirname(defaultWidgetPath), { recursive: true });
+    writeFileAtomic(defaultWidgetPath, html);
+  }
+
   if (outputPath) {
     const absOut = path.resolve(repoRoot, outputPath);
     fs.mkdirSync(path.dirname(absOut), { recursive: true });
-    fs.writeFileSync(absOut, html, 'utf8');
+    writeFileAtomic(absOut, html);
     writtenPath = absOut;
   }
 
   return {
     success: true,
-    widgetPath: writtenPath,
+    html,
+    widgetPath: writeDefault || outputPath ? writtenPath : null,
     defaultWidgetPath,
     nodesCount: compactGraph.nodes?.length || 0,
     modifiedFilesCount: archPayload.modifiedFiles.length,
@@ -903,12 +947,12 @@ export function renderWorkbenchHTML(repoRoot = '.', getSessionStatusFn = getSess
         stateClass = 'active';
         stateText = 'Active';
       }
-      return `<li class="stage-step ${stateClass}">
+      return `<li class="stage-step ${escapeHtml(stateClass)}">
         <div class="stage-step-top">
-          <span class="stage-step-name">${s.name}</span>
-          <span class="stage-step-state">${stateText}</span>
+          <span class="stage-step-name">${escapeHtml(s.name)}</span>
+          <span class="stage-step-state">${escapeHtml(stateText)}</span>
         </div>
-        <div class="stage-step-role">${s.role}</div>
+        <div class="stage-step-role">${escapeHtml(s.role)}</div>
       </li>`;
     })
     .join('');
@@ -1620,13 +1664,13 @@ export function renderWorkbenchHTML(repoRoot = '.', getSessionStatusFn = getSess
       </div>
       <div class="masthead-seals">
         <span class="seal-badge cobalt" id="session-seal">
-          ${activeSess ? 'Active Session #' + activeSess.issueId : 'Mainline Standing By'}
+          ${activeSess ? 'Active Session #' + escapeHtml(activeSess.issueId) : 'Mainline Standing By'}
         </span>
         <span class="seal-badge ${initialArch.archDiff?.passed !== false ? 'pass' : 'fail'}" id="ring-seal">
-          ${initialArch.archDiff?.passed !== false ? 'Rings Balanced: 0 Violations' : 'Ring Violations: ' + initialArch.archDiff.violationsCount}
+          ${initialArch.archDiff?.passed !== false ? 'Rings Balanced: 0 Violations' : 'Ring Violations: ' + escapeHtml(initialArch.archDiff.violationsCount)}
         </span>
         <span class="seal-badge ${initialAudit.valid ? 'pass' : 'fail'}" id="merkle-seal">
-          ${initialAudit.valid ? 'Merkle Chain Verified (' + (initialAudit.recordsCount || 0) + ')' : 'Merkle Verification Failed'}
+          ${initialAudit.valid ? 'Merkle Chain Verified (' + escapeHtml(initialAudit.recordsCount || 0) + ')' : 'Merkle Verification Failed'}
         </span>
         <button type="button" class="action-btn" onclick="bootWorkbench()" title="Synchronize live ledger from server">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
@@ -1642,11 +1686,11 @@ export function renderWorkbenchHTML(repoRoot = '.', getSessionStatusFn = getSess
 
     <section class="lifecycle-rail" aria-label="8-Stage Lifecycle Progress">
       <div class="lifecycle-head">
-        <h2>8-Stage Lifecycle Progress ${activeSess ? '(' + activeSess.branch + ')' : ''}</h2>
+        <h2>8-Stage Lifecycle Progress ${activeSess ? '(' + escapeHtml(activeSess.branch) + ')' : ''}</h2>
         <div class="lifecycle-meta" id="lifecycle-meta-text">
           ${
             activeSess
-              ? 'Active Ticket #' + activeSess.issueId + ' &middot; Stage ' + activeSess.stage + ' of 8 &middot; Branch: <span class="mono">' + activeSess.branch + '</span>'
+              ? 'Active Ticket #' + escapeHtml(activeSess.issueId) + ' &middot; Stage ' + escapeHtml(activeSess.stage) + ' of 8 &middot; Branch: <span class="mono">' + escapeHtml(activeSess.branch) + '</span>'
               : 'Zero active feature branches locked &middot; Ready for <span class="mono">/sdlc begin &lt;issue&gt;</span>'
           }
         </div>
@@ -1753,7 +1797,7 @@ export function renderWorkbenchHTML(repoRoot = '.', getSessionStatusFn = getSess
             </div>
             <div class="folio-box-sub">
               <span>Credit Folio &middot; Stage 7 Gate Receipt &amp; Diagram Node/Edge Delta</span>
-              <span class="mono" id="merkle-root-display">Root: ${(initialAudit.merkleRoot || 'GENESIS').slice(0, 16)}...</span>
+              <span class="mono" id="merkle-root-display">Root: ${escapeHtml((initialAudit.merkleRoot || 'GENESIS').slice(0, 16))}...</span>
             </div>
             <div tabindex="0" role="region" aria-labelledby="merkle-ledger-caption" class="table-wrapper">
               <table class="ledger-table" style="--label-2: 'Verification Value'; --label-3: 'Status';">
@@ -1954,7 +1998,8 @@ export function renderWorkbenchHTML(repoRoot = '.', getSessionStatusFn = getSess
     const SDLC_TOKEN = new URLSearchParams(location.search).get('token') || '';
     const authFetch = (url, opts = {}) =>
       fetch(url, { ...opts, headers: { ...(opts.headers || {}), 'X-SDLC-Token': SDLC_TOKEN } });
-    let STATE = ${initialBootstrap};
+    window.__INITIAL_STATE__ = ${initialBootstrap};
+    let STATE = window.__INITIAL_STATE__;
     let activeCategory = 'ALL';
     let selectedNodeId = null;
 
@@ -1963,7 +2008,8 @@ export function renderWorkbenchHTML(repoRoot = '.', getSessionStatusFn = getSess
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
     }
 
     function selectWorkspace(ws) {
@@ -2382,6 +2428,14 @@ export function renderWorkbenchHTML(repoRoot = '.', getSessionStatusFn = getSess
       }).join('');
     }
 
+    function renderAllWorkspaces() {
+      renderClearinghouse();
+      renderLineageTable();
+      renderTimeMachineAndDag();
+      renderKanbanWorkspace();
+      renderTraceWorkspace();
+    }
+
     async function bootWorkbench() {
       try {
         const [arch, graph, prod, statusRes] = await Promise.all([
@@ -2397,13 +2451,10 @@ export function renderWorkbenchHTML(repoRoot = '.', getSessionStatusFn = getSess
         if (statusRes.audit) STATE.audit = statusRes.audit;
       } catch (e) {}
 
-      renderClearinghouse();
-      renderLineageTable();
-      renderTimeMachineAndDag();
-      renderKanbanWorkspace();
-      renderTraceWorkspace();
+      renderAllWorkspaces();
     }
 
+    renderAllWorkspaces();
     bootWorkbench();
     try {
       const es = new EventSource('/api/events?token=' + encodeURIComponent(SDLC_TOKEN));
@@ -2492,148 +2543,167 @@ export function createWorkbenchServer({
   };
 
   const server = http.createServer(async (req, res) => {
-    const actualPort = server.address()?.port || port;
-    const allowedOrigins = new Set([`http://127.0.0.1:${actualPort}`, `http://localhost:${actualPort}`]);
-    const allowedHosts = new Set([`127.0.0.1:${actualPort}`, `localhost:${actualPort}`]);
-    res.setHeader('Vary', 'Origin');
+    try {
+      const actualPort = server.address()?.port || port;
+      const allowedOrigins = new Set([`http://127.0.0.1:${actualPort}`, `http://localhost:${actualPort}`]);
+      const allowedHosts = new Set([`127.0.0.1:${actualPort}`, `localhost:${actualPort}`]);
+      res.setHeader('Vary', 'Origin');
 
-    // Reject DNS-rebinding (foreign Host) and cross-origin browser requests.
-    const origin = req.headers.origin;
-    if (!allowedHosts.has(String(req.headers.host || '')) || (origin && !allowedOrigins.has(origin))) {
-      res.writeHead(403, { 'Content-Type': 'text/plain' });
-      res.end('Forbidden: workbench only accepts same-origin requests on loopback.');
-      return;
-    }
-    if (origin) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-SDLC-Token');
-    }
+      // Reject DNS-rebinding (foreign Host) and cross-origin browser requests.
+      const origin = req.headers.origin;
+      if (!allowedHosts.has(String(req.headers.host || '')) || (origin && !allowedOrigins.has(origin))) {
+        res.writeHead(403, { 'Content-Type': 'text/plain' });
+        res.end('Forbidden: workbench only accepts same-origin requests on loopback.');
+        return;
+      }
+      if (origin) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-SDLC-Token');
+      }
 
-    if (req.method === 'OPTIONS') {
-      res.writeHead(204);
-      res.end();
-      return;
-    }
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
 
-    const queryToken = new URL(req.url || '/', 'http://127.0.0.1').searchParams.get('token');
-    if (!tokenMatches(req.headers['x-sdlc-token']) && !tokenMatches(queryToken)) {
-      res.writeHead(401, { 'Content-Type': 'text/plain' });
-      res.end('Unauthorized: open the URL printed by `sdlc-engine serve` (it carries ?token=...).');
-      return;
-    }
+      const queryToken = new URL(req.url || '/', 'http://127.0.0.1').searchParams.get('token');
+      if (!tokenMatches(req.headers['x-sdlc-token']) && !tokenMatches(queryToken)) {
+        res.writeHead(401, { 'Content-Type': 'text/plain' });
+        res.end('Unauthorized: open the URL printed by `sdlc-engine serve` (it carries ?token=...).');
+        return;
+      }
 
-    const urlObj = new URL(req.url || '/', 'http://localhost');
-    const pathname = urlObj.pathname;
+      const urlObj = new URL(req.url || '/', 'http://localhost');
+      const pathname = urlObj.pathname;
 
-    // 1. Live Server-Sent Events (SSE) Stream
-    if (pathname === '/api/events') {
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive'
-      });
-      res.write(`event: connected\ndata: ${JSON.stringify({ timestamp: new Date().toISOString() })}\n\n`);
-      sseClients.add(res);
-      req.on('close', () => sseClients.delete(res));
-      return;
-    }
+      // 1. Live Server-Sent Events (SSE) Stream
+      if (pathname === '/api/events') {
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive'
+        });
+        res.write(`event: connected\ndata: ${JSON.stringify({ timestamp: new Date().toISOString() })}\n\n`);
+        sseClients.add(res);
+        req.on('close', () => sseClients.delete(res));
+        return;
+      }
 
-    // 2. Session & Audit Status API
-    if (pathname === '/api/status') {
-      const status = typeof getSessionStatusFn === 'function' ? getSessionStatusFn(repoRoot) : { active: false };
-      const audit = verifyAuditChain(repoRoot);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ...status, audit }));
-      return;
-    }
+      // 2. Session & Audit Status API
+      if (pathname === '/api/status') {
+        const status = typeof getSessionStatusFn === 'function' ? getSessionStatusFn(repoRoot) : { active: false };
+        const audit = verifyAuditChain(repoRoot);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ...status, audit }));
+        return;
+      }
 
-    // 3. Architecture Ring Diff & Mermaid AST Snapshot API
-    if (pathname === '/api/arch-diff') {
-      const archPayload = buildArchDiffPayload(repoRoot);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(archPayload));
-      return;
-    }
+      // 3. Architecture Ring Diff & Mermaid AST Snapshot API
+      if (pathname === '/api/arch-diff') {
+        const archPayload = buildArchDiffPayload(repoRoot);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(archPayload));
+        return;
+      }
 
-    // 4. Causal Decision Graph & Architecture Time-Slider API
-    if (pathname === '/api/decision-graph') {
-      const graph = buildDecisionGraph(repoRoot);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(graph));
-      return;
-    }
+      // 4. Causal Decision Graph & Architecture Time-Slider API
+      if (pathname === '/api/decision-graph') {
+        const graph = buildDecisionGraph(repoRoot);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(graph));
+        return;
+      }
 
-    // 5. PRODUCT.md & Topological DAG API
-    if (pathname === '/api/product') {
-      const product = parseProductMarkdown(repoRoot);
-      const dag = planProductDAG({ repoRoot, autoProvision: false });
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ product, dag }));
-      return;
-    }
+      // 5. PRODUCT.md & Topological DAG API
+      if (pathname === '/api/product') {
+        const product = parseProductMarkdown(repoRoot);
+        const dag = planProductDAG({ repoRoot, autoProvision: false });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ product, dag }));
+        return;
+      }
 
-    // 6. ADR List API
-    if (pathname === '/api/adr' && req.method === 'GET') {
-      const adrs = listADRs(repoRoot);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ adrs }));
-      return;
-    }
+      // 6. ADR List API
+      if (pathname === '/api/adr' && req.method === 'GET') {
+        const adrs = listADRs(repoRoot);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ adrs }));
+        return;
+      }
 
-    // 7. Bidirectional Action: Approve / Reject Pending Product ADR
-    if (pathname === '/api/adr/decide' && req.method === 'POST') {
-      try {
+      // 7. Bidirectional Action: Approve / Reject Pending Product ADR
+      if (pathname === '/api/adr/decide' && req.method === 'POST') {
+        try {
+          const body = await readJsonBody(req);
+          const decided = decideADR({
+            adrId: body.adrId,
+            action: body.action || 'approve',
+            reviewer: body.reviewer || '@workbench-operator',
+            reason: body.reason || 'Decided in SvelteKit Workbench',
+            repoRoot
+          });
+          broadcast('adr-updated', decided);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(decided));
+        } catch (err) {
+          const code = Number(err?.statusCode) || 400;
+          res.writeHead(code, {
+            'Content-Type': 'application/json',
+            ...(code === 413 ? { Connection: 'close' } : {})
+          });
+          res.end(JSON.stringify({ success: false, error: err.message }));
+        }
+        return;
+      }
+
+      // 8. Bidirectional Action: Pause / Resume / Advance Product DAG
+      if (pathname === '/api/dag/control' && req.method === 'POST') {
         const body = await readJsonBody(req);
-        const decided = decideADR({
-          adrId: body.adrId,
-          action: body.action || 'approve',
-          reviewer: body.reviewer || '@workbench-operator',
-          reason: body.reason || 'Decided in SvelteKit Workbench',
+        const ctl = controlProductDAG({
+          action: body.action || 'status',
+          reason: body.reason || '',
+          wave: body.wave || null,
           repoRoot
         });
-        broadcast('adr-updated', decided);
+        broadcast('dag-updated', ctl);
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(decided));
-      } catch (err) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: false, error: err.message }));
+        res.end(JSON.stringify(ctl));
+        return;
       }
-      return;
-    }
 
-    // 8. Bidirectional Action: Pause / Resume / Advance Product DAG
-    if (pathname === '/api/dag/control' && req.method === 'POST') {
-      const body = await readJsonBody(req);
-      const ctl = controlProductDAG({
-        action: body.action || 'status',
-        reason: body.reason || '',
-        wave: body.wave || null,
-        repoRoot
-      });
-      broadcast('dag-updated', ctl);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(ctl));
-      return;
-    }
+      // 9. Interactive Generative UI Widget Endpoint (/widget)
+      if (pathname === '/widget') {
+        const generated = generateArchitectureWidget({ repoRoot, writeDefault: false });
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(generated.html || '');
+        return;
+      }
 
-    // 9. Interactive Generative UI Widget Endpoint (/widget)
-    if (pathname === '/widget') {
-      const generated = generateArchitectureWidget({ repoRoot });
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(readFileSafe(generated.defaultWidgetPath) || '');
-      return;
-    }
+      // 10. Root HTML (Mission Control Workbench)
+      if (pathname === '/' || pathname === '/index.html') {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(renderWorkbenchHTML(repoRoot, getSessionStatusFn));
+        return;
+      }
 
-    // 10. Root HTML (Mission Control Workbench)
-    if (pathname === '/' || pathname === '/index.html') {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(renderWorkbenchHTML(repoRoot, getSessionStatusFn));
-      return;
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('Not Found');
+    } catch (err) {
+      const code = Number(err?.statusCode) || 500;
+      if (!res.headersSent) {
+        res.writeHead(code, {
+          'Content-Type': 'application/json',
+          ...(code === 413 ? { Connection: 'close' } : {})
+        });
+        res.end(JSON.stringify({ success: false, error: err?.message || 'Internal Server Error' }));
+      } else {
+        try {
+          res.end();
+        } catch {}
+      }
     }
-
-    res.writeHead(404, { 'Content-Type': 'text/plain' });
-    res.end('Not Found');
   });
 
   return {
