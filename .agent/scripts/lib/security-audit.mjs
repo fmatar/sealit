@@ -8,6 +8,7 @@ import {
   getModifiedFiles,
   getUnifiedDiffByFile,
   runConfiguredCommand,
+  resolveInsideRepo,
   writeFileAtomic
 } from './core.mjs';
 import { appendAuditRecord } from './audit-chain.mjs';
@@ -39,8 +40,14 @@ export function generateRegressionProof({
     let source = ep.sampleResponse ? 'sample' : 'contract-sample';
     let verified = false;
 
-    if (ep.file && fileExists(path.resolve(repoRoot, ep.file))) {
-      bodySample = readFileSafe(path.resolve(repoRoot, ep.file)) || bodySample;
+    let epAbsPath = null;
+    if (ep.file) {
+      try {
+        epAbsPath = resolveInsideRepo(repoRoot, ep.file);
+      } catch {}
+    }
+    if (epAbsPath && fileExists(epAbsPath)) {
+      bodySample = readFileSafe(epAbsPath) || bodySample;
       source = ep.file;
       verified = true;
     } else if (ep.liveProbe && /^https?:\/\//i.test(pathUrl)) {
@@ -94,7 +101,12 @@ export function generateRegressionProof({
     let domSnapshot = `<div id="app" data-component="${componentName}"><header><h1>${componentName}</h1></header><main data-proof-ready="true"></main></div>`;
     let sourceFile = null;
     for (const candidate of candidateFiles) {
-      const absCandidate = path.resolve(repoRoot, candidate);
+      let absCandidate = null;
+      try {
+        absCandidate = resolveInsideRepo(repoRoot, candidate);
+      } catch {
+        continue;
+      }
       if (fileExists(absCandidate)) {
         const rawComponent = readFileSafe(absCandidate);
         if (rawComponent) {

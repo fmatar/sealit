@@ -6,7 +6,7 @@
 
 ## 🌟 Executive Summary
 
-The **Agentic SDLC Framework** transforms AI coding agents (**Google Antigravity / Gemini**, **Anthropic Claude Code**, **Cursor**, **Grok**, **Windsurf**, and **GitHub Copilot**) into disciplined, autonomous engineering systems. Governed by a deterministic Node.js engine (`.agent/scripts/sdlc-engine.mjs`) decomposed into **16 modular libraries** (`.agent/scripts/lib/*.mjs`) and **10 Canonical Skills — 1 Universal Router + 9 Verb Skills** (`ADR-010`), it enforces:
+The **Agentic SDLC Framework** transforms AI coding agents (**Google Antigravity / Gemini**, **Anthropic Claude Code**, **Cursor**, **Grok**, **Windsurf**, and **GitHub Copilot**) into disciplined, autonomous engineering systems. Governed by a deterministic Node.js engine (`.agent/scripts/sdlc-engine.mjs`) decomposed into **20 modular libraries** (`.agent/scripts/lib/*.mjs`) and **10 Canonical Skills — 1 Universal Router + 9 Verb Skills** (`ADR-010`), it enforces:
 
 - **Spec-Driven Product Autopilot (`PRODUCT.md`)**: Synthesizes product vision, hard invariants (`INV-XX`), and functional capabilities (`CAP-XX`) into two-tier PRDs (`docs/PRD.md`), IEEE 29148 SRS specifications (`docs/SRS.md`), and topological DAG execution waves.
 - **Concentric Clean Architecture & Red-Green-Refactor TDD**: Strictly enforces **Red-Green-Refactor** test-driven development, the **Transformation Priority Premise (TPP)**, and **[Archlens](https://github.com/fmatar/archlens) Concentric Ring Boundaries** (`.archlens/policy.json`).

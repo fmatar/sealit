@@ -143,6 +143,24 @@ export function inspectSourceModule(filePath, repoRoot = '.') {
     }
   }
 
+  // Also capture single-line & multi-line ESM re-export blocks (`export { a, b as c } [from '...']`)
+  if (/\.(mjs|js|cjs|ts|tsx|jsx|mts|cts)$/i.test(ext)) {
+    const reExportRe = /(?:^|\n)\s*export\s*\{([^}]+)\}(?:\s*from\s*['"][^'"]+['"])?/g;
+    let reMatch;
+    while ((reMatch = reExportRe.exec(raw)) !== null) {
+      const startLine = raw.slice(0, reMatch.index).split('\n').length;
+      for (const spec of reMatch[1].split(',')) {
+        const aliasSplit = spec.trim().split(/\s+as\s+/);
+        const exportedName = (aliasSplit[1] || aliasSplit[0] || '').replace(/^(?:type|default)\s+/, '').trim();
+        if (exportedName && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(exportedName) && !exportedName.startsWith('_')) {
+          if (!exportsWithLines.some((e) => e.name === exportedName)) {
+            exportsWithLines.push({ name: exportedName, line: startLine });
+          }
+        }
+      }
+    }
+  }
+
   return {
     path: relPath,
     name: path.basename(relPath),
@@ -152,19 +170,32 @@ export function inspectSourceModule(filePath, repoRoot = '.') {
   };
 }
 
+function matchesArchlensLayerPath(lowerRelPath, rawPath, policyPrefix = '') {
+  const cleanPrefix = String(policyPrefix || '').replace(/\\/g, '/').toLowerCase().replace(/^\/+|\/+$/g, '');
+  const p = String(rawPath || '').replace(/\\/g, '/').toLowerCase().replace(/^\/+|\/+$/g, '');
+  if (!p) return false;
+  const candidates = cleanPrefix && !p.startsWith(`${cleanPrefix}/`) ? [p, `${cleanPrefix}/${p}`] : [p];
+  return candidates.some(
+    (c) =>
+      lowerRelPath === c ||
+      lowerRelPath.startsWith(`${c}/`) ||
+      lowerRelPath.endsWith(`/${c}`) ||
+      lowerRelPath.includes(`/${c}/`)
+  );
+}
+
 /**
  * Resolves the Archlens Concentric Ring for a given file path using `.archlens/policy.json`
  * and fallback Clean Architecture conventions.
  */
 export function resolveArchlensRing(relPath, policy = null) {
-  const lower = relPath.replace(/\\/g, '/').toLowerCase();
+  const lower = relPath.replace(/\\/g, '/').toLowerCase().replace(/^\/+|\/+$/g, '');
+  const policyPrefix = policy?.prefix || '';
   if (policy && Array.isArray(policy.layers)) {
     for (let i = 0; i < policy.layers.length; i++) {
       const layer = policy.layers[i];
-      const paths = (layer.paths || [layer.name])
-        .filter(Boolean)
-        .map((p) => String(p).replace(/\\/g, '/').toLowerCase());
-      if (paths.some((p) => lower === p || lower.startsWith(`${p}/`) || lower.includes(`/${p}/`))) {
+      const rawPaths = (layer.paths || [layer.name]).filter(Boolean);
+      if (rawPaths.some((p) => matchesArchlensLayerPath(lower, p, policyPrefix))) {
         return { ring: `Ring ${i}: ${layer.name}`, index: i };
       }
     }
@@ -176,13 +207,14 @@ export function resolveArchlensRing(relPath, policy = null) {
         : policy.levels && typeof policy.levels === 'object'
           ? policy.levels[layerName]
           : null;
-      const rawPaths = Array.isArray(levelEntry)
-        ? levelEntry
-        : Array.isArray(levelEntry?.paths)
-          ? levelEntry.paths
-          : [layerName];
-      const paths = rawPaths.filter(Boolean).map((p) => String(p).replace(/\\/g, '/').toLowerCase());
-      if (paths.some((p) => lower === p || lower.startsWith(`${p}/`) || lower.includes(`/${p}/`))) {
+      const rawPaths = (
+        Array.isArray(levelEntry)
+          ? levelEntry
+          : Array.isArray(levelEntry?.paths)
+            ? levelEntry.paths
+            : [layerName]
+      ).filter(Boolean);
+      if (rawPaths.some((p) => matchesArchlensLayerPath(lower, p, policyPrefix))) {
         return { ring: `Ring ${i}: ${layerName}`, index: i };
       }
     }

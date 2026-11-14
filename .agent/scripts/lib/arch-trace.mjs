@@ -26,7 +26,7 @@ const DEFAULT_OMIT_DIRS = new Set([
   '__tests__'
 ]);
 
-const SOURCE_FILE_EXT_RE = /\.(mjs|cjs|js|jsx|ts|tsx|java)$/i;
+const SOURCE_FILE_EXT_RE = /\.(mjs|cjs|mts|cts|js|jsx|ts|tsx|java)$/i;
 const TEST_FILE_NAME_RE = /\.(test|spec)\.[cm]?[jt]sx?$/i;
 
 function parsePolicyConfiguration(repoRoot) {
@@ -40,7 +40,7 @@ function parsePolicyConfiguration(repoRoot) {
         policyLayers = rawPolicy.layers.map((l, idx) => ({
           name: l.name || `Layer-${idx}`,
           index: idx,
-          paths: (l.paths || [l.name]).filter(Boolean).map((p) => String(p).toLowerCase()),
+          paths: (l.paths || [l.name]).filter(Boolean).map((p) => String(p).replace(/\\/g, '/').toLowerCase()),
           allowedDependencies: Array.isArray(l.allowedDependencies)
             ? l.allowedDependencies.map((d) => String(d).toLowerCase())
             : null
@@ -61,12 +61,14 @@ function parsePolicyConfiguration(repoRoot) {
           return {
             name: String(layerName),
             index: idx,
-            paths: rawPaths.filter(Boolean).map((p) => String(p).toLowerCase()),
+            paths: rawPaths.filter(Boolean).map((p) => String(p).replace(/\\/g, '/').toLowerCase()),
             allowedDependencies: rawPolicy.order.slice(0, idx).map((d) => String(d).toLowerCase())
           };
         });
       }
-    } catch {}
+    } catch (err) {
+      console.warn(`⚠️ Failed to parse .archlens/policy.json (${err.message}); falling back to default ring heuristics.`);
+    }
   }
   const omitDirs = new Set(DEFAULT_OMIT_DIRS);
   if (Array.isArray(rawPolicy.omit)) {
@@ -93,8 +95,8 @@ function extractImportSpecifiers(code, options = {}) {
   const found = [];
   const patterns = [
     /(?:^|[;\n}])\s*(?:import|export)\s+(?:type\s+)?(?:[*\w${}\s,]+\s+from\s+)?['"]([^'"]+)['"]/g,
-    /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
-    /\brequire\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
+    /(?<![.\w$])import\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
+    /(?<![.\w$])require(?:\.resolve)?\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
     /(?:^|[;\n}])\s*import\s+(?:static\s+)?([a-zA-Z_][a-zA-Z0-9_.]*)\s*;/g
   ];
   for (const re of patterns) {
@@ -115,26 +117,38 @@ function extractImportSpecifiers(code, options = {}) {
 function collectPolicySourceFiles(repoRoot, rawPolicy, policyLayers, omitDirs) {
   const absRoot = path.resolve(repoRoot);
   const collected = new Set();
+  const visitedRealDirs = new Set();
+  const allowDotAgent =
+    String(rawPolicy?.src || '').toLowerCase().startsWith('.agent') ||
+    policyLayers.some((l) => l.paths.some((p) => p.replace(/^\/+/, '').startsWith('.agent')));
 
   const walk = (absTarget) => {
     if (!fs.existsSync(absTarget)) return;
-    let stat;
+    let lstat;
     try {
-      stat = fs.statSync(absTarget);
+      lstat = fs.lstatSync(absTarget);
     } catch {
       return;
     }
+    if (lstat.isSymbolicLink()) return;
     const rel = path.relative(absRoot, absTarget).replace(/\\/g, '/');
-    if (stat.isFile()) {
+    if (lstat.isFile()) {
       if (SOURCE_FILE_EXT_RE.test(rel) && !TEST_FILE_NAME_RE.test(path.basename(rel))) {
         collected.add(rel);
       }
       return;
     }
-    if (!stat.isDirectory()) return;
+    if (!lstat.isDirectory()) return;
     if (rel) {
       const baseLower = path.basename(rel).toLowerCase();
       if (omitDirs.has(baseLower)) return;
+    }
+    try {
+      const realDir = fs.realpathSync(absTarget);
+      if (visitedRealDirs.has(realDir)) return;
+      visitedRealDirs.add(realDir);
+    } catch {
+      return;
     }
     let entries = [];
     try {
@@ -143,16 +157,19 @@ function collectPolicySourceFiles(repoRoot, rawPolicy, policyLayers, omitDirs) {
       return;
     }
     for (const entry of entries) {
-      if (entry.name.startsWith('.') && entry.name !== '.agent') continue;
+      if (entry.name.startsWith('.') && !(allowDotAgent && entry.name === '.agent')) continue;
       if (entry.isDirectory() && omitDirs.has(entry.name.toLowerCase())) continue;
       walk(path.join(absTarget, entry.name));
     }
   };
 
   const scanRoots = new Set();
-  if (rawPolicy?.src && String(rawPolicy.src).trim() !== '.' && String(rawPolicy.src).trim() !== '') {
-    const srcCandidate = resolveInsideRepo(repoRoot, String(rawPolicy.src));
-    if (fs.existsSync(srcCandidate)) scanRoots.add(srcCandidate);
+  const srcSetting = String(rawPolicy?.src || '').trim();
+  if (srcSetting && srcSetting !== '.') {
+    try {
+      const srcCandidate = resolveInsideRepo(repoRoot, srcSetting);
+      if (fs.existsSync(srcCandidate)) scanRoots.add(srcCandidate);
+    } catch {}
   }
   for (const layer of policyLayers) {
     for (const rawPath of layer.paths) {
@@ -164,6 +181,9 @@ function collectPolicySourceFiles(repoRoot, rawPolicy, policyLayers, omitDirs) {
       } catch {}
     }
   }
+  if (scanRoots.size === 0 && srcSetting === '.') {
+    scanRoots.add(absRoot);
+  }
 
   for (const r of scanRoots) walk(r);
   return Array.from(collected).sort();
@@ -171,19 +191,43 @@ function collectPolicySourceFiles(repoRoot, rawPolicy, policyLayers, omitDirs) {
 
 function resolveGraphImportTarget(fromRel, spec, knownFilesSet) {
   if (!spec) return null;
+  const cleanSpec = String(spec).split(/[?#]/)[0];
+  if (!cleanSpec) return null;
   let candidateBase = null;
-  if (spec.startsWith('.')) {
+  if (cleanSpec.startsWith('.')) {
     const fromDir = path.posix.dirname(fromRel);
-    candidateBase = path.posix.normalize(path.posix.join(fromDir, spec));
-  } else if (knownFilesSet.has(spec)) {
-    return spec;
+    candidateBase = path.posix.normalize(path.posix.join(fromDir, cleanSpec));
+  } else if (knownFilesSet.has(cleanSpec)) {
+    return cleanSpec;
   } else {
-    candidateBase = String(spec).replace(/^\/+/, '');
+    candidateBase = cleanSpec.replace(/^\/+/, '');
   }
-  const exts = ['', '.mjs', '.cjs', '.js', '.jsx', '.ts', '.tsx', '/index.mjs', '/index.js', '/index.ts'];
+  const exts = [
+    '',
+    '.mjs',
+    '.cjs',
+    '.mts',
+    '.cts',
+    '.js',
+    '.jsx',
+    '.ts',
+    '.tsx',
+    '/index.mjs',
+    '/index.cjs',
+    '/index.js',
+    '/index.jsx',
+    '/index.ts',
+    '/index.tsx'
+  ];
   for (const ext of exts) {
     const probe = `${candidateBase}${ext}`;
     if (knownFilesSet.has(probe)) return probe;
+  }
+  if (/\.m?jsx?$/i.test(candidateBase)) {
+    const stripped = candidateBase.replace(/\.m?jsx?$/i, '');
+    for (const tsExt of ['.ts', '.tsx', '.mts', '.cts']) {
+      if (knownFilesSet.has(`${stripped}${tsExt}`)) return `${stripped}${tsExt}`;
+    }
   }
   return null;
 }
@@ -345,21 +389,46 @@ export function checkArchDiff(repoRoot = '.') {
 
   const violations = [];
   const diffsByFile = getUnifiedDiffByFile(baseRef, repoRoot, diffFiles);
+  const baseCommit =
+    (
+      gitOutput(['merge-base', `origin/${baseRef}`, 'HEAD'], repoRoot) ||
+      gitOutput(['merge-base', baseRef, 'HEAD'], repoRoot) ||
+      (gitOutput(['rev-parse', '--verify', `origin/${baseRef}`], repoRoot) ? `origin/${baseRef}` : null) ||
+      (gitOutput(['rev-parse', '--verify', baseRef], repoRoot) ? baseRef : null) ||
+      ''
+    ).trim() || null;
 
   for (const file of diffFiles) {
     try {
-      const diffOutput = diffsByFile.get(file) || '';
-      if (!diffOutput) continue;
-
       const sourceLayer = matchPolicyLayer(file);
-      const addedCode = diffOutput
-        .split('\n')
-        .filter((line) => line.startsWith('+') && !line.startsWith('+++'))
-        .map((line) => line.slice(1))
-        .join('\n');
-      if (!addedCode.trim()) continue;
+      let extracted = [];
+      let absFile = null;
+      try {
+        absFile = resolveInsideRepo(repoRoot, file);
+      } catch {}
 
-      const extracted = extractImportSpecifiers(addedCode, { stripTemplates: true });
+      if (baseCommit && absFile && fileExists(absFile) && fs.statSync(absFile).isFile()) {
+        const currentCode = readFileSafe(absFile) || '';
+        const baseCode = gitOutput(['show', `${baseCommit}:${file}`], repoRoot) || '';
+        const baseImportsSet = new Set(
+          extractImportSpecifiers(baseCode, { stripTemplates: true }).map((s) => s.imported)
+        );
+        extracted = extractImportSpecifiers(currentCode, { stripTemplates: true }).filter(
+          (s) => !baseImportsSet.has(s.imported)
+        );
+      } else {
+        const diffOutput = diffsByFile.get(file) || '';
+        if (!diffOutput) continue;
+        const addedCode = diffOutput
+          .split('\n')
+          .filter((line) => line.startsWith('+') && !line.startsWith('+++'))
+          .map((line) => line.slice(1))
+          .join('\n');
+        if (!addedCode.trim()) continue;
+        extracted = extractImportSpecifiers(addedCode, { stripTemplates: true });
+      }
+      if (extracted.length === 0) continue;
+
       for (const { imported: importedPath, line: lineText } of extracted) {
         const targetLayer = matchPolicyLayer(importedPath, file);
 

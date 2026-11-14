@@ -4848,9 +4848,17 @@ describe('Issue #134: Ring 2 cycle breakup, quality-gate decomposition, intra-la
         'utf8'
       );
 
-      // Baseline on develop: adapters/a.mjs imports adapters/b.mjs (valid intra-ring one-way edge) + commented fake import
-      fs.writeFileSync(path.join(dir, 'src/domain/entity.mjs'), '// import { db } from "../adapters/b.mjs";\nexport const id = 1;\n', 'utf8');
-      fs.writeFileSync(path.join(dir, 'src/usecases/order.mjs'), 'import { id } from "../domain/entity.mjs";\nexport const runOrder = () => id;\n', 'utf8');
+      // Baseline on develop: adapters/a.mjs imports adapters/b.mjs (valid intra-ring one-way edge) + commented/method-call fake imports
+      fs.writeFileSync(
+        path.join(dir, 'src/domain/entity.mjs'),
+        '// import { db } from "../adapters/b.mjs";\n/*\n * placeholder comment\n */\nexport const id = 1;\n',
+        'utf8'
+      );
+      fs.writeFileSync(
+        path.join(dir, 'src/usecases/order.mjs'),
+        'import { id } from "../domain/entity.mjs";\nconst auth = { require: (x) => x };\nauth.require("../adapters/b.mjs");\nexport const runOrder = () => id;\n',
+        'utf8'
+      );
       fs.writeFileSync(path.join(dir, 'src/adapters/b.mjs'), 'import { id } from "../domain/entity.mjs";\nexport const bFn = () => id;\n', 'utf8');
       fs.writeFileSync(path.join(dir, 'src/adapters/a.mjs'), 'import { bFn } from "./b.mjs";\nexport const aFn = () => bFn();\n', 'utf8');
 
@@ -4863,23 +4871,38 @@ describe('Issue #134: Ring 2 cycle breakup, quality-gate decomposition, intra-la
       assert.equal(baselineRes.passed, true);
       assert.equal(baselineRes.cyclesCount, 0);
 
-      // Introduce BOTH an intra-ring mutual cycle (adapters/b.mjs -> ./a.mjs) AND a dynamic import inversion in usecases/order.mjs
+      // Adding a line inside an existing block comment in domain/entity.mjs must be ignored cleanly
+      fs.writeFileSync(
+        path.join(dir, 'src/domain/entity.mjs'),
+        '// import { db } from "../adapters/b.mjs";\n/*\n * import { bFn } from "../adapters/b.mjs";\n */\nexport const id = 1;\n',
+        'utf8'
+      );
+      const commentEditRes = checkArchDiff(dir);
+      assert.equal(commentEditRes.passed, true);
+      assert.equal(commentEditRes.cyclesCount, 0);
+
+      // Introduce an intra-ring mutual cycle (adapters/b <-> a), a 3-node transitive cycle (c -> d -> e -> c), AND dynamic import + re-export inversion in usecases
       fs.writeFileSync(
         path.join(dir, 'src/adapters/b.mjs'),
         'import { id } from "../domain/entity.mjs";\nconst aMod = require("./a.mjs");\nexport const bFn = () => id + Boolean(aMod);\n',
         'utf8'
       );
+      fs.writeFileSync(path.join(dir, 'src/adapters/c.mjs'), 'import { dFn } from "./d.mjs";\nexport const cFn = () => dFn();\n', 'utf8');
+      fs.writeFileSync(path.join(dir, 'src/adapters/d.mjs'), 'import { eFn } from "./e.mjs";\nexport const dFn = () => eFn();\n', 'utf8');
+      fs.writeFileSync(path.join(dir, 'src/adapters/e.mjs'), 'import { cFn } from "./c.mjs";\nexport const eFn = () => cFn();\n', 'utf8');
       fs.writeFileSync(
         path.join(dir, 'src/usecases/order.mjs'),
-        'import { id } from "../domain/entity.mjs";\nexport async function runOrder() { return (await import("../adapters/b.mjs")).bFn() + id; }\n',
+        'import { id } from "../domain/entity.mjs";\nexport { cFn } from "../adapters/c.mjs";\nexport async function runOrder() { return (await import("../adapters/b.mjs")).bFn() + id; }\n',
         'utf8'
       );
 
       const badRes = checkArchDiff(dir);
       assert.equal(badRes.passed, false);
-      assert.ok(badRes.cyclesCount >= 1, `Expected intra-ring cycle detected, got ${JSON.stringify(badRes)}`);
+      assert.ok(badRes.cyclesCount >= 2, `Expected both 2-node and 3-node cycles detected, got ${JSON.stringify(badRes)}`);
       assert.ok(badRes.violations.some((v) => v.type === 'CYCLE' && /a\.mjs/.test(v.rule) && /b\.mjs/.test(v.rule)));
-      assert.ok(badRes.violations.some((v) => v.sourceLayer === 'usecases' && v.targetLayer === 'adapters'));
+      assert.ok(badRes.violations.some((v) => v.type === 'CYCLE' && /c\.mjs/.test(v.rule) && /d\.mjs/.test(v.rule) && /e\.mjs/.test(v.rule)));
+      assert.ok(badRes.violations.some((v) => v.sourceLayer === 'usecases' && v.targetLayer === 'adapters' && v.imported.includes('b.mjs')));
+      assert.ok(badRes.violations.some((v) => v.sourceLayer === 'usecases' && v.targetLayer === 'adapters' && v.imported.includes('c.mjs')));
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

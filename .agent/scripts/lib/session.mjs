@@ -9,7 +9,6 @@ import {
   parseTicketId,
   resolveQualityThresholds,
   getSessionFilePath,
-  readSessionFileState,
   readSessionStatus,
   getExemptionsPath,
   getExemptions,

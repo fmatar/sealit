@@ -851,6 +851,24 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
       assert.equal(archRes.violations[0].sourceLayer, 'UseCaseRing');
       assert.equal(archRes.violations[0].targetLayer, 'AdapterRing');
 
+      // resolveArchlensRing handles legacy layers, canonical order+levels (array/object), trailing slashes, and nested basenames
+      assert.equal(
+        resolveArchlensRing('src/custom/a.mjs', { order: ['custom'], levels: [['/src/custom/']] }).index,
+        0
+      );
+      assert.equal(
+        resolveArchlensRing('pkg/src/custom', { order: ['base', 'custom'], levels: { base: ['src/base'], custom: ['src/custom'] } }).index,
+        1
+      );
+      assert.equal(
+        resolveArchlensRing('packages/svc/usecases/run.ts', {
+          prefix: 'packages/svc',
+          order: ['domain', 'usecases'],
+          levels: [['domain'], ['usecases']]
+        }).index,
+        1
+      );
+
       // Polyglot reproduction test generation (.py, .java, .go, .rs)
       const pyRepro = scaffoldReproductionTest({
         errorTrace: 'ValueError: invalid literal\n  File "src/billing/calc.py", line 19',
