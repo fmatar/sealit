@@ -2,40 +2,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import readline from 'node:readline';
-import { fileExists, readFileSafe, parseFrontmatter } from './core.mjs';
+import {
+  fileExists,
+  readFileSafe,
+  parseFrontmatter,
+  DEPRECATED_SDLC_SKILLS,
+  CANONICAL_SDLC_SKILLS
+} from './core.mjs';
 import { scaffoldArchlensPolicy } from './arch-trace.mjs';
 import { installHooks } from './git-guard.mjs';
 import { scaffoldIssueTemplates } from './pm-provider.mjs';
 
-export const DEPRECATED_SDLC_SKILLS = [
-  'sdlc-analyze',
-  'sdlc-arch-trace',
-  'sdlc-docs-wiki',
-  'sdlc-feature-spec',
-  'sdlc-help',
-  'sdlc-init',
-  'sdlc-initialize',
-  'sdlc-kanban',
-  'sdlc-peer-review',
-  'sdlc-quality-gate',
-  'sdlc-release-changelog',
-  'sdlc-review-gate',
-  'sdlc-tdd-implement',
-  'sdlc-test-coverage'
-];
-
-export const CANONICAL_SDLC_SKILLS = [
-  'sdlc',
-  'sdlc-adr',
-  'sdlc-doctor',
-  'sdlc-flow',
-  'sdlc-gate',
-  'sdlc-product',
-  'sdlc-release',
-  'sdlc-status',
-  'sdlc-tdd',
-  'sdlc-wiki'
-];
+export { DEPRECATED_SDLC_SKILLS, CANONICAL_SDLC_SKILLS };
 
 export const ARCHLENS_SKILL_PACKAGE = '@fmatar/archlens-skill@1.2.0';
 
@@ -1509,4 +1487,21 @@ export async function runInstallerCLI(args = [], { repoRoot = '.', onDetect = nu
   console.log('\n👉 \x1b[1mNext Step\x1b[0m: Prompt your agent with \x1b[36m/sdlc-product\x1b[0m or \x1b[36m/sdlc-flow\x1b[0m!\n');
 
   return res;
+}
+
+export function exportAgentRules({ agent = 'all', repoRoot = '.' } = {}) {
+  console.log(`🤖 Exporting Agentic SDLC Framework Rules & Skills for target runtime: '${agent.toUpperCase()}'...`);
+  const provisioned = provisionAgentIntegrations({
+    agents: agent,
+    targetDir: repoRoot,
+    global: false
+  });
+
+  return {
+    agent,
+    selectedAgents: provisioned.selectedAgents,
+    filesCreated: provisioned.filesCreated,
+    skillsLinked: provisioned.skillsCount,
+    prunedSkills: provisioned.prunedSkills
+  };
 }

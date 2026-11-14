@@ -48,6 +48,8 @@ flowchart TD
   L_124000["Ticket L-124000"]
   ADR_015["ADR-015: Harden Stage 7 Gate Receipts, Ring 0 Primitives, and Git Flow Verification"]
   L_128000["Ticket L-128000"]
+  ADR_016["ADR-016: Break Ring 2 Cycles, Decompose quality-gate.mjs, Enforce Whole-Graph Cycle Detection in checkArchDiff, and Align Archlens Policy Schema"]
+  _134["Ticket #134"]
   ADR_COMPACT_v0_3_0["Compacted 8 ADR(s) into SRS.md (v0.3.0)"]
   createdAt__2026_11_03T18_52_42_656Z["createdAt: 2026-11-03T18:52:42.656Z"]
   ADR_COMPACT_v0_4_0["Compacted 6 ADR(s) into SRS.md (v0.4.0)"]
@@ -81,6 +83,7 @@ flowchart TD
   _L_124000["Ticket #L-124000 (feature/L-124000-fix-git-flow-enforce-merges-to-develop-b)"]
   _131["Ticket #131 (feature/issue-#131-gate-diff-coverage-thresholds-tdd)"]
   _132["Ticket #132 (feature/issue-#132-git-flow-atomic-session-receipt-allowlis)"]
+  _133["Ticket #133 (feature/issue-#133)"]
   CAP_01 -->|specified_by| SPEC_01
   CAP_02 -->|specified_by| SPEC_02
   CAP_03 -->|specified_by| SPEC_03
@@ -135,6 +138,9 @@ flowchart TD
   L_128000 -->|triggered_drift_adr| ADR_015
   CAP_01 -.->|ADR Drift| ADR_015
   CAP_04 -.->|ADR Drift| ADR_015
+  _134 -->|triggered_drift_adr| ADR_016
+  CAP_02 -.->|ADR Drift| ADR_016
+  CAP_03 -.->|ADR Drift| ADR_016
   CAP_01 -->|realized_by| ADR_COMPACT_v0_3_0
   CAP_02 -->|realized_by| ADR_COMPACT_v0_3_0
   CAP_03 -->|realized_by| ADR_COMPACT_v0_3_0
@@ -170,6 +176,7 @@ flowchart TD
 | **ADR-013** | Harden Release Gate, Opt-In Issue Creation, Universal ADR Approval, Diff Review Plans, and Node 24 CI Actions | `technical` | `accepted` | L-122000 | CAP-01, CAP-03, CAP-06 |
 | **ADR-014** | Canonical Git Flow: Enforce Merges to Develop, Block Direct PRs to Main, and Automate Production Releases on Develop Merge | `technical` | `accepted` | L-124000 | CAP-01, CAP-04, CAP-06 |
 | **ADR-015** | Harden Stage 7 Gate Receipts, Ring 0 Primitives, and Git Flow Verification | `technical` | `accepted` | L-128000 | CAP-01, CAP-04 |
+| **ADR-016** | Break Ring 2 Cycles, Decompose quality-gate.mjs, Enforce Whole-Graph Cycle Detection in checkArchDiff, and Align Archlens Policy Schema | `technical` | `accepted` | #134 | CAP-02, CAP-03 |
 | **ADR-001** | Decompose sdlc-engine.mjs into Modular Domain Libraries with SHA-256 Gate Cache and SvelteKit 5 Decision Workbench | `technical` | `compacted` | #63 | CAP-01 |
 | **ADR-002** | Consolidate 14 Skills into 6 Schema-Valid Skills, Add Composite Stage CLI, and Enforce Real Dual-Gate Verification | `architectural` | `compacted` | #68 | CAP-01, CAP-02, CAP-03, CAP-04, CAP-05, CAP-06 |
 | **ADR-003** | Replace Legacy Shell/Java Installers with Native npx Interactive Multi-Agent Installer Wizard | `architectural` | `compacted` | #75 | CAP-06, CAP-07 |
@@ -186,8 +193,8 @@ flowchart TD
 | Capability ID | Description | Current Status |
 | :--- | :--- | :--- |
 | **CAP-01** | Core Domain & Architecture Foundation | `PLANNED` |
-| **CAP-02** | Shell Injection Remediation & Polyglot Test Runners (#69) | `AMENDED (ADR-006)` |
-| **CAP-03** | Real Coverage/Mutation Parsers & Policy ArchDiff (#70) | `AMENDED (ADR-013)` |
+| **CAP-02** | Shell Injection Remediation & Polyglot Test Runners (#69) | `AMENDED (ADR-016)` |
+| **CAP-03** | Real Coverage/Mutation Parsers & Policy ArchDiff (#70) | `AMENDED (ADR-016)` |
 | **CAP-04** | Live Canary Watchdog, Real Proofs & Polyglot Reproduce (#71) | `AMENDED (ADR-015)` |
 | **CAP-05** | Consolidate 14 Skills into 6 Schema-Valid Core Skills (#72) | `AMENDED (ADR-011)` |
 | **CAP-06** | Dogfooding Configuration, Docs Sync & Full Test Suite (#73) | `AMENDED (ADR-014)` |

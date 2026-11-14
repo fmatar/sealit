@@ -3,57 +3,42 @@
   "src": ".agent/scripts",
   "prefix": "",
   "hierarchical": true,
-  "layers": [
-    {
-      "name": "domain-core",
-      "paths": [
-        ".agent/scripts/lib/core.mjs",
-        ".agent/scripts/lib/cache.mjs",
-        ".agent/scripts/lib/audit-chain.mjs",
-        ".agent/scripts/lib/decision-graph.mjs"
-      ],
-      "allowedDependencies": []
-    },
-    {
-      "name": "governance-models",
-      "paths": [
-        ".agent/scripts/lib/pm-provider.mjs",
-        ".agent/scripts/lib/adr-drift.mjs",
-        ".agent/scripts/lib/product-dag.mjs",
-        ".agent/scripts/lib/dossier.mjs",
-        ".agent/scripts/lib/readme-sync.mjs",
-        ".agent/scripts/lib/git-guard.mjs"
-      ],
-      "allowedDependencies": [
-        "domain-core"
-      ]
-    },
-    {
-      "name": "adapters-orchestrators",
-      "paths": [
-        ".agent/scripts/lib/arch-trace.mjs",
-        ".agent/scripts/lib/installer.mjs",
-        ".agent/scripts/lib/wiki-sync.mjs",
-        ".agent/scripts/lib/workbench-server.mjs",
-        ".agent/scripts/lib/quality-gate.mjs",
-        ".agent/scripts/lib/session.mjs"
-      ],
-      "allowedDependencies": [
-        "domain-core",
-        "governance-models"
-      ]
-    },
-    {
-      "name": "cli-entrypoints",
-      "paths": [
-        ".agent/scripts/sdlc-engine.mjs"
-      ],
-      "allowedDependencies": [
-        "domain-core",
-        "governance-models",
-        "adapters-orchestrators"
-      ]
-    }
+  "order": [
+    "domain-core",
+    "governance-models",
+    "adapters-orchestrators",
+    "cli-entrypoints"
+  ],
+  "levels": [
+    [
+      ".agent/scripts/lib/core.mjs",
+      ".agent/scripts/lib/cache.mjs",
+      ".agent/scripts/lib/audit-chain.mjs",
+      ".agent/scripts/lib/decision-graph.mjs"
+    ],
+    [
+      ".agent/scripts/lib/pm-provider.mjs",
+      ".agent/scripts/lib/adr-drift.mjs",
+      ".agent/scripts/lib/product-dag.mjs",
+      ".agent/scripts/lib/dossier.mjs",
+      ".agent/scripts/lib/readme-sync.mjs",
+      ".agent/scripts/lib/git-guard.mjs"
+    ],
+    [
+      ".agent/scripts/lib/arch-trace.mjs",
+      ".agent/scripts/lib/installer.mjs",
+      ".agent/scripts/lib/wiki-sync.mjs",
+      ".agent/scripts/lib/workbench-server.mjs",
+      ".agent/scripts/lib/doctor-ci.mjs",
+      ".agent/scripts/lib/security-audit.mjs",
+      ".agent/scripts/lib/triage-review.mjs",
+      ".agent/scripts/lib/coverage-mutation.mjs",
+      ".agent/scripts/lib/quality-gate.mjs",
+      ".agent/scripts/lib/session.mjs"
+    ],
+    [
+      ".agent/scripts/sdlc-engine.mjs"
+    ]
   ],
   "foreign": [
     "node:",
@@ -72,5 +57,5 @@
     ".idea",
     ".vscode"
   ],
-  "lang": "javascript"
+  "lang": "typescript"
 }

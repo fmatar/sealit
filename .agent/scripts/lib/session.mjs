@@ -10,6 +10,9 @@ import {
   resolveQualityThresholds,
   getSessionFilePath,
   readSessionFileState,
+  readSessionStatus,
+  getExemptionsPath,
+  getExemptions,
   writeFileAtomic
 } from './core.mjs';
 import { createPMIssue, transitionPMState, syncKanbanBoard, ensurePullRequest } from './pm-provider.mjs';
@@ -17,9 +20,11 @@ import { checkSpecDrift } from './adr-drift.mjs';
 import { syncDecisionMapMarkdown } from './decision-graph.mjs';
 import { recordArchTrace } from './arch-trace.mjs';
 import { issueGateReceipt, appendAuditRecord } from './audit-chain.mjs';
-import { generatePRSummary, triageChange } from './quality-gate.mjs';
+import { generatePRSummary, triageChange } from './triage-review.mjs';
 import { generateArchitectureWidget, ensureWorkbenchRunning } from './workbench-server.mjs';
 import { auditWiki } from './wiki-sync.mjs';
+
+export { getExemptionsPath, getExemptions };
 
 const SESSION_LANE_RANK = { trivial: 0, standard: 1, full: 2 };
 
@@ -28,20 +33,7 @@ export function getSessionPath(repoRoot = '.') {
 }
 
 export function getSessionStatus(repoRoot = '.') {
-  const state = readSessionFileState(repoRoot);
-  if (!state.exists) {
-    return { active: false, session: null, registry: null };
-  }
-  if (state.error) {
-    return { active: false, session: null, registry: null, error: state.error };
-  }
-  return {
-    active: state.active,
-    session: state.session,
-    activeSessionId: state.activeSessionId,
-    sessions: state.sessions,
-    registry: state.registry
-  };
+  return readSessionStatus(repoRoot);
 }
 
 export function startSession({
@@ -371,10 +363,6 @@ export function releaseSession(repoRoot = '.', issueId = null) {
   }
 }
 
-export function getExemptionsPath(repoRoot = '.') {
-  return path.resolve(repoRoot, '.agent', 'sdlc-exemptions.json');
-}
-
 const exemptionHighWater = new Map();
 
 function allocateNextExemptionId(exPath, ledger) {
@@ -419,17 +407,6 @@ export function recordExemption({ mutantId, file, reason, approvedBy = 'human-re
   writeFileAtomic(exPath, JSON.stringify(ledger, null, 2));
   console.log(`🛡️ Exemption registered: [${entry.id}] ${entry.mutantId} -> ${entry.reason}`);
   return { success: true, exemption: entry };
-}
-
-export function getExemptions(repoRoot = '.') {
-  const exPath = getExemptionsPath(repoRoot);
-  if (!fileExists(exPath)) return [];
-  try {
-    const data = JSON.parse(readFileSafe(exPath));
-    return Array.isArray(data.exemptions) ? data.exemptions : [];
-  } catch {
-    return [];
-  }
 }
 
 export function calculateSessionStats(repoRoot = '.') {

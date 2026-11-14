@@ -1,10 +1,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileExists, readFileSafe, parseFrontmatter, writeFileAtomic } from './core.mjs';
+import {
+  fileExists,
+  readFileSafe,
+  parseFrontmatter,
+  writeFileAtomic,
+  CANONICAL_SDLC_SKILLS,
+  DEPRECATED_SDLC_SKILLS
+} from './core.mjs';
 import { parseProductMarkdown } from './product-dag.mjs';
 import { listADRs } from './adr-drift.mjs';
 import { parseMermaidDiagram } from './arch-trace.mjs';
-import { CANONICAL_SDLC_SKILLS, DEPRECATED_SDLC_SKILLS } from './installer.mjs';
 
 /**
  * Default Concentric Clean Architecture Ring Classification for the SDLC Engine & Target Repos
@@ -24,6 +30,10 @@ const DEFAULT_ENGINE_RING_MAP = {
   'installer.mjs': { ring: 'Ring 2: Adapters & Enforcement', index: 2 },
   'wiki-sync.mjs': { ring: 'Ring 2: Adapters & Enforcement', index: 2 },
   'workbench-server.mjs': { ring: 'Ring 2: Adapters & Enforcement', index: 2 },
+  'doctor-ci.mjs': { ring: 'Ring 2: Adapters & Enforcement', index: 2 },
+  'security-audit.mjs': { ring: 'Ring 2: Adapters & Enforcement', index: 2 },
+  'triage-review.mjs': { ring: 'Ring 2: Adapters & Enforcement', index: 2 },
+  'coverage-mutation.mjs': { ring: 'Ring 2: Adapters & Enforcement', index: 2 },
   'quality-gate.mjs': { ring: 'Ring 2: Adapters & Enforcement', index: 2 },
   'session.mjs': { ring: 'Ring 2: Adapters & Enforcement', index: 2 },
   'sdlc-engine.mjs': { ring: 'Ring 3: CLI Router & Entrypoint', index: 3 }
@@ -156,6 +166,24 @@ export function resolveArchlensRing(relPath, policy = null) {
         .map((p) => String(p).replace(/\\/g, '/').toLowerCase());
       if (paths.some((p) => lower === p || lower.startsWith(`${p}/`) || lower.includes(`/${p}/`))) {
         return { ring: `Ring ${i}: ${layer.name}`, index: i };
+      }
+    }
+  } else if (policy && Array.isArray(policy.order)) {
+    for (let i = 0; i < policy.order.length; i++) {
+      const layerName = policy.order[i];
+      const levelEntry = Array.isArray(policy.levels)
+        ? policy.levels[i]
+        : policy.levels && typeof policy.levels === 'object'
+          ? policy.levels[layerName]
+          : null;
+      const rawPaths = Array.isArray(levelEntry)
+        ? levelEntry
+        : Array.isArray(levelEntry?.paths)
+          ? levelEntry.paths
+          : [layerName];
+      const paths = rawPaths.filter(Boolean).map((p) => String(p).replace(/\\/g, '/').toLowerCase());
+      if (paths.some((p) => lower === p || lower.startsWith(`${p}/`) || lower.includes(`/${p}/`))) {
+        return { ring: `Ring ${i}: ${layerName}`, index: i };
       }
     }
   }

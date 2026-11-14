@@ -9,31 +9,33 @@ import {
   getUnifiedDiffByFile,
   resolveDefaultBaseBranch,
   resolveInsideRepo,
-  parseTicketId
+  parseTicketId,
+  readSessionStatus
 } from './core.mjs';
-import { getSessionStatus } from './session.mjs';
 
-export function checkArchDiff(repoRoot = '.') {
-  console.log('🏛️ Auditing Git Diff for Architectural Ring Layer Inversions...');
-  const archInfo = inspectArchlens(repoRoot);
-  const baseRef = resolveDefaultBaseBranch(repoRoot);
-  const diffFiles = getModifiedFiles(baseRef, repoRoot);
+const DEFAULT_OMIT_DIRS = new Set([
+  'node_modules',
+  '.git',
+  '.stryker-tmp',
+  'coverage',
+  'reports',
+  'dist',
+  'build',
+  'target',
+  'tests',
+  '__tests__'
+]);
 
-  if (!archInfo.installed) {
-    return {
-      enabled: false,
-      passed: true,
-      violationsCount: 0,
-      message: 'Archlens policy not installed (.archlens/policy.json missing).',
-      violations: []
-    };
-  }
+const SOURCE_FILE_EXT_RE = /\.(mjs|cjs|js|jsx|ts|tsx|java)$/i;
+const TEST_FILE_NAME_RE = /\.(test|spec)\.[cm]?[jt]sx?$/i;
 
+function parsePolicyConfiguration(repoRoot) {
   const policyPath = path.resolve(repoRoot, '.archlens/policy.json');
+  let rawPolicy = {};
   let policyLayers = [];
   if (fileExists(policyPath)) {
     try {
-      const rawPolicy = JSON.parse(readFileSafe(policyPath) || '{}');
+      rawPolicy = JSON.parse(readFileSafe(policyPath) || '{}');
       if (Array.isArray(rawPolicy.layers)) {
         policyLayers = rawPolicy.layers.map((l, idx) => ({
           name: l.name || `Layer-${idx}`,
@@ -44,9 +46,13 @@ export function checkArchDiff(repoRoot = '.') {
             : null
         }));
       } else if (Array.isArray(rawPolicy.order)) {
-        const levelsMap = rawPolicy.levels && typeof rawPolicy.levels === 'object' ? rawPolicy.levels : {};
+        const levelsRaw = rawPolicy.levels;
         policyLayers = rawPolicy.order.map((layerName, idx) => {
-          const levelEntry = levelsMap[layerName];
+          const levelEntry = Array.isArray(levelsRaw)
+            ? levelsRaw[idx]
+            : levelsRaw && typeof levelsRaw === 'object'
+              ? levelsRaw[layerName]
+              : null;
           const rawPaths = Array.isArray(levelEntry)
             ? levelEntry
             : Array.isArray(levelEntry?.paths)
@@ -62,6 +68,239 @@ export function checkArchDiff(repoRoot = '.') {
       }
     } catch {}
   }
+  const omitDirs = new Set(DEFAULT_OMIT_DIRS);
+  if (Array.isArray(rawPolicy.omit)) {
+    for (const dir of rawPolicy.omit) {
+      if (dir) omitDirs.add(String(dir).replace(/^\/+|\/+$/g, '').toLowerCase());
+    }
+  }
+  return { rawPolicy, policyLayers, omitDirs };
+}
+
+function stripSourceComments(code, { stripTemplates = false } = {}) {
+  const pattern = stripTemplates
+    ? /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g
+    : /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g;
+  return String(code || '').replace(pattern, (token) => {
+    if (token.startsWith('/*') || token.startsWith('//')) return ' ';
+    if (stripTemplates && token.startsWith('`')) return '``';
+    return token;
+  });
+}
+
+function extractImportSpecifiers(code, options = {}) {
+  const cleaned = stripSourceComments(code, options);
+  const found = [];
+  const patterns = [
+    /(?:^|[;\n}])\s*(?:import|export)\s+(?:type\s+)?(?:[*\w${}\s,]+\s+from\s+)?['"]([^'"]+)['"]/g,
+    /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
+    /\brequire\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
+    /(?:^|[;\n}])\s*import\s+(?:static\s+)?([a-zA-Z_][a-zA-Z0-9_.]*)\s*;/g
+  ];
+  for (const re of patterns) {
+    re.lastIndex = 0;
+    let m;
+    while ((m = re.exec(cleaned)) !== null) {
+      const imported = m[1];
+      if (!imported) continue;
+      found.push({
+        imported,
+        line: m[0].trim().replace(/\s+/g, ' ')
+      });
+    }
+  }
+  return found;
+}
+
+function collectPolicySourceFiles(repoRoot, rawPolicy, policyLayers, omitDirs) {
+  const absRoot = path.resolve(repoRoot);
+  const collected = new Set();
+
+  const walk = (absTarget) => {
+    if (!fs.existsSync(absTarget)) return;
+    let stat;
+    try {
+      stat = fs.statSync(absTarget);
+    } catch {
+      return;
+    }
+    const rel = path.relative(absRoot, absTarget).replace(/\\/g, '/');
+    if (stat.isFile()) {
+      if (SOURCE_FILE_EXT_RE.test(rel) && !TEST_FILE_NAME_RE.test(path.basename(rel))) {
+        collected.add(rel);
+      }
+      return;
+    }
+    if (!stat.isDirectory()) return;
+    if (rel) {
+      const baseLower = path.basename(rel).toLowerCase();
+      if (omitDirs.has(baseLower)) return;
+    }
+    let entries = [];
+    try {
+      entries = fs.readdirSync(absTarget, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith('.') && entry.name !== '.agent') continue;
+      if (entry.isDirectory() && omitDirs.has(entry.name.toLowerCase())) continue;
+      walk(path.join(absTarget, entry.name));
+    }
+  };
+
+  const scanRoots = new Set();
+  if (rawPolicy?.src && String(rawPolicy.src).trim() !== '.' && String(rawPolicy.src).trim() !== '') {
+    const srcCandidate = resolveInsideRepo(repoRoot, String(rawPolicy.src));
+    if (fs.existsSync(srcCandidate)) scanRoots.add(srcCandidate);
+  }
+  for (const layer of policyLayers) {
+    for (const rawPath of layer.paths) {
+      const p = String(rawPath || '').replace(/^\/+|\/+$/g, '');
+      if (!p) continue;
+      try {
+        const resolved = resolveInsideRepo(repoRoot, p);
+        if (fs.existsSync(resolved)) scanRoots.add(resolved);
+      } catch {}
+    }
+  }
+
+  for (const r of scanRoots) walk(r);
+  return Array.from(collected).sort();
+}
+
+function resolveGraphImportTarget(fromRel, spec, knownFilesSet) {
+  if (!spec) return null;
+  let candidateBase = null;
+  if (spec.startsWith('.')) {
+    const fromDir = path.posix.dirname(fromRel);
+    candidateBase = path.posix.normalize(path.posix.join(fromDir, spec));
+  } else if (knownFilesSet.has(spec)) {
+    return spec;
+  } else {
+    candidateBase = String(spec).replace(/^\/+/, '');
+  }
+  const exts = ['', '.mjs', '.cjs', '.js', '.jsx', '.ts', '.tsx', '/index.mjs', '/index.js', '/index.ts'];
+  for (const ext of exts) {
+    const probe = `${candidateBase}${ext}`;
+    if (knownFilesSet.has(probe)) return probe;
+  }
+  return null;
+}
+
+function detectDependencyCycles(repoRoot, rawPolicy, policyLayers, omitDirs) {
+  const files = collectPolicySourceFiles(repoRoot, rawPolicy, policyLayers, omitDirs);
+  if (files.length === 0) return [];
+  const knownFilesSet = new Set(files);
+  const absRoot = path.resolve(repoRoot);
+  const graph = new Map();
+
+  for (const rel of files) {
+    const absPath = path.join(absRoot, rel);
+    const raw = readFileSafe(absPath) || '';
+    const imports = extractImportSpecifiers(raw, { stripTemplates: true });
+    const targets = new Set();
+    for (const { imported } of imports) {
+      const resolved = resolveGraphImportTarget(rel, imported, knownFilesSet);
+      if (resolved) targets.add(resolved);
+    }
+    graph.set(rel, Array.from(targets).sort());
+  }
+
+  // Tarjan strongly connected components to isolate every cyclic cluster in O(V + E)
+  let indexCounter = 0;
+  const indices = new Map();
+  const lowlink = new Map();
+  const onStack = new Set();
+  const stack = [];
+  const sccs = [];
+
+  const strongConnect = (v) => {
+    indices.set(v, indexCounter);
+    lowlink.set(v, indexCounter);
+    indexCounter++;
+    stack.push(v);
+    onStack.add(v);
+
+    for (const w of graph.get(v) || []) {
+      if (!indices.has(w)) {
+        strongConnect(w);
+        lowlink.set(v, Math.min(lowlink.get(v), lowlink.get(w)));
+      } else if (onStack.has(w)) {
+        lowlink.set(v, Math.min(lowlink.get(v), indices.get(w)));
+      }
+    }
+
+    if (lowlink.get(v) === indices.get(v)) {
+      const comp = [];
+      let w;
+      do {
+        w = stack.pop();
+        onStack.delete(w);
+        comp.push(w);
+      } while (w !== v);
+      sccs.push(comp);
+    }
+  };
+
+  for (const node of files) {
+    if (!indices.has(node)) strongConnect(node);
+  }
+
+  const cycles = [];
+  for (const comp of sccs) {
+    if (comp.length === 1) {
+      const single = comp[0];
+      if ((graph.get(single) || []).includes(single)) {
+        cycles.push([single, single]);
+      }
+      continue;
+    }
+    const compSet = new Set(comp);
+    const start = comp.slice().sort()[0];
+    // BFS within the SCC from start back to start to surface a concrete shortest cycle trace
+    const queue = [[start]];
+    const seen = new Set();
+    let foundPath = null;
+    while (queue.length > 0 && !foundPath) {
+      const currPath = queue.shift();
+      const tail = currPath[currPath.length - 1];
+      for (const nxt of graph.get(tail) || []) {
+        if (!compSet.has(nxt)) continue;
+        if (nxt === start) {
+          foundPath = [...currPath, start];
+          break;
+        }
+        if (!seen.has(nxt)) {
+          seen.add(nxt);
+          queue.push([...currPath, nxt]);
+        }
+      }
+    }
+    cycles.push(foundPath || [...comp.slice().sort(), start]);
+  }
+  return cycles;
+}
+
+export function checkArchDiff(repoRoot = '.') {
+  console.log('🏛️ Auditing Git Diff for Architectural Ring Layer Inversions...');
+  const archInfo = inspectArchlens(repoRoot);
+  const baseRef = resolveDefaultBaseBranch(repoRoot);
+  const diffFiles = getModifiedFiles(baseRef, repoRoot);
+
+  if (!archInfo.installed) {
+    return {
+      enabled: false,
+      passed: true,
+      violationsCount: 0,
+      cyclesCount: 0,
+      cycles: [],
+      message: 'Archlens policy not installed (.archlens/policy.json missing).',
+      violations: []
+    };
+  }
+
+  const { rawPolicy, policyLayers, omitDirs } = parsePolicyConfiguration(repoRoot);
 
   const workspaceRoots = new Set(
     policyLayers
@@ -106,8 +345,6 @@ export function checkArchDiff(repoRoot = '.') {
 
   const violations = [];
   const diffsByFile = getUnifiedDiffByFile(baseRef, repoRoot, diffFiles);
-  const addedImportRegex =
-    /(?:^|\n)\s*(?:import|export)\s+(?:type\s+)?(?:[^;'"]*\s+from\s+)?['"]([^'"]+)['"]|(?:^|\n)\s*import\s+([a-zA-Z0-9_.]+)\s*;/g;
 
   for (const file of diffFiles) {
     try {
@@ -122,11 +359,8 @@ export function checkArchDiff(repoRoot = '.') {
         .join('\n');
       if (!addedCode.trim()) continue;
 
-      let match;
-      addedImportRegex.lastIndex = 0;
-      while ((match = addedImportRegex.exec(addedCode)) !== null) {
-        const importedPath = match[1] || match[2] || '';
-        const lineText = match[0].trim().replace(/\s+/g, ' ');
+      const extracted = extractImportSpecifiers(addedCode, { stripTemplates: true });
+      for (const { imported: importedPath, line: lineText } of extracted) {
         const targetLayer = matchPolicyLayer(importedPath, file);
 
         let policyViolated = false;
@@ -151,6 +385,7 @@ export function checkArchDiff(repoRoot = '.') {
 
         if (policyViolated) {
           violations.push({
+            type: 'LAYER_INVERSION',
             file,
             line: lineText,
             imported: importedPath,
@@ -160,6 +395,7 @@ export function checkArchDiff(repoRoot = '.') {
           });
         } else if (policyLayers.length === 0 && isDomainFile && importsOuter) {
           violations.push({
+            type: 'LAYER_INVERSION',
             file,
             line: lineText,
             imported: importedPath,
@@ -170,11 +406,22 @@ export function checkArchDiff(repoRoot = '.') {
     } catch {}
   }
 
+  const cycles = detectDependencyCycles(repoRoot, rawPolicy, policyLayers, omitDirs);
+  for (const cycle of cycles) {
+    violations.push({
+      type: 'CYCLE',
+      file: cycle[0],
+      imported: cycle[1] || cycle[0],
+      cycle,
+      rule: `Circular dependency cycle: ${cycle.join(' -> ')}`
+    });
+  }
+
   const passed = violations.length === 0;
   if (passed) {
-    console.log('✅ Archlens Diff Check: Zero architectural layer inversions introduced in diff.');
+    console.log('✅ Archlens Diff Check: Zero architectural layer inversions or dependency cycles.');
   } else {
-    console.warn(`⚠️ Archlens Diff Check: ${violations.length} layer inversion(s) detected!`);
+    console.warn(`⚠️ Archlens Diff Check: ${violations.length} architectural violation(s) (${cycles.length} cycle(s)) detected!`);
     for (const v of violations) {
       console.warn(`   • [${v.file}] ${v.rule} -> "${v.imported}"`);
     }
@@ -184,6 +431,8 @@ export function checkArchDiff(repoRoot = '.') {
     enabled: true,
     passed,
     violationsCount: violations.length,
+    cyclesCount: cycles.length,
+    cycles,
     violations
   };
 }
@@ -295,7 +544,7 @@ export function recordArchTrace({
   diagramPath = null,
   repoRoot = '.'
 } = {}) {
-  const current = getSessionStatus(repoRoot);
+  const current = readSessionStatus(repoRoot);
   const activeSess = current.session;
   const issueId = ticket || activeSess?.issueId || 'N/A';
   let branch = activeSess?.branch;
@@ -439,44 +688,32 @@ export function scaffoldArchlensPolicy(repoRoot = '.') {
     return { success: true, created: false, path: policyPath };
   }
 
-  const layers = [
-    {
-      name: 'Domain',
-      description: 'Core entities, value objects, and domain invariants. Ring 0 (Zero dependencies).',
-      paths: ['src/domain', 'domain', 'lib/domain', 'core/domain', 'entities'],
-      allowedDependencies: []
-    },
-    {
-      name: 'Application',
-      description: 'Use cases, ports, service interfaces, DTOs. Ring 1 (Depends only on Domain).',
-      paths: ['src/application', 'application', 'usecases', 'services'],
-      allowedDependencies: ['Domain']
-    },
-    {
-      name: 'Infrastructure',
-      description: 'Database persistence, external API clients, message brokers. Ring 2.',
-      paths: ['src/infrastructure', 'infrastructure', 'db', 'persistence', 'adapters'],
-      allowedDependencies: ['Domain', 'Application']
-    },
-    {
-      name: 'Web / Presentation',
-      description: 'HTTP controllers, REST resources, UI views, routes. Ring 3.',
-      paths: ['src/web', 'web', 'controllers', 'routes', 'ui', 'frontend'],
-      allowedDependencies: ['Domain', 'Application']
-    }
+  const order = ['Domain', 'Application', 'Infrastructure', 'Web'];
+  const levels = [
+    ['src/domain', 'domain', 'lib/domain', 'core/domain', 'entities'],
+    ['src/application', 'application', 'usecases', 'services'],
+    ['src/infrastructure', 'infrastructure', 'db', 'persistence', 'adapters'],
+    ['src/web', 'web', 'controllers', 'routes', 'ui', 'frontend']
   ];
 
+  const resolvedRoot = path.resolve(repoRoot);
+  const srcRoot = fileExists(path.resolve(resolvedRoot, 'src')) ? 'src' : '.';
+  const lang = fileExists(path.resolve(resolvedRoot, 'tsconfig.json'))
+    ? 'typescript'
+    : fileExists(path.resolve(resolvedRoot, 'pom.xml')) || fileExists(path.resolve(resolvedRoot, 'build.gradle'))
+      ? 'java'
+      : 'javascript';
+
   const policy = {
-    $schema: 'https://archlens.dev/schemas/policy.v1.json',
-    version: '1.0.0',
-    generatedAt: new Date().toISOString(),
-    architecture: 'Clean Architecture (Concentric Rings)',
-    rules: {
-      strictConcentricRings: true,
-      enforceInDiff: true,
-      allowCircularDependencies: false
-    },
-    layers
+    title: path.basename(resolvedRoot) || 'archlens-project',
+    src: srcRoot,
+    prefix: '',
+    hierarchical: true,
+    order,
+    levels,
+    foreign: ['node:', '@types/'],
+    omit: ['target', 'build', '.git', 'node_modules', 'coverage', 'reports', '.stryker-tmp'],
+    lang
   };
 
   fs.writeFileSync(policyPath, JSON.stringify(policy, null, 2) + '\n', 'utf8');
@@ -486,6 +723,6 @@ export function scaffoldArchlensPolicy(repoRoot = '.') {
     success: true,
     created: true,
     path: policyPath,
-    layersCount: layers.length
+    layersCount: order.length
   };
 }
