@@ -49,7 +49,7 @@ flowchart TD
   ADR_015["ADR-015: Harden Stage 7 Gate Receipts, Ring 0 Primitives, and Git Flow Verification"]
   L_128000["Ticket L-128000"]
   ADR_016["ADR-016: Break Ring 2 Cycles, Decompose quality-gate.mjs, Enforce Whole-Graph Cycle Detection in checkArchDiff, and Align Archlens Policy Schema"]
-  _134["Ticket #134"]
+  _134["Ticket #134 (feature/issue-#134)"]
   ADR_COMPACT_v0_3_0["Compacted 8 ADR(s) into SRS.md (v0.3.0)"]
   createdAt__2026_11_03T18_52_42_656Z["createdAt: 2026-11-03T18:52:42.656Z"]
   ADR_COMPACT_v0_4_0["Compacted 6 ADR(s) into SRS.md (v0.4.0)"]
