@@ -24,7 +24,7 @@ _Governed by Concentric Clean Architecture, Risk-Proportional Lanes & Config-Dri
 - Every commit requires an active session in `.agent/.sdlc-session.json` matching the current branch (`node .agent/scripts/sdlc-engine.mjs stage begin`).
 - Feature, bugfix, and chore PRs merge into `develop` (default base branch).
 - Pull requests targeting `main` must originate exclusively from `develop`.
-- Every merge into `main` requires a signed Stage 7 HMAC-SHA256 Merkle Gate Receipt in `docs/AUDIT_CHAIN.jsonl`.
+- Every merge into `main` requires a signed Stage 7 HMAC-SHA256 Hash-Chain Gate Receipt in `docs/AUDIT_CHAIN.jsonl`.
 - Merging `develop` into `main` triggers automated production release tagging and distribution.
 
 ## 2. Active Session & Config-Driven Dual-Gate Quality Verification (INV-02)
@@ -43,7 +43,7 @@ _Governed by Concentric Clean Architecture, Risk-Proportional Lanes & Config-Dri
 - `/sdlc-doctor`: Stack detection, `doctor --fix`, SHA-256 verified 4-Layer Git hooks, `.archlens/policy.json`, and multi-agent installer.
 - `/sdlc-status`: Active session, 8-stage progress, drift check, `KANBAN.md` state, and Architecture Diff snapshot.
 - `/sdlc-tdd`: Red-Green-Refactor TDD, polyglot test runners, and real coverage/mutation report parsers.
-- `/sdlc-gate`: Risk-tiered PR review subagents, `gate --strict`, and Stage 7 HMAC-SHA256 Merkle Gate Receipt.
+- `/sdlc-gate`: Risk-tiered PR review subagents, `gate --strict`, and Stage 7 HMAC-SHA256 Hash-Chain Gate Receipt.
 - `/sdlc-adr`: Mint, approve, or compact Spec-Drift ADRs (`adr compact`) and synchronize `docs/DECISION_MAP.md`.
 - `/sdlc-wiki`: 10-30-90 `README.md` landing page & AST-to-Wiki synchronization (`readme audit`, `wiki sync`).
 - `/sdlc-release`: ADR compaction into `docs/SRS.md`, Docs/Wiki sync, SemVer tagging, regression proofs, and canary watchdog.

@@ -401,6 +401,11 @@ export function installCIWorkflow({ repoRoot = '.', force = false, runsOn = null
     runsOnYaml = configuredRunsOn.trim();
   }
 
+  const hasNpmLockfile =
+    fileExists(path.resolve(repoRoot, 'package-lock.json')) ||
+    fileExists(path.resolve(repoRoot, 'npm-shrinkwrap.json'));
+  const nodeCacheYaml = hasNpmLockfile ? "\n          cache: 'npm'" : '';
+
   const workflowContent = `name: SDLC Quality Gate
 
 on:
@@ -437,7 +442,7 @@ jobs:
       - name: Setup Node.js Runtime
         uses: actions/setup-node@v7
         with:
-          node-version: 'lts/*'
+          node-version: 'lts/*'${nodeCacheYaml}
 
       - name: Install Dependencies
         run: |
@@ -459,7 +464,7 @@ jobs:
             node .agent/scripts/sdlc-engine.mjs config check
           fi
 
-      - name: Verify Universal Quality Gate & Merkle Audit Chain
+      - name: Verify Universal Quality Gate & Hash-Chain Audit Ledger
         run: |
           if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
             node .agent/scripts/sdlc-engine.mjs audit verify

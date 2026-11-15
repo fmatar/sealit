@@ -297,6 +297,15 @@ export function buildArchDiffPayload(repoRoot = '.') {
   };
 }
 
+function sanitizeAuditForUi(audit) {
+  return {
+    valid: audit.valid,
+    recordsCount: audit.recordsCount,
+    chainHead: audit.chainHead || audit.merkleRoot,
+    message: audit.message
+  };
+}
+
 /** Collects common session, architecture, graph, product, and audit state shared by `/` and `/widget`. */
 function collectWorkbenchState(repoRoot = '.', getSessionStatusFn = readSessionStatus) {
   const sessionStatus =
@@ -319,7 +328,7 @@ function buildStageStepsHtml(activeStage) {
     { num: 4, name: '4. Dual-Gate', role: 'Cov & Mut' },
     { num: 5, name: '5. Docs', role: 'Sync & ADR' },
     { num: 6, name: '6. PR', role: 'Dossier' },
-    { num: 7, name: '7. Review', role: 'Merkle Receipt' },
+    { num: 7, name: '7. Review', role: 'Hash-Chain Receipt' },
     { num: 8, name: '8. Done', role: 'Merged' }
   ];
   const curStage = Number(activeStage || 0);
@@ -385,12 +394,7 @@ export function generateArchitectureWidget({
 
   const embeddedState = safeJsonScriptPayload({
     session: sessionStatus.session,
-    audit: {
-      valid: audit.valid,
-      recordsCount: audit.recordsCount,
-      merkleRoot: audit.merkleRoot,
-      message: audit.message
-    },
+    audit: sanitizeAuditForUi(audit),
     graph: compactGraph,
     product,
     dag,
@@ -450,7 +454,7 @@ export function renderWorkbenchHTML(
 
   const initialBootstrap = safeJsonScriptPayload({
     session: activeSess,
-    audit: initialAudit,
+    audit: sanitizeAuditForUi(initialAudit),
     arch: initialArch,
     graph: initialGraph,
     product: initialProduct,
@@ -469,10 +473,10 @@ export function renderWorkbenchHTML(
     SESSION_SEAL_TEXT: activeSess ? `Active Session #${escapeHtml(activeSess.issueId)}` : 'Mainline Standing By',
     RING_SEAL_CLASS: archPassed ? 'pass' : 'fail',
     RING_SEAL_TEXT: archPassed ? 'Rings Balanced: 0 Violations' : `Ring Violations: ${escapeHtml(initialArch.archDiff.violationsCount)}`,
-    MERKLE_SEAL_CLASS: initialAudit.valid ? 'pass' : 'fail',
-    MERKLE_SEAL_TEXT: initialAudit.valid
-      ? `Merkle Chain Verified (${escapeHtml(initialAudit.recordsCount || 0)})`
-      : 'Merkle Verification Failed',
+    HASHCHAIN_SEAL_CLASS: initialAudit.valid ? 'pass' : 'fail',
+    HASHCHAIN_SEAL_TEXT: initialAudit.valid
+      ? `Hash-Chain Verified (${escapeHtml(initialAudit.recordsCount || 0)})`
+      : 'Hash-Chain Verification Failed',
     LIFECYCLE_BRANCH_SUFFIX: activeSess ? `(${escapeHtml(activeSess.branch)})` : '',
     LIFECYCLE_META_HTML: activeSess
       ? `Active Ticket #${escapeHtml(activeSess.issueId)} &middot; Stage ${escapeHtml(activeSess.stage)} of 8 &middot; Branch: <span class="mono">${escapeHtml(activeSess.branch)}</span>`
@@ -484,8 +488,8 @@ export function renderWorkbenchHTML(
     KANBAN_COUNT: String(parsedKanban.matrix.length),
     TRACE_COUNT: String(parsedTrace.length),
     RING_FOLIO_STATUS: archPassed ? 'Inward Dependency Law: Verified' : 'Boundary Violation Detected',
-    MERKLE_FOLIO_STATUS: initialAudit.valid ? 'SHA-256 Chain Intact' : 'Chain Integrity Alert',
-    MERKLE_ROOT_SHORT: escapeHtml((initialAudit.merkleRoot || 'GENESIS').slice(0, 16)),
+    HASHCHAIN_FOLIO_STATUS: initialAudit.valid ? 'SHA-256 Chain Intact' : 'Chain Integrity Alert',
+    HASHCHAIN_HEAD_SHORT: escapeHtml((initialAudit.chainHead || initialAudit.merkleRoot || 'GENESIS').slice(0, 16)),
     INITIAL_BOOTSTRAP: initialBootstrap,
     SHARED_CLIENT_JS: loadWorkbenchAsset('shared-client.js'),
     MISSION_CONTROL_JS: loadWorkbenchAsset('mission-control.js')
@@ -542,9 +546,10 @@ export function createWorkbenchServer({ port = 4120, host = '127.0.0.1', token =
     '/api/product': () => ({ product: parseProductMarkdown(repoRoot), dag: planProductDAG({ repoRoot, autoProvision: false }) })
   };
 
-  const server = http.createServer(async (req, res) => {
+  let server;
+  const handleRequest = async (req, res) => {
     try {
-      const actualPort = server.address()?.port || port;
+      const actualPort = server?.address()?.port || port;
       const allowedOrigins = new Set([`http://127.0.0.1:${actualPort}`, `http://localhost:${actualPort}`]);
       const allowedHosts = new Set([`127.0.0.1:${actualPort}`, `localhost:${actualPort}`]);
       const cspNonce = crypto.randomBytes(16).toString('base64url');
@@ -618,7 +623,9 @@ export function createWorkbenchServer({ port = 4120, host = '127.0.0.1', token =
       if (!res.headersSent) return sendJson(res, code, { success: false, error: err?.message || 'Internal Server Error' }, code === 413 ? { Connection: 'close' } : {});
       try { res.end(); } catch {}
     }
-  });
+  };
+
+  server = http.createServer(handleRequest);
 
   const listen = () => new Promise((resolve, reject) => {
     server.listen(port, host, () => {
@@ -632,5 +639,5 @@ export function createWorkbenchServer({ port = 4120, host = '127.0.0.1', token =
     sseClients.clear();
     return new Promise((resolve) => server.close(resolve));
   };
-  return { server, port, host, token: accessToken, broadcast, url: () => `http://127.0.0.1:${server.address()?.port || port}/?token=${accessToken}`, listen, close };
+  return { server, port, host, token: accessToken, handleRequest, broadcast, url: () => `http://127.0.0.1:${server.address()?.port || port}/?token=${accessToken}`, listen, close };
 }

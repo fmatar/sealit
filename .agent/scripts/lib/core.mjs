@@ -484,9 +484,26 @@ export function diagnoseEnvironment(repoRoot = '.') {
  * or null when git exits non-zero. Filenames and refs are passed verbatim,
  * so values like `$(cmd).js` can never be interpreted by a shell.
  */
+export function cleanGitEnv(baseEnv = process.env) {
+  const env = { ...baseEnv };
+  delete env.GIT_DIR;
+  delete env.GIT_WORK_TREE;
+  delete env.GIT_INDEX_FILE;
+  delete env.GIT_COMMON_DIR;
+  delete env.GIT_OBJECT_DIRECTORY;
+  delete env.GIT_ALTERNATE_OBJECT_DIRECTORIES;
+  return env;
+}
+
 export function gitOutput(args, repoRoot = '.') {
   try {
-    return execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    const absRoot = path.resolve(repoRoot);
+    return execFileSync('git', ['-C', absRoot, ...args], {
+      cwd: absRoot,
+      env: cleanGitEnv(),
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore']
+    });
   } catch {
     return null;
   }

@@ -11,7 +11,7 @@ Before this PR can be merged, the following must be verified either manually or 
 - [ ] **Static Syntax & Type Checking**: Project syntax/type checks pass with zero errors.
 - [ ] **Checks & Build**: All test, coverage, mutation, and strict gate checks (`node .agent/scripts/sdlc-engine.mjs gate --strict`) pass cleanly.
 - [ ] **Test Coverage & Mutation (`sdlc-tdd`)**: Diff coverage and mutation thresholds in `.agent/sdlc-config.json` pass.
-- [ ] **Subagent Peer Review (`sdlc-gate`)**: Risk-tiered PR diff reviewed and Stage 7 Merkle receipt recorded.
+- [ ] **Subagent Peer Review (`sdlc-gate`)**: Risk-tiered PR diff reviewed and Stage 7 HMAC-SHA256 Hash-Chain receipt recorded.
 - [ ] **Security**: No high/critical vulnerabilities introduced (`npm audit`, dependency check).
 - [ ] **Accessibility (a11y)**: Interactive controls are keyboard navigable and contrast ratios meet WCAG 2.1 AA.
 

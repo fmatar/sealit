@@ -34,7 +34,7 @@ description: "Use when running an explicit /sdlc $ARGUMENTS command in chat. Not
 | `/sdlc install [flags]` | `node .agent/scripts/sdlc-engine.mjs install [flags]` |
 | `/sdlc skill-audit` | `node .agent/scripts/sdlc-engine.mjs skill-audit` |
 | `/sdlc test` | `node .agent/scripts/sdlc-engine.mjs test --affected-only` |
-| `/sdlc coverage` / `/sdlc mutation` | `node .agent/scripts/sdlc-engine.mjs coverage` / `node .agent/scripts/sdlc-engine.mjs mutation` |
+| `/sdlc coverage` / `/sdlc mutation` | `node .agent/scripts/sdlc-engine.mjs coverage [--no-cache]` / `node .agent/scripts/sdlc-engine.mjs mutation [--full] [--no-cache]` |
 | `/sdlc reproduce "<trace>"` | `node .agent/scripts/sdlc-engine.mjs reproduce --error "<trace>"` |
 | `/sdlc drift` | `node .agent/scripts/sdlc-engine.mjs drift check` |
 | `/sdlc adr <create\|list\|decide\|compact>` | `node .agent/scripts/sdlc-engine.mjs adr <subcommand> [flags]` |

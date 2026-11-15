@@ -17,7 +17,7 @@
 * 🎯 **[Traceability & Ledgers](Traceability)**
   * [End-to-End Traceability Chain](Traceability#1-end-to-end-traceability-chain)
   * [Multi-Provider Ticket Engine](Traceability#2-unified-multi-provider-ticket-engine-pm-providermjs)
-  * [Merkle Audit & Gate Receipts](Traceability#3-cryptographic-audit-trail--stage-7-merkle-gate-receipts)
+  * [Hash-Chain Audit & Gate Receipts](Traceability#3-cryptographic-audit-trail--stage-7-gate-receipts)
   * [Zero-Rot Wiki Auditing](Traceability#4-zero-rot-wiki-auditing-sdlc-wiki--libwiki-syncmjs)
 * 🗺️ **[Codebase Map (AST & Rings)](Codebase-Map)**
   * [Concentric Ring Graph](Codebase-Map#1-archlens-concentric-ring-dependency-graph)

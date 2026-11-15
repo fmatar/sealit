@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import http from 'node:http';
 import { execFileSync } from 'node:child_process';
 import {
   fileExists,
@@ -1482,11 +1483,46 @@ flowchart TD
       assert.ok(html.includes('Architectural Trace Ledger'));
     });
 
-    it('creates and spins up interactive workbench server on configured port', async () => {
-      const workbench = createWorkbenchServer({ port: 4199, repoRoot: tmpDir });
+    it('creates and spins up interactive workbench server on configured port and completes TCP loopback HTTP round-trip', async () => {
+      const configured = createWorkbenchServer({ port: 4199, repoRoot: tmpDir });
+      assert.equal(configured.port, 4199);
+      const workbench = createWorkbenchServer({ port: 0, repoRoot: tmpDir });
       await workbench.listen();
-      assert.equal(workbench.port, 4199);
-      await workbench.close();
+      try {
+        assert.equal(workbench.port, 0);
+        const addr = workbench.server.address();
+        const boundPort = typeof addr === 'object' && addr ? addr.port : workbench.port;
+        assert.ok(boundPort > 0);
+        const res = await new Promise((resolve, reject) => {
+          const r = http.request(
+            {
+              host: '127.0.0.1',
+              port: boundPort,
+              path: `/api/status?token=${workbench.token}`,
+              method: 'GET'
+            },
+            (response) => {
+              let data = '';
+              response.on('data', (chunk) => { data += chunk; });
+              response.on('end', () => {
+                try {
+                  resolve({ statusCode: response.statusCode, json: JSON.parse(data) });
+                } catch (err) {
+                  reject(err);
+                }
+              });
+            }
+          );
+          r.on('error', reject);
+          r.end();
+        });
+        assert.equal(res.statusCode, 200);
+        assert.equal(typeof res.json.active, 'boolean');
+        assert.equal(typeof res.json.audit, 'object');
+        assert.equal(res.json.audit.valid, true);
+      } finally {
+        await workbench.close();
+      }
     });
 
     it('detects no drift when no API contracts are modified', () => {
@@ -1574,7 +1610,7 @@ flowchart TD
       assert.equal(cliRes.protect.localHookInstalled, true);
     });
 
-    it('creates cryptographic SHA-256 Merkle audit chain records sequentially', () => {
+    it('creates cryptographic SHA-256 hash-chain audit ledger records sequentially (preserving merkleRoot alias)', () => {
       const rec1 = appendAuditRecord({ event: 'SESSION_START', metadata: { issueId: 39 }, repoRoot: tmpDir });
       assert.equal(rec1.success, true);
       assert.equal(rec1.record.index, 0);
@@ -1589,6 +1625,7 @@ flowchart TD
       const verifyRes = verifyAuditChain(tmpDir);
       assert.equal(verifyRes.valid, true);
       assert.equal(verifyRes.recordsCount, 2);
+      assert.equal(verifyRes.chainHead, rec2.record.currentHash);
       assert.equal(verifyRes.merkleRoot, rec2.record.currentHash);
     });
 
@@ -1712,7 +1749,7 @@ flowchart TD
       assert.equal(breachRes.rollbackExecuted, true);
       assert.ok(breachRes.rollbackOutput.includes('ROLLBACK_SUCCESS'));
 
-      // Check Merkle audit chain logs rollback
+      // Check SHA-256 hash-chain audit ledger logs rollback
       const auditRes = verifyAuditChain(tmpDir);
       assert.equal(auditRes.valid, true);
       assert.ok(auditRes.recordsCount >= 2);
@@ -1722,6 +1759,184 @@ flowchart TD
       const cliRes = runCLI(['watchdog', 'monitor', '--samples', '3'], null, tmpDir);
       assert.equal(cliRes.command, 'watchdog');
       assert.equal(cliRes.watchdog.healthy, true);
+    });
+
+    it('routes mutation CLI cleanly for docs-only skip, comment-only zeroMutants diffScope, and --full fail-closed enforcement', async () => {
+      const { formatCLIResult, getSessionStatus, startSession } = await import('../.agent/scripts/sdlc-engine.mjs');
+      const mutDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-mut-cli-'));
+      try {
+        execFileSync('git', ['init', '-q', '-b', 'develop'], { cwd: mutDir, stdio: 'pipe' });
+        execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: mutDir, stdio: 'pipe' });
+        execFileSync('git', ['config', 'user.name', 'Test'], { cwd: mutDir, stdio: 'pipe' });
+        fs.mkdirSync(path.join(mutDir, '.agent'), { recursive: true });
+        fs.mkdirSync(path.join(mutDir, 'src'), { recursive: true });
+        fs.writeFileSync(path.join(mutDir, 'README.md'), '# init\n');
+        fs.writeFileSync(path.join(mutDir, 'src/mod.mjs'), 'export const v = 1;\n');
+        fs.writeFileSync(
+          path.join(mutDir, 'package.json'),
+          JSON.stringify({ name: 'mut-cli-tmp', type: 'module', scripts: { test: 'node -e 0' } })
+        );
+        fs.writeFileSync(
+          path.join(mutDir, 'stryker.config.json'),
+          JSON.stringify({ mutate: ['src/mod.mjs'] })
+        );
+        fs.writeFileSync(
+          path.join(mutDir, '.agent/sdlc-config.json'),
+          JSON.stringify({
+            profile: 'standard',
+            thresholds: { diffCoverage: 85, mutationScore: 52 },
+            modules: [
+              {
+                name: 'root',
+                path: '.',
+                language: 'node',
+                commands: { test: 'node -e 0', coverage: 'node -e 0', mutation: 'npx stryker run' }
+              }
+            ]
+          })
+        );
+        execFileSync('git', ['add', '.'], { cwd: mutDir, stdio: 'pipe' });
+        execFileSync('git', ['commit', '-q', '-m', 'init'], { cwd: mutDir, stdio: 'pipe' });
+        execFileSync('git', ['checkout', '-q', '-b', 'feature/issue-#901'], { cwd: mutDir, stdio: 'pipe' });
+
+        // 1. Docs-only diff auto-passes with diff-no-mutated-sources
+        fs.writeFileSync(path.join(mutDir, 'README.md'), '# init\nupdated docs\n');
+        const docsRes = runCLI(['mutation', '--no-cache'], null, mutDir);
+        assert.equal(docsRes.success, true);
+        assert.equal(docsRes.mutationReport.skipped, true);
+        assert.equal(docsRes.mutationReport.reason, 'diff-no-mutated-sources');
+        assert.match(formatCLIResult(docsRes), /diff-no-mutated-sources/);
+
+        // 2. Comment-only diff inside src/mod.mjs + stub stryker binary writing zero-mutant report:
+        //    succeeds in diffScoped mode (and receives -m hunk range), fails closed under --full
+        fs.mkdirSync(path.join(mutDir, 'node_modules/.bin'), { recursive: true });
+        const stubBin = path.join(mutDir, 'node_modules/.bin/stryker');
+        fs.writeFileSync(
+          stubBin,
+          [
+            `#!${process.execPath}`,
+            "import fs from 'node:fs';",
+            "fs.mkdirSync('reports/mutation', { recursive: true });",
+            "fs.writeFileSync('reports/stryker-args.json', JSON.stringify(process.argv.slice(2)));",
+            "fs.writeFileSync('reports/mutation/mutation.json', JSON.stringify({ schemaVersion: '1', files: { 'src/mod.mjs': { source: '// comment', mutants: [] } } }));"
+          ].join('\n'),
+          { mode: 0o755 }
+        );
+        fs.writeFileSync(
+          path.join(mutDir, '.agent/sdlc-config.json'),
+          JSON.stringify({
+            profile: 'standard',
+            thresholds: { diffCoverage: 85, mutationScore: 52 },
+            modules: [
+              {
+                name: 'root',
+                path: '.',
+                language: 'node',
+                commands: { test: 'node -e 0', coverage: 'node -e 0', mutation: './node_modules/.bin/stryker run' }
+              }
+            ]
+          })
+        );
+        fs.writeFileSync(path.join(mutDir, 'src/mod.mjs'), '// comment line 1\nexport const v = 1;\n');
+        const diffZeroRes = runCLI(['mutation', '--no-cache'], null, mutDir);
+        assert.equal(diffZeroRes.success, true);
+        assert.equal(diffZeroRes.mutationReport.emptyScope, true);
+        assert.equal(diffZeroRes.mutationReport.reason, 'diff-zero-mutants');
+        const passedArgs = JSON.parse(fs.readFileSync(path.join(mutDir, 'reports/stryker-args.json'), 'utf8'));
+        assert.ok(passedArgs.includes('--force'));
+        assert.ok(passedArgs.includes('--allowEmpty'));
+        assert.ok(passedArgs.some((a) => a.startsWith('src/mod.mjs:')));
+
+        const fullZeroRes = runCLI(['mutation', '--full', '--no-cache'], null, mutDir);
+        assert.equal(fullZeroRes.success, false);
+        assert.equal(fullZeroRes.fullMutation, true);
+
+        // 3. Stale empty zero-mutant report on disk must NOT bypass freshness when command exits 0 without rewriting it
+        const staleEmptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-mut-stale-empty-'));
+        try {
+          execFileSync('git', ['init', '-q', '-b', 'develop'], { cwd: staleEmptyDir, stdio: 'pipe' });
+          execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: staleEmptyDir, stdio: 'pipe' });
+          execFileSync('git', ['config', 'user.name', 'Test'], { cwd: staleEmptyDir, stdio: 'pipe' });
+          fs.mkdirSync(path.join(staleEmptyDir, '.agent'), { recursive: true });
+          fs.mkdirSync(path.join(staleEmptyDir, 'src'), { recursive: true });
+          fs.mkdirSync(path.join(staleEmptyDir, 'reports/mutation'), { recursive: true });
+          fs.writeFileSync(path.join(staleEmptyDir, 'src/mod.mjs'), 'export const v = 1;\n');
+          fs.writeFileSync(path.join(staleEmptyDir, 'stryker.config.json'), JSON.stringify({ mutate: ['src/mod.mjs'] }));
+          fs.writeFileSync(
+            path.join(staleEmptyDir, '.agent/sdlc-config.json'),
+            JSON.stringify({
+              profile: 'standard',
+              thresholds: { diffCoverage: 85, mutationScore: 52 },
+              modules: [{ name: 'root', path: '.', language: 'node', commands: { test: 'node -e 0', coverage: 'node -e 0', mutation: 'npx stryker run' } }]
+            })
+          );
+          execFileSync('git', ['add', '.'], { cwd: staleEmptyDir, stdio: 'pipe' });
+          execFileSync('git', ['commit', '-q', '-m', 'init'], { cwd: staleEmptyDir, stdio: 'pipe' });
+          execFileSync('git', ['checkout', '-q', '-b', 'feature/issue-#902'], { cwd: staleEmptyDir, stdio: 'pipe' });
+          fs.mkdirSync(path.join(staleEmptyDir, 'node_modules/.bin'), { recursive: true });
+          const noopStryker = path.join(staleEmptyDir, 'node_modules/.bin/stryker');
+          fs.writeFileSync(noopStryker, `#!${process.execPath}\nprocess.exit(0);\n`, { mode: 0o755 });
+          fs.writeFileSync(
+            path.join(staleEmptyDir, '.agent/sdlc-config.json'),
+            JSON.stringify({
+              profile: 'standard',
+              thresholds: { diffCoverage: 85, mutationScore: 52 },
+              modules: [{ name: 'root', path: '.', language: 'node', commands: { test: 'node -e 0', coverage: 'node -e 0', mutation: './node_modules/.bin/stryker run' } }]
+            })
+          );
+          const rptPath = path.join(staleEmptyDir, 'reports/mutation/mutation.json');
+          fs.writeFileSync(rptPath, JSON.stringify({ schemaVersion: '1', files: { 'src/mod.mjs': { mutants: [] } } }));
+          const past = new Date(Date.now() - 10_000);
+          fs.utimesSync(rptPath, past, past);
+          fs.writeFileSync(path.join(staleEmptyDir, 'src/mod.mjs'), '// comment\nexport const v = 2;\n');
+          const staleZeroRes = runCLI(['mutation', '--no-cache'], null, staleEmptyDir);
+          assert.equal(staleZeroRes.success, false);
+        } finally {
+          fs.rmSync(staleEmptyDir, { recursive: true, force: true });
+        }
+
+        // 4. --full must run configured subdirectory modules even when only root README.md changed, and failing clears stale mutationSkippedReason
+        const monoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-mut-mono-'));
+        try {
+          execFileSync('git', ['init', '-q', '-b', 'develop'], { cwd: monoDir, stdio: 'pipe' });
+          execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: monoDir, stdio: 'pipe' });
+          execFileSync('git', ['config', 'user.name', 'Test'], { cwd: monoDir, stdio: 'pipe' });
+          fs.mkdirSync(path.join(monoDir, '.agent'), { recursive: true });
+          fs.mkdirSync(path.join(monoDir, 'packages/app'), { recursive: true });
+          fs.writeFileSync(path.join(monoDir, 'README.md'), '# mono\n');
+          fs.writeFileSync(path.join(monoDir, 'packages/app/index.js'), 'export const a = 1;\n');
+          fs.writeFileSync(
+            path.join(monoDir, '.agent/sdlc-config.json'),
+            JSON.stringify({
+              profile: 'standard',
+              thresholds: { diffCoverage: 85, mutationScore: 52 },
+              modules: [{ name: 'app', path: 'packages/app', language: 'node', commands: { test: 'node -e 0', coverage: 'node -e 0', mutation: 'node -e process.exit(1)' } }]
+            })
+          );
+          execFileSync('git', ['add', '.'], { cwd: monoDir, stdio: 'pipe' });
+          execFileSync('git', ['commit', '-q', '-m', 'init'], { cwd: monoDir, stdio: 'pipe' });
+          execFileSync('git', ['checkout', '-q', '-b', 'feature/issue-#903'], { cwd: monoDir, stdio: 'pipe' });
+          startSession({ issueId: 903, branch: 'feature/issue-#903', lane: 'full', repoRoot: monoDir });
+          fs.writeFileSync(path.join(monoDir, 'README.md'), '# mono\ndocs\n');
+          const diffSkipMono = runCLI(['mutation', '--no-cache'], null, monoDir);
+          assert.equal(diffSkipMono.success, true);
+          const sessAfterSkip = getSessionStatus(monoDir).session;
+          assert.equal(sessAfterSkip.manifest.mutationSkippedReason, 'diff-no-mutated-sources');
+
+          assert.throws(() => runCLI(['mutation', '--full', '--no-cache'], null, monoDir));
+          const sessAfterFail = getSessionStatus(monoDir).session;
+          assert.equal(sessAfterFail.manifest.mutationSkippedReason, null);
+          assert.equal(sessAfterFail.manifest.gatePillars.mutationPassed, false);
+        } finally {
+          fs.rmSync(monoDir, { recursive: true, force: true });
+        }
+
+        // 5. flake-check --target rejects leading-dash options and path escapes
+        assert.throws(() => runCLI(['flake-check', '--target', '-e=bad'], null, mutDir));
+        assert.throws(() => runCLI(['flake-check', '--target', '../outside.test.mjs'], null, mutDir));
+      } finally {
+        fs.rmSync(mutDir, { recursive: true, force: true });
+      }
     });
   });
 });

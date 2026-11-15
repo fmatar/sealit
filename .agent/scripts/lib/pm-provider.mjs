@@ -185,7 +185,7 @@ A clear and concise description of what you want to happen.
 | **Mutation Score** | Per \`.agent/sdlc-config.json\` | ✅ Verified |
 | **Archlens Ring Audit** | Zero Inner -> Outer Ring Imports | ✅ Verified |
 | **Spec-Drift Sentinel** | \`sdlc-engine drift check\` | ✅ Verified |
-| **Stage 7 Merkle Receipt** | Signed in \`docs/AUDIT_CHAIN.jsonl\` | ✅ Verified |
+| **Stage 7 Gate Receipt** | Signed in \`docs/AUDIT_CHAIN.jsonl\` | ✅ Verified |
 `
 };
 

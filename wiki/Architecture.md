@@ -47,7 +47,7 @@ flowchart TD
     subgraph Ring0 ["Ring 0: domain-core"]
       CORE["core.mjs (Shell-Free Exec, Safe I/O & Git Diff Probes)"]:::r0
       CACHE["cache.mjs (Content-Addressable SHA-256 Gate Cache)"]:::r0
-      AUDIT["audit-chain.mjs (Merkle Hash-Chained Ledger & HMAC Receipts)"]:::r0
+      AUDIT["audit-chain.mjs (SHA-256 Hash-Chained Ledger & HMAC Receipts)"]:::r0
       DG["decision-graph.mjs (Causal Lineage & DECISION_MAP.md)"]:::r0
     end
 
