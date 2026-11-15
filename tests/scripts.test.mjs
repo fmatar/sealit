@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { auditSkills } from '../.agent/scripts/sdlc-engine.mjs';
 
-describe('Kanban Scripts & Consolidated 6-Skill Schema Validation', () => {
+describe('Kanban Scripts & 10 Canonical SDLC Skills Schema Validation', () => {
   it('verifies kanban-sync.sh is executable and exists in .agent/scripts/', () => {
     const scriptPath = path.resolve('.agent/scripts/kanban-sync.sh');
     assert.ok(fs.existsSync(scriptPath), 'kanban-sync.sh should exist in .agent/scripts/');
@@ -30,7 +30,7 @@ describe('Kanban Scripts & Consolidated 6-Skill Schema Validation', () => {
       fs.mkdirSync(bin);
       fs.mkdirSync(path.join(tmp, 'docs'));
       fs.writeFileSync(path.join(bin, 'gh'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
-      execSync(path.resolve('.agent/scripts/kanban-sync.sh'), {
+      execFileSync(path.resolve('.agent/scripts/kanban-sync.sh'), [], {
         cwd: tmp,
         stdio: 'pipe',
         env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` }
@@ -99,7 +99,7 @@ describe('Kanban Scripts & Consolidated 6-Skill Schema Validation', () => {
     }
 
     const auditRes = auditSkills(process.cwd());
-    assert.equal(auditRes.success, true, 'All 11 canonical skills must pass SkillSpector static rules (RP1, AS3, FM1/FM2)');
+    assert.equal(auditRes.success, true, 'All 10 canonical skills must pass SkillSpector static rules (RP1, AS3, FM1/FM2)');
     assert.equal(auditRes.totalFindings, 0);
     assert.equal(auditRes.maxScore, 0);
   });

@@ -10,12 +10,11 @@ import { execFileSync } from 'node:child_process';
 
 import {
   loadEnv,
+  cleanGitEnv,
   fileExists,
   readFileSafe,
-  execCommand,
   parseCommandArgv,
   runConfiguredCommand,
-  execAsync,
   runParallelTasks,
   parseFrontmatter,
   inspectArchlens,
@@ -23,6 +22,11 @@ import {
   hasGitHubRemote,
   diagnoseEnvironment,
   getModifiedFiles,
+  extractAddedLinesFromDiff,
+  gitOutput,
+  resolveInsideRepo,
+  resolveQualityThresholds,
+  sameShaPrefix,
   parseTicketId,
   writeFileAtomic
 } from './lib/core.mjs';
@@ -177,7 +181,10 @@ import {
   buildSingleTestArgv,
   parseCoverageReport,
   parseMutationReport,
+  extractChangedHunkRanges,
+  buildMutationExecutionPlan,
   runFlakeCheck,
+  runFlakeCheckParallel,
   auditSecurity,
   suggestMutationStrengthening,
   resolveAdHocTargets,
@@ -187,6 +194,7 @@ import {
   discoverModules,
   matchFilesToModules,
   generateConfig,
+  validateConfigFile,
   printPreview,
   auditSkills
 } from './lib/quality-gate.mjs';
@@ -223,12 +231,11 @@ import {
 // --- Re-export complete public API for backward compatibility & modular tests ---
 export {
   loadEnv,
+  cleanGitEnv,
   fileExists,
   readFileSafe,
-  execCommand,
   parseCommandArgv,
   runConfiguredCommand,
-  execAsync,
   runParallelTasks,
   parseFrontmatter,
   inspectArchlens,
@@ -236,6 +243,8 @@ export {
   hasGitHubRemote,
   diagnoseEnvironment,
   getModifiedFiles,
+  extractAddedLinesFromDiff,
+  resolveQualityThresholds,
   getGateCachePath,
   computeTreeHash,
   getGateCacheHit,
@@ -352,7 +361,10 @@ export {
   buildSingleTestArgv,
   parseCoverageReport,
   parseMutationReport,
+  extractChangedHunkRanges,
+  buildMutationExecutionPlan,
   runFlakeCheck,
+  runFlakeCheckParallel,
   auditSecurity,
   suggestMutationStrengthening,
   resolveAdHocTargets,
@@ -362,6 +374,7 @@ export {
   discoverModules,
   matchFilesToModules,
   generateConfig,
+  validateConfigFile,
   printPreview,
   auditSkills,
   buildArchDiffPayload,
@@ -607,6 +620,34 @@ export function executeRelease({
     }
   }
 
+  const encodedReleaseVer = encodeURIComponent(newVersion).replace(/-/g, '--');
+  const readmePath = path.resolve(repoRoot, 'README.md');
+  if (fileExists(readmePath)) {
+    const readmeRaw = readFileSafe(readmePath);
+    const nextReadme = readmeRaw.replace(
+      /(shields\.io\/badge\/Version-)(\d+\.\d+\.\d+(?:--?[A-Za-z0-9.]+)*)(-)/g,
+      `$1${encodedReleaseVer}$3`
+    );
+    if (nextReadme !== readmeRaw) {
+      writeFileAtomic(readmePath, nextReadme);
+      updatedFiles.push('README.md');
+    }
+  }
+
+  for (const ruleRel of ['AGENTS.md', 'CLAUDE.md', '.cursorrules', '.windsurfrules', '.cursor/rules/agentic-sdlc.mdc']) {
+    const rulePath = path.resolve(repoRoot, ruleRel);
+    if (!fileExists(rulePath)) continue;
+    const ruleRaw = readFileSafe(rulePath);
+    const nextRule = ruleRaw.replace(
+      /(Universal Engine v)(\d+\.\d+\.\d+(?:-[A-Za-z0-9.]+)?)/g,
+      `$1${newVersion}`
+    );
+    if (nextRule !== ruleRaw) {
+      writeFileAtomic(rulePath, nextRule);
+      updatedFiles.push(ruleRel);
+    }
+  }
+
   const isGitIgnored = (rel) => {
     try {
       execFileSync('git', ['check-ignore', '-q', '--', rel], { cwd: repoRoot, stdio: 'pipe' });
@@ -667,6 +708,28 @@ function requireFreshReport(report, mod, repoRoot, startedAt) {
 }
 
 /** Runs the module's coverage command and parses a fresh report (fails closed). */
+function mergeSessionGatePillars(repoRoot, updates = {}) {
+  try {
+    const current = getSessionStatus(repoRoot);
+    const activeSess = current?.session;
+    if (!activeSess) return;
+    const headSha = (gitOutput(['rev-parse', 'HEAD'], repoRoot) || '').trim() || null;
+    const prev = activeSess.manifest?.gatePillars;
+    const base = prev && (!prev.headSha || !headSha || sameShaPrefix(prev.headSha, headSha)) ? { ...prev } : {};
+    const cleaned = {};
+    for (const [k, v] of Object.entries(updates || {})) {
+      if (v !== undefined) cleaned[k] = v;
+    }
+    const gatePillars = {
+      ...base,
+      ...cleaned,
+      ...(headSha ? { headSha } : prev?.headSha ? { headSha: prev.headSha } : {}),
+      updatedAt: new Date().toISOString()
+    };
+    updateSession({ manifestUpdate: { gatePillars }, repoRoot });
+  } catch {}
+}
+
 function measureCoverage(mod, repoRoot) {
   if (!mod.commands?.coverage) {
     return { found: false, passed: false, reason: 'No coverage command configured.' };
@@ -676,7 +739,12 @@ function measureCoverage(mod, repoRoot) {
     fs.mkdirSync(path.dirname(path.resolve(cwd, mod.commands.coverageFile)), { recursive: true });
   }
   const startedAt = Date.now();
-  runConfiguredCommand(mod.commands.coverage, { stdio: 'inherit', cwd });
+  try {
+    runConfiguredCommand(mod.commands.coverage, { stdio: 'inherit', cwd });
+  } catch (err) {
+    mergeSessionGatePillars(repoRoot, { coveragePassed: false, unitTestsPassed: false });
+    throw err;
+  }
   return requireFreshReport(parseCoverageReport(repoRoot, mod), mod, repoRoot, startedAt);
 }
 
@@ -686,6 +754,12 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
   const args = customArgs || process.argv.slice(2);
   const command = args[0] || 'detect';
   const configPath = customConfigPath || path.resolve(repoRoot, '.agent/sdlc-config.json');
+  const shouldPersistConfig =
+    command === 'detect' ||
+    command === 'install' ||
+    command === 'init' ||
+    command === 'update' ||
+    (command === 'doctor' && args.includes('--fix'));
 
   let config;
   let reGenerated = false;
@@ -696,15 +770,19 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       if (!config || !Array.isArray(config.modules)) throw new Error('Invalid config schema');
     } catch {
       config = generateConfig(repoRoot);
-      fs.mkdirSync(path.dirname(configPath), { recursive: true });
-      fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-      reGenerated = true;
+      if (shouldPersistConfig) {
+        fs.mkdirSync(path.dirname(configPath), { recursive: true });
+        writeFileAtomic(configPath, JSON.stringify(config, null, 2));
+        reGenerated = true;
+      }
     }
   } else {
     config = generateConfig(repoRoot);
-    fs.mkdirSync(path.dirname(configPath), { recursive: true });
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-    reGenerated = true;
+    if (shouldPersistConfig) {
+      fs.mkdirSync(path.dirname(configPath), { recursive: true });
+      writeFileAtomic(configPath, JSON.stringify(config, null, 2));
+      reGenerated = true;
+    }
   }
 
   const result = {
@@ -729,20 +807,32 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       if (affectedOnly) {
         const affectedTests = findAffectedTests(files, repoRoot);
         if (affectedTests.length > 0) {
-          for (const testFile of affectedTests) {
-            const single = buildSingleTestArgv(testFile, repoRoot);
-            execFileSync(single.file, single.args, { stdio: 'inherit', cwd: repoRoot });
+          try {
+            for (const testFile of affectedTests) {
+              const single = buildSingleTestArgv(testFile, repoRoot);
+              execFileSync(single.file, single.args, { stdio: 'inherit', cwd: repoRoot });
+            }
+          } catch (err) {
+            mergeSessionGatePillars(repoRoot, { unitTestsPassed: false });
+            throw err;
           }
+          mergeSessionGatePillars(repoRoot, { unitTestsPassed: true });
           result.affectedTests = affectedTests;
           return result;
         }
       }
 
       const activeModules = files.length > 0 ? matchFilesToModules(files, config.modules) : config.modules;
-      for (const mod of activeModules) {
-        const cwd = path.resolve(repoRoot, mod.path);
-        runConfiguredCommand(mod.commands.test, { stdio: 'inherit', cwd });
+      try {
+        for (const mod of activeModules) {
+          const cwd = path.resolve(repoRoot, mod.path);
+          runConfiguredCommand(mod.commands.test, { stdio: 'inherit', cwd });
+        }
+      } catch (err) {
+        mergeSessionGatePillars(repoRoot, { unitTestsPassed: false });
+        throw err;
       }
+      mergeSessionGatePillars(repoRoot, { unitTestsPassed: true });
       result.activeModules = activeModules;
       return result;
     }
@@ -750,25 +840,35 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
     case 'coverage': {
       const files = getModifiedFiles(null, repoRoot);
       const activeModules = files.length > 0 ? matchFilesToModules(files, config.modules) : config.modules;
+      const currentHeadSha = (gitOutput(['rev-parse', 'HEAD'], repoRoot) || '').trim() || null;
       for (const mod of activeModules) {
         const hit = getGateCacheHit({ checkType: 'coverage', modulePath: mod.path, repoRoot });
         if (hit.hit && hit.entry?.result?.coverage && !args.includes('--no-cache')) {
           console.log(`⚡ [${mod.name}] Coverage cache hit (${hit.treeHash.slice(0, 10)}): ${hit.entry.result.coverage}`);
           try {
-            updateSession({ manifestUpdate: { coverageReport: hit.entry.result.coverage }, repoRoot });
+            updateSession({
+              manifestUpdate: { coverageReport: hit.entry.result.coverage, ...(currentHeadSha ? { coverageHeadSha: currentHeadSha } : {}) },
+              repoRoot
+            });
           } catch {}
+          mergeSessionGatePillars(repoRoot, { coveragePassed: true, unitTestsPassed: true });
           continue;
         }
         const covReport = measureCoverage(mod, repoRoot);
         result.coverageReport = covReport;
         if (!covReport.passed) {
           result.success = false;
+          mergeSessionGatePillars(repoRoot, { coveragePassed: false, unitTestsPassed: false });
           console.error(`🛑 [${mod.name}] Coverage gate failed: ${covReport.reason}`);
           return result;
         }
         try {
-          updateSession({ manifestUpdate: { coverageReport: covReport.formatted }, repoRoot });
+          updateSession({
+            manifestUpdate: { coverageReport: covReport.formatted, ...(currentHeadSha ? { coverageHeadSha: currentHeadSha } : {}) },
+            repoRoot
+          });
         } catch {}
+        mergeSessionGatePillars(repoRoot, { coveragePassed: true, unitTestsPassed: true });
         recordGateCache({
           checkType: 'coverage',
           modulePath: mod.path,
@@ -782,45 +882,167 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
 
     case 'mutation': {
       const files = getModifiedFiles(null, repoRoot);
-      const activeModules = files.length > 0 ? matchFilesToModules(files, config.modules) : config.modules;
+      const currentHeadSha = (gitOutput(['rev-parse', 'HEAD'], repoRoot) || '').trim() || null;
+      const fullMutation = args.includes('--full');
+      const noCache = args.includes('--no-cache');
+      const activeModules = !fullMutation && files.length > 0 ? matchFilesToModules(files, config.modules) : config.modules;
+      const clearMutSkipManifest = () => {
+        try {
+          updateSession({
+            manifestUpdate: { mutationScore: null, mutationSkippedReason: null, ...(currentHeadSha ? { mutationHeadSha: currentHeadSha } : {}) },
+            repoRoot
+          });
+        } catch {}
+      };
+      result.fullMutation = fullMutation;
+      result.mutationPlans = [];
+
+      if (files.length > 0 && activeModules.length === 0 && !fullMutation) {
+        result.mutationReport = { passed: true, skipped: true, reason: 'diff-no-mutated-sources' };
+        console.log('⏭️  Mutation skipped cleanly (diff-no-mutated-sources): no configured module files changed in diff.');
+        try {
+          updateSession({
+            manifestUpdate: { mutationScore: null, mutationSkippedReason: 'diff-no-mutated-sources', ...(currentHeadSha ? { mutationHeadSha: currentHeadSha } : {}) },
+            repoRoot
+          });
+        } catch {}
+        mergeSessionGatePillars(repoRoot, { mutationPassed: true });
+        result.activeModules = activeModules;
+        return result;
+      }
+
       for (const mod of activeModules) {
-        if (mod.thresholds && mod.thresholds.mutationScore === null) {
-          console.log(`ℹ️  [${mod.name}] Mutation testing not configured (thresholds.mutationScore: null); receipts will record 'not-configured'.`);
+        if (resolveQualityThresholds(repoRoot, mod).minMut === null) {
+          console.log(`ℹ️  [${mod.name}] Mutation testing not configured (minMut: null); receipts will record 'not-configured'.`);
+          mergeSessionGatePillars(repoRoot, { mutationPassed: 'na' });
           continue;
         }
         const hit = getGateCacheHit({ checkType: 'mutation', modulePath: mod.path, repoRoot });
-        if (hit.hit && hit.entry?.result?.mutation && !args.includes('--no-cache')) {
+        if (hit.hit && hit.entry?.result?.mutation && !noCache && (!fullMutation || hit.entry?.result?.fullMutation)) {
           console.log(`⚡ [${mod.name}] Mutation cache hit (${hit.treeHash.slice(0, 10)}): ${hit.entry.result.mutation}`);
           try {
-            updateSession({ manifestUpdate: { mutationScore: hit.entry.result.mutation }, repoRoot });
+            updateSession({
+              manifestUpdate: { mutationScore: hit.entry.result.mutation, mutationSkippedReason: null, ...(currentHeadSha ? { mutationHeadSha: currentHeadSha } : {}) },
+              repoRoot
+            });
           } catch {}
+          mergeSessionGatePillars(repoRoot, { mutationPassed: true });
           continue;
         }
         const cwd = path.resolve(repoRoot, mod.path);
         const startedAt = Date.now();
         if (!mod.commands?.mutation) {
           result.success = false;
+          clearMutSkipManifest();
+          mergeSessionGatePillars(repoRoot, { mutationPassed: false });
           console.error(`🛑 [${mod.name}] Mutation gate failed: no mutation command configured.`);
           return result;
         }
-        runConfiguredCommand(mod.commands.mutation, { stdio: 'inherit', cwd });
+        const mutPlan = buildMutationExecutionPlan({
+          repoRoot,
+          mod,
+          modifiedFiles: files,
+          full: fullMutation,
+          noCache
+        });
+        result.mutationPlans.push({ module: mod.name, ...mutPlan });
+        if (mutPlan.skip) {
+          const skipReason = mutPlan.reason || 'diff-no-mutated-sources';
+          console.log(
+            `⏭️  [${mod.name}] Mutation skipped cleanly (${skipReason}): no mutated sources or paired test targets changed in diff.`
+          );
+          result.mutationReport = { passed: true, skipped: true, reason: skipReason };
+          try {
+            updateSession({
+              manifestUpdate: { mutationScore: null, mutationSkippedReason: skipReason, ...(currentHeadSha ? { mutationHeadSha: currentHeadSha } : {}) },
+              repoRoot
+            });
+          } catch {}
+          mergeSessionGatePillars(repoRoot, { mutationPassed: true });
+          recordGateCache({
+            checkType: 'mutation',
+            modulePath: mod.path,
+            result: { passed: true, skipped: true, reason: skipReason, fullMutation: false },
+            repoRoot
+          });
+          continue;
+        }
 
-        const mutReport = requireFreshReport(parseMutationReport(repoRoot, mod), mod, repoRoot, startedAt);
+        const cmdToRun = mutPlan.command || mod.commands.mutation;
+        console.log(
+          `🧬 [${mod.name}] Running ${mutPlan.diffScoped ? 'diff-scoped' : fullMutation ? 'full' : 'module'} mutation check: ${cmdToRun}`
+        );
+        try {
+          runConfiguredCommand(mutPlan.commandArgv || cmdToRun, { stdio: 'inherit', cwd });
+        } catch (err) {
+          clearMutSkipManifest();
+          mergeSessionGatePillars(repoRoot, { mutationPassed: false });
+          throw err;
+        }
+
+        const parsedMut = parseMutationReport(repoRoot, mod);
+        const zeroMutErr = !parsedMut.found
+          ? parsedMut.diagnostics?.errors?.find((e) => e?.zeroMutants === true && e?.file)
+          : null;
+        let zeroMutantsDiffEmpty = false;
+        if (mutPlan.diffScoped && zeroMutErr) {
+          try {
+            zeroMutantsDiffEmpty = fs.statSync(path.resolve(cwd, zeroMutErr.file)).mtimeMs + 2000 >= startedAt;
+          } catch {}
+        }
+        if (zeroMutantsDiffEmpty) {
+          console.log(
+            `ℹ️  [${mod.name}] Diff-scoped mutation produced 0 evaluable mutants in changed hunks (comment/whitespace/empty scope); passing cleanly.`
+          );
+          result.mutationReport = {
+            ...parsedMut,
+            passed: true,
+            skipped: true,
+            emptyScope: true,
+            reason: 'diff-zero-mutants'
+          };
+          try {
+            updateSession({
+              manifestUpdate: { mutationScore: null, mutationSkippedReason: 'diff-zero-mutants', ...(currentHeadSha ? { mutationHeadSha: currentHeadSha } : {}) },
+              repoRoot
+            });
+          } catch {}
+          mergeSessionGatePillars(repoRoot, { mutationPassed: true });
+          recordGateCache({
+            checkType: 'mutation',
+            modulePath: mod.path,
+            result: { passed: true, skipped: true, reason: 'diff-zero-mutants', fullMutation: false },
+            repoRoot
+          });
+          continue;
+        }
+
+        const mutReport = requireFreshReport(parsedMut, mod, repoRoot, startedAt);
         result.mutationReport = mutReport;
         if (!mutReport.passed) {
           result.success = false;
+          clearMutSkipManifest();
+          mergeSessionGatePillars(repoRoot, { mutationPassed: false });
           console.error(
             `🛑 [${mod.name}] Mutation gate failed: ${mutReport.reason || `${mutReport.formatted} < ${mutReport.threshold}% (${mutReport.file})`}`
           );
           return result;
         }
         try {
-          updateSession({ manifestUpdate: { mutationScore: mutReport.formatted }, repoRoot });
+          updateSession({
+            manifestUpdate: {
+              mutationScore: mutReport.formatted,
+              mutationSkippedReason: null,
+              ...(currentHeadSha ? { mutationHeadSha: currentHeadSha } : {})
+            },
+            repoRoot
+          });
         } catch {}
+        mergeSessionGatePillars(repoRoot, { mutationPassed: true });
         recordGateCache({
           checkType: 'mutation',
           modulePath: mod.path,
-          result: { passed: true, mutation: mutReport.formatted },
+          result: { passed: true, mutation: mutReport.formatted, fullMutation },
           repoRoot
         });
       }
@@ -850,15 +1072,37 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       const effectiveLane = reconciled.lane;
       result.lane = effectiveLane;
       const isStrict = args.includes('--strict');
+      const allowOffline = args.includes('--allow-offline');
+      const currentHeadSha = (gitOutput(['rev-parse', 'HEAD'], repoRoot) || '').trim() || null;
+      const gatePillars = {
+        strict: isStrict,
+        ...(!config.modules.some((m) => m.commands?.lint) ? { lintPassed: 'na' } : {})
+      };
 
       for (const mod of config.modules) {
         const hit = getGateCacheHit({ checkType: 'gate', modulePath: mod.path, repoRoot });
         if (hit.hit && !args.includes('--no-cache') && !isStrict) {
           console.log(`⚡ [${mod.name}] SHA-256 Quality Gate Cache Hit (${hit.treeHash.slice(0, 10)})`);
+          if (mod.commands?.lint) {
+            gatePillars.lintPassed = gatePillars.lintPassed === false ? false : true;
+          }
+          if (hit.entry?.result?.coverage) {
+            gatePillars.coveragePassed = gatePillars.coveragePassed === false ? false : true;
+            gatePillars.unitTestsPassed = gatePillars.unitTestsPassed === false ? false : true;
+          }
           continue;
         }
         const cwd = path.resolve(repoRoot, mod.path);
-        if (mod.commands.lint) runConfiguredCommand(mod.commands.lint, { stdio: 'inherit', cwd });
+        if (mod.commands.lint) {
+          try {
+            runConfiguredCommand(mod.commands.lint, { stdio: 'inherit', cwd });
+            gatePillars.lintPassed = gatePillars.lintPassed === false ? false : true;
+          } catch (err) {
+            gatePillars.lintPassed = false;
+            mergeSessionGatePillars(repoRoot, gatePillars);
+            throw err;
+          }
+        }
         if (mod.commands.build) runConfiguredCommand(mod.commands.build, { stdio: 'inherit', cwd });
         if (effectiveLane === 'trivial' && !isStrict) {
           continue;
@@ -867,56 +1111,99 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         result.coverageReport = covReport;
         if (!covReport.passed) {
           result.success = false;
+          gatePillars.coveragePassed = false;
+          gatePillars.unitTestsPassed = false;
+          mergeSessionGatePillars(repoRoot, gatePillars);
           console.error(`🛑 [${mod.name}] Quality gate failed: ${covReport.reason}`);
           return result;
         }
+        gatePillars.coveragePassed = gatePillars.coveragePassed === false ? false : true;
+        gatePillars.unitTestsPassed = gatePillars.unitTestsPassed === false ? false : true;
         try {
-          updateSession({ manifestUpdate: { coverageReport: covReport.formatted }, repoRoot });
+          updateSession({
+            manifestUpdate: { coverageReport: covReport.formatted, ...(currentHeadSha ? { coverageHeadSha: currentHeadSha } : {}) },
+            repoRoot
+          });
         } catch {}
         recordGateCache({ checkType: 'gate', modulePath: mod.path, result: { passed: true, coverage: covReport.formatted }, repoRoot });
       }
+      mergeSessionGatePillars(repoRoot, gatePillars);
 
       if (isStrict) {
-        const modifiedFiles = getModifiedFiles(null, repoRoot);
-        result.risk = assessRisk(modifiedFiles, repoRoot);
-        const secRes = auditSecurity(repoRoot);
-        result.security = secRes;
-        if (!secRes.passed) throw new Error('Security Audit failed: Hardcoded secrets or critical CVEs detected.');
+        const strictPillars = { ...gatePillars };
+        try {
+          const modifiedFiles = getModifiedFiles(null, repoRoot);
+          result.risk = assessRisk(modifiedFiles, repoRoot);
 
-        const archDiffRes = checkArchDiff(repoRoot);
-        result.archDiff = archDiffRes;
-        if (archDiffRes.enabled && !archDiffRes.passed) {
-          throw new Error(`Archlens Diff Check failed: ${archDiffRes.violationsCount} concentric ring layer inversion(s) detected.`);
-        }
+          const secRes = auditSecurity(repoRoot, { strict: true, allowOffline });
+          result.security = secRes;
+          strictPillars.securityPassed = Boolean(secRes.passed);
+          if (!secRes.passed) {
+            throw new Error(
+              secRes.packageAuditStatus === 'audit-error'
+                ? `Security Audit failed offline in strict mode: ${secRes.packageAuditError || 'npm audit unavailable'} (re-run with --allow-offline only when offline).`
+                : 'Security Audit failed: Hardcoded secrets or critical CVEs detected.'
+            );
+          }
 
-        const flakeRes = runFlakeCheck({ runs: 3, repoRoot });
-        result.flake = flakeRes;
-        if (flakeRes.flaky) throw new Error(`Flaky Test Check failed: ${flakeRes.flakyCount} flaky test(s) detected.`);
+          const archDiffRes = checkArchDiff(repoRoot);
+          result.archDiff = archDiffRes;
+          strictPillars.archPassed = archDiffRes.enabled ? Boolean(archDiffRes.passed) : 'na';
+          if (archDiffRes.enabled && !archDiffRes.passed) {
+            throw new Error(`Archlens Diff Check failed: ${archDiffRes.violationsCount} concentric ring layer inversion(s) detected.`);
+          }
 
-        const contractRes = auditContractDrift({ repoRoot });
-        result.contract = contractRes;
-        if (contractRes.hasDrift) {
-          throw new Error(`API Contract Drift detected: ${contractRes.breakingChangesCount} breaking change(s) found!`);
-        }
+          const flakeRes = runFlakeCheck({ runs: 3, repoRoot });
+          result.flake = flakeRes;
+          strictPillars.flakePassed = !flakeRes.flaky && flakeRes.passed !== false;
+          if (flakeRes.flaky || flakeRes.passed === false) {
+            throw new Error(
+              flakeRes.flaky
+                ? `Flaky Test Check failed: ${flakeRes.flakyCount} flaky test(s) detected.`
+                : `Flaky Test Check failed: ${flakeRes.failedTestFiles || 1} test file(s) failed determinism check.`
+            );
+          }
 
-        const auditRes = verifyAuditChain(repoRoot);
-        result.audit = auditRes;
-        if (!auditRes.valid) throw new Error(`Merkle Audit Chain Verification failed: ${auditRes.error}`);
+          const contractRes = auditContractDrift({ repoRoot });
+          result.contract = contractRes;
+          strictPillars.contractPassed = !contractRes.hasDrift;
+          if (contractRes.hasDrift) {
+            throw new Error(`API Contract Drift detected: ${contractRes.breakingChangesCount} breaking change(s) found!`);
+          }
 
-        const wikiRes = auditWiki(repoRoot, { strict: true });
-        result.wikiAudit = wikiRes;
-        if (wikiRes.enabled && !wikiRes.passed) {
-          throw new Error(`Wiki Audit failed: ${wikiRes.errorsCount} documentation drift / broken path issue(s) detected.`);
-        }
+          const auditRes = verifyAuditChain(repoRoot);
+          result.audit = auditRes;
+          strictPillars.auditChainValid = Boolean(auditRes.valid);
+          if (!auditRes.valid) throw new Error(`Hash-Chain Audit Ledger Verification failed: ${auditRes.error}`);
 
-        const readmeRes = auditReadme(repoRoot, { strict: true });
-        result.readmeAudit = readmeRes;
-        if (readmeRes.readmeExists && !readmeRes.passed) {
-          throw new Error(`README Audit failed: ${readmeRes.errorsCount} 10-30-90 blueprint violation(s) detected.`);
+          const driftRes = checkSpecDrift({ ticketId: sessStatus?.session?.issueId || null, repoRoot });
+          strictPillars.driftPassed = Boolean(driftRes.passed);
+
+          const wikiRes = auditWiki(repoRoot, { strict: true });
+          result.wikiAudit = wikiRes;
+          strictPillars.wikiPassed = wikiRes.enabled ? Boolean(wikiRes.passed) : 'na';
+          if (wikiRes.enabled && !wikiRes.passed) {
+            throw new Error(`Wiki Audit failed: ${wikiRes.errorsCount} documentation drift / broken path issue(s) detected.`);
+          }
+
+          const readmeRes = auditReadme(repoRoot, { strict: true });
+          result.readmeAudit = readmeRes;
+          strictPillars.readmePassed = readmeRes.readmeExists ? Boolean(readmeRes.passed) : 'na';
+          if (readmeRes.readmeExists && !readmeRes.passed) {
+            throw new Error(`README Audit failed: ${readmeRes.errorsCount} 10-30-90 blueprint violation(s) detected.`);
+          }
+        } finally {
+          mergeSessionGatePillars(repoRoot, strictPillars);
         }
       } else {
-        result.wikiAudit = auditWiki(repoRoot);
-        result.readmeAudit = auditReadme(repoRoot);
+        const wikiRes = auditWiki(repoRoot);
+        const readmeRes = auditReadme(repoRoot);
+        result.wikiAudit = wikiRes;
+        result.readmeAudit = readmeRes;
+        mergeSessionGatePillars(repoRoot, {
+          wikiPassed: wikiRes.enabled ? Boolean(wikiRes.passed) : 'na',
+          readmePassed: readmeRes.readmeExists ? Boolean(readmeRes.passed) : 'na'
+        });
       }
 
       return result;
@@ -1572,7 +1859,14 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         target = null;
       for (let i = 1; i < args.length; i++) {
         if (args[i] === '--runs' && args[i + 1]) runs = Number(args[++i]) || 5;
-        else if (args[i] === '--target' && args[i + 1]) target = args[++i];
+        else if (args[i] === '--target' && args[i + 1]) {
+          const rawTarget = String(args[++i]).trim();
+          if (!rawTarget || rawTarget.includes('\0') || rawTarget.startsWith('-') || path.basename(rawTarget).startsWith('-')) {
+            throw new Error(`Invalid --target path: "${rawTarget}"`);
+          }
+          resolveInsideRepo(repoRoot, rawTarget);
+          target = rawTarget;
+        }
       }
       result.flakeCheck = runFlakeCheck({ runs, target, repoRoot });
       result.success = !result.flakeCheck.flaky && result.flakeCheck.passed !== false;
@@ -1580,8 +1874,11 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
     }
 
     case 'security-audit': {
-      result.security = auditSecurity(repoRoot);
+      const strict = args.includes('--strict') || process.env.CI === 'true' || process.env.CI === '1';
+      const allowOffline = args.includes('--allow-offline');
+      result.security = auditSecurity(repoRoot, { strict, allowOffline });
       result.success = result.security.passed !== false;
+      mergeSessionGatePillars(repoRoot, { securityPassed: Boolean(result.success) });
       if (!result.success) console.error('🛑 Security audit failed.');
       return result;
     }
@@ -1881,6 +2178,23 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       return result;
     }
 
+    case 'config': {
+      const sub = (args[1] || 'check').toLowerCase();
+      result.subcommand = sub;
+      if (sub === 'check' || sub === 'validate') {
+        const validation = validateConfigFile(repoRoot, customConfigPath);
+        result.configValidation = validation;
+        result.success = validation.valid;
+        if (!validation.valid) {
+          result.exitCode = 1;
+        }
+        return result;
+      }
+      result.success = false;
+      result.exitCode = 2;
+      return result;
+    }
+
     case 'doctor': {
       const fix = args.includes('--fix');
       result.doctor = runDoctor(repoRoot, { fix });
@@ -1955,6 +2269,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
 
         let issuedReceipt = null;
         let receiptError = null;
+        let reviewDriftPassed = undefined;
         if (verdict === 'approve') {
           if (!sessRes?.session) {
             receiptError = 'Cannot issue Stage 7 gate receipt without an active SDLC session.';
@@ -1971,8 +2286,9 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
                 laneDowngraded: reconciled.laneDowngraded
               };
               const drift = checkSpecDrift({ ticketId: effectiveSession.issueId, repoRoot });
+              reviewDriftPassed = Boolean(drift.passed);
               const sessionInputs = receiptInputsFromSession(effectiveSession, {
-                driftCheckPassed: Boolean(drift.passed),
+                driftCheckPassed: reviewDriftPassed,
                 repoRoot
               });
               const recRes = issueGateReceipt({
@@ -2000,15 +2316,18 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
           }
         }
 
+        const currentHeadSha = (gitOutput(['rev-parse', 'HEAD'], repoRoot) || '').trim() || undefined;
         const formattedComment = formatConsolidatedReviewComment({
           issueId: issueId || sessRes?.session?.issueId || null,
           prNumber: prNumber || sessRes?.session?.manifest?.prNumber || null,
           branch: sessRes?.session?.branch || null,
+          headSha: currentHeadSha,
           verdict,
           reviewer,
           peerReviewSummary,
           archSecuritySummary,
           body: bodyText,
+          ...(reviewDriftPassed !== undefined ? { driftPassed: reviewDriftPassed } : {}),
           receiptId: issuedReceipt?.receiptId || null,
           repoRoot
         });
@@ -2121,7 +2440,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
       let laneOverride = null;
       let reason = null;
       let intent = '';
-      let baseBranch = 'main';
+      let baseBranch = null;
       const files = [];
       for (let i = 1; i < args.length; i++) {
         if (args[i] === '--lane' && args[i + 1]) laneOverride = args[++i];
@@ -2130,6 +2449,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         else if (args[i].startsWith('--reason=')) reason = args[i].slice('--reason='.length);
         else if ((args[i] === '--intent' || args[i] === '--title') && args[i + 1]) intent = args[++i];
         else if (args[i] === '--base' && args[i + 1]) baseBranch = args[++i];
+        else if (args[i].startsWith('--base=')) baseBranch = args[i].slice('--base='.length);
         else if (!args[i].startsWith('-')) files.push(args[i]);
       }
       const sess = getSessionStatus(repoRoot);
@@ -2349,6 +2669,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         'Setup & Environment:',
         '  install [--agents gemini,claude,cursor,grok,windsurf,copilot] [--global] [--with-hooks] [--with-ci] [--yes]',
         '  detect                                                Auto-detect stack and write .agent/sdlc-config.json',
+        '  config check                                          Validate .agent/sdlc-config.json without synthesizing defaults',
         '  doctor [--fix]                                        Diagnose toolchain, assets & hook SHA-256 health (--fix heals)',
         '  interop <export> [--agent <all|id>]                   Provision agent rules & skills across supported runtimes',
         '  hooks install | protect [main develop] | ci-workflow  Install 4-Layer Git hooks, branch protection, or CI workflow',
@@ -2363,7 +2684,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         'TDD, Quality Gate & Peer Review:',
         '  test [--affected-only]                                Run module or git-diff affected tests',
         '  coverage [--no-cache]                                 Measure line/branch coverage against sdlc-config.json',
-        '  mutation | strengthen | exemption <list|add>          Run mutation testing, assertion advice, or audited exemptions',
+        '  mutation [--full] [--no-cache] | strengthen | exemption <list|add>  Run diff-scoped (or --full) mutation testing, assertion advice, or exemptions',
         '  reproduce --error "<trace>" [--target <file>]         Scaffold polyglot Red bug-reproduction harness',
         '  flake-check [--runs <n>]                              Verify test determinism across repeated runs',
         '  gate [--strict] [--no-cache]                          Execute Universal Quality Gate pillars',
@@ -2383,7 +2704,7 @@ export function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.
         '  readme <init|audit> [--archetype <auto|cli|sdk|platform>] [--strict]',
         '  wiki <sync|audit|map> [--init] [--strict]             AST-to-Wiki synchronization & broken-path auditing',
         '  skill-audit [--live] | security-audit                 Static SkillSpector & secret/CVE scanning',
-        '  audit <verify|record> | cache <status|clear> | stats  Merkle audit chain verification, gate cache & est. stats',
+        '  audit <verify|record> | cache <status|clear> | stats  SHA-256 hash-chain audit ledger verification, gate cache & est. stats',
         '  ui-snapshot | serve [--port <4120>]                   Build static workbench HTML or start token-gated server',
         '  proof generate --name <id> | release <patch|minor|major> [--dry-run] [--no-tag] | watchdog monitor',
         ''
@@ -2507,7 +2828,7 @@ export function formatCLIResult(res, args = []) {
   if (cmd === 'audit' && res.audit) {
     if (res.audit.valid !== undefined) {
       const count = res.audit.recordsCount ?? res.audit.entriesCount ?? 0;
-      return `${res.audit.valid ? '✅' : '🛑'} Merkle Audit Chain: ${res.audit.valid ? 'VALID' : 'INVALID'} (${count} record(s))`;
+      return `${res.audit.valid ? '✅' : '🛑'} Hash-Chain Audit Ledger: ${res.audit.valid ? 'VALID' : 'INVALID'} (${count} record(s))`;
     }
     const rec = res.audit.record || res.audit;
     const hash = rec.currentHash || rec.hash || '';
@@ -2571,6 +2892,30 @@ export function formatCLIResult(res, args = []) {
     return `✅ Exported rules & skills for [${(res.interop.selectedAgents || []).join(', ')}] (${(res.interop.filesCreated || []).length} file(s) updated).`;
   }
 
+  if (cmd === 'config' && res.configValidation) {
+    const cv = res.configValidation;
+    if (cv.valid) {
+      return `✅ Config Check: .agent/sdlc-config.json is valid (${cv.config?.modules?.length ?? 0} module(s), profile=${cv.config?.profile || 'standard'}).`;
+    }
+    return [`🛑 Config Check Failed (${cv.configPath}):`, ...cv.errors.map((e) => `  • ${e}`)].join('\n');
+  }
+
+  if ((cmd === 'wiki' || cmd === 'docs') && res.subcommand === 'map' && res.codeMap) {
+    const cm = res.codeMap;
+    const lines = [
+      `🗺️ Codebase Map: ${cm.title} (${cm.rings.length} ring(s), ${cm.modules.length} module(s), ${cm.skills.length} skill(s), ${cm.adrs.length} ADR(s))`
+    ];
+    for (const ring of cm.rings) {
+      lines.push(`  • ${ring.name} (${ring.modules.length} module(s))`);
+      for (const mod of ring.modules) {
+        lines.push(
+          `    - ${mod.path} | I=${mod.instability} (Ca=${mod.ca}, Ce=${mod.ce}, ${mod.lineCount} lines, ${mod.exports.length} exports)`
+        );
+      }
+    }
+    return lines.join('\n');
+  }
+
   if (cmd === 'readme') {
     if (res.readme) {
       const assets = (res.readme.createdAssets || []).length;
@@ -2592,6 +2937,14 @@ export function formatCLIResult(res, args = []) {
     if (res.guard.allowed !== undefined) {
       return `${res.guard.allowed ? '✅' : '🛑'} Git Guard (${res.subcommand || 'check'}): ${res.guard.message || (res.guard.allowed ? 'ALLOWED' : 'BLOCKED')}`;
     }
+  }
+
+  if (cmd === 'mutation' && res.mutationReport) {
+    const mr = res.mutationReport;
+    if (mr.skipped) {
+      return `⏭️ Mutation check passed cleanly (${mr.reason || 'diff-no-mutated-sources'}).`;
+    }
+    return `${mr.passed ? '✅' : '🛑'} Mutation Score: ${mr.formatted || `${mr.mutationScore ?? 0}%`} (threshold: ${mr.threshold}%)`;
   }
 
   if (cmd === 'release' && res.release) {

@@ -1,6 +1,6 @@
 ---
 description: "Use when writing tests, reproducing bugs, or checking coverage and mutation gates. Not for pure prose edits. Enforces Red-Green-Refactor TDD using sdlc-config.json bars."
-globs: *
+globs: "*"
 alwaysApply: false
 ---
 
@@ -20,7 +20,7 @@ alwaysApply: false
 | :--- | :--- |
 | `trivial` | No new test required for pure docs/CSS; run `node .agent/scripts/sdlc-engine.mjs test --affected-only` to confirm zero regressions. |
 | `standard` | Red-Green-Refactor unit/integration tests + `node .agent/scripts/sdlc-engine.mjs coverage` (SHA-256 cached when tree unchanged). |
-| `full` | Red-Green-Refactor + `coverage --no-cache` + `mutation` (when `thresholds.mutationScore !== null`) + `flake-check --runs 3`. |
+| `full` | Red-Green-Refactor + `coverage --no-cache` + `mutation [--full]` (when `thresholds.mutationScore !== null`) + `flake-check --runs 3`. |
 
 ## Steps
 
@@ -34,8 +34,8 @@ node .agent/scripts/sdlc-engine.mjs test --affected-only
 # 3. Gate 1: Measure real coverage and record in .agent/.sdlc-session.json
 node .agent/scripts/sdlc-engine.mjs coverage
 
-# 4. Gate 2 (full lane): Run mutation testing & inspect surviving mutants
-node .agent/scripts/sdlc-engine.mjs mutation
+# 4. Gate 2 (full lane): Run diff-scoped (or `--full`) mutation testing & inspect surviving mutants
+node .agent/scripts/sdlc-engine.mjs mutation [--full] [--no-cache]
 node .agent/scripts/sdlc-engine.mjs strengthen --type <ConditionalsBoundary|NegateCondition|Math|VoidMethodCall|EmptyReturn> --file <path>
 ```
 

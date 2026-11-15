@@ -68,7 +68,7 @@ For repositories using GitHub Projects v2, two executable helper scripts in `.ag
 
 ---
 
-## 3. Cryptographic Audit Trail & Stage 7 Merkle Gate Receipts
+## 3. Cryptographic Audit Trail & Stage 7 Gate Receipts
 
 Every state transition and merge authorization in the framework is recorded inside the tamper-evident hash chain managed by `.agent/scripts/lib/audit-chain.mjs`:
 

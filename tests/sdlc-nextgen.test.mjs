@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import http from 'node:http';
+import { PassThrough } from 'node:stream';
 import { execSync, execFileSync } from 'node:child_process';
 
 import {
@@ -15,7 +15,7 @@ import {
 
 import {
   // Core & Async Pool
-  execAsync,
+  runConfiguredCommand,
   runParallelTasks,
   // Content-Addressable SHA-256 Gate Cache
   computeTreeHash,
@@ -105,35 +105,53 @@ function initTempGitRepo(dir) {
   execSync('git add README.md && git commit -m "chore: initial commit"', { cwd: dir, stdio: 'pipe' });
 }
 
-function httpRequest(port, method, urlPath, bodyObj = null, token = 'nextgen-test-token') {
+function dispatchWorkbench(wb, method, urlPath, bodyObj = null, token = 'nextgen-test-token') {
   return new Promise((resolve, reject) => {
+    const req = new PassThrough();
+    req.method = method;
+    req.url = urlPath;
+    req.socket = { remoteAddress: '127.0.0.1' };
     const payload = bodyObj ? JSON.stringify(bodyObj) : null;
-    const req = http.request(
-      {
-        hostname: '127.0.0.1',
-        port,
-        path: urlPath,
-        method,
-        headers: {
-          ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
-          ...(token ? { 'X-SDLC-Token': token } : {})
+    req.headers = {
+      host: `127.0.0.1:${wb.port}`,
+      ...(payload ? { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(payload)) } : {}),
+      ...(token ? { 'x-sdlc-token': token } : {})
+    };
+    const resHeaders = {};
+    let statusCode = 200;
+    const chunks = [];
+    const res = {
+      headersSent: false,
+      writeHead(code, hdrs = {}) {
+        statusCode = code;
+        res.headersSent = true;
+        for (const [k, v] of Object.entries(hdrs)) resHeaders[String(k).toLowerCase()] = v;
+        return res;
+      },
+      setHeader(k, v) {
+        resHeaders[String(k).toLowerCase()] = v;
+      },
+      write(chunk) {
+        if (chunk !== undefined && chunk !== null) {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), 'utf8'));
         }
       },
-      (res) => {
-        let data = '';
-        res.on('data', (chunk) => (data += chunk));
-        res.on('end', () => {
-          let json = null;
-          try {
-            json = JSON.parse(data);
-          } catch {}
-          resolve({ status: res.statusCode, headers: res.headers, body: data, json });
-        });
+      end(chunk) {
+        res.headersSent = true;
+        if (chunk !== undefined && chunk !== null) {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), 'utf8'));
+        }
+        const data = Buffer.concat(chunks).toString('utf8');
+        let json = null;
+        try {
+          json = JSON.parse(data);
+        } catch {}
+        resolve({ status: statusCode, headers: resHeaders, body: data, json });
       }
-    );
-    req.on('error', reject);
-    if (payload) req.write(payload);
-    req.end();
+    };
+    Promise.resolve(wb.handleRequest(req, res)).catch(reject);
+    if (payload) req.end(payload);
+    else req.end();
   });
 }
 
@@ -152,9 +170,13 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
   // 1. Async Parallel Subprocess Engine & Content-Addressable SHA-256 Cache
   // =========================================================================
   describe('1. Async Parallel Pool & Content-Addressable SHA-256 Gate Cache', () => {
-    it('executes async commands and runs parallel tasks with concurrency limits', async () => {
-      const out = await execAsync('echo "async-pool-ok"', { cwd: tmpDir });
-      assert.ok(out.stdout.includes('async-pool-ok'));
+    it('executes shell-free configured commands and runs parallel tasks with concurrency limits', async () => {
+      const out = runConfiguredCommand(['node', '-e', 'process.stdout.write("async-pool-ok")'], {
+        cwd: tmpDir,
+        encoding: 'utf8',
+        stdio: 'pipe'
+      });
+      assert.ok(out.includes('async-pool-ok'));
 
       const order = [];
       const tasks = [1, 2, 3, 4, 5].map((n) => async () => {
@@ -268,7 +290,7 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
         capabilities: [
           { title: 'Core Domain Schema' },
           { title: 'REST Adapter Port', dependsOn: ['CAP-01'] },
-          { title: 'SvelteKit Dashboard', dependsOn: ['CAP-01'] },
+          { title: 'Workbench Dashboard', dependsOn: ['CAP-01'] },
           { title: 'E2E Canary Telemetry', dependsOn: ['CAP-02', 'CAP-03'] }
         ],
         repoRoot: tmpDir
@@ -550,7 +572,7 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
   });
 
   // =========================================================================
-  // 6. Causal Decision Graph & SvelteKit Workbench Bidirectional API
+  // 6. Causal Decision Graph & Mission Control Workbench Bidirectional API
   // =========================================================================
   describe('6. Causal Decision Graph, DECISION_MAP.md & Workbench API Routes', () => {
     it('builds causal decision graph linking CAP -> SPEC -> TICKET -> ADR -> ARCH and syncs docs/DECISION_MAP.md', () => {
@@ -595,7 +617,7 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
       assert.ok(mapMd.includes('CAP-01'));
     });
 
-    it('serves SvelteKit workbench API endpoints (/api/decision-graph, /api/product, /api/adr/decide, /api/dag/control)', async () => {
+    it('serves workbench API endpoints in-process (/api/decision-graph, /api/product, /api/adr/decide, /api/dag/control)', async () => {
       initProductConstitution({
         title: 'Workbench API App',
         capabilities: [{ title: 'Realtime Analytics' }],
@@ -613,41 +635,35 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
       assert.equal(pendingAdr.adr.status, 'pending_approval');
 
       const wb = createWorkbenchServer({ port: 0, repoRoot: tmpDir, token: 'nextgen-test-token' });
-      const srv = await wb.listen();
-      const assignedPort = srv.address().port;
 
-      try {
-        // 1. GET /api/decision-graph
-        const graphRes = await httpRequest(assignedPort, 'GET', '/api/decision-graph');
-        assert.equal(graphRes.status, 200);
-        assert.ok(graphRes.json.nodes.some((n) => n.id === 'CAP-01'));
-        assert.ok(graphRes.json.nodes.some((n) => n.id === 'ADR-001'));
+      // 1. GET /api/decision-graph
+      const graphRes = await dispatchWorkbench(wb, 'GET', '/api/decision-graph');
+      assert.equal(graphRes.status, 200);
+      assert.ok(graphRes.json.nodes.some((n) => n.id === 'CAP-01'));
+      assert.ok(graphRes.json.nodes.some((n) => n.id === 'ADR-001'));
 
-        // 2. GET /api/product
-        const prodRes = await httpRequest(assignedPort, 'GET', '/api/product');
-        assert.equal(prodRes.status, 200);
-        assert.equal(prodRes.json.product.title, 'Workbench API App');
+      // 2. GET /api/product
+      const prodRes = await dispatchWorkbench(wb, 'GET', '/api/product');
+      assert.equal(prodRes.status, 200);
+      assert.equal(prodRes.json.product.title, 'Workbench API App');
 
-        // 3. POST /api/adr/decide to approve ADR-001 from UI
-        const decideRes = await httpRequest(assignedPort, 'POST', '/api/adr/decide', {
-          adrId: 'ADR-001',
-          action: 'approve',
-          reviewer: '@ui-operator',
-          reason: 'Approved via SvelteKit Mission Control'
-        });
-        assert.equal(decideRes.status, 200);
-        assert.equal(decideRes.json.adr.status, 'accepted');
+      // 3. POST /api/adr/decide to approve ADR-001 from UI
+      const decideRes = await dispatchWorkbench(wb, 'POST', '/api/adr/decide', {
+        adrId: 'ADR-001',
+        action: 'approve',
+        reviewer: '@ui-operator',
+        reason: 'Approved via Mission Control Workbench'
+      });
+      assert.equal(decideRes.status, 200);
+      assert.equal(decideRes.json.adr.status, 'accepted');
 
-        // 4. POST /api/dag/control to pause DAG from UI
-        const dagRes = await httpRequest(assignedPort, 'POST', '/api/dag/control', {
-          action: 'pause',
-          reason: 'Operator maintenance window'
-        });
-        assert.equal(dagRes.status, 200);
-        assert.equal(dagRes.json.state.status, 'paused');
-      } finally {
-        await wb.close();
-      }
+      // 4. POST /api/dag/control to pause DAG from UI
+      const dagRes = await dispatchWorkbench(wb, 'POST', '/api/dag/control', {
+        action: 'pause',
+        reason: 'Operator maintenance window'
+      });
+      assert.equal(dagRes.status, 200);
+      assert.equal(dagRes.json.state.status, 'paused');
     });
 
     it('executes new CLI commands (product, adr, drift, decision-graph, dossier, guard, cache)', () => {
@@ -846,6 +862,24 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
       assert.equal(archRes.violationsCount, 1);
       assert.equal(archRes.violations[0].sourceLayer, 'UseCaseRing');
       assert.equal(archRes.violations[0].targetLayer, 'AdapterRing');
+
+      // resolveArchlensRing handles legacy layers, canonical order+levels (array/object), trailing slashes, and nested basenames
+      assert.equal(
+        resolveArchlensRing('src/custom/a.mjs', { order: ['custom'], levels: [['/src/custom/']] }).index,
+        0
+      );
+      assert.equal(
+        resolveArchlensRing('pkg/src/custom', { order: ['base', 'custom'], levels: { base: ['src/base'], custom: ['src/custom'] } }).index,
+        1
+      );
+      assert.equal(
+        resolveArchlensRing('packages/svc/usecases/run.ts', {
+          prefix: 'packages/svc',
+          order: ['domain', 'usecases'],
+          levels: [['domain'], ['usecases']]
+        }).index,
+        1
+      );
 
       // Polyglot reproduction test generation (.py, .java, .go, .rs)
       const pyRepro = scaffoldReproductionTest({
@@ -1180,9 +1214,7 @@ describe('Next-Gen Agentic SDLC: Modular Libs, PRODUCT.md Autopilot, Spec Drift/
       assert.ok(brokenAudit.findings.some((f) => f.rule === 'DEPRECATED_SKILL_REF' && f.target === 'sdlc-kanban'));
       assert.ok(brokenAudit.findings.some((f) => f.rule === 'BROKEN_CODE_PATH'));
 
-      // 4. Verify live repository wiki passes strict audit with 100% module & skill coverage
-      const repoSync = syncWiki({ repoRoot: process.cwd() });
-      assert.equal(repoSync.success, true, JSON.stringify(repoSync.audit.findings));
+      // 4. Verify live repository wiki passes strict audit cleanly without mutating process.cwd()
       const repoAudit = auditWiki(process.cwd(), { strict: true });
       assert.equal(repoAudit.passed, true, JSON.stringify(repoAudit.findings));
       assert.equal(repoAudit.errorsCount, 0);

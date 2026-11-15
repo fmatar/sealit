@@ -1,6 +1,6 @@
 {
   "name": "@fmatar/agentic-sdlc",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Autonomous Agentic Software Development Lifecycle (SDLC) Framework for AI Coding Agents",
   "keywords": [
     "agentic-sdlc",
@@ -48,8 +48,8 @@
     "detect": "node .agent/scripts/sdlc-engine.mjs detect",
     "env": "node .agent/scripts/sdlc-engine.mjs env",
     "gate": "node .agent/scripts/sdlc-engine.mjs gate",
-    "test": "node --test tests/sdlc-engine.test.mjs tests/sdlc-nextgen.test.mjs tests/scripts.test.mjs tests/hardening.test.mjs",
-    "test:coverage": "node --test --experimental-test-coverage tests/sdlc-engine.test.mjs tests/sdlc-nextgen.test.mjs tests/scripts.test.mjs tests/hardening.test.mjs",
+    "test": "node --test tests/sdlc-engine.test.mjs tests/sdlc-nextgen.test.mjs tests/scripts.test.mjs tests/hardening.test.mjs tests/hardening-platform.test.mjs tests/hardening-governance.test.mjs tests/hardening-issues.test.mjs tests/governance-unit.test.mjs tests/unit/audit-chain.test.mjs tests/unit/git-guard.test.mjs tests/unit/core.test.mjs tests/unit/adr-drift.test.mjs tests/unit/session.test.mjs tests/unit/arch-trace.test.mjs tests/unit/coverage-mutation.test.mjs tests/unit/triage-review.test.mjs",
+    "test:coverage": "node --test --experimental-test-coverage tests/sdlc-engine.test.mjs tests/sdlc-nextgen.test.mjs tests/scripts.test.mjs tests/hardening.test.mjs tests/hardening-platform.test.mjs tests/hardening-governance.test.mjs tests/hardening-issues.test.mjs tests/governance-unit.test.mjs tests/unit/audit-chain.test.mjs tests/unit/git-guard.test.mjs tests/unit/core.test.mjs tests/unit/adr-drift.test.mjs tests/unit/session.test.mjs tests/unit/arch-trace.test.mjs tests/unit/coverage-mutation.test.mjs tests/unit/triage-review.test.mjs",
     "coverage": "node .agent/scripts/sdlc-engine.mjs coverage",
     "mutation": "node .agent/scripts/sdlc-engine.mjs mutation",
     "stage:begin": "node .agent/scripts/sdlc-engine.mjs stage begin",
@@ -82,6 +82,7 @@
     "node": ">=18.0.0"
   },
   "devDependencies": {
-    "@stryker-mutator/core": "9.6.1"
+    "@stryker-mutator/core": "9.6.1",
+    "@stryker-mutator/tap-runner": "^9.6.1"
   }
 }

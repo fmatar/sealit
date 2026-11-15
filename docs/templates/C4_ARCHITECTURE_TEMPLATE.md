@@ -16,7 +16,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    user["User (Actor)"] -->|"Visits (HTTPS)"| webapp["Web Application (SvelteKit, TS)"]
+    user["User (Actor)"] -->|"Visits (HTTPS)"| webapp["Web Application"]
     subgraph SystemBoundary["[System Name]"]
         webapp -->|"Makes API calls to (JSON/HTTPS)"| api["API Server (Node.js, Express)"]
         api -->|"Reads from and writes to (SQL)"| db[("Database (PostgreSQL)")]

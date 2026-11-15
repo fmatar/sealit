@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   publish:
-    runs-on: ${{ vars.SDLC_RUNS_ON || 'local-agentic-sdlc-framework' }}
+    runs-on: ${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7

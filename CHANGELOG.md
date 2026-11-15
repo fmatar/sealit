@@ -7,8 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-11-15
+
 ### Added
 - **Canonical Git Flow & Automated Production Release**: Standardized on canonical Git Flow: feature, bugfix, and chore PRs merge into `develop` (`--base develop`), while PRs targeting `main` must originate exclusively from `develop` (enforced by `verifyMergeGuard`, `enforce-branch-flow.yml`, and `sdlc-quality-gate.yml`). Merging `develop` into `main` automatically triggers `.github/workflows/release.yml`, validating `gate --strict`, creating git tag `v${VERSION}`, extracting release notes from `CHANGELOG.md`, and creating the GitHub Release.
+- **Diff-Scoped Polyglot Mutation Execution & Parallel Suite Split (`ADR-018`, #136)**: Expanded mutation coverage across `.agent/scripts/lib/**/*.mjs`, added diff-hunk scoped execution (`buildMutationExecutionPlan`, `--full` override, Stryker `--incrementalFile`, paired-test mapping, and fail-closed `receiptInputsFromSession` / `diff-zero-mutants` guards), added non-deadlocking worker concurrency for `runFlakeCheck` / `runFlakeCheckParallel`, split `tests/hardening.test.mjs` into 4 parallel files, and tightened git env isolation (`cleanGitEnv`, `-C` anchoring).
 
 ### Changed
 - **CI Runner Routing & Node 24 GitHub Actions**: Configured `SDLC_RUNS_ON=local-archlens` for repository workflows and upgraded `.github/workflows/sdlc-quality-gate.yml`, `.github/workflows/publish-wiki.yml`, and `installCIWorkflow()` templates from `actions/checkout@v4` / `actions/setup-node@v4` to `@v7` (`node-version: 'lts/*'`), eliminating Node.js 20 deprecation warnings.

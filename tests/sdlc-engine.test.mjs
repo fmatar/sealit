@@ -3,11 +3,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import http from 'node:http';
 import { execFileSync } from 'node:child_process';
 import {
   fileExists,
   readFileSafe,
-  execCommand,
+  runConfiguredCommand,
   detectStackInDir,
   inspectCIWorkflows,
   discoverModules,
@@ -45,7 +46,7 @@ import {
   installCIWorkflow,
   assessRisk,
   generatePRSummary,
-  findAffectededTests,
+  findAffectedTests,
   checkArchDiff,
   runFlakeCheck,
   auditSecurity,
@@ -95,14 +96,14 @@ describe('Universal SDLC Engine: Comprehensive Functional & Governance Test Suit
       assert.equal(readFileSafe(path.join(tmpDir, 'nonexistent.json')), null);
     });
 
-    it('safely executes shell commands and returns output', () => {
-      const output = execCommand('echo "test-engine"');
+    it('safely executes configured commands without a shell and returns output', () => {
+      const output = runConfiguredCommand(['node', '-e', 'process.stdout.write("test-engine")'], { encoding: 'utf8', stdio: 'pipe' });
       assert.ok(output.includes('test-engine'));
     });
 
-    it('safely handles failing shell commands when throwOnError is false', () => {
-      const output = execCommand('nonexistent_command_12345 2>&1 || true', { throwOnError: false });
-      assert.ok(typeof output === 'string');
+    it('rejects shell operators and handles non-zero exit cleanly in runConfiguredCommand', () => {
+      assert.throws(() => runConfiguredCommand('nonexistent_command_12345 2>&1 || true'), /Refusing shell compound command/);
+      assert.throws(() => runConfiguredCommand(['node', '-e', 'process.exit(2)'], { stdio: 'pipe' }));
     });
   });
 
@@ -1121,17 +1122,22 @@ jobs:
       assert.equal(current.version, '2.4.0');
     });
 
-    it('executes release with package.json and CHANGELOG.md update', () => {
+    it('executes release with package.json and CHANGELOG.md update', async () => {
       execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: tmpDir });
       execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: tmpDir });
       execFileSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir });
       execFileSync('git', ['config', 'commit.gpgsign', 'false'], { cwd: tmpDir });
 
       const pkgPath = path.join(tmpDir, 'package.json');
-      fs.writeFileSync(pkgPath, JSON.stringify({ name: 'my-app', version: '1.0.0' }, null, 2), 'utf8');
+      fs.writeFileSync(pkgPath, JSON.stringify({ name: 'my-app', version: '1.0.0', license: 'MIT', description: 'Sample' }, null, 2), 'utf8');
 
       const changelogPath = path.join(tmpDir, 'CHANGELOG.md');
       fs.writeFileSync(changelogPath, '# Changelog\n\n## [Unreleased]\n\n### Added\n- New feature\n', 'utf8');
+      const { scaffoldReadme } = await import('../.agent/scripts/lib/readme-sync.mjs');
+      scaffoldReadme({ repoRoot: tmpDir, force: true });
+      const readmePath = path.join(tmpDir, 'README.md');
+      const agentsPath = path.join(tmpDir, 'AGENTS.md');
+      fs.writeFileSync(agentsPath, '_Generated automatically by @fmatar/agentic-sdlc (Universal Engine v1.0.0)_\n', 'utf8');
 
       fs.mkdirSync(path.join(tmpDir, '.agent'), { recursive: true });
       fs.writeFileSync(
@@ -1154,7 +1160,7 @@ jobs:
         'utf8'
       );
 
-      execFileSync('git', ['add', 'package.json', 'CHANGELOG.md', '.agent/sdlc-config.json'], { cwd: tmpDir });
+      execFileSync('git', ['add', 'package.json', 'CHANGELOG.md', 'README.md', 'AGENTS.md', '.agent/sdlc-config.json'], { cwd: tmpDir });
       execFileSync('git', ['commit', '-q', '-m', 'chore: initial'], { cwd: tmpDir });
       execFileSync('git', ['checkout', '-q', '-b', 'chore/release-v1.0.1'], { cwd: tmpDir });
 
@@ -1169,6 +1175,8 @@ jobs:
       const updatedChangelog = fs.readFileSync(changelogPath, 'utf8');
       assert.ok(updatedChangelog.includes('## [1.0.1] -'));
       assert.ok(updatedChangelog.includes('## [Unreleased]'));
+      assert.ok(fs.readFileSync(readmePath, 'utf8').includes('Version-1.0.1-'));
+      assert.ok(fs.readFileSync(agentsPath, 'utf8').includes('Universal Engine v1.0.1'));
     });
 
     it('runs doctor healthcheck and returns diagnostic overview', () => {
@@ -1254,7 +1262,7 @@ jobs:
       fs.mkdirSync(testDir, { recursive: true });
       fs.writeFileSync(path.join(testDir, 'UserService.test.mjs'), '// test code');
 
-      const affected = findAffectededTests(['src/UserService.mjs'], tmpDir);
+      const affected = findAffectedTests(['src/UserService.mjs'], tmpDir);
       assert.equal(affected.length, 1);
       assert.ok(affected[0].includes('UserService.test.mjs'));
     });
@@ -1303,8 +1311,13 @@ jobs:
       assert.equal(scafRes.layersCount, 4);
 
       const policyContent = JSON.parse(fs.readFileSync(scafRes.path, 'utf8'));
-      assert.equal(policyContent.architecture, 'Clean Architecture (Concentric Rings)');
-      assert.equal(policyContent.layers.length, 4);
+      assert.equal(typeof policyContent.src, 'string');
+      assert.equal(Array.isArray(policyContent.order), true);
+      assert.equal(policyContent.order.length, 4);
+      assert.equal(Array.isArray(policyContent.levels), true);
+      assert.equal(policyContent.levels.length, 4);
+      assert.equal('layers' in policyContent, false, 'Archlens MCP schema must use order/levels rather than legacy layers field');
+      assert.equal('architecture' in policyContent, false, 'Archlens MCP schema must omit unrecognized architecture field');
     });
 
     it('provides tailored auto-strengthening recommendations for surviving mutants', () => {
@@ -1477,11 +1490,46 @@ flowchart TD
       assert.ok(html.includes('Architectural Trace Ledger'));
     });
 
-    it('creates and spins up interactive workbench server on configured port', async () => {
-      const workbench = createWorkbenchServer({ port: 4199, repoRoot: tmpDir });
+    it('creates and spins up interactive workbench server on configured port and completes TCP loopback HTTP round-trip', async () => {
+      const configured = createWorkbenchServer({ port: 4199, repoRoot: tmpDir });
+      assert.equal(configured.port, 4199);
+      const workbench = createWorkbenchServer({ port: 0, repoRoot: tmpDir });
       await workbench.listen();
-      assert.equal(workbench.port, 4199);
-      await workbench.close();
+      try {
+        assert.equal(workbench.port, 0);
+        const addr = workbench.server.address();
+        const boundPort = typeof addr === 'object' && addr ? addr.port : workbench.port;
+        assert.ok(boundPort > 0);
+        const res = await new Promise((resolve, reject) => {
+          const r = http.request(
+            {
+              host: '127.0.0.1',
+              port: boundPort,
+              path: `/api/status?token=${workbench.token}`,
+              method: 'GET'
+            },
+            (response) => {
+              let data = '';
+              response.on('data', (chunk) => { data += chunk; });
+              response.on('end', () => {
+                try {
+                  resolve({ statusCode: response.statusCode, json: JSON.parse(data) });
+                } catch (err) {
+                  reject(err);
+                }
+              });
+            }
+          );
+          r.on('error', reject);
+          r.end();
+        });
+        assert.equal(res.statusCode, 200);
+        assert.equal(typeof res.json.active, 'boolean');
+        assert.equal(typeof res.json.audit, 'object');
+        assert.equal(res.json.audit.valid, true);
+      } finally {
+        await workbench.close();
+      }
     });
 
     it('detects no drift when no API contracts are modified', () => {
@@ -1569,7 +1617,7 @@ flowchart TD
       assert.equal(cliRes.protect.localHookInstalled, true);
     });
 
-    it('creates cryptographic SHA-256 Merkle audit chain records sequentially', () => {
+    it('creates cryptographic SHA-256 hash-chain audit ledger records sequentially (preserving merkleRoot alias)', () => {
       const rec1 = appendAuditRecord({ event: 'SESSION_START', metadata: { issueId: 39 }, repoRoot: tmpDir });
       assert.equal(rec1.success, true);
       assert.equal(rec1.record.index, 0);
@@ -1584,6 +1632,7 @@ flowchart TD
       const verifyRes = verifyAuditChain(tmpDir);
       assert.equal(verifyRes.valid, true);
       assert.equal(verifyRes.recordsCount, 2);
+      assert.equal(verifyRes.chainHead, rec2.record.currentHash);
       assert.equal(verifyRes.merkleRoot, rec2.record.currentHash);
     });
 
@@ -1707,7 +1756,7 @@ flowchart TD
       assert.equal(breachRes.rollbackExecuted, true);
       assert.ok(breachRes.rollbackOutput.includes('ROLLBACK_SUCCESS'));
 
-      // Check Merkle audit chain logs rollback
+      // Check SHA-256 hash-chain audit ledger logs rollback
       const auditRes = verifyAuditChain(tmpDir);
       assert.equal(auditRes.valid, true);
       assert.ok(auditRes.recordsCount >= 2);
@@ -1717,6 +1766,184 @@ flowchart TD
       const cliRes = runCLI(['watchdog', 'monitor', '--samples', '3'], null, tmpDir);
       assert.equal(cliRes.command, 'watchdog');
       assert.equal(cliRes.watchdog.healthy, true);
+    });
+
+    it('routes mutation CLI cleanly for docs-only skip, comment-only zeroMutants diffScope, and --full fail-closed enforcement', async () => {
+      const { formatCLIResult, getSessionStatus, startSession } = await import('../.agent/scripts/sdlc-engine.mjs');
+      const mutDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-mut-cli-'));
+      try {
+        execFileSync('git', ['init', '-q', '-b', 'develop'], { cwd: mutDir, stdio: 'pipe' });
+        execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: mutDir, stdio: 'pipe' });
+        execFileSync('git', ['config', 'user.name', 'Test'], { cwd: mutDir, stdio: 'pipe' });
+        fs.mkdirSync(path.join(mutDir, '.agent'), { recursive: true });
+        fs.mkdirSync(path.join(mutDir, 'src'), { recursive: true });
+        fs.writeFileSync(path.join(mutDir, 'README.md'), '# init\n');
+        fs.writeFileSync(path.join(mutDir, 'src/mod.mjs'), 'export const v = 1;\n');
+        fs.writeFileSync(
+          path.join(mutDir, 'package.json'),
+          JSON.stringify({ name: 'mut-cli-tmp', type: 'module', scripts: { test: 'node -e 0' } })
+        );
+        fs.writeFileSync(
+          path.join(mutDir, 'stryker.config.json'),
+          JSON.stringify({ mutate: ['src/mod.mjs'] })
+        );
+        fs.writeFileSync(
+          path.join(mutDir, '.agent/sdlc-config.json'),
+          JSON.stringify({
+            profile: 'standard',
+            thresholds: { diffCoverage: 85, mutationScore: 52 },
+            modules: [
+              {
+                name: 'root',
+                path: '.',
+                language: 'node',
+                commands: { test: 'node -e 0', coverage: 'node -e 0', mutation: 'npx stryker run' }
+              }
+            ]
+          })
+        );
+        execFileSync('git', ['add', '.'], { cwd: mutDir, stdio: 'pipe' });
+        execFileSync('git', ['commit', '-q', '-m', 'init'], { cwd: mutDir, stdio: 'pipe' });
+        execFileSync('git', ['checkout', '-q', '-b', 'feature/issue-#901'], { cwd: mutDir, stdio: 'pipe' });
+
+        // 1. Docs-only diff auto-passes with diff-no-mutated-sources
+        fs.writeFileSync(path.join(mutDir, 'README.md'), '# init\nupdated docs\n');
+        const docsRes = runCLI(['mutation', '--no-cache'], null, mutDir);
+        assert.equal(docsRes.success, true);
+        assert.equal(docsRes.mutationReport.skipped, true);
+        assert.equal(docsRes.mutationReport.reason, 'diff-no-mutated-sources');
+        assert.match(formatCLIResult(docsRes), /diff-no-mutated-sources/);
+
+        // 2. Comment-only diff inside src/mod.mjs + stub stryker binary writing zero-mutant report:
+        //    succeeds in diffScoped mode (and receives -m hunk range), fails closed under --full
+        fs.mkdirSync(path.join(mutDir, 'node_modules/.bin'), { recursive: true });
+        const stubBin = path.join(mutDir, 'node_modules/.bin/stryker');
+        fs.writeFileSync(
+          stubBin,
+          [
+            `#!${process.execPath}`,
+            "import fs from 'node:fs';",
+            "fs.mkdirSync('reports/mutation', { recursive: true });",
+            "fs.writeFileSync('reports/stryker-args.json', JSON.stringify(process.argv.slice(2)));",
+            "fs.writeFileSync('reports/mutation/mutation.json', JSON.stringify({ schemaVersion: '1', files: { 'src/mod.mjs': { source: '// comment', mutants: [] } } }));"
+          ].join('\n'),
+          { mode: 0o755 }
+        );
+        fs.writeFileSync(
+          path.join(mutDir, '.agent/sdlc-config.json'),
+          JSON.stringify({
+            profile: 'standard',
+            thresholds: { diffCoverage: 85, mutationScore: 52 },
+            modules: [
+              {
+                name: 'root',
+                path: '.',
+                language: 'node',
+                commands: { test: 'node -e 0', coverage: 'node -e 0', mutation: './node_modules/.bin/stryker run' }
+              }
+            ]
+          })
+        );
+        fs.writeFileSync(path.join(mutDir, 'src/mod.mjs'), '// comment line 1\nexport const v = 1;\n');
+        const diffZeroRes = runCLI(['mutation', '--no-cache'], null, mutDir);
+        assert.equal(diffZeroRes.success, true);
+        assert.equal(diffZeroRes.mutationReport.emptyScope, true);
+        assert.equal(diffZeroRes.mutationReport.reason, 'diff-zero-mutants');
+        const passedArgs = JSON.parse(fs.readFileSync(path.join(mutDir, 'reports/stryker-args.json'), 'utf8'));
+        assert.ok(passedArgs.includes('--force'));
+        assert.ok(passedArgs.includes('--allowEmpty'));
+        assert.ok(passedArgs.some((a) => a.startsWith('src/mod.mjs:')));
+
+        const fullZeroRes = runCLI(['mutation', '--full', '--no-cache'], null, mutDir);
+        assert.equal(fullZeroRes.success, false);
+        assert.equal(fullZeroRes.fullMutation, true);
+
+        // 3. Stale empty zero-mutant report on disk must NOT bypass freshness when command exits 0 without rewriting it
+        const staleEmptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-mut-stale-empty-'));
+        try {
+          execFileSync('git', ['init', '-q', '-b', 'develop'], { cwd: staleEmptyDir, stdio: 'pipe' });
+          execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: staleEmptyDir, stdio: 'pipe' });
+          execFileSync('git', ['config', 'user.name', 'Test'], { cwd: staleEmptyDir, stdio: 'pipe' });
+          fs.mkdirSync(path.join(staleEmptyDir, '.agent'), { recursive: true });
+          fs.mkdirSync(path.join(staleEmptyDir, 'src'), { recursive: true });
+          fs.mkdirSync(path.join(staleEmptyDir, 'reports/mutation'), { recursive: true });
+          fs.writeFileSync(path.join(staleEmptyDir, 'src/mod.mjs'), 'export const v = 1;\n');
+          fs.writeFileSync(path.join(staleEmptyDir, 'stryker.config.json'), JSON.stringify({ mutate: ['src/mod.mjs'] }));
+          fs.writeFileSync(
+            path.join(staleEmptyDir, '.agent/sdlc-config.json'),
+            JSON.stringify({
+              profile: 'standard',
+              thresholds: { diffCoverage: 85, mutationScore: 52 },
+              modules: [{ name: 'root', path: '.', language: 'node', commands: { test: 'node -e 0', coverage: 'node -e 0', mutation: 'npx stryker run' } }]
+            })
+          );
+          execFileSync('git', ['add', '.'], { cwd: staleEmptyDir, stdio: 'pipe' });
+          execFileSync('git', ['commit', '-q', '-m', 'init'], { cwd: staleEmptyDir, stdio: 'pipe' });
+          execFileSync('git', ['checkout', '-q', '-b', 'feature/issue-#902'], { cwd: staleEmptyDir, stdio: 'pipe' });
+          fs.mkdirSync(path.join(staleEmptyDir, 'node_modules/.bin'), { recursive: true });
+          const noopStryker = path.join(staleEmptyDir, 'node_modules/.bin/stryker');
+          fs.writeFileSync(noopStryker, `#!${process.execPath}\nprocess.exit(0);\n`, { mode: 0o755 });
+          fs.writeFileSync(
+            path.join(staleEmptyDir, '.agent/sdlc-config.json'),
+            JSON.stringify({
+              profile: 'standard',
+              thresholds: { diffCoverage: 85, mutationScore: 52 },
+              modules: [{ name: 'root', path: '.', language: 'node', commands: { test: 'node -e 0', coverage: 'node -e 0', mutation: './node_modules/.bin/stryker run' } }]
+            })
+          );
+          const rptPath = path.join(staleEmptyDir, 'reports/mutation/mutation.json');
+          fs.writeFileSync(rptPath, JSON.stringify({ schemaVersion: '1', files: { 'src/mod.mjs': { mutants: [] } } }));
+          const past = new Date(Date.now() - 10_000);
+          fs.utimesSync(rptPath, past, past);
+          fs.writeFileSync(path.join(staleEmptyDir, 'src/mod.mjs'), '// comment\nexport const v = 2;\n');
+          const staleZeroRes = runCLI(['mutation', '--no-cache'], null, staleEmptyDir);
+          assert.equal(staleZeroRes.success, false);
+        } finally {
+          fs.rmSync(staleEmptyDir, { recursive: true, force: true });
+        }
+
+        // 4. --full must run configured subdirectory modules even when only root README.md changed, and failing clears stale mutationSkippedReason
+        const monoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-mut-mono-'));
+        try {
+          execFileSync('git', ['init', '-q', '-b', 'develop'], { cwd: monoDir, stdio: 'pipe' });
+          execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: monoDir, stdio: 'pipe' });
+          execFileSync('git', ['config', 'user.name', 'Test'], { cwd: monoDir, stdio: 'pipe' });
+          fs.mkdirSync(path.join(monoDir, '.agent'), { recursive: true });
+          fs.mkdirSync(path.join(monoDir, 'packages/app'), { recursive: true });
+          fs.writeFileSync(path.join(monoDir, 'README.md'), '# mono\n');
+          fs.writeFileSync(path.join(monoDir, 'packages/app/index.js'), 'export const a = 1;\n');
+          fs.writeFileSync(
+            path.join(monoDir, '.agent/sdlc-config.json'),
+            JSON.stringify({
+              profile: 'standard',
+              thresholds: { diffCoverage: 85, mutationScore: 52 },
+              modules: [{ name: 'app', path: 'packages/app', language: 'node', commands: { test: 'node -e 0', coverage: 'node -e 0', mutation: 'node -e process.exit(1)' } }]
+            })
+          );
+          execFileSync('git', ['add', '.'], { cwd: monoDir, stdio: 'pipe' });
+          execFileSync('git', ['commit', '-q', '-m', 'init'], { cwd: monoDir, stdio: 'pipe' });
+          execFileSync('git', ['checkout', '-q', '-b', 'feature/issue-#903'], { cwd: monoDir, stdio: 'pipe' });
+          startSession({ issueId: 903, branch: 'feature/issue-#903', lane: 'full', repoRoot: monoDir });
+          fs.writeFileSync(path.join(monoDir, 'README.md'), '# mono\ndocs\n');
+          const diffSkipMono = runCLI(['mutation', '--no-cache'], null, monoDir);
+          assert.equal(diffSkipMono.success, true);
+          const sessAfterSkip = getSessionStatus(monoDir).session;
+          assert.equal(sessAfterSkip.manifest.mutationSkippedReason, 'diff-no-mutated-sources');
+
+          assert.throws(() => runCLI(['mutation', '--full', '--no-cache'], null, monoDir));
+          const sessAfterFail = getSessionStatus(monoDir).session;
+          assert.equal(sessAfterFail.manifest.mutationSkippedReason, null);
+          assert.equal(sessAfterFail.manifest.gatePillars.mutationPassed, false);
+        } finally {
+          fs.rmSync(monoDir, { recursive: true, force: true });
+        }
+
+        // 5. flake-check --target rejects leading-dash options and path escapes
+        assert.throws(() => runCLI(['flake-check', '--target', '-e=bad'], null, mutDir));
+        assert.throws(() => runCLI(['flake-check', '--target', '../outside.test.mjs'], null, mutDir));
+      } finally {
+        fs.rmSync(mutDir, { recursive: true, force: true });
+      }
     });
   });
 });

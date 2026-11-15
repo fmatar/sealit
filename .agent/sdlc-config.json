@@ -4,7 +4,7 @@
   "generatedAt": "2026-10-25T22:24:00.000Z",
   "profile": "standard",
   "ci": {
-    "runsOn": "${{ vars.SDLC_RUNS_ON || 'local-agentic-sdlc-framework' }}"
+    "runsOn": "${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}"
   },
   "lanes": {
     "trivialMaxLines": 25,
@@ -28,12 +28,12 @@
       "stack": "nodejs-npm",
       "language": "javascript",
       "commands": {
-        "test": "node --test tests/sdlc-engine.test.mjs tests/sdlc-nextgen.test.mjs tests/scripts.test.mjs tests/hardening.test.mjs",
-        "coverage": "node --test --experimental-test-coverage --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info tests/sdlc-engine.test.mjs tests/sdlc-nextgen.test.mjs tests/scripts.test.mjs tests/hardening.test.mjs",
+        "test": "node --test tests/sdlc-engine.test.mjs tests/sdlc-nextgen.test.mjs tests/scripts.test.mjs tests/hardening.test.mjs tests/hardening-platform.test.mjs tests/hardening-governance.test.mjs tests/hardening-issues.test.mjs tests/governance-unit.test.mjs tests/unit/audit-chain.test.mjs tests/unit/git-guard.test.mjs tests/unit/core.test.mjs tests/unit/adr-drift.test.mjs tests/unit/session.test.mjs tests/unit/arch-trace.test.mjs tests/unit/coverage-mutation.test.mjs tests/unit/triage-review.test.mjs",
+        "coverage": "node --test --experimental-test-coverage --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info tests/sdlc-engine.test.mjs tests/sdlc-nextgen.test.mjs tests/scripts.test.mjs tests/hardening.test.mjs tests/hardening-platform.test.mjs tests/hardening-governance.test.mjs tests/hardening-issues.test.mjs tests/governance-unit.test.mjs tests/unit/audit-chain.test.mjs tests/unit/git-guard.test.mjs tests/unit/core.test.mjs tests/unit/adr-drift.test.mjs tests/unit/session.test.mjs tests/unit/arch-trace.test.mjs tests/unit/coverage-mutation.test.mjs tests/unit/triage-review.test.mjs",
         "coverageFile": "coverage/lcov.info",
         "lint": "node --check .agent/scripts/sdlc-engine.mjs",
         "build": "node .agent/scripts/sdlc-engine.mjs drift check",
-        "mutation": "npx -y -p @stryker-mutator/core@9.6.1 stryker run"
+        "mutation": "npx -y -p @stryker-mutator/core@9.6.1 -p @stryker-mutator/tap-runner@9.6.1 stryker run"
       },
       "thresholds": {
         "diffCoverage": 85,

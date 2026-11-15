@@ -10,7 +10,7 @@
 **Risk-proportional engineering governance for AI coding agents enforcing Red-Green-Refactor TDD, [Archlens](https://github.com/fmatar/archlens) Clean Architecture rings, and cryptographic PR merge gates.**
 
 [![SDLC Quality Gate](https://github.com/fmatar/agentic-sdlc-framework/actions/workflows/sdlc-quality-gate.yml/badge.svg)](https://github.com/fmatar/agentic-sdlc-framework/actions/workflows/sdlc-quality-gate.yml)
-[![Version](https://img.shields.io/badge/Version-0.0.1-4f46e5.svg)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/Version-0.0.2-4f46e5.svg)](./CHANGELOG.md)
 [![Archlens](https://img.shields.io/badge/Architecture-Archlens-0284c7.svg)](https://github.com/fmatar/archlens)
 [![License](https://img.shields.io/badge/License-Apache_2.0-64748b.svg)](./LICENSE)
 
@@ -28,7 +28,7 @@ $ npx github:fmatar/agentic-sdlc-framework install --agents gemini,claude,cursor
 
 ## Why Agentic SDLC?
 
-AI coding assistants ship code fast—until they commit directly to `main`, leak database adapters into pure domain models, or force heavyweight enterprise ceremony onto a two-line typo fix. **Agentic SDLC Framework** equips **Gemini / Antigravity**, **Claude Code**, **Cursor**, **Grok**, **Windsurf**, and **GitHub Copilot** with a zero-dependency Node.js governance engine (`sdlc-engine.mjs`, `< 180 KB` packed) that right-sizes ceremony to actual blast radius.
+AI coding assistants ship code fast—until they commit directly to `main`, leak database adapters into pure domain models, or force heavyweight enterprise ceremony onto a two-line typo fix. **Agentic SDLC Framework** equips **Gemini / Antigravity**, **Claude Code**, **Cursor**, **Grok**, **Windsurf**, and **GitHub Copilot** with a zero-dependency Node.js governance engine (`sdlc-engine.mjs`, `< 250 KB` packed) that right-sizes ceremony to actual blast radius.
 
 - ⚡ **Risk-Proportional Lanes & Verified TDD** — Automatically triages diffs into `trivial`, `standard`, or `full` lanes while verifying real coverage and mutation reports against `.agent/sdlc-config.json` across Node/TS, Java, Python, Go, and Rust.
 - 🔒 **4-Layer Git Guard & [Archlens](https://github.com/fmatar/archlens) Clean Architecture** — Blocks direct commits to `main` in `< 100 ms`, validates concentric ring imports against `.archlens/policy.json`, and enforces HMAC-SHA256-signed Stage 7 merge receipts in CI.

@@ -1,14 +1,14 @@
 # 🏗️ System Architecture & Concentric Ring Design
 
-This document provides the deep architectural explanation of the **Agentic SDLC Framework**, detailing how `.agent/scripts/sdlc-engine.mjs` and its **16 modular domain libraries** (`.agent/scripts/lib/*.mjs`) are organized into **[Archlens](https://github.com/fmatar/archlens) Concentric Clean Architecture Rings** (`.archlens/policy.json`), how the **4-Layer Git Lockdown** and **SHA-256 Gate Cache** operate, and how causal lineage flows from `PRODUCT.md` to `docs/DECISION_MAP.md`.
+This document provides the deep architectural explanation of the **Agentic SDLC Framework**, detailing how `.agent/scripts/sdlc-engine.mjs` and its **20 modular domain libraries** (`.agent/scripts/lib/*.mjs`) are organized into **[Archlens](https://github.com/fmatar/archlens) Concentric Clean Architecture Rings** (`.archlens/policy.json`), how the **4-Layer Git Lockdown** and **SHA-256 Gate Cache** operate, and how causal lineage flows from `PRODUCT.md` to `docs/DECISION_MAP.md`.
 
-> For the auto-generated AST symbol inventory and line-number mapping across all 17 modules, see **[Codebase-Map.md](Codebase-Map.md)**.
+> For the auto-generated AST symbol inventory and line-number mapping across all 21 modules, see **[Codebase-Map.md](Codebase-Map.md)**.
 
 ---
 
 ## 1. Archlens Concentric Clean Architecture Rings
 
-In accordance with Concentric **Clean Architecture**, [Archlens](https://github.com/fmatar/archlens) (`.archlens/policy.json`), and `ADR-002`, the engine is partitioned into four concentric rings (`domain-core` ← `governance-models` ← `adapters-orchestrators` ← `cli-entrypoints`) where all source code dependencies point strictly inward toward **Ring 0**:
+In accordance with Concentric **Clean Architecture**, [Archlens](https://github.com/fmatar/archlens) (`.archlens/policy.json`), and `ADR-002` / `ADR-016`, the engine is partitioned into four concentric rings (`domain-core` ← `governance-models` ← `adapters-orchestrators` ← `cli-entrypoints`) where all source code dependencies point strictly inward toward **Ring 0**:
 
 ```mermaid
 flowchart TD
@@ -24,10 +24,14 @@ flowchart TD
 
     subgraph Ring2 ["Ring 2: adapters-orchestrators"]
       ARCH["arch-trace.mjs (Archlens Ring Diff & Mermaid AST)"]:::r2
-      INST["installer.mjs (6-Agent Provisioner & Skill Pruner)"]:::r2
+      INST["installer.mjs (6-Agent Provisioner & Rule Exporter)"]:::r2
       WIKI["wiki-sync.mjs (AST-to-Wiki Mapper & Zero-Rot Auditor)"]:::r2
       WB["workbench-server.mjs (Loopback Clearinghouse UI :4120)"]:::r2
-      GATE["quality-gate.mjs (Triage, Coverage/Mutation & SkillSpector)"]:::r2
+      DOC["doctor-ci.mjs (Diagnostics, CI Workflows & Stack Config)"]:::r2
+      SEC["security-audit.mjs (Secret/CVE Audit, Canary & Proofs)"]:::r2
+      TRI["triage-review.mjs (Risk Triage, Review Plan & SkillSpector)"]:::r2
+      COV["coverage-mutation.mjs (LCOV/Stryker Gate & Flake Checks)"]:::r2
+      GATE["quality-gate.mjs (Slim Quality-Gate Facade Barrel)"]:::r2
       SESS["session.mjs (Session Registry, Lanes & Composite Stages)"]:::r2
     end
 
@@ -43,14 +47,15 @@ flowchart TD
     subgraph Ring0 ["Ring 0: domain-core"]
       CORE["core.mjs (Shell-Free Exec, Safe I/O & Git Diff Probes)"]:::r0
       CACHE["cache.mjs (Content-Addressable SHA-256 Gate Cache)"]:::r0
-      AUDIT["audit-chain.mjs (Merkle Hash-Chained Ledger & HMAC Receipts)"]:::r0
+      AUDIT["audit-chain.mjs (SHA-256 Hash-Chained Ledger & HMAC Receipts)"]:::r0
       DG["decision-graph.mjs (Causal Lineage & DECISION_MAP.md)"]:::r0
     end
 
     SKILLS --> CLI
     CLI --> ARCH & INST & WIKI & WB & GATE & SESS
+    GATE --> DOC & SEC & TRI & COV & INST
     CLI --> PM & ADR & DAG & DOSS & README & GUARD
-    ARCH & INST & WIKI & WB & GATE & SESS --> PM & ADR & DAG & DOSS & README & GUARD
+    ARCH & INST & WIKI & WB & DOC & SEC & TRI & COV & SESS --> PM & ADR & DAG & DOSS & README & GUARD
     PM & ADR & DAG & DOSS & README & GUARD --> CORE & CACHE & AUDIT & DG
 ```
 
@@ -69,10 +74,14 @@ flowchart TD
 | **Ring 1 (`governance-models`)** | `.agent/scripts/lib/readme-sync.mjs` | Scaffolds and audits 10–30–90 `README.md` landing pages (`docs/templates/README_TEMPLATE.md`) and `llms.txt`. | `detectReadmeArchetype`, `renderLlmsTxt`, `scaffoldReadme`, `auditReadme` |
 | **Ring 1 (`governance-models`)** | `.agent/scripts/lib/git-guard.mjs` | Enforces the 4-Layer Git Lockdown (`pre-commit`, `pre-merge-commit`, `pre-push`), SHA-256 hook verification, and GitHub branch protection. | `verifyCommitGuard`, `verifyMergeGuard`, `verifyPushGuard`, `inspectHooksHealth`, `installHooks`, `applyBranchProtection` |
 | **Ring 2 (`adapters-orchestrators`)** | `.agent/scripts/lib/arch-trace.mjs` | Enforces `.archlens/policy.json` ring rules on Git diffs, diffs Mermaid ASTs, and appends `docs/ARCH_TRACE.md`. | `checkArchDiff`, `parseMermaidDiagram`, `diffMermaidGraphs`, `recordArchTrace`, `scaffoldArchlensPolicy` |
-| **Ring 2 (`adapters-orchestrators`)** | `.agent/scripts/lib/installer.mjs` | Provisions local/global skills, Claude Cowork `.zip` bundles, `.cursor/skills/`, and rules across 6 AI coding tools. | `installFramework`, `provisionAgentIntegrations`, `pruneDeprecatedSkills`, `runInstallerCLI` |
+| **Ring 2 (`adapters-orchestrators`)** | `.agent/scripts/lib/installer.mjs` | Provisions local/global skills, Claude Cowork `.zip` bundles, `.cursor/skills/`, exports agent rules, and prunes deprecated skills across 6 AI coding tools. | `installFramework`, `provisionAgentIntegrations`, `exportAgentRules`, `pruneDeprecatedSkills`, `runInstallerCLI` |
 | **Ring 2 (`adapters-orchestrators`)** | `.agent/scripts/lib/wiki-sync.mjs` | Maps AST exports and [Archlens](https://github.com/fmatar/archlens) rings to `wiki/Codebase-Map.md` and audits `wiki/*.md` for drift or dead paths. | `inspectSourceModule`, `resolveArchlensRing`, `buildWikiCodeMap`, `auditWiki`, `syncWiki` |
 | **Ring 2 (`adapters-orchestrators`)** | `.agent/scripts/lib/workbench-server.mjs` | Serves the authenticated loopback Clearinghouse Ledger UI (`http://127.0.0.1:4120`) and opt-in `.agent/workbench/index.html` snapshot. | `createWorkbenchServer`, `renderWorkbenchHTML`, `generateArchitectureWidget`, `buildArchDiffPayload` |
-| **Ring 2 (`adapters-orchestrators`)** | `.agent/scripts/lib/quality-gate.mjs` | Deterministic 3-lane triage (`triageChange`), stack discovery, real coverage/mutation parsers, regression proofs, canary watchdog, and SkillSpector audit. | `triageChange`, `detectStackInDir`, `parseCoverageReport`, `parseMutationReport`, `runDoctor`, `auditSkills` |
+| **Ring 2 (`adapters-orchestrators`)** | `.agent/scripts/lib/doctor-ci.mjs` | Repository diagnostics, stack detection, CI workflow scaffolding/inspection, and config generation. | `validateConfigFile`, `runDoctor`, `installCIWorkflow`, `inspectCIWorkflows`, `detectStackInDir`, `generateConfig` |
+| **Ring 2 (`adapters-orchestrators`)** | `.agent/scripts/lib/security-audit.mjs` | Secret/CVE diff auditing, verification proof generation, and canary watchdog monitoring. | `auditSecurity`, `generateRegressionProof`, `monitorCanaryHealthAndWatchdog` |
+| **Ring 2 (`adapters-orchestrators`)** | `.agent/scripts/lib/triage-review.mjs` | Deterministic 3-lane triage (`triageChange`), affected test discovery, PR review plan compilation, reproduction scaffolding, and SkillSpector audit. | `assessRisk`, `triageChange`, `generatePRSummary`, `findAffectedTests`, `generateReviewPlan`, `auditSkills` |
+| **Ring 2 (`adapters-orchestrators`)** | `.agent/scripts/lib/coverage-mutation.mjs` | Real LCOV/Cobertura/JaCoCo & Stryker/PITest/mutmut parsers, flake checks, and mutant strengthening advice. | `buildSingleTestArgv`, `parseCoverageReport`, `parseMutationReport`, `runFlakeCheck`, `suggestMutationStrengthening` |
+| **Ring 2 (`adapters-orchestrators`)** | `.agent/scripts/lib/quality-gate.mjs` | Slim backward-compatible facade barrel re-exporting all 30 quality-gate symbols from Ring 2 modules. | Re-exports `doctor-ci.mjs`, `security-audit.mjs`, `triage-review.mjs`, `coverage-mutation.mjs`, `installer.mjs` |
 | **Ring 2 (`adapters-orchestrators`)** | `.agent/scripts/lib/session.mjs` | Multi-session registry (`.agent/.sdlc-session.json`), automatic diff lane escalation, mutant exemptions, estimated stats, and Composite Stage CLI. | `startSession`, `updateSession`, `reconcileSessionLaneWithDiff`, `executeCompositeStage`, `calculateSessionStats` |
 | **Ring 3 (`cli-entrypoints`)** | `.agent/scripts/sdlc-engine.mjs` | Universal CLI dispatcher and public ES module barrel export. | `runCLI`, `formatCLIResult`, `executeRelease` |
 

@@ -2,40 +2,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import readline from 'node:readline';
-import { fileExists, readFileSafe, parseFrontmatter } from './core.mjs';
+import {
+  fileExists,
+  readFileSafe,
+  parseFrontmatter,
+  DEPRECATED_SDLC_SKILLS,
+  CANONICAL_SDLC_SKILLS
+} from './core.mjs';
 import { scaffoldArchlensPolicy } from './arch-trace.mjs';
 import { installHooks } from './git-guard.mjs';
 import { scaffoldIssueTemplates } from './pm-provider.mjs';
 
-export const DEPRECATED_SDLC_SKILLS = [
-  'sdlc-analyze',
-  'sdlc-arch-trace',
-  'sdlc-docs-wiki',
-  'sdlc-feature-spec',
-  'sdlc-help',
-  'sdlc-init',
-  'sdlc-initialize',
-  'sdlc-kanban',
-  'sdlc-peer-review',
-  'sdlc-quality-gate',
-  'sdlc-release-changelog',
-  'sdlc-review-gate',
-  'sdlc-tdd-implement',
-  'sdlc-test-coverage'
-];
-
-export const CANONICAL_SDLC_SKILLS = [
-  'sdlc',
-  'sdlc-adr',
-  'sdlc-doctor',
-  'sdlc-flow',
-  'sdlc-gate',
-  'sdlc-product',
-  'sdlc-release',
-  'sdlc-status',
-  'sdlc-tdd',
-  'sdlc-wiki'
-];
+export { DEPRECATED_SDLC_SKILLS, CANONICAL_SDLC_SKILLS };
 
 export const ARCHLENS_SKILL_PACKAGE = '@fmatar/archlens-skill@1.2.0';
 
@@ -165,7 +143,7 @@ _Governed by Concentric Clean Architecture, Risk-Proportional Lanes & Config-Dri
 - Every commit requires an active session in \`.agent/.sdlc-session.json\` matching the current branch (\`node .agent/scripts/sdlc-engine.mjs stage begin\`).
 - Feature, bugfix, and chore PRs merge into \`develop\` (default base branch).
 - Pull requests targeting \`main\` must originate exclusively from \`develop\`.
-- Every merge into \`main\` requires a signed Stage 7 HMAC-SHA256 Merkle Gate Receipt in \`docs/AUDIT_CHAIN.jsonl\`.
+- Every merge into \`main\` requires a signed Stage 7 HMAC-SHA256 Hash-Chain Gate Receipt in \`docs/AUDIT_CHAIN.jsonl\`.
 - Merging \`develop\` into \`main\` triggers automated production release tagging and distribution.
 
 ## 2. Active Session & Config-Driven Dual-Gate Quality Verification (INV-02)
@@ -184,7 +162,7 @@ _Governed by Concentric Clean Architecture, Risk-Proportional Lanes & Config-Dri
 - \`/sdlc-doctor\`: Stack detection, \`doctor --fix\`, SHA-256 verified 4-Layer Git hooks, \`.archlens/policy.json\`, and multi-agent installer.
 - \`/sdlc-status\`: Active session, 8-stage progress, drift check, \`KANBAN.md\` state, and Architecture Diff snapshot.
 - \`/sdlc-tdd\`: Red-Green-Refactor TDD, polyglot test runners, and real coverage/mutation report parsers.
-- \`/sdlc-gate\`: Risk-tiered PR review subagents, \`gate --strict\`, and Stage 7 HMAC-SHA256 Merkle Gate Receipt.
+- \`/sdlc-gate\`: Risk-tiered PR review subagents, \`gate --strict\`, and Stage 7 HMAC-SHA256 Hash-Chain Gate Receipt.
 - \`/sdlc-adr\`: Mint, approve, or compact Spec-Drift ADRs (\`adr compact\`) and synchronize \`docs/DECISION_MAP.md\`.
 - \`/sdlc-wiki\`: 10-30-90 \`README.md\` landing page & AST-to-Wiki synchronization (\`readme audit\`, \`wiki sync\`).
 - \`/sdlc-release\`: ADR compaction into \`docs/SRS.md\`, Docs/Wiki sync, SemVer tagging, regression proofs, and canary watchdog.
@@ -208,44 +186,138 @@ export const CLAUDE_TOOL_MAP = {
   search_files: 'Grep'
 };
 
+const GENERIC_TOOL_MAP = {
+  read_file: 'file-read',
+  write_file: 'file-write',
+  edit_file: 'file-edit',
+  run_command: 'shell-command',
+  invoke_subagent: 'subagent-task',
+  list_directory: 'file-list',
+  grep_search: 'code-search',
+  search_files: 'code-search'
+};
+
 const WORKBENCH_HTML = '.agent/workbench/index.html';
-const WORKBENCH_NOTE =
-  'Claude Code cannot embed HTML inline: tell the user the path of `' + WORKBENCH_HTML + '` so they can open it in a browser.';
-const REGENERATE_WORKBENCH = 'regenerate `' + WORKBENCH_HTML + '` with `node .agent/scripts/sdlc-engine.mjs ui-snapshot`';
+const GLOBAL_ENGINE_COMMAND = 'node "$HOME/.agentic-sdlc/scripts/sdlc-engine.mjs"';
 const EMBED_TAG = '<agent-embed[^>]*>(?:<\\/agent-embed>)?';
+const SDLC_BLOCK_BEGIN = '<!-- agentic-sdlc:begin -->';
+const SDLC_BLOCK_END = '<!-- agentic-sdlc:end -->';
+
+function rewriteForGlobalScope(text = '', { global = false } = {}) {
+  const raw = String(text || '');
+  if (!global) return raw;
+  return raw.replace(/\bnode \.agent\/scripts\/sdlc-engine\.mjs\b/g, GLOBAL_ENGINE_COMMAND);
+}
+
+/**
+ * Shared table-driven dialect translator used by both `toClaudeDialect` and `adaptSkillForAgent`.
+ * Removes Antigravity-only directives (`<agent-embed>`, `<artifactDir>`, `TypeName`,
+ * `conversationId`, `BypassSandbox`, `ArtifactMetadata`) and translates tool identifiers.
+ */
+function translateSkillDialect(text = '', { agentId = 'claude', global = false } = {}) {
+  const isClaude = agentId === 'claude';
+  const toolMap = isClaude ? CLAUDE_TOOL_MAP : GENERIC_TOOL_MAP;
+  const workbenchNote = isClaude
+    ? 'Claude Code cannot embed HTML inline: tell the user the path of `' + WORKBENCH_HTML + '` so they can open it in a browser.'
+    : 'Publish or open `' + WORKBENCH_HTML + '` directly; do not attempt to embed raw HTML inline.';
+  const regenNote = 'regenerate `' + WORKBENCH_HTML + '` with `node .agent/scripts/sdlc-engine.mjs ui-snapshot`';
+
+  let out = String(text || '');
+  out = out.replace(/\{\{args\}\}/g, '$ARGUMENTS');
+  out = out.replace(/\bAntigravity Inline\b/g, 'Inline');
+  out = out.replace(/\s*\(with `ArtifactMetadata:[^\n]*?\}`\)/g, '');
+  out = out.replace(/\s*\(`UserFacing: true`\)/g, '');
+  out = out.replace(/`?<artifactDir>\/sdlc-architecture-diff\.html`?/g, '`' + WORKBENCH_HTML + '`');
+  out = out.replace(/<artifactDir>/g, '.agent/workbench');
+  out = out.replace(/`?file:\/\/\/`?/g, '');
+  out = out.replace(new RegExp('```[a-z]*\\n\\s*(' + EMBED_TAG + ')\\s*\\n```', 'g'), '$1');
+
+  // Rewrite router tables & inline UI presentation blocks consistently across runtimes
+  out = out.replace(
+    /\|\s*`\/sdlc ui`\s*\/\s*`\/sdlc serve`\s*\|\s*`node \.agent\/scripts\/sdlc-engine\.mjs ui-snapshot`[^\n]*\|/g,
+    '| `/sdlc ui` / `/sdlc serve` | `node .agent/scripts/sdlc-engine.mjs ui-snapshot` (generates `.agent/workbench/index.html`; publish or open the snapshot instead of blocking on `serve`) |'
+  );
+  out = out.replace(
+    /2\. Execute the mapped `node \.agent\/scripts\/sdlc-engine\.mjs \.\.\.` command via `run_command`\.\s*3\. If the subcommand is `begin`, `pre-pr`, `ui`, or `status`, also refresh `[^`]*sdlc-architecture-diff\.html`[\s\S]*?(?=\n## |\nDone|$)/g,
+    `2. Execute the mapped \`node .agent/scripts/sdlc-engine.mjs ...\` command in the shell tool against the connected project folder root (pass \`--json\` if structured JSON is needed).\n3. If the subcommand is \`begin\`, \`pre-pr\`, \`ui\`, \`serve\`, or \`status\`, run \`node .agent/scripts/sdlc-engine.mjs ui-snapshot\` to build \`.agent/workbench/index.html\` and publish or share \`.agent/workbench/index.html\` with the user.\n`
+  );
+  out = out.replace(
+    /\*\*Mandatory (?:Antigravity )?Inline Architecture UI Presentation\*\*:[\s\S]*?```\s*markdown\s*\n<agent-embed[^\n]*\n```/g,
+    `**Architecture UI Snapshot Presentation**:\nAfter running \`stage begin\` or \`stage pre-pr\`, \`.agent/workbench/index.html\` is generated automatically (or refresh it via \`node .agent/scripts/sdlc-engine.mjs ui-snapshot\`). Publish or present \`.agent/workbench/index.html\` to the user.`
+  );
+  out = out.replace(
+    /3\. \*\*(?:Antigravity )?Inline UI Presentation\*\*:\s*\n\s*Write `\.agent\/workbench\/index\.html`[^\n]*/g,
+    `3. **Architecture & Decision Lineage UI Snapshot**:\n   Publish or present the generated \`.agent/workbench/index.html\` snapshot from \`ui-snapshot\` so the user can inspect the interactive C4, DAG, and ADR lineage view.`
+  );
+  out = out.replace(
+    /## 2\. Inline Architecture UI Presentation[\s\S]*?```\s*markdown\s*\n<agent-embed[^\n]*\n```/g,
+    `## 2. Architecture UI Snapshot Presentation\nAfter running \`node .agent/scripts/sdlc-engine.mjs ui-snapshot\`, publish or share \`.agent/workbench/index.html\` so the user can inspect the 8-stage dashboard, Kanban state, and Archlens concentric ring diff.`
+  );
+  out = out.replace(
+    /(?:copy|write|refresh)\s+`\.agent\/workbench\/index\.html`\s+(?:into|to|from)\s+[^\n`]*?`\.agent\/workbench\/index\.html`\)?(?:\s*(?:using|via)\s+`write_file`)?/gi,
+    (m) => (m[0] === m[0].toUpperCase() ? 'R' : 'r') + regenNote.slice(1)
+  );
+  out = out.replace(new RegExp('\\s*\\+\\s*embed\\s*`' + EMBED_TAG + '`', 'g'), ' (then hand the user the path of `' + WORKBENCH_HTML + '`)');
+  out = out.replace(
+    new RegExp('\\s*(?:and\\s+)?(?:render it inline in your (?:chat )?response(?: via)?|embed it directly in your response|embed)\\s*:?\\s*`?' + EMBED_TAG + '`?\\.?', 'g'),
+    '. ' + workbenchNote
+  );
+  out = out.replace(new RegExp(EMBED_TAG, 'g'), isClaude ? workbenchNote : '`' + WORKBENCH_HTML + '`');
+
+  // Strip Antigravity subagent & sandbox dialect leaks before tool renaming
+  out = out.replace(
+    /Dispatch two `invoke_subagent` calls in parallel using valid tool arguments:/g,
+    'Dispatch two independent review tasks in parallel using your subagent / Task tool (or execute both structured review passes sequentially if subagents are unavailable):'
+  );
+  out = out.replace(
+    /Dispatch two independent read-only subagents in parallel using `invoke_subagent` \(`TypeName: "research"`\):/g,
+    'Dispatch two independent read-only review tasks in parallel using your subagent / Task tool (or execute both structured review passes sequentially if subagents are unavailable):'
+  );
+  out = out.replace(/^\s*-\s*`?TypeName`?:\s*`?"?[^"\r\n]+"?`?\r?\n/gm, '');
+  out = out.replace(/\s*\(\s*`?TypeName:\s*"?[^")\n]+"?`?\s*\)/gi, '');
+  out = out.replace(/`?TypeName:\s*"?[^"`\n]+"?`?/gi, 'read-only research subagent');
+  out = out.replace(/\bTypeName\b/g, 'subagent type');
+  out = out.replace(/\bsame\s+subagent\s+`?conversationId`?s?\b/gi, 'same reviewer subagent');
+  out = out.replace(/`?conversationId`?s?/gi, 'subagent session');
+  out = out.replace(
+    /\s*with network\/keychain access\s*\(`?BypassSandbox:\s*(?:true|false)`?\)/gi,
+    ' with host network/keychain access outside any restricted sandbox'
+  );
+  out = out.replace(/\s*outside the sandbox\s*\(`?BypassSandbox:\s*(?:true|false)`?\)/gi, ' outside any restricted sandbox');
+  out = out.replace(/\s*\(`?BypassSandbox:\s*(?:true|false)`?\)/gi, ' (outside any restricted sandbox)');
+  out = out.replace(/\bBypassSandbox\b/gi, 'unsandboxed host permissions');
+
+  out = out.replace(
+    /\(start the live, token-protected workbench yourself with `sdlc-engine serve`\)/g,
+    '(publish or open `.agent/workbench/index.html` directly via `ui-snapshot`)'
+  );
+  out = out.replace(
+    /Use `read_file`, `write_file`, `edit_file`, and `run_command` to/g,
+    isClaude
+      ? 'Use `Read`, `Write`, `Edit`, and `Bash` to'
+      : 'Use your file inspection, file editing, and shell execution tools to'
+  );
+  if (!isClaude) {
+    out = out.replace(/using `read_file` and `wiki map`/g, 'by inspecting the source files and running `wiki map`');
+  }
+
+  for (const [from, to] of Object.entries(toolMap)) {
+    out = out.replace(new RegExp('\\b' + from + '\\b', 'g'), to);
+  }
+  out = out.replace(/`\.\s*\.\s/g, '`. ').replace(/:\s*\.\s/g, '. ');
+  return rewriteForGlobalScope(out, { global });
+}
 
 /**
  * Rewrites Antigravity tool names, `{{args}}` and `<agent-embed>` instructions into
  * Claude Code conventions (Read/Write/Edit/Bash/Agent, $ARGUMENTS, file path hand-off).
  */
-export function toClaudeDialect(text = '') {
-  let out = String(text);
-  out = out.replace(/\{\{args\}\}/g, '$ARGUMENTS');
-  out = out.replace(/\bAntigravity Inline\b/g, 'Inline');
-  // Artifact-directory copies + inline embeds have no Claude Code equivalent.
-  out = out.replace(/\s*\(with `ArtifactMetadata:[^\n]*?\}`\)/g, '');
-  out = out.replace(/\s*\(`UserFacing: true`\)/g, '');
-  out = out.replace(/`?<artifactDir>\/sdlc-architecture-diff\.html`?/g, '`' + WORKBENCH_HTML + '`');
-  out = out.replace(/`?file:\/\/\/`?/g, '');
-  out = out.replace(new RegExp('```[a-z]*\\n\\s*(' + EMBED_TAG + ')\\s*\\n```', 'g'), '$1');
-  out = out.replace(
-    /(?:copy|write|refresh)\s+`\.agent\/workbench\/index\.html`\s+(?:into|to|from)\s+[^\n`]*?`\.agent\/workbench\/index\.html`\)?(?:\s*(?:using|via)\s+`write_file`)?/gi,
-    (m) => (m[0] === m[0].toUpperCase() ? 'R' : 'r') + REGENERATE_WORKBENCH.slice(1)
-  );
-  out = out.replace(new RegExp('\\s*\\+\\s*embed\\s*`' + EMBED_TAG + '`', 'g'), ' (then hand the user the path of `' + WORKBENCH_HTML + '`)');
-  out = out.replace(
-    new RegExp('\\s*(?:and\\s+)?(?:render it inline in your (?:chat )?response(?: via)?|embed it directly in your response|embed)\\s*:?\\s*`?' + EMBED_TAG + '`?\\.?', 'g'),
-    '. ' + WORKBENCH_NOTE
-  );
-  out = out.replace(new RegExp(EMBED_TAG, 'g'), WORKBENCH_NOTE);
-  for (const [from, to] of Object.entries(CLAUDE_TOOL_MAP)) {
-    out = out.replace(new RegExp('\\b' + from + '\\b', 'g'), to);
-  }
-  return out.replace(/`\.\s*\.\s/g, '`. ').replace(/:\s*\.\s/g, '. ');
+export function toClaudeDialect(text = '', options = {}) {
+  return translateSkillDialect(text, { ...options, agentId: 'claude' });
 }
 
 /** Renders a canonical skill as a Claude Code SKILL.md (allowed-tools frontmatter, translated body). */
-export function toClaudeSkill(sk) {
+export function toClaudeSkill(sk, options = {}) {
   const parsed = parseFrontmatter(sk.raw || '');
   const fm = parsed.frontmatter || {};
   const allowedTools = Array.from(
@@ -257,17 +329,64 @@ export function toClaudeSkill(sk) {
         .map((t) => CLAUDE_TOOL_MAP[t] || t)
     )
   );
-  const description = toClaudeDialect(fm.description || sk.description || sk.id);
+  const description = toClaudeDialect(fm.description || sk.description || sk.id, options);
   const yamlDesc = /[:#]/.test(description) ? JSON.stringify(description) : description;
-  const body = toClaudeDialect(parsed.body || sk.body || '');
+  const body = toClaudeDialect(parsed.body || sk.body || '', options);
   const lines = ['---', `name: ${fm.name || sk.id}`, `description: ${yamlDesc}`];
   if (allowedTools.length) lines.push(`allowed-tools: ${allowedTools.join(', ')}`);
   lines.push('---', '', body, '');
   return { id: sk.id, description, body, allowedTools, markdown: lines.join('\n') };
 }
 
-const SDLC_BLOCK_BEGIN = '<!-- agentic-sdlc:begin -->';
-const SDLC_BLOCK_END = '<!-- agentic-sdlc:end -->';
+/** Shared marker-block upserter used by both `mergeRulesFile` and `upsertConstitutionalRulesFile`. */
+function upsertMarkedRulesBlock(
+  filePath,
+  content,
+  {
+    startMarker,
+    endMarker,
+    demoteHeadings = false,
+    wrapFirstWrite = false,
+    legacyHeaderPrefix = null,
+    inlineSeparator = '\n\n',
+    ensureDir = false,
+    skipUnchanged = false
+  }
+) {
+  if (ensureDir) fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const rawContent = String(content || '');
+  const inner = demoteHeadings ? rawContent.replace(/^(#{1,5}) /gm, '#$1 ').trimEnd() : rawContent.trim();
+  const managedBlock = `${startMarker}\n${inner}\n${endMarker}`;
+  const existing = fileExists(filePath) ? readFileSafe(filePath) || '' : '';
+
+  if (!existing.trim()) {
+    const initialText = wrapFirstWrite ? `${managedBlock}\n` : rawContent;
+    fs.writeFileSync(filePath, initialText, 'utf8');
+    return { mode: 'created', created: true, updated: false };
+  }
+
+  const startIdx = existing.indexOf(startMarker);
+  const endIdx = existing.indexOf(endMarker);
+  let next;
+  let mode;
+
+  if (startIdx !== -1 && endIdx > startIdx) {
+    next = existing.slice(0, startIdx) + managedBlock + existing.slice(endIdx + endMarker.length);
+    mode = 'updated';
+  } else if (legacyHeaderPrefix && existing.trimStart().startsWith(legacyHeaderPrefix)) {
+    next = wrapFirstWrite ? `${managedBlock}\n` : rawContent;
+    mode = 'replaced';
+  } else {
+    const prefix = existing.trimEnd();
+    next = prefix ? `${prefix}${inlineSeparator}${managedBlock}\n` : `${managedBlock}\n`;
+    mode = 'appended';
+  }
+
+  if (!skipUnchanged || next !== existing) {
+    fs.writeFileSync(filePath, next, 'utf8');
+  }
+  return { mode, created: false, updated: true };
+}
 
 /**
  * Writes the constitutional summary into a rules file (CLAUDE.md, .cursorrules) WITHOUT
@@ -275,28 +394,16 @@ const SDLC_BLOCK_END = '<!-- agentic-sdlc:end -->';
  * marked block appended once (headings demoted one level) and updated in place on re-install.
  */
 export function mergeRulesFile(filePath, summary = CONSTITUTIONAL_RULES_SUMMARY) {
-  const existing = fileExists(filePath) ? readFileSafe(filePath) || '' : '';
-  if (!existing.trim()) {
-    fs.writeFileSync(filePath, summary, 'utf8');
-    return { path: filePath, mode: 'created' };
-  }
-  const demoted = summary.replace(/^(#{1,5}) /gm, '#$1 ').trimEnd();
-  const block = `${SDLC_BLOCK_BEGIN}\n${demoted}\n${SDLC_BLOCK_END}`;
-  const b = existing.indexOf(SDLC_BLOCK_BEGIN);
-  const e = existing.indexOf(SDLC_BLOCK_END);
-  let next;
-  let mode;
-  if (b !== -1 && e > b) {
-    next = existing.slice(0, b) + block + existing.slice(e + SDLC_BLOCK_END.length);
-    mode = 'updated';
-  } else if (existing.trimStart().startsWith(summary.split('\n')[0])) {
-    next = summary;
-    mode = 'replaced';
-  } else {
-    next = `${existing.trimEnd()}\n\n---\n\n${block}\n`;
-    mode = 'appended';
-  }
-  if (next !== existing) fs.writeFileSync(filePath, next, 'utf8');
+  const { mode } = upsertMarkedRulesBlock(filePath, summary, {
+    startMarker: SDLC_BLOCK_BEGIN,
+    endMarker: SDLC_BLOCK_END,
+    demoteHeadings: true,
+    wrapFirstWrite: false,
+    legacyHeaderPrefix: summary.split('\n')[0],
+    inlineSeparator: '\n\n---\n\n',
+    ensureDir: false,
+    skipUnchanged: true
+  });
   return { path: filePath, mode };
 }
 
@@ -435,36 +542,17 @@ const SDLC_RULES_END = '<!-- AGENTIC-SDLC-RULES:END -->';
  * Preserves any existing project-specific content outside the managed block.
  */
 export function upsertConstitutionalRulesFile(filePath, rulesContent = CONSTITUTIONAL_RULES_SUMMARY) {
-  const managedBlock = `${SDLC_RULES_START}\n${rulesContent.trim()}\n${SDLC_RULES_END}`;
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-
-  if (!fileExists(filePath)) {
-    fs.writeFileSync(filePath, `${managedBlock}\n`, 'utf8');
-    return { created: true, updated: false };
-  }
-
-  const existing = readFileSafe(filePath) || '';
-  const startIdx = existing.indexOf(SDLC_RULES_START);
-  const endIdx = existing.indexOf(SDLC_RULES_END);
-
-  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-    const before = existing.slice(0, startIdx);
-    const after = existing.slice(endIdx + SDLC_RULES_END.length);
-    fs.writeFileSync(filePath, `${before}${managedBlock}${after}`, 'utf8');
-    return { created: false, updated: true };
-  }
-
-  // Legacy install without markers: if file is purely the generated header block, wrap it
-  if (existing.trim().startsWith('# Agentic SDLC Framework Invariants')) {
-    fs.writeFileSync(filePath, `${managedBlock}\n`, 'utf8');
-    return { created: false, updated: true };
-  }
-
-  // Preserve custom project instructions and append the managed block
-  const prefix = existing.trimEnd();
-  const combined = prefix ? `${prefix}\n\n${managedBlock}\n` : `${managedBlock}\n`;
-  fs.writeFileSync(filePath, combined, 'utf8');
-  return { created: false, updated: true };
+  const { created, updated } = upsertMarkedRulesBlock(filePath, rulesContent, {
+    startMarker: SDLC_RULES_START,
+    endMarker: SDLC_RULES_END,
+    demoteHeadings: false,
+    wrapFirstWrite: true,
+    legacyHeaderPrefix: '# Agentic SDLC Framework Invariants',
+    inlineSeparator: '\n\n',
+    ensureDir: true,
+    skipUnchanged: false
+  });
+  return { created, updated };
 }
 
 /**
@@ -515,25 +603,27 @@ export function upsertClaudeSettingsJson(settingsPath) {
 }
 
 /**
- * Adapts a canonical skill definition for a specific agent runtime.
+ * Adapts a canonical skill definition for a specific agent runtime via the unified translator.
  * - `gemini` preserves Antigravity-native `tools:` frontmatter and `<agent-embed>` directives.
  * - `claude` (Claude Code & Cowork) and other runtimes strip Antigravity `tools:` frontmatter
- *   and rewrite `<agent-embed>`, `<artifactDir>`, and Antigravity tool identifiers (`read_file`,
- *   `write_file`, `edit_file`, `run_command`, `invoke_subagent`) into runtime-appropriate device-shell
- *   and `ui-snapshot` instructions.
+ *   and rewrite `<agent-embed>`, `<artifactDir>`, `TypeName`, `conversationId`, `BypassSandbox`,
+ *   and tool identifiers into runtime-appropriate conventions and global script paths when needed.
  */
-export function adaptSkillForAgent(skill, agentId = 'claude') {
+export function adaptSkillForAgent(skill, agentId = 'claude', { global = false } = {}) {
   if (agentId === 'gemini') {
+    const skillMarkdown = rewriteForGlobalScope(skill.raw, { global });
+    const body = rewriteForGlobalScope(skill.body, { global });
+    const description = rewriteForGlobalScope(skill.description, { global });
     return {
-      skillMarkdown: skill.raw,
-      coworkSkillMarkdown: skill.raw,
-      commandMarkdown: `---\ndescription: ${skill.description}\n---\n\n${skill.body}\n`,
-      body: skill.body
+      skillMarkdown,
+      coworkSkillMarkdown: skillMarkdown,
+      commandMarkdown: `---\ndescription: ${description}\n---\n\n${body}\n`,
+      body
     };
   }
 
   if (agentId === 'claude') {
-    const claudeSkill = toClaudeSkill(skill);
+    const claudeSkill = toClaudeSkill(skill, { global });
     const cmdFrontmatter = [`description: ${claudeSkill.description}`];
     if (claudeSkill.allowedTools.length) cmdFrontmatter.push(`allowed-tools: ${claudeSkill.allowedTools.join(', ')}`);
     if (skill.id === 'sdlc') cmdFrontmatter.push('argument-hint: <subcommand> [args]');
@@ -548,72 +638,7 @@ export function adaptSkillForAgent(skill, agentId = 'claude') {
     };
   }
 
-  let body = String(skill.body || '').trim();
-
-  // 1. Replace template placeholders with Claude slash command $ARGUMENTS convention
-  body = body.replace(/\{\{args\}\}/g, '$ARGUMENTS');
-
-  // 2. Rewrite /sdlc router table & execution protocol for Claude Code + Cowork device shell
-  body = body.replace(
-    /\|\s*`\/sdlc ui`\s*\/\s*`\/sdlc serve`\s*\|\s*`node \.agent\/scripts\/sdlc-engine\.mjs ui-snapshot`[^\n]*\|/g,
-    '| `/sdlc ui` / `/sdlc serve` | `node .agent/scripts/sdlc-engine.mjs ui-snapshot` (generates `.agent/workbench/index.html`; publish or open the snapshot instead of blocking on `serve`) |'
-  );
-
-  body = body.replace(
-    /2\. Execute the mapped `node \.agent\/scripts\/sdlc-engine\.mjs \.\.\.` command via `run_command`\.\s*3\. If the subcommand is `begin`, `pre-pr`, `ui`, or `status`, also refresh `<artifactDir>\/sdlc-architecture-diff\.html`[\s\S]*?<\/agent-embed>`\./g,
-    `2. Execute the mapped \`node .agent/scripts/sdlc-engine.mjs ...\` command in the device shell / Bash tool against the connected project folder root (pass \`--json\` if structured JSON is needed).\n3. If the subcommand is \`begin\`, \`pre-pr\`, \`ui\`, \`serve\`, or \`status\`, run \`node .agent/scripts/sdlc-engine.mjs ui-snapshot\` to build \`.agent/workbench/index.html\` and publish or share \`.agent/workbench/index.html\` with the user (in Cowork, \`serve\` loopback ports are unreachable from the remote viewer, so always publish the self-contained \`ui-snapshot\` HTML artifact instead).\n4. Note: \`install\` and \`interop export\` update \`CLAUDE.md\` and \`.claude/settings.json\` non-destructively, preserving existing project instructions and valid settings.`
-  );
-
-  // 3. Rewrite Antigravity inline UI presentation blocks in sdlc-flow, sdlc-product, sdlc-status
-  body = body.replace(
-    /\*\*Mandatory Antigravity Inline Architecture UI Presentation\*\*:[\s\S]*?```\s*markdown\s*\n<agent-embed[^\n]*\n```/g,
-    `**Architecture UI Snapshot Presentation**:\nAfter running \`stage begin\` or \`stage pre-pr\`, \`.agent/workbench/index.html\` is generated automatically (or refresh it via \`node .agent/scripts/sdlc-engine.mjs ui-snapshot\`). Publish or present \`.agent/workbench/index.html\` to the user (in Cowork, publish the static HTML snapshot rather than running \`serve\`).`
-  );
-
-  body = body.replace(
-    /3\. \*\*Antigravity Inline UI Presentation\*\*:\s*\n\s*Write `\.agent\/workbench\/index\.html` to `<artifactDir>\/sdlc-architecture-diff\.html`[^\n]*/g,
-    `3. **Architecture & Decision Lineage UI Snapshot**:\n   Publish or present the generated \`.agent/workbench/index.html\` snapshot from \`ui-snapshot\` so the user can inspect the interactive C4, DAG, and ADR lineage view.`
-  );
-
-  body = body.replace(
-    /## 2\. Inline Architecture UI Presentation[\s\S]*?```\s*markdown\s*\n<agent-embed[^\n]*\n```/g,
-    `## 2. Architecture UI Snapshot Presentation\nAfter running \`node .agent/scripts/sdlc-engine.mjs ui-snapshot\`, publish or share \`.agent/workbench/index.html\` so the user can inspect the 8-stage dashboard, Kanban state, and Archlens concentric ring diff (in Cowork, publish \`.agent/workbench/index.html\` directly instead of starting \`serve\`).`
-  );
-
-  // 4. Rewrite invoke_subagent blocks in sdlc-flow and sdlc-gate
-  body = body.replace(
-    /Dispatch two `invoke_subagent` calls in parallel using valid tool arguments:/g,
-    'Dispatch two independent review tasks in parallel using your subagent / Task tool (or execute both structured review passes sequentially if subagents are unavailable):'
-  );
-  body = body.replace(
-    /Dispatch two independent read-only subagents in parallel using `invoke_subagent` \(`TypeName: "research"`\):/g,
-    'Dispatch two independent read-only review tasks in parallel using your subagent / Task tool (or execute both structured review passes sequentially if subagents are unavailable):'
-  );
-  body = body.replace(/^\s*-\s*`TypeName`:\s*`?"research"`?\r?\n/gm, '');
-  body = body.replace(
-    /\(start the live, token-protected workbench yourself with `sdlc-engine serve`\)/g,
-    '(publish or open `.agent/workbench/index.html` directly; in Cowork, use `ui-snapshot` instead of `serve`)'
-  );
-
-  // 5. Rewrite remaining Antigravity tool references in sdlc-wiki or other skills
-  body = body.replace(
-    /Use `read_file`, `write_file`, `edit_file`, and `run_command` to/g,
-    'Use your file inspection, file editing, and shell execution tools to'
-  );
-  body = body.replace(/using `read_file` and `wiki map`/g, 'by inspecting the source files and running `wiki map`');
-  body = body.replace(/\b(read_file|write_file|edit_file|run_command|invoke_subagent)\b/g, (m) => {
-    const map = {
-      read_file: 'file-read',
-      write_file: 'file-write',
-      edit_file: 'file-edit',
-      run_command: 'shell-command',
-      invoke_subagent: 'subagent-task'
-    };
-    return map[m] || m;
-  });
-  body = body.replace(/<agent-embed[^>]*><\/agent-embed>/g, '`.agent/workbench/index.html`');
-  body = body.replace(/<artifactDir>/g, '.agent/workbench');
-
+  const body = translateSkillDialect(String(skill.body || '').trim(), { agentId, global });
   const safeDesc = String(skill.description || skill.id)
     .replace(/\{\{args\}\}/g, '$ARGUMENTS')
     .replace(/\r?\n/g, ' ')
@@ -752,20 +777,23 @@ export function provisionAgentIntegrations({
     prunedSkills.push(...pruneDeprecatedSkills(path.join(absTarget, '.windsurf/workflows')));
   }
 
+  const effectiveRulesSummary = rewriteForGlobalScope(CONSTITUTIONAL_RULES_SUMMARY, { global });
+
   for (const agentId of selectedIds) {
     if (agentId === 'gemini') {
       const baseSkillsDir = global
         ? path.join(homeDir, '.gemini/config/skills')
         : path.join(absTarget, '.agent/skills');
       for (const sk of skills) {
+        const adapted = adaptSkillForAgent(sk, 'gemini', { global });
         const destFile = path.join(baseSkillsDir, sk.id, 'SKILL.md');
         fs.mkdirSync(path.dirname(destFile), { recursive: true });
-        fs.writeFileSync(destFile, sk.raw, 'utf8');
+        fs.writeFileSync(destFile, adapted.skillMarkdown, 'utf8');
         filesCreated.push(global ? `~/.gemini/config/skills/${sk.id}/SKILL.md` : `.agent/skills/${sk.id}/SKILL.md`);
       }
       if (!global) {
         const agentsMdPath = path.join(absTarget, 'AGENTS.md');
-        upsertConstitutionalRulesFile(agentsMdPath, CONSTITUTIONAL_RULES_SUMMARY);
+        upsertConstitutionalRulesFile(agentsMdPath, effectiveRulesSummary);
         filesCreated.push('AGENTS.md');
       }
     }
@@ -797,7 +825,7 @@ export function provisionAgentIntegrations({
       }
 
       for (const sk of skills) {
-        const adapted = adaptSkillForAgent(sk, 'claude');
+        const adapted = adaptSkillForAgent(sk, 'claude', { global });
         const skillFile = path.join(claudeSkillsDir, sk.id, 'SKILL.md');
         fs.mkdirSync(path.dirname(skillFile), { recursive: true });
         fs.writeFileSync(skillFile, adapted.skillMarkdown, 'utf8');
@@ -810,7 +838,7 @@ export function provisionAgentIntegrations({
 
       if (!global) {
         const claudeMdPath = path.join(absTarget, 'CLAUDE.md');
-        upsertConstitutionalRulesFile(claudeMdPath, CONSTITUTIONAL_RULES_SUMMARY);
+        upsertConstitutionalRulesFile(claudeMdPath, effectiveRulesSummary);
         filesCreated.push('CLAUDE.md');
 
         const settingsPath = path.join(claudeRoot, 'settings.json');
@@ -853,16 +881,19 @@ export function provisionAgentIntegrations({
       fs.mkdirSync(cursorSkillsDir, { recursive: true });
       fs.mkdirSync(cursorRulesDir, { recursive: true });
 
+      const formatCursorMdc = (description, alwaysApply, body) =>
+        `---\ndescription: ${description}\nglobs: "*"\nalwaysApply: ${alwaysApply}\n---\n\n${body}\n`;
+
       const masterMdc = path.join(cursorRulesDir, 'agentic-sdlc.mdc');
       fs.writeFileSync(
         masterMdc,
-        `---\ndescription: Agentic SDLC Framework Lifecycle, TDD, and Dual-Gate Quality Rules\nglobs: *\nalwaysApply: true\n---\n\n${CONSTITUTIONAL_RULES_SUMMARY}\n`,
+        formatCursorMdc('Agentic SDLC Framework Lifecycle, TDD, and Dual-Gate Quality Rules', true, effectiveRulesSummary),
         'utf8'
       );
       filesCreated.push(global ? '~/.cursor/rules/agentic-sdlc.mdc' : '.cursor/rules/agentic-sdlc.mdc');
 
       for (const sk of skills) {
-        const adapted = adaptSkillForAgent(sk, 'cursor');
+        const adapted = adaptSkillForAgent(sk, 'cursor', { global });
         const cursorSkillFile = path.join(cursorSkillsDir, sk.id, 'SKILL.md');
         fs.mkdirSync(path.dirname(cursorSkillFile), { recursive: true });
         fs.writeFileSync(cursorSkillFile, adapted.coworkSkillMarkdown, 'utf8');
@@ -871,7 +902,7 @@ export function provisionAgentIntegrations({
         const skillMdc = path.join(cursorRulesDir, `${sk.id}.mdc`);
         fs.writeFileSync(
           skillMdc,
-          `---\ndescription: ${JSON.stringify(adapted.description || sk.description)}\nglobs: *\nalwaysApply: false\n---\n\n${adapted.body}\n`,
+          formatCursorMdc(JSON.stringify(adapted.description || sk.description), false, adapted.body),
           'utf8'
         );
         filesCreated.push(global ? `~/.cursor/rules/${sk.id}.mdc` : `.cursor/rules/${sk.id}.mdc`);
@@ -879,7 +910,7 @@ export function provisionAgentIntegrations({
 
       if (!global) {
         const cursorRulesLegacy = path.join(absTarget, '.cursorrules');
-        upsertConstitutionalRulesFile(cursorRulesLegacy, CONSTITUTIONAL_RULES_SUMMARY);
+        upsertConstitutionalRulesFile(cursorRulesLegacy, effectiveRulesSummary);
         filesCreated.push('.cursorrules');
       }
     }
@@ -890,7 +921,7 @@ export function provisionAgentIntegrations({
       fs.mkdirSync(grokSkillsDir, { recursive: true });
 
       for (const sk of skills) {
-        const adapted = adaptSkillForAgent(sk, 'grok');
+        const adapted = adaptSkillForAgent(sk, 'grok', { global });
         const destFile = path.join(grokSkillsDir, sk.id, 'SKILL.md');
         fs.mkdirSync(path.dirname(destFile), { recursive: true });
         fs.writeFileSync(destFile, adapted.skillMarkdown, 'utf8');
@@ -898,7 +929,7 @@ export function provisionAgentIntegrations({
       }
 
       const grokMdPath = global ? path.join(grokRoot, 'GROK.md') : path.join(absTarget, 'GROK.md');
-      upsertConstitutionalRulesFile(grokMdPath, CONSTITUTIONAL_RULES_SUMMARY);
+      upsertConstitutionalRulesFile(grokMdPath, effectiveRulesSummary);
       filesCreated.push(global ? '~/.grok/GROK.md' : 'GROK.md');
 
       const grokSettingsPath = path.join(grokRoot, 'settings.json');
@@ -911,6 +942,12 @@ export function provisionAgentIntegrations({
           }
         } catch {}
       }
+      const existingCmd = existingGrok.engineCommand;
+      const resolvedGrokEngine = global
+        ? existingCmd && existingCmd !== 'node .agent/scripts/sdlc-engine.mjs'
+          ? existingCmd
+          : GLOBAL_ENGINE_COMMAND
+        : existingCmd || 'node .agent/scripts/sdlc-engine.mjs';
       fs.writeFileSync(
         grokSettingsPath,
         JSON.stringify(
@@ -918,7 +955,7 @@ export function provisionAgentIntegrations({
             ...existingGrok,
             instructionsFile: global ? '~/.grok/GROK.md' : 'GROK.md',
             skillsDirectory: global ? '~/.grok/skills' : '.grok/skills',
-            engineCommand: existingGrok.engineCommand || 'node .agent/scripts/sdlc-engine.mjs'
+            engineCommand: resolvedGrokEngine
           },
           null,
           2
@@ -931,7 +968,7 @@ export function provisionAgentIntegrations({
     if (agentId === 'windsurf') {
       if (global) {
         const wsGlobal = path.join(homeDir, '.codeium/windsurf/memories/global_rules.md');
-        upsertConstitutionalRulesFile(wsGlobal, CONSTITUTIONAL_RULES_SUMMARY);
+        upsertConstitutionalRulesFile(wsGlobal, effectiveRulesSummary);
         filesCreated.push('~/.codeium/windsurf/memories/global_rules.md');
       } else {
         const wsRulesDir = path.join(absTarget, '.windsurf/rules');
@@ -939,11 +976,11 @@ export function provisionAgentIntegrations({
         fs.mkdirSync(wsRulesDir, { recursive: true });
         fs.mkdirSync(wsWorkflowsDir, { recursive: true });
 
-        fs.writeFileSync(path.join(wsRulesDir, 'agentic-sdlc.md'), CONSTITUTIONAL_RULES_SUMMARY, 'utf8');
+        fs.writeFileSync(path.join(wsRulesDir, 'agentic-sdlc.md'), effectiveRulesSummary, 'utf8');
         filesCreated.push('.windsurf/rules/agentic-sdlc.md');
 
         for (const sk of skills) {
-          const adapted = adaptSkillForAgent(sk, 'windsurf');
+          const adapted = adaptSkillForAgent(sk, 'windsurf', { global: false });
           const wfPath = path.join(wsWorkflowsDir, `${sk.id}.md`);
           fs.writeFileSync(
             wfPath,
@@ -954,7 +991,7 @@ export function provisionAgentIntegrations({
         }
 
         const wsLegacy = path.join(absTarget, '.windsurfrules');
-        upsertConstitutionalRulesFile(wsLegacy, CONSTITUTIONAL_RULES_SUMMARY);
+        upsertConstitutionalRulesFile(wsLegacy, effectiveRulesSummary);
         filesCreated.push('.windsurfrules');
       }
     }
@@ -965,11 +1002,11 @@ export function provisionAgentIntegrations({
       fs.mkdirSync(promptsDir, { recursive: true });
 
       const copilotInstr = path.join(ghDir, 'copilot-instructions.md');
-      upsertConstitutionalRulesFile(copilotInstr, CONSTITUTIONAL_RULES_SUMMARY);
+      upsertConstitutionalRulesFile(copilotInstr, effectiveRulesSummary);
       filesCreated.push(global ? '~/.github/copilot-instructions.md' : '.github/copilot-instructions.md');
 
       for (const sk of skills) {
-        const adapted = adaptSkillForAgent(sk, 'copilot');
+        const adapted = adaptSkillForAgent(sk, 'copilot', { global });
         const promptFile = path.join(promptsDir, `${sk.id}.prompt.md`);
         fs.writeFileSync(
           promptFile,
@@ -982,7 +1019,7 @@ export function provisionAgentIntegrations({
       if (!global) {
         const agentsMdPath = path.join(absTarget, 'AGENTS.md');
         if (!fileExists(agentsMdPath)) {
-          upsertConstitutionalRulesFile(agentsMdPath, CONSTITUTIONAL_RULES_SUMMARY);
+          upsertConstitutionalRulesFile(agentsMdPath, effectiveRulesSummary);
           filesCreated.push('AGENTS.md');
         }
       }
@@ -1249,31 +1286,27 @@ export function installFramework({
 
   if (isGlobal) {
     const selectedIds = normalizeAgentList(agents);
+    const sharedGlobalScripts = path.join(homeDir, '.agentic-sdlc/scripts');
+    fs.mkdirSync(sharedGlobalScripts, { recursive: true });
+    if (path.resolve(srcScripts) !== path.resolve(sharedGlobalScripts)) {
+      copyDirRecursive(srcScripts, sharedGlobalScripts);
+    }
+
     if (selectedIds.includes('gemini')) {
       destSkills = path.join(homeDir, '.gemini/config/skills');
       destScripts = path.join(homeDir, '.gemini/config/scripts');
-      fs.mkdirSync(destSkills, { recursive: true });
-      fs.mkdirSync(destScripts, { recursive: true });
       prePruned.push(...pruneDeprecatedSkills(destSkills));
-      if (path.resolve(srcScripts) !== path.resolve(destScripts)) {
-        copyDirRecursive(srcScripts, destScripts);
-      }
     } else if (selectedIds.includes('claude')) {
       destSkills = path.join(homeDir, '.claude/skills');
       destScripts = path.join(homeDir, '.claude/scripts');
-      fs.mkdirSync(destSkills, { recursive: true });
-      fs.mkdirSync(destScripts, { recursive: true });
-      if (path.resolve(srcScripts) !== path.resolve(destScripts)) {
-        copyDirRecursive(srcScripts, destScripts);
-      }
     } else {
       destSkills = path.join(homeDir, `.${selectedIds[0]}/skills`);
       destScripts = path.join(homeDir, `.${selectedIds[0]}/scripts`);
-      fs.mkdirSync(destSkills, { recursive: true });
-      fs.mkdirSync(destScripts, { recursive: true });
-      if (path.resolve(srcScripts) !== path.resolve(destScripts)) {
-        copyDirRecursive(srcScripts, destScripts);
-      }
+    }
+    fs.mkdirSync(destSkills, { recursive: true });
+    fs.mkdirSync(destScripts, { recursive: true });
+    if (path.resolve(srcScripts) !== path.resolve(destScripts)) {
+      copyDirRecursive(srcScripts, destScripts);
     }
   } else {
     fs.mkdirSync(absTarget, { recursive: true });
@@ -1509,4 +1542,21 @@ export async function runInstallerCLI(args = [], { repoRoot = '.', onDetect = nu
   console.log('\n👉 \x1b[1mNext Step\x1b[0m: Prompt your agent with \x1b[36m/sdlc-product\x1b[0m or \x1b[36m/sdlc-flow\x1b[0m!\n');
 
   return res;
+}
+
+export function exportAgentRules({ agent = 'all', repoRoot = '.' } = {}) {
+  console.log(`🤖 Exporting Agentic SDLC Framework Rules & Skills for target runtime: '${agent.toUpperCase()}'...`);
+  const provisioned = provisionAgentIntegrations({
+    agents: agent,
+    targetDir: repoRoot,
+    global: false
+  });
+
+  return {
+    agent,
+    selectedAgents: provisioned.selectedAgents,
+    filesCreated: provisioned.filesCreated,
+    skillsLinked: provisioned.skillsCount,
+    prunedSkills: provisioned.prunedSkills
+  };
 }

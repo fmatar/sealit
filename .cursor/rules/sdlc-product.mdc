@@ -1,6 +1,6 @@
 ---
 description: "Use when bootstrapping PRODUCT.md from a raw spec, authoring CAP-XX specs, or planning DAG ticket waves. Not for implementing a single existing ticket (use sdlc-flow)."
-globs: *
+globs: "*"
 alwaysApply: false
 ---
 

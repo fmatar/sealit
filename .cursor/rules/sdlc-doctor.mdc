@@ -1,6 +1,6 @@
 ---
 description: "Use when onboarding a repo, diagnosing hook or session errors, or installing SDLC skills across AI agents. Not for feature coding. Runs detect, doctor, and install."
-globs: *
+globs: "*"
 alwaysApply: false
 ---
 
@@ -44,7 +44,7 @@ node .agent/scripts/sdlc-engine.mjs install --agents gemini,claude,cursor --with
 - Running `interop export --agent all` (creates rule/skill directories for agents the repo may not use) or `install --global` (writes into `~/.gemini`, `~/.claude`, `~/.cursor`, `~/.grok`).
 
 ## If it fails
-- **`hooks install` fails inside a sandbox** (`.git/hooks` write blocked) -> re-run `hooks install` outside the sandbox (`BypassSandbox: true`).
+- **`hooks install` fails inside a sandbox** (`.git/hooks` write blocked) -> re-run `hooks install` outside any restricted sandbox.
 - **`skill-audit` reports `FM1`/`FM2`/`RP1`/`AS3` findings** -> quote YAML `description`, pin `npx pkg@1.2.0`, and remove cross-skill file path references.
 
 ## Done when

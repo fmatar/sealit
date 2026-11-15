@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Agentic SDLC Framework: Workbench & Live Mission Control</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style{{CSP_NONCE_ATTR}}>
+{{WORKBENCH_CSS}}
+  </style>
+</head>
+<body>
+  <div class="clearinghouse-shell">
+    <header class="masthead">
+      <div>
+        <h1>Agentic SDLC Framework: Mission Control</h1>
+        <p class="masthead-sub">
+          Double-Entry Clean Architecture Clearinghouse, Causal ADR Lineage &amp; Cryptographic SHA-256 Hash-Chain Audit Ledger
+        </p>
+      </div>
+      <div class="masthead-seals">
+        <span class="seal-badge cobalt" id="session-seal">{{SESSION_SEAL_TEXT}}</span>
+        <span class="seal-badge {{RING_SEAL_CLASS}}" id="ring-seal">{{RING_SEAL_TEXT}}</span>
+        <span class="seal-badge {{HASHCHAIN_SEAL_CLASS}}" id="hashchain-seal">{{HASHCHAIN_SEAL_TEXT}}</span>
+        <button type="button" class="action-btn" id="sync-ledger-btn" title="Synchronize live ledger from server">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+            <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+            <path d="M3 3v5h5"/>
+            <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
+            <path d="M16 16h5v5"/>
+          </svg>
+          Sync Ledger
+        </button>
+      </div>
+    </header>
+
+    <section class="lifecycle-rail" aria-label="8-Stage Lifecycle Progress">
+      <div class="lifecycle-head">
+        <h2>8-Stage Lifecycle Progress {{LIFECYCLE_BRANCH_SUFFIX}}</h2>
+        <div class="lifecycle-meta" id="lifecycle-meta-text">{{LIFECYCLE_META_HTML}}</div>
+      </div>
+      <ol class="stage-bar">
+        {{STAGE_STEPS_HTML}}
+      </ol>
+    </section>
+
+    <div class="workspace-nav">
+      <div class="workspace-tabs" role="tablist" aria-label="Mission Control Workspaces">
+        <button type="button" role="tab" aria-selected="true" id="wstab-clearinghouse" data-ws="clearinghouse" class="ws-tab">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <path d="M12 3v18"/>
+            <path d="M3 9h18"/>
+          </svg>
+          Clearinghouse Balance Sheet
+          <span class="ws-count" id="count-rings">{{MODIFIED_COUNT}}</span>
+        </button>
+        <button type="button" role="tab" aria-selected="false" id="wstab-lineage" data-ws="lineage" class="ws-tab">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+            <circle cx="6" cy="6" r="3"/>
+            <circle cx="18" cy="6" r="3"/>
+            <circle cx="12" cy="18" r="3"/>
+            <path d="M8.5 7.5 10.5 15.5"/>
+            <path d="M15.5 7.5 13.5 15.5"/>
+          </svg>
+          Causal Decision Lineage &amp; ADRs
+          <span class="ws-count" id="count-nodes">{{NODES_COUNT}}</span>
+        </button>
+        <button type="button" role="tab" aria-selected="false" id="wstab-timemachine" data-ws="timemachine" class="ws-tab">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+            <circle cx="12" cy="12" r="9"/>
+            <polyline points="12 7 12 12 15 15"/>
+          </svg>
+          Time-Machine &amp; Product DAG
+          <span class="ws-count" id="count-waves">{{WAVES_COUNT}}</span>
+        </button>
+        <button type="button" role="tab" aria-selected="false" id="wstab-kanban" data-ws="kanban" class="ws-tab">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+            <rect x="3" y="3" width="5" height="18" rx="1"/>
+            <rect x="10" y="3" width="5" height="12" rx="1"/>
+            <rect x="17" y="3" width="4" height="15" rx="1"/>
+          </svg>
+          Living Kanban Dashboard
+          <span class="ws-count" id="count-kanban">{{KANBAN_COUNT}}</span>
+        </button>
+        <button type="button" role="tab" aria-selected="false" id="wstab-trace" data-ws="trace" class="ws-tab">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="8" y1="13" x2="16" y2="13"/>
+            <line x1="8" y1="17" x2="16" y2="17"/>
+          </svg>
+          Architectural Trace Ledger
+          <span class="ws-count" id="count-trace">{{TRACE_COUNT}}</span>
+        </button>
+      </div>
+      <div class="mono fs-12 text-secondary" id="sse-indicator">
+        Live Event Stream Ready
+      </div>
+    </div>
+
+    <main class="workspace-canvas">
+      <section id="wspanel-clearinghouse" class="workspace-panel" role="tabpanel" aria-labelledby="wstab-clearinghouse">
+        <div class="clearinghouse-grid">
+          <div class="folio-box">
+            <div class="folio-box-header">
+              <h2>Clean Architecture Ring Diff &amp; AST Inspector</h2>
+              <span class="seal-badge {{RING_SEAL_CLASS}}" id="ring-folio-status">{{RING_FOLIO_STATUS}}</span>
+            </div>
+            <div class="folio-box-sub">
+              <span>Debit Folio &middot; Concentric Ring Allocation vs. <code class="mono">main</code></span>
+              <span class="mono" id="modified-files-summary">{{MODIFIED_COUNT}} file(s) in working delta</span>
+            </div>
+            <div tabindex="0" role="region" aria-labelledby="ring-ledger-caption" class="table-wrapper">
+              <table class="ledger-table ledger-table-rings">
+                <caption id="ring-ledger-caption">Clean Architecture Concentric Ring Allocation</caption>
+                <thead>
+                  <tr>
+                    <th>Concentric Ring</th>
+                    <th>Layer Policy</th>
+                    <th>Delta</th>
+                    <th>Modified File Paths</th>
+                  </tr>
+                </thead>
+                <tbody id="arch-diff-mount"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="folio-box">
+            <div class="folio-box-header">
+              <h2>Cryptographic Hash-Chain Audit &amp; Mermaid AST Schedule</h2>
+              <span class="seal-badge {{HASHCHAIN_SEAL_CLASS}}" id="hashchain-folio-status">{{HASHCHAIN_FOLIO_STATUS}}</span>
+            </div>
+            <div class="folio-box-sub">
+              <span>Credit Folio &middot; Stage 7 Gate Receipt &amp; Diagram Node/Edge Delta</span>
+              <span class="mono" id="hashchain-head-display">Head: {{HASHCHAIN_HEAD_SHORT}}...</span>
+            </div>
+            <div tabindex="0" role="region" aria-labelledby="hashchain-ledger-caption" class="table-wrapper">
+              <table class="ledger-table ledger-table-hashchain">
+                <caption id="hashchain-ledger-caption">SHA-256 Hash-Chain Audit and Latest Mermaid AST Diff</caption>
+                <thead>
+                  <tr>
+                    <th>Audit Instrument / Diagram</th>
+                    <th>Recorded Proof / AST Delta</th>
+                    <th>Seal</th>
+                  </tr>
+                </thead>
+                <tbody id="hashchain-ast-mount"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="wspanel-lineage" class="workspace-panel" role="tabpanel" aria-labelledby="wstab-lineage" hidden>
+        <div class="ledger-toolbar">
+          <div class="flex-wrap-row">
+            <label for="lineage-search" class="fw-600 fs-13">Filter Causal Graph:</label>
+            <input id="lineage-search" type="search" class="filter-input" placeholder="Search CAP-XX, ADR-00X, ticket, or keyword..." />
+          </div>
+          <div class="flex-wrap-sm" role="group" aria-label="Filter by node category">
+            <button type="button" class="action-btn primary" data-cat="ALL">All Nodes</button>
+            <button type="button" class="action-btn" data-cat="CAPABILITY">Capabilities (CAP)</button>
+            <button type="button" class="action-btn" data-cat="ADR">Decisions (ADR)</button>
+            <button type="button" class="action-btn" data-cat="SPEC">Specs</button>
+          </div>
+        </div>
+
+        <div class="clearinghouse-grid">
+          <div class="folio-box">
+            <div class="folio-box-header">
+              <h2>Causal Decision Lineage &amp; ADR Governance</h2>
+              <span class="mono fs-12 text-secondary" id="lineage-visible-count"></span>
+            </div>
+            <div tabindex="0" role="region" aria-labelledby="decision-graph-caption" class="table-wrapper">
+              <table class="ledger-table ledger-table-graph">
+                <caption id="decision-graph-caption">Causal Decision Graph Nodes</caption>
+                <thead>
+                  <tr>
+                    <th>Node ID</th>
+                    <th>Category</th>
+                    <th>Specification / Decision Title</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="decision-graph-mount"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="folio-box">
+            <div class="folio-box-header">
+              <h3>Causal Inspector &amp; ADR Adjudication Desk</h3>
+              <span class="seal-badge cobalt" id="selected-node-badge">Select a Node</span>
+            </div>
+            <div id="lineage-inspector-body" class="p-16 fs-13"></div>
+            <div class="governance-desk">
+              <div class="fw-700 fs-13 text-ink">Adjudicate Architecture Decision Record (<code class="mono">POST /api/adr/decide</code>)</div>
+              <div class="form-row">
+                <select id="adr-select" class="filter-input select-narrow" aria-label="Select ADR to adjudicate"></select>
+                <input id="adr-reason" type="text" class="filter-input" placeholder="Adjudication rationale for audit log..." aria-label="ADR adjudication rationale" />
+                <button type="button" class="action-btn primary" data-adr-action="approve">Approve ADR</button>
+                <button type="button" class="action-btn danger" data-adr-action="reject">Reject ADR</button>
+              </div>
+              <div id="adr-toast" class="status-toast" hidden></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="wspanel-timemachine" class="workspace-panel" role="tabpanel" aria-labelledby="wstab-timemachine" hidden>
+        <div class="clearinghouse-grid">
+          <div class="folio-box">
+            <div class="folio-box-header">
+              <h2>Architecture Time-Machine &amp; PRODUCT.md DAG</h2>
+              <span class="mono fs-12" id="tm-position-label">Snapshot Scrubber</span>
+            </div>
+            <div class="folio-box-sub tm-sub-bar">
+              <label for="tm-slider" class="fw-600">Scrub Historical Checkpoints:</label>
+              <input id="tm-slider" type="range" min="0" max="0" value="0" class="tm-range" />
+            </div>
+            <div id="tm-snapshot-mount" class="p-16"></div>
+          </div>
+
+          <div class="folio-box">
+            <div class="folio-box-header">
+              <h3>Topological Product DAG Waves (<code class="mono">PRODUCT.md</code>)</h3>
+              <span class="seal-badge pass" id="dag-status-badge">DAG Active</span>
+            </div>
+            <div class="governance-desk desk-top-flat">
+              <div class="fw-700 fs-13">Wave Execution Controller (<code class="mono">POST /api/dag/control</code>)</div>
+              <div class="form-row">
+                <input id="dag-reason" type="text" class="filter-input" placeholder="Operator note (e.g., maintenance window, wave sign-off)..." aria-label="DAG control reason" />
+                <button type="button" class="action-btn primary" data-dag-action="resume">Resume DAG</button>
+                <button type="button" class="action-btn" data-dag-action="advance">Advance Wave</button>
+                <button type="button" class="action-btn danger" data-dag-action="pause">Pause DAG</button>
+              </div>
+              <div id="dag-toast" class="status-toast" hidden></div>
+            </div>
+            <div tabindex="0" role="region" aria-labelledby="product-dag-caption" class="table-wrapper">
+              <table class="ledger-table ledger-table-dag">
+                <caption id="product-dag-caption">Topological Product Capability Waves</caption>
+                <thead>
+                  <tr>
+                    <th>Wave</th>
+                    <th>Execution Mode</th>
+                    <th>Capabilities, Dependencies &amp; Governance Status</th>
+                  </tr>
+                </thead>
+                <tbody id="product-dag-mount"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="wspanel-kanban" class="workspace-panel" role="tabpanel" aria-labelledby="wstab-kanban" hidden>
+        <div class="ledger-toolbar">
+          <div>
+            <h2 class="section-heading-sm">Living Kanban Dashboard</h2>
+            <p class="section-sub" id="kanban-meta-line"></p>
+          </div>
+          <div class="flex-wrap-row">
+            <input id="kanban-search" type="search" class="filter-input" placeholder="Filter tickets by #ID, title, or type..." aria-label="Filter Kanban tickets" />
+          </div>
+        </div>
+
+        <div id="kanban-columns-mount" class="kanban-board"></div>
+
+        <div class="folio-box mt-20">
+          <div class="folio-box-header">
+            <h3>End-to-End Ticket Traceability Matrix</h3>
+            <span class="mono fs-12" id="kanban-matrix-count"></span>
+          </div>
+          <div tabindex="0" role="region" aria-labelledby="kanban-matrix-caption" class="table-wrapper">
+            <table class="ledger-table ledger-table-kanban">
+              <caption id="kanban-matrix-caption">End-to-End Ticket Traceability Matrix</caption>
+              <thead>
+                <tr>
+                  <th>Ticket</th>
+                  <th>Title</th>
+                  <th>Status</th>
+                  <th>Priority</th>
+                  <th>Component</th>
+                </tr>
+              </thead>
+              <tbody id="kanban-matrix-mount"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="wspanel-trace" class="workspace-panel" role="tabpanel" aria-labelledby="wstab-trace" hidden>
+        <div class="ledger-toolbar">
+          <div>
+            <h2 class="section-heading-sm">Architectural Trace Ledger</h2>
+            <p class="section-sub">
+              Immutable audit log of Clean Architecture boundary evaluations, branch checkpoints, and Mermaid component diffs (<code class="mono">docs/ARCH_TRACE.md</code>)
+            </p>
+          </div>
+          <div>
+            <input id="trace-search" type="search" class="filter-input" placeholder="Search commit SHA, ticket, branch, or reason..." aria-label="Filter architectural trace ledger" />
+          </div>
+        </div>
+
+        <div class="folio-box">
+          <div tabindex="0" role="region" aria-labelledby="trace-ledger-caption" class="table-wrapper">
+            <table class="ledger-table ledger-table-trace">
+              <caption id="trace-ledger-caption">Architectural Traceability and Mutation Ledger</caption>
+              <thead>
+                <tr>
+                  <th>Ticket</th>
+                  <th>Timestamp</th>
+                  <th>Branch &amp; Commit</th>
+                  <th>Checkpoint Reason</th>
+                  <th>Diagrams / Components Changed</th>
+                  <th>Archlens Seal</th>
+                </tr>
+              </thead>
+              <tbody id="trace-ledger-mount"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script{{CSP_NONCE_ATTR}}>
+    const SDLC_TOKEN = new URLSearchParams(location.search).get('token') || '';
+    const authFetch = (url, opts = {}) =>
+      fetch(url, { ...opts, headers: { ...(opts.headers || {}), 'X-SDLC-Token': SDLC_TOKEN } });
+    window.__INITIAL_STATE__ = {{INITIAL_BOOTSTRAP}};
+    let STATE = window.__INITIAL_STATE__;
+    let activeCategory = 'ALL';
+    let selectedNodeId = null;
+{{SHARED_CLIENT_JS}}
+{{MISSION_CONTROL_JS}}
+  </script>
+</body>
+</html>

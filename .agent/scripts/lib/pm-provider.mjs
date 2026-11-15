@@ -9,9 +9,38 @@ import {
   hasGitHubRemote,
   gitOutput,
   resolveDefaultBaseBranch,
-  loadConfig,
+  resolveQualityThresholds,
+  sameShaPrefix,
+  readSessionFileState,
+  patchActiveSessionManifest,
   writeFileAtomic
 } from './core.mjs';
+
+const localTicketHighWater = new Map();
+
+function allocateNextLocalTicketId(repoRoot = '.') {
+  const resolvedRoot = path.resolve(repoRoot);
+  let maxId = localTicketHighWater.get(resolvedRoot) || 0;
+
+  const kanbanPath = path.resolve(resolvedRoot, 'docs/KANBAN.md');
+  if (fileExists(kanbanPath)) {
+    const content = readFileSafe(kanbanPath) || '';
+    for (const m of content.matchAll(/#(\d+):|\|\s*\*\*#?(\d+)\*\*\s*\|/g)) {
+      const num = Number(m[1] || m[2]);
+      if (Number.isInteger(num) && num > maxId) maxId = num;
+    }
+  }
+
+  const state = readSessionFileState(resolvedRoot);
+  for (const key of Object.keys(state.sessions || {})) {
+    const parsed = Number(String(key).replace(/^#/, ''));
+    if (Number.isInteger(parsed) && parsed > maxId) maxId = parsed;
+  }
+
+  const nextId = maxId + 1;
+  localTicketHighWater.set(resolvedRoot, nextId);
+  return nextId;
+}
 
 function sanitizeCurlHeaderVal(val) {
   return String(val ?? '')
@@ -55,26 +84,7 @@ function curlJsonRequest({ url, method = 'POST', headers = {}, body = null, cwd 
 }
 
 function resolveConfiguredQualityBars(repoRoot = '.') {
-  const cfg = loadConfig(repoRoot);
-  const mods = Array.isArray(cfg?.modules) ? cfg.modules : [];
-  const covVals = mods.map((m) => m?.thresholds?.diffCoverage).filter((v) => typeof v === 'number' && Number.isFinite(v));
-  const minCov =
-    typeof cfg?.testing?.coverageThreshold === 'number'
-      ? cfg.testing.coverageThreshold
-      : covVals.length > 0
-        ? Math.max(...covVals)
-        : 85;
-  const allNullMut = mods.length > 0 && mods.every((m) => m?.thresholds && m.thresholds.mutationScore === null);
-  const mutVals = mods.map((m) => m?.thresholds?.mutationScore).filter((v) => typeof v === 'number' && Number.isFinite(v));
-  const minMut =
-    cfg?.testing?.mutationThreshold !== undefined
-      ? cfg.testing.mutationThreshold
-      : allNullMut
-        ? null
-        : mutVals.length > 0
-          ? Math.max(...mutVals)
-          : 52;
-  return { minCov, minMut };
+  return resolveQualityThresholds(repoRoot);
 }
 
 export const CANONICAL_ISSUE_TEMPLATES = {
@@ -175,7 +185,7 @@ A clear and concise description of what you want to happen.
 | **Mutation Score** | Per \`.agent/sdlc-config.json\` | ✅ Verified |
 | **Archlens Ring Audit** | Zero Inner -> Outer Ring Imports | ✅ Verified |
 | **Spec-Drift Sentinel** | \`sdlc-engine drift check\` | ✅ Verified |
-| **Stage 7 Merkle Receipt** | Signed in \`docs/AUDIT_CHAIN.jsonl\` | ✅ Verified |
+| **Stage 7 Gate Receipt** | Signed in \`docs/AUDIT_CHAIN.jsonl\` | ✅ Verified |
 `
 };
 
@@ -942,7 +952,7 @@ export function createTicket({
     }
   }
 
-  const issueId = Date.now() % 10000;
+  const issueId = allocateNextLocalTicketId(repoRoot);
   mirrorTicketToKanban(repoRoot, { issueId, prefix, fullTitle });
   return {
     success: true,
@@ -955,51 +965,13 @@ export function createTicket({
   };
 }
 
-function readActiveSessionFromDisk(repoRoot = '.') {
-  const sessionPath = path.resolve(repoRoot, '.agent', '.sdlc-session.json');
-  if (!fileExists(sessionPath)) return null;
-  try {
-    const data = JSON.parse(readFileSafe(sessionPath) || '{}');
-    if (data.sessions && typeof data.sessions === 'object') {
-      const activeId = data.activeSessionId;
-      return activeId && data.sessions[activeId] ? data.sessions[activeId] : null;
-    }
-    return data.issueId ? data : null;
-  } catch {
-    return null;
-  }
-}
-
-function patchActiveSessionManifest(repoRoot = '.', manifestPatch = {}) {
-  const sessionPath = path.resolve(repoRoot, '.agent', '.sdlc-session.json');
-  if (!fileExists(sessionPath)) return false;
-  try {
-    const data = JSON.parse(readFileSafe(sessionPath) || '{}');
-    if (data.sessions && typeof data.sessions === 'object') {
-      const activeId = data.activeSessionId;
-      if (activeId && data.sessions[activeId]) {
-        data.sessions[activeId].manifest = { ...(data.sessions[activeId].manifest || {}), ...manifestPatch };
-        data.sessions[activeId].updatedAt = new Date().toISOString();
-        writeFileAtomic(sessionPath, JSON.stringify(data, null, 2));
-        return true;
-      }
-    } else if (data.issueId) {
-      data.manifest = { ...(data.manifest || {}), ...manifestPatch };
-      data.updatedAt = new Date().toISOString();
-      writeFileAtomic(sessionPath, JSON.stringify(data, null, 2));
-      return true;
-    }
-  } catch {}
-  return false;
-}
-
 export function resolveOpenPRNumber({ prNumber = null, branch = null, repoRoot = '.', execFn = execFileSync } = {}) {
   if (prNumber !== null && prNumber !== undefined && String(prNumber).trim() !== '') {
     const cleaned = String(prNumber).trim().replace(/^#/, '');
     return Number(cleaned) || cleaned;
   }
 
-  const activeSess = readActiveSessionFromDisk(repoRoot);
+  const activeSess = readSessionFileState(repoRoot).session;
   const manifestPr = activeSess?.manifest?.prNumber;
   if (manifestPr !== null && manifestPr !== undefined && String(manifestPr).trim() !== '') {
     const cleaned = String(manifestPr).trim().replace(/^#/, '');
@@ -1036,7 +1008,7 @@ export function ensurePullRequest({
   repoRoot = '.',
   execFn = execFileSync
 } = {}) {
-  const activeSess = readActiveSessionFromDisk(repoRoot);
+  const activeSess = readSessionFileState(repoRoot).session;
   const targetBaseBranch = baseBranch || resolveDefaultBaseBranch(repoRoot);
   const targetBranch =
     branch ||
@@ -1047,7 +1019,7 @@ export function ensurePullRequest({
 
   const existingPr = resolveOpenPRNumber({ branch: targetBranch, repoRoot, execFn });
   if (existingPr) {
-    const refreshedSess = readActiveSessionFromDisk(repoRoot);
+    const refreshedSess = readSessionFileState(repoRoot).session;
     return {
       success: true,
       created: false,
@@ -1119,7 +1091,7 @@ export function ensurePullRequest({
   } catch (err) {
     const fallbackPr = resolveOpenPRNumber({ branch: targetBranch, repoRoot, execFn });
     if (fallbackPr) {
-      const refreshedSess = readActiveSessionFromDisk(repoRoot);
+      const refreshedSess = readSessionFileState(repoRoot).session;
       return {
         success: true,
         created: false,
@@ -1146,6 +1118,34 @@ export function ensurePullRequest({
   };
 }
 
+function formatPillarFlag(val, isStale = false) {
+  if (val === true) return '✅ PASSED';
+  if (val === false) return '❌ FAILED';
+  if (val === 'na') return '⚪ N/A';
+  return isStale ? '⏳ STALE (re-run gate)' : '⏳ NOT VERIFIED';
+}
+
+function formatMetricPillar(rawVal, explicitPass, minThreshold, notConfiguredLabel = null, isStale = false) {
+  if (rawVal === null || rawVal === undefined || rawVal === '') {
+    return notConfiguredLabel || '⏳ NOT MEASURED';
+  }
+  const str = String(rawVal).includes('%') ? String(rawVal) : `${rawVal}%`;
+  const num = Number.parseFloat(str.replace('%', ''));
+  let passed = explicitPass;
+  if (isStale && passed !== false) {
+    return `⏳ STALE (${str} from prior commit)`;
+  }
+  if (passed !== true && passed !== false && Number.isFinite(num)) {
+    passed = minThreshold === null ? true : num >= minThreshold;
+  }
+  if (passed === false) {
+    const suffix = minThreshold !== null && Number.isFinite(num) && num < minThreshold ? ` (< ${minThreshold}%)` : '';
+    return `❌ ${str}${suffix}`;
+  }
+  if (passed === true) return `✅ ${str}`;
+  return `⏳ ${str}`;
+}
+
 export function formatConsolidatedReviewComment({
   issueId = null,
   prNumber = null,
@@ -1158,12 +1158,20 @@ export function formatConsolidatedReviewComment({
   body = '',
   coveragePct = null,
   mutationPct = null,
-  driftPassed = true,
-  wikiPassed = true,
+  coveragePassed = undefined,
+  mutationPassed = undefined,
+  testsPassed = undefined,
+  archPassed = undefined,
+  driftPassed = undefined,
+  contractPassed = undefined,
+  securityPassed = undefined,
+  flakePassed = undefined,
+  wikiPassed = undefined,
+  gatePillars = null,
   receiptId = null,
   repoRoot = '.'
 } = {}) {
-  const activeSess = readActiveSessionFromDisk(repoRoot);
+  const activeSess = readSessionFileState(repoRoot).session;
   const resolvedIssue = issueId ?? activeSess?.issueId ?? 'N/A';
   const resolvedPr = prNumber ?? activeSess?.manifest?.prNumber ?? null;
   const resolvedBranch = branch || activeSess?.branch || 'current-branch';
@@ -1178,18 +1186,39 @@ export function formatConsolidatedReviewComment({
   const { minCov, minMut } = resolveConfiguredQualityBars(repoRoot);
   const mutReqLabel = minMut === null ? 'N/A (not configured)' : `\`>= ${minMut}%\``;
 
-  const covVal =
-    coveragePct !== null && coveragePct !== undefined
-      ? String(coveragePct).includes('%')
-        ? String(coveragePct)
-        : `${coveragePct}%`
-      : activeSess?.manifest?.coverageReport || `Verified (>= ${minCov}%)`;
-  const mutVal =
-    mutationPct !== null && mutationPct !== undefined
-      ? String(mutationPct).includes('%')
-        ? String(mutationPct)
-        : `${mutationPct}%`
-      : activeSess?.manifest?.mutationScore || (minMut === null ? 'N/A' : `Verified (>= ${minMut}% / N/A)`);
+  const recordedPillars = gatePillars || activeSess?.manifest?.gatePillars || null;
+  const pillarsStale = Boolean(
+    recordedPillars && recordedPillars.headSha && resolvedSha !== 'HEAD' && !sameShaPrefix(recordedPillars.headSha, resolvedSha)
+  );
+  const pickPillar = (explicitVal, key) => {
+    if (explicitVal !== undefined) return explicitVal;
+    if (!pillarsStale && recordedPillars && Object.prototype.hasOwnProperty.call(recordedPillars, key)) {
+      return recordedPillars[key];
+    }
+    return null;
+  };
+
+  const explicitCovProvided = coveragePct !== null && coveragePct !== undefined;
+  const explicitMutProvided = mutationPct !== null && mutationPct !== undefined;
+  const rawCov = explicitCovProvided ? coveragePct : activeSess?.manifest?.coverageReport ?? null;
+  const rawMut = explicitMutProvided ? mutationPct : activeSess?.manifest?.mutationScore ?? null;
+  const covSha = activeSess?.manifest?.coverageHeadSha || recordedPillars?.headSha || null;
+  const mutSha = activeSess?.manifest?.mutationHeadSha || recordedPillars?.headSha || null;
+  const covStale = !explicitCovProvided && Boolean(rawCov && resolvedSha !== 'HEAD' && (pillarsStale || (covSha && !sameShaPrefix(covSha, resolvedSha))));
+  const mutStale = !explicitMutProvided && Boolean(rawMut && resolvedSha !== 'HEAD' && (pillarsStale || (mutSha && !sameShaPrefix(mutSha, resolvedSha))));
+  const covStatus = formatMetricPillar(rawCov, pickPillar(coveragePassed, 'coveragePassed'), minCov, null, covStale);
+  const mutStatus = formatMetricPillar(
+    rawMut,
+    pickPillar(mutationPassed, 'mutationPassed'),
+    minMut,
+    minMut === null ? '⚪ N/A (not configured)' : null,
+    mutStale
+  );
+
+  const effectiveDrift =
+    pickPillar(driftPassed, 'driftPassed') === false || pickPillar(wikiPassed, 'wikiPassed') === false
+      ? false
+      : pickPillar(driftPassed, 'driftPassed');
 
   const subagent1Text =
     peerReviewSummary ||
@@ -1227,14 +1256,14 @@ export function formatConsolidatedReviewComment({
     `### 3. 📊 Strict 9-Pillar Quality Gate & Stage 7 Cryptographic Receipt`,
     `| # | Quality Gate Pillar | Requirement | Measured / Status |`,
     `| :--- | :--- | :--- | :--- |`,
-    `| 1 | **Unit & Integration Tests** | 100% Pass (F.I.R.S.T.) | ✅ PASSED |`,
-    `| 2 | **Diff Test Coverage** | \`>= ${minCov}%\` | ✅ ${covVal} |`,
-    `| 3 | **Mutation Kill Score** | ${mutReqLabel} | ✅ ${mutVal} |`,
-    `| 4 | **Archlens Concentric Rings** | Zero Inner -> Outer Imports | ✅ PASSED |`,
-    `| 5 | **Spec-Drift Sentinel** | \`PRODUCT.md\` / \`docs/adr/\` Sync | ${driftPassed ? '✅ PASSED' : '❌ FAILED'} |`,
-    `| 6 | **API Contract Drift** | Zero Breaking Schema Changes | ✅ PASSED |`,
-    `| 7 | **Security & CVE Audit** | Zero Secrets / High CVEs | ✅ PASSED |`,
-    `| 8 | **Flake Resistance** | Deterministic Multi-Run | ✅ PASSED |`,
+    `| 1 | **Unit & Integration Tests** | 100% Pass (F.I.R.S.T.) | ${formatPillarFlag(pickPillar(testsPassed, 'unitTestsPassed'), pillarsStale)} |`,
+    `| 2 | **Diff Test Coverage** | \`>= ${minCov}%\` | ${covStatus} |`,
+    `| 3 | **Mutation Kill Score** | ${mutReqLabel} | ${mutStatus} |`,
+    `| 4 | **Archlens Concentric Rings** | Zero Inner -> Outer Imports | ${formatPillarFlag(pickPillar(archPassed, 'archPassed'), pillarsStale)} |`,
+    `| 5 | **Spec-Drift Sentinel** | \`PRODUCT.md\` / \`docs/adr/\` Sync | ${formatPillarFlag(effectiveDrift, pillarsStale)} |`,
+    `| 6 | **API Contract Drift** | Zero Breaking Schema Changes | ${formatPillarFlag(pickPillar(contractPassed, 'contractPassed'), pillarsStale)} |`,
+    `| 7 | **Security & CVE Audit** | Zero Secrets / High CVEs | ${formatPillarFlag(pickPillar(securityPassed, 'securityPassed'), pillarsStale)} |`,
+    `| 8 | **Flake Resistance** | Deterministic Multi-Run | ${formatPillarFlag(pickPillar(flakePassed, 'flakePassed'), pillarsStale)} |`,
     `| 9 | **Stage 7 HMAC Receipt** | HMAC-SHA256 Signed in \`docs/AUDIT_CHAIN.jsonl\` | \`${resolvedReceiptId}\` |`
   ].join('\n');
 }
@@ -1248,7 +1277,7 @@ export function postPMComment({
   execFn = execFileSync
 } = {}) {
   const pm = detectPMProvider(repoRoot);
-  const activeSess = readActiveSessionFromDisk(repoRoot);
+  const activeSess = readSessionFileState(repoRoot).session;
   const resolvedIssueId = issueId || activeSess?.issueId || null;
   const resolvedPrNumber = resolveOpenPRNumber({ prNumber, branch: activeSess?.branch, repoRoot, execFn });
   const targetId = resolvedIssueId || resolvedPrNumber;

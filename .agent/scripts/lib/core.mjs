@@ -1,9 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { execSync, execFileSync, exec } from 'node:child_process';
-import { promisify } from 'node:util';
-
-const execPromise = promisify(exec);
+import { execFileSync } from 'node:child_process';
 
 // --- Environment Variables Loader (.env support without external dependencies) ---
 
@@ -79,12 +76,21 @@ export function resolveInsideRepo(repoRoot = '.', relPath = '') {
   return resolved;
 }
 
+let atomicWriteCounter = 0;
+
 export function writeFileAtomic(filePath, content, options = 'utf8') {
   const dir = path.dirname(filePath);
   fs.mkdirSync(dir, { recursive: true });
-  const tmpPath = path.join(dir, `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`);
-  fs.writeFileSync(tmpPath, content, options);
-  fs.renameSync(tmpPath, filePath);
+  const tmpPath = path.join(dir, `.${path.basename(filePath)}.${process.pid}.${Date.now()}.${++atomicWriteCounter}.tmp`);
+  try {
+    fs.writeFileSync(tmpPath, content, options);
+    fs.renameSync(tmpPath, filePath);
+  } catch (err) {
+    try {
+      fs.unlinkSync(tmpPath);
+    } catch {}
+    throw err;
+  }
 }
 
 export function loadConfig(repoRoot = '.') {
@@ -98,46 +104,100 @@ export function loadConfig(repoRoot = '.') {
   }
 }
 
-export function readSessionRegistry(repoRoot = '.') {
-  const sessionPath = path.resolve(repoRoot, '.agent/.sdlc-session.json');
-  if (!fileExists(sessionPath)) {
-    return { exists: false, active: null, activeSessionId: null, sessions: {}, raw: null };
+export const DEFAULT_QUALITY_THRESHOLDS = Object.freeze({
+  diffCoverage: 85,
+  mutationScore: 80
+});
+
+function resolveExplicitThreshold(explicitVal, fallbackFn) {
+  if (explicitVal === null || explicitVal === false) return null;
+  if (explicitVal !== undefined) {
+    const n = Number(explicitVal);
+    if (Number.isFinite(n)) return n;
   }
-  try {
-    const data = JSON.parse(readFileSafe(sessionPath) || '{}');
-    if (data && data.sessions && typeof data.sessions === 'object') {
-      const active = data.activeSessionId ? data.sessions[data.activeSessionId] || null : null;
-      return {
-        exists: true,
-        active,
-        activeSessionId: data.activeSessionId || null,
-        sessions: data.sessions,
-        raw: data
-      };
-    }
-    if (data && data.active) {
-      const id = normalizeTicketId(data.issueId) || String(data.issueId || '');
-      return {
-        exists: true,
-        active: data,
-        activeSessionId: id,
-        sessions: id ? { [id]: data } : {},
-        raw: data
-      };
-    }
-    return { exists: true, active: null, activeSessionId: null, sessions: {}, raw: data };
-  } catch {
-    return { exists: true, active: null, activeSessionId: null, sessions: {}, raw: null };
-  }
+  return fallbackFn();
 }
 
-export function execCommand(cmd, options = {}) {
-  try {
-    return execSync(cmd, { stdio: 'pipe', encoding: 'utf8', ...options });
-  } catch (error) {
-    if (options.throwOnError) throw error;
-    return error.stdout || error.stderr || '';
+/**
+ * Checks whether two Git commit SHAs match (supporting full and >=7-char short SHAs).
+ */
+export function sameShaPrefix(a, b) {
+  return Boolean(
+    a && b && a !== 'HEAD' && b !== 'HEAD' && (a === b || (a.length >= 7 && b.length >= 7 && (a.startsWith(b) || b.startsWith(a))))
+  );
+}
+
+/**
+ * Single canonical quality threshold resolver used by coverage/mutation parsers,
+ * PR summaries, review comments, product/spec docs, and Stage 7 gate receipts.
+ * Precedence: cfg.gates > cfg.testing > mod.thresholds > cfg.modules max > defaults.
+ */
+export function resolveQualityThresholds(repoRoot = '.', mod = null) {
+  const cfgPath = path.resolve(repoRoot, '.agent/sdlc-config.json');
+  const configExists = fileExists(cfgPath);
+  const cfg = configExists ? loadConfig(repoRoot) : {};
+  const gates = cfg?.gates || {};
+  const testing = cfg?.testing || {};
+  const mods = Array.isArray(cfg?.modules) ? cfg.modules : [];
+
+  const covVals = mods.map((m) => m?.thresholds?.diffCoverage).filter((v) => typeof v === 'number' && Number.isFinite(v));
+  const allNullCov = mods.length > 0 && mods.every((m) => m?.thresholds && m.thresholds.diffCoverage === null);
+  const mutVals = mods.map((m) => m?.thresholds?.mutationScore).filter((v) => typeof v === 'number' && Number.isFinite(v));
+  const allNullMut = mods.length > 0 && mods.every((m) => m?.thresholds && m.thresholds.mutationScore === null);
+
+  const minCov = resolveExplicitThreshold(gates.minDiffCoverage, () =>
+    resolveExplicitThreshold(testing.coverageThreshold, () =>
+      resolveExplicitThreshold(mod?.thresholds?.diffCoverage, () =>
+        allNullCov ? null : covVals.length > 0 ? Math.max(...covVals) : DEFAULT_QUALITY_THRESHOLDS.diffCoverage
+      )
+    )
+  );
+
+  const minMut = resolveExplicitThreshold(gates.minMutationScore, () =>
+    resolveExplicitThreshold(testing.mutationThreshold, () =>
+      resolveExplicitThreshold(mod?.thresholds?.mutationScore, () =>
+        allNullMut ? null : mutVals.length > 0 ? Math.max(...mutVals) : DEFAULT_QUALITY_THRESHOLDS.mutationScore
+      )
+    )
+  );
+
+  return {
+    minCov,
+    minMut,
+    diffCoverage: minCov,
+    mutationScore: minMut,
+    configExists
+  };
+}
+
+export function readSessionRegistry(repoRoot = '.') {
+  const state = readSessionFileState(repoRoot);
+  if (!state.exists) {
+    return { exists: false, active: null, activeSessionId: null, sessions: {}, raw: null };
   }
+  if (state.error) {
+    return { exists: true, active: null, activeSessionId: null, sessions: {}, raw: null };
+  }
+  if (state.registry) {
+    return {
+      exists: true,
+      active: state.session,
+      activeSessionId: state.activeSessionId || null,
+      sessions: state.sessions,
+      raw: state.registry
+    };
+  }
+  if (state.active && state.session) {
+    const id = normalizeTicketId(state.session.issueId) || String(state.session.issueId || '');
+    return {
+      exists: true,
+      active: state.session,
+      activeSessionId: id,
+      sessions: id ? { [id]: state.session } : {},
+      raw: state.session
+    };
+  }
+  return { exists: true, active: null, activeSessionId: null, sessions: {}, raw: state.raw ?? null };
 }
 
 /**
@@ -265,21 +325,6 @@ export function parseCommandArgv(cmdSpec) {
 export function runConfiguredCommand(cmdSpec, options = {}) {
   const { file, args } = parseCommandArgv(cmdSpec);
   return execFileSync(file, args, options);
-}
-
-export async function execAsync(cmd, options = {}) {
-  try {
-    const { stdout, stderr } = await execPromise(cmd, { encoding: 'utf8', ...options });
-    return { ok: true, stdout: stdout || '', stderr: stderr || '' };
-  } catch (error) {
-    if (options.throwOnError) throw error;
-    return {
-      ok: false,
-      stdout: error.stdout || '',
-      stderr: error.stderr || error.message || '',
-      error
-    };
-  }
 }
 
 export async function runParallelTasks(tasks = [], concurrency = 4) {
@@ -439,9 +484,26 @@ export function diagnoseEnvironment(repoRoot = '.') {
  * or null when git exits non-zero. Filenames and refs are passed verbatim,
  * so values like `$(cmd).js` can never be interpreted by a shell.
  */
+export function cleanGitEnv(baseEnv = process.env) {
+  const env = { ...baseEnv };
+  delete env.GIT_DIR;
+  delete env.GIT_WORK_TREE;
+  delete env.GIT_INDEX_FILE;
+  delete env.GIT_COMMON_DIR;
+  delete env.GIT_OBJECT_DIRECTORY;
+  delete env.GIT_ALTERNATE_OBJECT_DIRECTORIES;
+  return env;
+}
+
 export function gitOutput(args, repoRoot = '.') {
   try {
-    return execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    const absRoot = path.resolve(repoRoot);
+    return execFileSync('git', ['-C', absRoot, ...args], {
+      cwd: absRoot,
+      env: cleanGitEnv(),
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore']
+    });
   } catch {
     return null;
   }
@@ -526,7 +588,12 @@ export function getUnifiedDiffByFile(baseBranch = null, repoRoot = '.', files = 
   appendUnifiedDiffChunks(workingDiff, diffMap);
 
   const untrackedOut = gitOutput(['ls-files', '--others', '--exclude-standard'], repoRoot) || '';
-  const untrackedSet = new Set(untrackedOut.split('\n').map((s) => s.trim()).filter(Boolean));
+  const untrackedSet = new Set(
+    untrackedOut
+      .split('\n')
+      .map((s) => s.trim())
+      .filter((f) => Boolean(f) && !isEphemeralUntrackedSdlcFile(f))
+  );
   const candidateFiles = Array.isArray(files) && files.length > 0 ? files : Array.from(untrackedSet);
   for (const file of candidateFiles) {
     if (!diffMap.has(file) && untrackedSet.has(file)) {
@@ -540,6 +607,49 @@ export function getUnifiedDiffByFile(baseBranch = null, repoRoot = '.', files = 
     }
   }
   return diffMap;
+}
+
+/**
+ * Extracts 1-based added/modified new-file line numbers from unified diff output,
+ * supporting both git hunk headers (`@@ -old +new @@`) and synthesized untracked diffs.
+ */
+export function extractAddedLinesFromDiff(unifiedDiff = '') {
+  const addedLines = new Set();
+  if (!unifiedDiff) return addedLines;
+
+  let newLine = 1;
+  let inHunk = false;
+  let expectingHeaderHunk = false;
+
+  for (const line of String(unifiedDiff).split('\n')) {
+    if (line.startsWith('diff --git ')) {
+      inHunk = false;
+      expectingHeaderHunk = true;
+      continue;
+    }
+    const hunkMatch = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+    if (hunkMatch) {
+      newLine = parseInt(hunkMatch[1], 10);
+      inHunk = true;
+      expectingHeaderHunk = false;
+      continue;
+    }
+    if (!expectingHeaderHunk && !inHunk && line.startsWith('+++ b/')) {
+      // Synthesized untracked diff (`+++ b/<file>\n+...` without `@@` headers)
+      newLine = 1;
+      inHunk = true;
+      continue;
+    }
+    if (!inHunk) continue;
+    if (line.startsWith('\\')) continue;
+    if (line.startsWith('+')) {
+      addedLines.add(newLine);
+      newLine++;
+    } else if (line.startsWith(' ')) {
+      newLine++;
+    }
+  }
+  return addedLines;
 }
 
 export function hasDevelopBranch(repoRoot = '.') {
@@ -579,6 +689,17 @@ export function resolveDefaultBaseBranch(repoRoot = '.') {
   return hasDevelopBranch(repoRoot) ? 'develop' : 'main';
 }
 
+const EPHEMERAL_SDLC_UNTRACKED = new Set([
+  '.agent/.sdlc-session.json',
+  '.agent/.receipt-key',
+  '.agent/.audit-chain.lock'
+]);
+
+function isEphemeralUntrackedSdlcFile(relPath) {
+  const norm = String(relPath).replace(/\\/g, '/');
+  return EPHEMERAL_SDLC_UNTRACKED.has(norm) || norm.startsWith('.agent/.cache/');
+}
+
 export function getModifiedFiles(baseBranch = null, repoRoot = '.') {
   const resolvedBase = baseBranch || resolveDefaultBaseBranch(repoRoot);
   const lines = (out) => (out || '').split('\n').map((s) => s.trim()).filter(Boolean);
@@ -588,7 +709,151 @@ export function getModifiedFiles(baseBranch = null, repoRoot = '.') {
     gitOutput(['diff', '--name-only', 'HEAD~1'], repoRoot);
   const workingFiles = [
     ...lines(gitOutput(['diff', '--name-only', 'HEAD'], repoRoot)),
-    ...lines(gitOutput(['ls-files', '--others', '--exclude-standard'], repoRoot))
+    ...lines(gitOutput(['ls-files', '--others', '--exclude-standard'], repoRoot)).filter(
+      (f) => !isEphemeralUntrackedSdlcFile(f)
+    )
   ];
   return Array.from(new Set([...lines(branchOut), ...workingFiles]));
+}
+
+export function getSessionFilePath(repoRoot = '.') {
+  return path.resolve(repoRoot, '.agent', '.sdlc-session.json');
+}
+
+export function readSessionFileState(repoRoot = '.') {
+  const sessionPath = getSessionFilePath(repoRoot);
+  if (!fileExists(sessionPath)) {
+    return { exists: false, active: false, session: null, activeSessionId: null, sessions: {}, registry: null };
+  }
+  const content = readFileSafe(sessionPath);
+  if (!content) {
+    return { exists: true, active: false, session: null, activeSessionId: null, sessions: {}, registry: null, error: 'Empty session file' };
+  }
+  try {
+    const data = JSON.parse(content);
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      return { exists: true, active: false, session: null, activeSessionId: null, sessions: {}, registry: null, error: 'Invalid session file structure' };
+    }
+    if (data.sessions && typeof data.sessions === 'object' && !Array.isArray(data.sessions)) {
+      const activeId = data.activeSessionId;
+      const activeSession =
+        activeId !== null &&
+        activeId !== undefined &&
+        Object.prototype.hasOwnProperty.call(data.sessions, activeId)
+          ? data.sessions[activeId]
+          : null;
+      return {
+        exists: true,
+        active: !!activeSession?.active,
+        session: activeSession,
+        activeSessionId: activeId,
+        sessions: data.sessions,
+        registry: data,
+        raw: data
+      };
+    }
+    const hasLegacySession = Boolean(data.issueId || data.active);
+    return {
+      exists: true,
+      active: !!data.active,
+      session: hasLegacySession ? data : null,
+      activeSessionId: data.issueId || null,
+      sessions: data.issueId ? { [data.issueId]: data } : {},
+      registry: null,
+      raw: data
+    };
+  } catch {
+    return { exists: true, active: false, session: null, activeSessionId: null, sessions: {}, registry: null, error: 'Corrupted session file' };
+  }
+}
+
+export function patchActiveSessionManifest(repoRoot = '.', manifestPatch = {}) {
+  const sessionPath = getSessionFilePath(repoRoot);
+  if (!fileExists(sessionPath)) return false;
+  try {
+    const data = JSON.parse(readFileSafe(sessionPath) || '{}');
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return false;
+    if (data.sessions && typeof data.sessions === 'object' && !Array.isArray(data.sessions)) {
+      const activeId = data.activeSessionId;
+      if (
+        activeId !== null &&
+        activeId !== undefined &&
+        Object.prototype.hasOwnProperty.call(data.sessions, activeId) &&
+        data.sessions[activeId]
+      ) {
+        data.sessions[activeId].manifest = { ...(data.sessions[activeId].manifest || {}), ...manifestPatch };
+        data.sessions[activeId].updatedAt = new Date().toISOString();
+        writeFileAtomic(sessionPath, JSON.stringify(data, null, 2));
+        return true;
+      }
+    } else if (data.issueId || data.active) {
+      data.manifest = { ...(data.manifest || {}), ...manifestPatch };
+      data.updatedAt = new Date().toISOString();
+      writeFileAtomic(sessionPath, JSON.stringify(data, null, 2));
+      return true;
+    }
+  } catch {}
+  return false;
+}
+
+export const DEPRECATED_SDLC_SKILLS = [
+  'sdlc-analyze',
+  'sdlc-arch-trace',
+  'sdlc-docs-wiki',
+  'sdlc-feature-spec',
+  'sdlc-help',
+  'sdlc-init',
+  'sdlc-initialize',
+  'sdlc-kanban',
+  'sdlc-peer-review',
+  'sdlc-quality-gate',
+  'sdlc-release-changelog',
+  'sdlc-review-gate',
+  'sdlc-tdd-implement',
+  'sdlc-test-coverage'
+];
+
+export const CANONICAL_SDLC_SKILLS = [
+  'sdlc',
+  'sdlc-adr',
+  'sdlc-doctor',
+  'sdlc-flow',
+  'sdlc-gate',
+  'sdlc-product',
+  'sdlc-release',
+  'sdlc-status',
+  'sdlc-tdd',
+  'sdlc-wiki'
+];
+
+export function getExemptionsPath(repoRoot = '.') {
+  return path.resolve(repoRoot, '.agent', 'sdlc-exemptions.json');
+}
+
+export function getExemptions(repoRoot = '.') {
+  const exPath = getExemptionsPath(repoRoot);
+  if (!fileExists(exPath)) return [];
+  try {
+    const data = JSON.parse(readFileSafe(exPath));
+    return Array.isArray(data.exemptions) ? data.exemptions : [];
+  } catch {
+    return [];
+  }
+}
+
+export function readSessionStatus(repoRoot = '.') {
+  const state = readSessionFileState(repoRoot);
+  if (!state.exists) {
+    return { active: false, session: null, registry: null };
+  }
+  if (state.error) {
+    return { active: false, session: null, registry: null, error: state.error };
+  }
+  return {
+    active: state.active,
+    session: state.session,
+    activeSessionId: state.activeSessionId,
+    sessions: state.sessions,
+    registry: state.registry
+  };
 }
