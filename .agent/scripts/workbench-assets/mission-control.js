@@ -33,11 +33,11 @@ function renderClearinghouse() {
     }).join('');
   }
 
-  const maEl = document.getElementById('merkle-ast-mount');
+  const maEl = document.getElementById('hashchain-ast-mount');
   if (maEl) {
     const snap = arch.latestSnapshot;
     const rows = [
-      '<tr><th>SHA-256 Merkle Root</th><td class="mono">' + escapeHtml(audit.merkleRoot || 'GENESIS_HASH') + '</td><td><span class="seal-badge ' + (audit.valid !== false ? 'pass' : 'fail') + '">' + (audit.valid !== false ? 'Verified' : 'Invalid') + '</span></td></tr>',
+      '<tr><th>SHA-256 Chain Head</th><td class="mono">' + escapeHtml(audit.chainHead || 'GENESIS_HASH') + '</td><td><span class="seal-badge ' + (audit.valid !== false ? 'pass' : 'fail') + '">' + (audit.valid !== false ? 'Verified' : 'Invalid') + '</span></td></tr>',
       '<tr><th>Ledger Chain Depth</th><td class="mono">' + escapeHtml(String(audit.recordsCount || 0)) + ' signed gate receipt(s)</td><td><span class="seal-badge pass">Immutable</span></td></tr>'
     ];
     if (snap) {

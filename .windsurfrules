@@ -7,7 +7,7 @@
 - Every commit requires an active session in `.agent/.sdlc-session.json` matching the current branch.
 - Feature, bugfix, and chore PRs merge into `develop` (default base branch).
 - Pull requests targeting `main` must originate exclusively from `develop`.
-- Every merge into `main` requires a signed Stage 7 SHA-256 Merkle Gate Receipt in `docs/AUDIT_CHAIN.jsonl`.
+- Every merge into `main` requires a signed Stage 7 SHA-256 Hash-Chain Gate Receipt in `docs/AUDIT_CHAIN.jsonl`.
 - Merging `develop` into `main` triggers automated production release tagging and distribution.
 
 ## 2. PRODUCT.md Constitution & Spec Drift ADR Protocol

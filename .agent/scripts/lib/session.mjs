@@ -2,12 +2,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
+  cleanGitEnv,
   fileExists,
+  gitOutput,
   readFileSafe,
   getModifiedFiles,
   normalizeTicketId,
   parseTicketId,
   resolveQualityThresholds,
+  sameShaPrefix,
   getSessionFilePath,
   readSessionStatus,
   getExemptionsPath,
@@ -326,7 +329,12 @@ export function releaseSession(repoRoot = '.', issueId = null) {
       try {
         console.log(`🌲 Pruning Git worktree: ${targetSession.worktree}...`);
         try {
-          execFileSync('git', ['worktree', 'remove', '--force', '--', targetSession.worktree], { cwd: repoRoot, stdio: 'pipe' });
+          const absRoot = path.resolve(repoRoot);
+          execFileSync('git', ['-C', absRoot, 'worktree', 'remove', '--force', '--', targetSession.worktree], {
+            cwd: absRoot,
+            env: cleanGitEnv(),
+            stdio: 'pipe'
+          });
         } catch {}
       } catch {}
     }
@@ -471,7 +479,18 @@ export function receiptInputsFromSession(session, { driftCheckPassed, repoRoot =
     ? null
     : parsePct(manifest.mutationScore ?? manifest.mutationPct ?? manifest.mutation);
   if (mutationPct === undefined && !isDocsOnly && lane === 'full') {
-    if (resolveQualityThresholds(repoRoot).minMut === null) mutationPct = null;
+    if (resolveQualityThresholds(repoRoot).minMut === null) {
+      mutationPct = null;
+    } else if (
+      (manifest.mutationSkippedReason === 'diff-no-mutated-sources' ||
+        manifest.mutationSkippedReason === 'diff-zero-mutants') &&
+      manifest.gatePillars?.mutationPassed === true
+    ) {
+      const currentHeadSha = (gitOutput(['rev-parse', 'HEAD'], repoRoot) || '').trim();
+      if (!currentHeadSha || (manifest.mutationHeadSha && sameShaPrefix(manifest.mutationHeadSha, currentHeadSha))) {
+        mutationPct = null;
+      }
+    }
   }
   const review = manifest.peerReview;
   return {
@@ -702,8 +721,13 @@ export function executeCompositeStage({
       force: true
     });
 
-    if (checkoutBranch && fileExists(path.resolve(repoRoot, '.git'))) {
-      execFileSync('git', ['checkout', '-B', targetBranch, '--'], { cwd: repoRoot, stdio: 'pipe' });
+    const absRoot = path.resolve(repoRoot);
+    if (checkoutBranch && fileExists(path.join(absRoot, '.git'))) {
+      execFileSync('git', ['-C', absRoot, 'checkout', '-B', targetBranch, '--'], {
+        cwd: absRoot,
+        env: cleanGitEnv(),
+        stdio: 'pipe'
+      });
     }
 
     if (!isLocalId) {

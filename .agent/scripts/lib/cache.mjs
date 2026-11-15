@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { fileExists, readFileSafe, writeFileAtomic } from './core.mjs';
+import { cleanGitEnv, fileExists, readFileSafe, writeFileAtomic } from './core.mjs';
 
 const CACHE_REL_PATH = '.agent/.cache/gate-cache.json';
 
@@ -29,19 +29,16 @@ export function computeTreeHash(repoRoot = '.', modulePath = '.') {
 
   let gitAvailable = false;
   try {
-    const headSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: absRoot, encoding: 'utf8', stdio: 'pipe' }).trim();
-    const rawStatusOut = execFileSync('git', ['status', '--porcelain', '--untracked-files=all', '--', modulePath], {
-      cwd: absRoot,
-      encoding: 'utf8',
-      stdio: 'pipe'
-    });
+    const gitOpts = { cwd: absRoot, env: cleanGitEnv(), encoding: 'utf8', stdio: 'pipe' };
+    const headSha = execFileSync('git', ['-C', absRoot, 'rev-parse', 'HEAD'], gitOpts).trim();
+    const rawStatusOut = execFileSync('git', ['-C', absRoot, 'status', '--porcelain', '--untracked-files=all', '--', modulePath], gitOpts);
     const statusOut = rawStatusOut
       .split('\n')
       .filter((line) => !line.includes('.agent/') && !line.endsWith('.agent'))
       .join('\n');
     let diffOut = '';
     try {
-      diffOut = execFileSync('git', ['diff', 'HEAD', '--', modulePath], { cwd: absRoot, encoding: 'utf8', stdio: 'pipe' });
+      diffOut = execFileSync('git', ['-C', absRoot, 'diff', 'HEAD', '--', modulePath], gitOpts);
     } catch {}
 
     hash.update(`head:${headSha}\nstatus:${statusOut}\ndiff:${diffOut}\n`);

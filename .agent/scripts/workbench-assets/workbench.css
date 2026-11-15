@@ -443,7 +443,7 @@ button, input, select {
 
 /* Responsive Table Column Labels & Semantic Utility Classes (Strict Nonce CSP: Zero Inline Style Attrs) */
 .ledger-table-rings { --label-2: 'Layer Policy'; --label-3: 'Delta'; --label-4: 'Modified Paths'; }
-.ledger-table-merkle { --label-2: 'Verification Value'; --label-3: 'Status'; }
+.ledger-table-hashchain { --label-2: 'Verification Value'; --label-3: 'Status'; }
 .ledger-table-graph { --label-2: 'Category'; --label-3: 'Specification / Decision Title'; --label-4: 'Status'; }
 .ledger-table-dag { --label-2: 'Execution Mode'; --label-3: 'Capabilities & Specs'; }
 .ledger-table-kanban { --label-2: 'Status'; --label-3: 'Priority'; --label-4: 'Component'; }

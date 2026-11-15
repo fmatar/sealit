@@ -17,7 +17,7 @@ The 8-stage `/sdlc-flow` orchestrator previously required the agent to invoke ~1
    - `sdlc-engine stage pre-pr --issue=#<id>`:
      - Advances the active session through Stage 5 and Stage 6.
      - Evaluates `checkSpecDrift`, synchronizes `docs/DECISION_MAP.md` (`syncDecisionMapMarkdown`), and records architectural traceability (`recordArchTrace`).
-     - Issues the cryptographic Stage 7 SHA-256 Merkle Gate Receipt (`issueGateReceipt`).
+     - Issues the cryptographic Stage 7 HMAC-SHA256 Hash-Chain Gate Receipt (`issueGateReceipt`).
      - Generates the standardized PR summary (`generatePRSummary`).
      - Ensures the PR targets `develop` (`ensurePullRequest --base develop`).
    - `sdlc-engine stage complete --issue=#<id> [--pr=#<num>]`:

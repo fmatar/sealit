@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { resolveQualityThresholds, parseTicketId } from './core.mjs';
+import { cleanGitEnv, resolveQualityThresholds, parseTicketId } from './core.mjs';
 
 export const AUDIT_LEDGER_FILE = 'docs/AUDIT_CHAIN.jsonl';
 export const GENESIS_HASH = '0000000000000000000000000000000000000000000000000000000000000000';
@@ -199,17 +199,20 @@ export const RECEIPT_KEY_FILE = '.agent/.receipt-key';
 export function loadReceiptKey(repoRoot = '.', { create = false } = {}) {
   if (process.env.SDLC_RECEIPT_KEY) return Buffer.from(process.env.SDLC_RECEIPT_KEY, 'utf8');
   const keyPath = path.resolve(repoRoot, RECEIPT_KEY_FILE);
+  const absRoot = path.resolve(repoRoot);
   if (fs.existsSync(keyPath)) {
     try {
-      execFileSync('git', ['ls-files', '--error-unmatch', '--', RECEIPT_KEY_FILE], {
-        cwd: repoRoot,
+      execFileSync('git', ['-C', absRoot, 'ls-files', '--error-unmatch', '--', RECEIPT_KEY_FILE], {
+        cwd: absRoot,
+        env: cleanGitEnv(),
         stdio: 'pipe'
       });
       return null;
     } catch {}
     try {
-      execFileSync('git', ['cat-file', '-e', `HEAD:${RECEIPT_KEY_FILE}`], {
-        cwd: repoRoot,
+      execFileSync('git', ['-C', absRoot, 'cat-file', '-e', `HEAD:${RECEIPT_KEY_FILE}`], {
+        cwd: absRoot,
+        env: cleanGitEnv(),
         stdio: 'pipe'
       });
       return null;
@@ -319,10 +322,11 @@ export function issueGateReceipt({
     }
   }
 
+  const absRoot = path.resolve(repoRoot);
   let resolvedSha = headSha;
   if (!resolvedSha) {
     try {
-      resolvedSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8', stdio: 'pipe' }).trim();
+      resolvedSha = execFileSync('git', ['-C', absRoot, 'rev-parse', 'HEAD'], { cwd: absRoot, env: cleanGitEnv(), encoding: 'utf8', stdio: 'pipe' }).trim();
     } catch {
       return { success: false, missing: ['headSha'], reason: 'Refusing to issue gate receipt: cannot resolve HEAD commit.' };
     }
@@ -403,25 +407,19 @@ export function verifyGateReceipt({ headSha = null, branch = null, repoRoot = '.
     };
   }
 
+  const absRoot = path.resolve(repoRoot);
+  const gitOpts = { cwd: absRoot, env: cleanGitEnv(), encoding: 'utf8', stdio: 'pipe' };
   const isHexSha = (sha) => /^[0-9a-f]{7,64}$/i.test(String(sha || '').trim());
   const branchForLookup = branch && branch !== 'HEAD' ? branch : null;
   let targetSha = headSha ? String(headSha).trim() : null;
   if (targetSha && !isHexSha(targetSha)) {
     try {
-      const resolvedRef = execFileSync('git', ['rev-parse', '--verify', '-q', '--end-of-options', targetSha], {
-        cwd: repoRoot,
-        encoding: 'utf8',
-        stdio: 'pipe'
-      }).trim();
+      const resolvedRef = execFileSync('git', ['-C', absRoot, 'rev-parse', '--verify', '-q', '--end-of-options', targetSha], gitOpts).trim();
       if (resolvedRef) targetSha = resolvedRef;
     } catch {}
   } else if (!targetSha && branchForLookup) {
     try {
-      targetSha = execFileSync('git', ['rev-parse', '--verify', '-q', '--end-of-options', branchForLookup], {
-        cwd: repoRoot,
-        encoding: 'utf8',
-        stdio: 'pipe'
-      }).trim();
+      targetSha = execFileSync('git', ['-C', absRoot, 'rev-parse', '--verify', '-q', '--end-of-options', branchForLookup], gitOpts).trim();
     } catch {}
   }
 
@@ -447,12 +445,8 @@ export function verifyGateReceipt({ headSha = null, branch = null, repoRoot = '.
     if (m.headSha === targetSha) return true;
     if (isHexSha(m.headSha) && isHexSha(targetSha)) {
       try {
-        execFileSync('git', ['merge-base', '--is-ancestor', '--', m.headSha, targetSha], { cwd: repoRoot, stdio: 'pipe' });
-        const diffFiles = execFileSync('git', ['diff', '--name-only', m.headSha, targetSha, '--'], {
-          cwd: repoRoot,
-          encoding: 'utf8',
-          stdio: 'pipe'
-        })
+        execFileSync('git', ['-C', absRoot, 'merge-base', '--is-ancestor', '--', m.headSha, targetSha], gitOpts);
+        const diffFiles = execFileSync('git', ['-C', absRoot, 'diff', '--name-only', m.headSha, targetSha, '--'], gitOpts)
           .trim()
           .split('\n')
           .filter(Boolean);

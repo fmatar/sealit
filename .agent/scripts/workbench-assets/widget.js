@@ -55,16 +55,17 @@ function initWidget() {
     ? 'Rings Balanced: 0 Violations'
     : 'Ring Violations: ' + STATE.arch.archDiff.violationsCount;
 
-  const merkleBadge = document.getElementById('merkle-badge');
-  merkleBadge.className = 'seal-pill ' + (STATE.audit?.valid ? 'pass' : 'fail');
-  merkleBadge.textContent = STATE.audit?.valid
-    ? 'Merkle Verified (' + (STATE.audit.recordsCount || 0) + ' entries)'
-    : 'Merkle Check Failed';
+  const hashchainBadge = document.getElementById('hashchain-badge');
+  hashchainBadge.className = 'seal-pill ' + (STATE.audit?.valid ? 'pass' : 'fail');
+  hashchainBadge.textContent = STATE.audit?.valid
+    ? 'Hash-Chain Verified (' + (STATE.audit.recordsCount || 0) + ' entries)'
+    : 'Hash-Chain Check Failed';
 
   document.getElementById('rings-count-label').textContent = (STATE.arch.modifiedFiles?.length || 0) + ' modified';
-  document.getElementById('merkle-root-short').textContent = STATE.audit?.merkleRoot
-    ? 'Root ' + String(STATE.audit.merkleRoot).slice(0, 12) + '...'
-    : 'Genesis Root';
+  const chainHead = STATE.audit?.chainHead;
+  document.getElementById('hashchain-head-short').textContent = chainHead
+    ? 'Head ' + String(chainHead).slice(0, 12) + '...'
+    : 'Genesis Head';
 
   document.getElementById('rings-grid').innerHTML = Object.entries(STATE.arch.rings || {}).map(([ringName, files]) => {
     const preview = files.slice(0, 4).map(f => '<div class="mono">' + escapeHtml(f) + '</div>').join('');
@@ -78,15 +79,15 @@ function initWidget() {
 
   const latest = STATE.arch.latestSnapshot;
   const diffBox = document.getElementById('mermaid-diff-box');
-  const rootHash = STATE.audit?.merkleRoot || '0000000000000000';
+  const rootHash = STATE.audit?.chainHead || '0000000000000000';
   if (latest && (latest.diagramChanges || []).length > 0) {
     diffBox.innerHTML =
-      '<div class="mb-8"><strong>SHA-256 Merkle Root:</strong> <code class="mono">' + escapeHtml(rootHash.slice(0, 24)) + '...</code></div>' +
+      '<div class="mb-8"><strong>SHA-256 Chain Head:</strong> <code class="mono">' + escapeHtml(rootHash.slice(0, 24)) + '...</code></div>' +
       '<div class="fw-600 mb-4">Latest Mermaid AST Graph Diff (' + escapeHtml(latest.ticket) + '):</div>' +
       latest.diagramChanges.map(d => '<div class="mono">&bull; ' + escapeHtml(d.diagram) + ': ' + escapeHtml(d.summary) + '</div>').join('');
   } else {
     diffBox.innerHTML =
-      '<div class="mb-8"><strong>SHA-256 Merkle Root:</strong> <code class="mono">' + escapeHtml(rootHash.slice(0, 24)) + '...</code></div>' +
+      '<div class="mb-8"><strong>SHA-256 Chain Head:</strong> <code class="mono">' + escapeHtml(rootHash.slice(0, 24)) + '...</code></div>' +
       '<div class="fw-600">Latest Architectural Checkpoint:</div>' +
       '<div class="text-secondary mt-4">' + (latest ? (escapeHtml(latest.reason) + ' (' + escapeHtml(latest.ticket) + ' on ' + escapeHtml(latest.branch) + ')') : 'Zero breaking diagram mutations recorded.') + '</div>';
   }

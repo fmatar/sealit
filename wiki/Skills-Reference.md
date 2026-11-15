@@ -81,14 +81,14 @@ This reference documents the **10 Canonical Skills — 1 Universal Router (`/sdl
 - **Engine Modules**: `.agent/scripts/lib/quality-gate.mjs`, `.agent/scripts/lib/arch-trace.mjs`, `.agent/scripts/lib/audit-chain.mjs`
 - **Capabilities**:
   - Generates risk-tiered parallel subagent review plans (`review plan --base main`) for read-only **PR Peer Reviewer** and **Architecture & Security Gatekeeper** subagents.
-  - Runs the strict 9-pillar gate (`gate --strict`): lint, build, coverage, risk audit (`risk-audit`), secret/CVE scan (`security-audit`), [Archlens](https://github.com/fmatar/archlens) concentric ring diff (`archlens diff`), flaky test detection (`flake-check`), API contract check (`contract check`), Merkle audit verification (`audit verify`), README 10–30–90 audit (`readme audit --strict`), and Wiki drift audit (`wiki audit --strict`).
-  - Derives `--verdict <approve|request-changes>` strictly from reviewer blocker counts and issues HMAC-SHA256 Stage 7 Merkle Gate Receipts (`review record` / `guard receipt`).
+  - Runs the strict 9-pillar gate (`gate --strict`): lint, build, coverage, risk audit (`risk-audit`), secret/CVE scan (`security-audit`), [Archlens](https://github.com/fmatar/archlens) concentric ring diff (`archlens diff`), flaky test detection (`flake-check`), API contract check (`contract check`), hash-chain audit verification (`audit verify`), README 10–30–90 audit (`readme audit --strict`), and Wiki drift audit (`wiki audit --strict`).
+  - Derives `--verdict <approve|request-changes>` strictly from reviewer blocker counts and issues HMAC-SHA256 Stage 7 Gate Receipts (`review record` / `guard receipt`).
 
 ### 2.6 `sdlc-status` — Read-Only Mission Control, Kanban & Telemetry Inspector
 - **Path**: `.agent/skills/sdlc-status/SKILL.md`
 - **Engine Modules**: `.agent/scripts/lib/session.mjs`, `.agent/scripts/lib/adr-drift.mjs`, `.agent/scripts/lib/audit-chain.mjs`
 - **Capabilities**:
-  - Strictly read-only (`tools: read_file, run_command`): displays the 8-stage ASCII progress dashboard (`session dashboard`), session velocity/estimated ROI metrics (`stats`), Spec-Drift status (`drift check`), Merkle audit health (`audit verify`), and Archlens ring diff (`arch diff`).
+  - Strictly read-only (`tools: read_file, run_command`): displays the 8-stage ASCII progress dashboard (`session dashboard`), session velocity/estimated ROI metrics (`stats`), Spec-Drift status (`drift check`), hash-chain audit health (`audit verify`), and Archlens ring diff (`arch diff`).
   - Never writes `.agent/workbench/index.html` or starts `serve` automatically (use `/sdlc ui` or `/sdlc serve` when the HTML workbench is requested).
 
 ### 2.7 `sdlc-doctor` — Stack Discovery, Auto-Healer & Multi-Agent Installer
@@ -147,7 +147,7 @@ node .agent/scripts/sdlc-engine.mjs dossier generate --issue <id> [--cap CAP-XX]
 # Testing, Coverage, Mutation & Quality Gates
 node .agent/scripts/sdlc-engine.mjs test [--affected-only]
 node .agent/scripts/sdlc-engine.mjs coverage [--no-cache]
-node .agent/scripts/sdlc-engine.mjs mutation [--no-cache]
+node .agent/scripts/sdlc-engine.mjs mutation [--full] [--no-cache]
 node .agent/scripts/sdlc-engine.mjs gate [--strict] [--no-cache]
 node .agent/scripts/sdlc-engine.mjs review <plan|record> [--verdict <approve|request-changes>] [--reviewer <id>] [--pr <num>]
 node .agent/scripts/sdlc-engine.mjs risk-audit

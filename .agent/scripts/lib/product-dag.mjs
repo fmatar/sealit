@@ -116,7 +116,7 @@ export function renderProductPrdMarkdown({
 ${capRows}
 
 ### Out of Scope (Non-Goals)
-- Bypassing the 4-Layer Git Guard or merging unverified code without a Stage 7 SHA-256 Merkle Gate Receipt.
+- Bypassing the 4-Layer Git Guard or merging unverified code without a Stage 7 HMAC-SHA256 Hash-Chain Gate Receipt.
 
 ## 4. User Experience & Core Flows
 - **Onboarding Flow**: \`npx github:fmatar/agentic-sdlc-framework install\` -> select coding agents -> run \`/sdlc-doctor\`.
@@ -185,7 +185,7 @@ flowchart TB
     Operator["Developer / AI Coding Agent"] --> Router["/sdlc Router & 9 Verb Skills (10 Canonical Skills)\n(.agent/skills/)"]
     Router --> Engine["SDLC Universal Engine\n(.agent/scripts/sdlc-engine.mjs)"]
     Engine --> Domain["Modular Domain Libraries\n(.agent/scripts/lib/*.mjs)"]
-    Domain --> Ledger["SHA-256 Merkle Audit Chain & Decision Graph\n(docs/AUDIT_CHAIN.jsonl, docs/DECISION_MAP.md)"]
+    Domain --> Ledger["SHA-256 Hash-Chain Audit Ledger & Decision Graph\n(docs/AUDIT_CHAIN.jsonl, docs/DECISION_MAP.md)"]
     Domain --> Workbench["Architecture & Decision Workbench\n(http://localhost:4120)"]
 \`\`\`
 
@@ -339,7 +339,7 @@ ${capTableRows}
 
 ## 4. Genesis & Milestone Execution Rules
 - **Genesis Ticket \`#1\`**: \`feature/issue-#1-product-genesis\` initializes \`PRODUCT.md\`, \`docs/PRD.md\`, \`docs/SRS.md\`, baseline specs, and project scaffolding.
-- **Zero-Bypass Merge Rule**: No PR merges to \`main\` without a signed Stage 7 SHA-256 Merkle Gate Receipt.
+- **Zero-Bypass Merge Rule**: No PR merges to \`main\` without a signed Stage 7 HMAC-SHA256 Hash-Chain Gate Receipt.
 
 ---
 

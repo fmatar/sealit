@@ -39,7 +39,11 @@ export {
   buildSingleTestCommand,
   parseCoverageReport,
   parseMutationReport,
+  tryParseStrykerReport,
+  extractChangedHunkRanges,
+  buildMutationExecutionPlan,
   runFlakeCheck,
+  runFlakeCheckParallel,
   suggestMutationStrengthening
 } from './coverage-mutation.mjs';
 

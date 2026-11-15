@@ -12,7 +12,7 @@
 ---
 
 ## 2. Hard Domain & System Invariants (`INV-XX`)
-- **INV-01**: Zero direct commits, merges, or pushes to `main` or `develop` (enforced by 4-Layer Git Guard & Stage 7 Merkle Gate Receipts).
+- **INV-01**: Zero direct commits, merges, or pushes to `main` or `develop` (enforced by 4-Layer Git Guard & Stage 7 Hash-Chain Gate Receipts).
 - **INV-02**: 100% of code changes require an active SDLC ticket session and Dual-Gate verification ($\ge 85\%$ diff coverage, $\ge 80\%$ mutation score).
 - **INV-03**: Core Domain entities (Ring 0) must remain pure with zero imports from outer Web, DB, or framework layers.
 
@@ -30,7 +30,7 @@
 
 ## 4. Genesis & Milestone Execution Rules
 - **Genesis Ticket `#1`**: `feature/issue-#1-product-genesis` initializes `PRODUCT.md`, baseline specs, and project scaffolding.
-- **Zero-Bypass Merge Rule**: No PR merges to `main` without a signed Stage 7 SHA-256 Merkle Gate Receipt in `docs/AUDIT_CHAIN.jsonl`.
+- **Zero-Bypass Merge Rule**: No PR merges to `main` without a signed Stage 7 HMAC-SHA256 Hash-Chain Gate Receipt in `docs/AUDIT_CHAIN.jsonl`.
 
 ---
 

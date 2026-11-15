@@ -14,13 +14,13 @@
       <div>
         <h1>Agentic SDLC Framework: Mission Control</h1>
         <p class="masthead-sub">
-          Double-Entry Clean Architecture Clearinghouse, Causal ADR Lineage &amp; Cryptographic SHA-256 Merkle Audit Ledger
+          Double-Entry Clean Architecture Clearinghouse, Causal ADR Lineage &amp; Cryptographic SHA-256 Hash-Chain Audit Ledger
         </p>
       </div>
       <div class="masthead-seals">
         <span class="seal-badge cobalt" id="session-seal">{{SESSION_SEAL_TEXT}}</span>
         <span class="seal-badge {{RING_SEAL_CLASS}}" id="ring-seal">{{RING_SEAL_TEXT}}</span>
-        <span class="seal-badge {{MERKLE_SEAL_CLASS}}" id="merkle-seal">{{MERKLE_SEAL_TEXT}}</span>
+        <span class="seal-badge {{HASHCHAIN_SEAL_CLASS}}" id="hashchain-seal">{{HASHCHAIN_SEAL_TEXT}}</span>
         <button type="button" class="action-btn" id="sync-ledger-btn" title="Synchronize live ledger from server">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
             <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
@@ -128,16 +128,16 @@
 
           <div class="folio-box">
             <div class="folio-box-header">
-              <h2>Cryptographic Merkle Audit &amp; Mermaid AST Schedule</h2>
-              <span class="seal-badge {{MERKLE_SEAL_CLASS}}" id="merkle-folio-status">{{MERKLE_FOLIO_STATUS}}</span>
+              <h2>Cryptographic Hash-Chain Audit &amp; Mermaid AST Schedule</h2>
+              <span class="seal-badge {{HASHCHAIN_SEAL_CLASS}}" id="hashchain-folio-status">{{HASHCHAIN_FOLIO_STATUS}}</span>
             </div>
             <div class="folio-box-sub">
               <span>Credit Folio &middot; Stage 7 Gate Receipt &amp; Diagram Node/Edge Delta</span>
-              <span class="mono" id="merkle-root-display">Root: {{MERKLE_ROOT_SHORT}}...</span>
+              <span class="mono" id="hashchain-head-display">Head: {{HASHCHAIN_HEAD_SHORT}}...</span>
             </div>
-            <div tabindex="0" role="region" aria-labelledby="merkle-ledger-caption" class="table-wrapper">
-              <table class="ledger-table ledger-table-merkle">
-                <caption id="merkle-ledger-caption">SHA-256 Merkle Audit and Latest Mermaid AST Diff</caption>
+            <div tabindex="0" role="region" aria-labelledby="hashchain-ledger-caption" class="table-wrapper">
+              <table class="ledger-table ledger-table-hashchain">
+                <caption id="hashchain-ledger-caption">SHA-256 Hash-Chain Audit and Latest Mermaid AST Diff</caption>
                 <thead>
                   <tr>
                     <th>Audit Instrument / Diagram</th>
@@ -145,7 +145,7 @@
                     <th>Seal</th>
                   </tr>
                 </thead>
-                <tbody id="merkle-ast-mount"></tbody>
+                <tbody id="hashchain-ast-mount"></tbody>
               </table>
             </div>
           </div>

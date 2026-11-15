@@ -7,7 +7,7 @@ alwaysApply: false
 # Read-Only Session, Drift & Audit Status (`sdlc-status`)
 
 ## When to use / When NOT to use
-- **Use when** checking current session stage, active branch/lane, spec-drift status, or Merkle audit ledger health without mutating any files.
+- **Use when** checking current session stage, active branch/lane, spec-drift status, or SHA-256 hash-chain audit ledger health without mutating any files.
 - **Not for** advancing lifecycle stages (`sdlc-flow`), healing repo assets (`sdlc-doctor`), or writing workbench HTML artifacts unless explicitly asked via `/sdlc ui`.
 
 ## Lane behavior
