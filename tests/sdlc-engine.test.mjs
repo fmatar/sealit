@@ -1122,17 +1122,22 @@ jobs:
       assert.equal(current.version, '2.4.0');
     });
 
-    it('executes release with package.json and CHANGELOG.md update', () => {
+    it('executes release with package.json and CHANGELOG.md update', async () => {
       execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: tmpDir });
       execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: tmpDir });
       execFileSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir });
       execFileSync('git', ['config', 'commit.gpgsign', 'false'], { cwd: tmpDir });
 
       const pkgPath = path.join(tmpDir, 'package.json');
-      fs.writeFileSync(pkgPath, JSON.stringify({ name: 'my-app', version: '1.0.0' }, null, 2), 'utf8');
+      fs.writeFileSync(pkgPath, JSON.stringify({ name: 'my-app', version: '1.0.0', license: 'MIT', description: 'Sample' }, null, 2), 'utf8');
 
       const changelogPath = path.join(tmpDir, 'CHANGELOG.md');
       fs.writeFileSync(changelogPath, '# Changelog\n\n## [Unreleased]\n\n### Added\n- New feature\n', 'utf8');
+      const { scaffoldReadme } = await import('../.agent/scripts/lib/readme-sync.mjs');
+      scaffoldReadme({ repoRoot: tmpDir, force: true });
+      const readmePath = path.join(tmpDir, 'README.md');
+      const agentsPath = path.join(tmpDir, 'AGENTS.md');
+      fs.writeFileSync(agentsPath, '_Generated automatically by @fmatar/agentic-sdlc (Universal Engine v1.0.0)_\n', 'utf8');
 
       fs.mkdirSync(path.join(tmpDir, '.agent'), { recursive: true });
       fs.writeFileSync(
@@ -1155,7 +1160,7 @@ jobs:
         'utf8'
       );
 
-      execFileSync('git', ['add', 'package.json', 'CHANGELOG.md', '.agent/sdlc-config.json'], { cwd: tmpDir });
+      execFileSync('git', ['add', 'package.json', 'CHANGELOG.md', 'README.md', 'AGENTS.md', '.agent/sdlc-config.json'], { cwd: tmpDir });
       execFileSync('git', ['commit', '-q', '-m', 'chore: initial'], { cwd: tmpDir });
       execFileSync('git', ['checkout', '-q', '-b', 'chore/release-v1.0.1'], { cwd: tmpDir });
 
@@ -1170,6 +1175,8 @@ jobs:
       const updatedChangelog = fs.readFileSync(changelogPath, 'utf8');
       assert.ok(updatedChangelog.includes('## [1.0.1] -'));
       assert.ok(updatedChangelog.includes('## [Unreleased]'));
+      assert.ok(fs.readFileSync(readmePath, 'utf8').includes('Version-1.0.1-'));
+      assert.ok(fs.readFileSync(agentsPath, 'utf8').includes('Universal Engine v1.0.1'));
     });
 
     it('runs doctor healthcheck and returns diagnostic overview', () => {

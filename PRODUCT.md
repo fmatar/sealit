@@ -48,15 +48,5 @@ End-to-end spec-driven autonomous software development lifecycle, Spec-Drift ADR
 <!-- ADR_INDEX_START -->
 | ADR ID | Title | Scope | Status | Ticket | Supersedes |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| *None* | *Compacted into SRS.md (0.0.1)* | - | - | - | - |
-| ADR-009 | Align README, Wiki, PRD and SRS Documentation with v0.4.0 Architecture and Archlens Links | `technical` | `accepted` | #114 | CAP-06, CAP-11 |
-| ADR-010 | Standardize on 10 Canonical SDLC Skills, Neutralize Engineering Terminology, and Compact README Workflow Diagram | `technical` | `accepted` | #116 | CAP-05, CAP-07, CAP-08, CAP-11 |
-| ADR-011 | Strict sdlc Namespace Isolation and Decoupling from Standalone Coding-Persona Skills | `technical` | `accepted` | #118 | CAP-05, CAP-07, CAP-08, ADR-010 |
-| ADR-012 | Reset Package, Plugin, and Documentation Version Baseline to 0.0.1 | `technical` | `accepted` | #120 | CAP-06, ADR-009 |
-| ADR-013 | Harden Release Gate, Opt-In Issue Creation, Universal ADR Approval, Diff Review Plans, and Node 24 CI Actions | `technical` | `accepted` | L-122000 | CAP-01, CAP-03, CAP-06 |
-| ADR-014 | Canonical Git Flow: Enforce Merges to Develop, Block Direct PRs to Main, and Automate Production Releases on Develop Merge | `technical` | `accepted` | L-124000 | CAP-01, CAP-04, CAP-06 |
-| ADR-015 | Harden Stage 7 Gate Receipts, Ring 0 Primitives, and Git Flow Verification | `technical` | `accepted` | L-128000 | CAP-01, CAP-04 |
-| ADR-016 | Break Ring 2 Cycles, Decompose quality-gate.mjs, Enforce Whole-Graph Cycle Detection in checkArchDiff, and Align Archlens Policy Schema | `technical` | `accepted` | #134 | CAP-02, CAP-03 |
-| ADR-017 | Externalize Workbench Assets, Harden CSP Headers, Clean Dialect Hygiene, and Ensure Global CLI Portability | `technical` | `accepted` | #135 | CAP-03, CAP-07, CAP-08, CAP-10, CAP-11 |
-| ADR-018 | Expand Stryker Mutation Scope, Polyglot Mutation Parsers, Hash-Chain Terminology, and Test Isolation | `technical` | `accepted` | #136 | CAP-03, CAP-04, CAP-06, CAP-11 |
+| *None* | *Compacted into SRS.md (v0.0.2)* | - | - | - | - |
 <!-- ADR_INDEX_END -->

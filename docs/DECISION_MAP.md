@@ -34,30 +34,13 @@ flowchart TD
   INV_02["INV-02: Changes require an active SDLC session and risk-proportional Dual-Gate verification (`trivial`, `standard`, or `full` lane) meeting the coverage, mutation, and peer-review thresholds configured in `.agent/sdlc-config.json`"]
   INV_03["INV-03: All spec drift must be recorded via an ADR (docs/adr/ADR-00X.md) and synchronized with PRODUCT.md"]
   INV_04["INV-04: Zero shell command interpolation of untrusted user/markdown inputs in PM, Git, or test runner execution paths"]
-  ADR_009["ADR-009: Align README, Wiki, PRD and SRS Documentation with v0.4.0 Architecture and Archlens Links"]
-  _114["Ticket #114 (feature/issue-#114-refresh-readme-md-wiki-srs-documentation)"]
-  ADR_010["ADR-010: Standardize on 10 Canonical SDLC Skills, Neutralize Engineering Terminology, and Compact README Workflow Diagram"]
-  _116["Ticket #116 (feature/issue-#116-standardize-10-skills-and-workflow-diagram)"]
-  ADR_011["ADR-011: Strict sdlc Namespace Isolation and Decoupling from Standalone Coding-Persona Skills"]
-  _118["Ticket #118 (feature/issue-#118-decouple-sdlc-skill-namespace-from-stand)"]
-  ADR_012["ADR-012: Reset Package, Plugin, and Documentation Version Baseline to 0.0.1"]
-  _120["Ticket #120 (feature/issue-#120-reset-release-baseline-to-version-0-0-1)"]
-  ADR_013["ADR-013: Harden Release Gate, Opt-In Issue Creation, Universal ADR Approval, Diff Review Plans, and Node 24 CI Actions"]
-  L_122000["Ticket L-122000"]
-  ADR_014["ADR-014: Canonical Git Flow: Enforce Merges to Develop, Block Direct PRs to Main, and Automate Production Releases on Develop Merge"]
-  L_124000["Ticket L-124000"]
-  ADR_015["ADR-015: Harden Stage 7 Gate Receipts, Ring 0 Primitives, and Git Flow Verification"]
-  L_128000["Ticket L-128000"]
-  ADR_016["ADR-016: Break Ring 2 Cycles, Decompose quality-gate.mjs, Enforce Whole-Graph Cycle Detection in checkArchDiff, and Align Archlens Policy Schema"]
-  _134["Ticket #134 (feature/issue-#134)"]
-  ADR_017["ADR-017: Externalize Workbench Assets, Harden CSP Headers, Clean Dialect Hygiene, and Ensure Global CLI Portability"]
-  _135["Ticket #135 (feature/issue-#135)"]
-  ADR_018["ADR-018: Expand Stryker Mutation Scope, Polyglot Mutation Parsers, Hash-Chain Terminology, and Test Isolation"]
-  _136["Ticket #136"]
   ADR_COMPACT_v0_3_0["Compacted 8 ADR(s) into SRS.md (v0.3.0)"]
   createdAt__2026_11_03T18_52_42_656Z["createdAt: 2026-11-03T18:52:42.656Z"]
   ADR_COMPACT_v0_4_0["Compacted 6 ADR(s) into SRS.md (v0.4.0)"]
   createdAt__2026_11_12T18_08_28_446Z["createdAt: 2026-11-12T18:08:28.446Z"]
+  ADR_COMPACT_v0_0_2["Compacted 10 ADR(s) into SRS.md (v0.0.2)"]
+  ADR_010["ADR-010"]
+  ADR_009["ADR-009"]
   _SDLC_INIT["Ticket #SDLC-INIT (feature/arch-traceability-governance)"]
   _24["Ticket #24 (feature/issue-#24-api-contract-drift-sentinel)"]
   _25["Ticket #25 (feature/issue-#25-bug-reproduce-generator)"]
@@ -84,10 +67,16 @@ flowchart TD
   _107["Ticket #107 (feature/issue-#107-risk-proportional-execution-lanes-and-sp)"]
   _109["Ticket #109 (feature/issue-#109-right-size-all-sdlc-skills-and-upgrade-c)"]
   _111["Ticket #111 (feature/issue-#111-slim-npm-package-retire-duplicate-svelte)"]
+  _114["Ticket #114 (feature/issue-#114-refresh-readme-md-wiki-srs-documentation)"]
+  _116["Ticket #116 (feature/issue-#116-standardize-10-skills-and-workflow-diagram)"]
+  _118["Ticket #118 (feature/issue-#118-decouple-sdlc-skill-namespace-from-stand)"]
+  _120["Ticket #120 (feature/issue-#120-reset-release-baseline-to-version-0-0-1)"]
   _L_124000["Ticket #L-124000 (feature/L-124000-fix-git-flow-enforce-merges-to-develop-b)"]
   _131["Ticket #131 (feature/issue-#131-gate-diff-coverage-thresholds-tdd)"]
   _132["Ticket #132 (feature/issue-#132-git-flow-atomic-session-receipt-allowlis)"]
   _133["Ticket #133 (feature/issue-#133)"]
+  _134["Ticket #134 (feature/issue-#134)"]
+  _135["Ticket #135 (feature/issue-#135)"]
   CAP_01 -->|specified_by| SPEC_01
   CAP_02 -->|specified_by| SPEC_02
   CAP_03 -->|specified_by| SPEC_03
@@ -115,47 +104,6 @@ flowchart TD
   CAP_11 -->|depends_on| CAP_03
   CAP_11 -->|depends_on| CAP_05
   CAP_11 -->|depends_on| CAP_08
-  _114 -->|triggered_drift_adr| ADR_009
-  CAP_06 -.->|ADR Drift| ADR_009
-  CAP_11 -.->|ADR Drift| ADR_009
-  _116 -->|triggered_drift_adr| ADR_010
-  CAP_05 -.->|ADR Drift| ADR_010
-  CAP_07 -.->|ADR Drift| ADR_010
-  CAP_08 -.->|ADR Drift| ADR_010
-  CAP_11 -.->|ADR Drift| ADR_010
-  _118 -->|triggered_drift_adr| ADR_011
-  CAP_05 -.->|ADR Drift| ADR_011
-  CAP_07 -.->|ADR Drift| ADR_011
-  CAP_08 -.->|ADR Drift| ADR_011
-  ADR_010 -.->|ADR Drift| ADR_011
-  _120 -->|triggered_drift_adr| ADR_012
-  CAP_06 -.->|ADR Drift| ADR_012
-  ADR_009 -.->|ADR Drift| ADR_012
-  L_122000 -->|triggered_drift_adr| ADR_013
-  CAP_01 -.->|ADR Drift| ADR_013
-  CAP_03 -.->|ADR Drift| ADR_013
-  CAP_06 -.->|ADR Drift| ADR_013
-  L_124000 -->|triggered_drift_adr| ADR_014
-  CAP_01 -.->|ADR Drift| ADR_014
-  CAP_04 -.->|ADR Drift| ADR_014
-  CAP_06 -.->|ADR Drift| ADR_014
-  L_128000 -->|triggered_drift_adr| ADR_015
-  CAP_01 -.->|ADR Drift| ADR_015
-  CAP_04 -.->|ADR Drift| ADR_015
-  _134 -->|triggered_drift_adr| ADR_016
-  CAP_02 -.->|ADR Drift| ADR_016
-  CAP_03 -.->|ADR Drift| ADR_016
-  _135 -->|triggered_drift_adr| ADR_017
-  CAP_03 -.->|ADR Drift| ADR_017
-  CAP_07 -.->|ADR Drift| ADR_017
-  CAP_08 -.->|ADR Drift| ADR_017
-  CAP_10 -.->|ADR Drift| ADR_017
-  CAP_11 -.->|ADR Drift| ADR_017
-  _136 -->|triggered_drift_adr| ADR_018
-  CAP_03 -.->|ADR Drift| ADR_018
-  CAP_04 -.->|ADR Drift| ADR_018
-  CAP_06 -.->|ADR Drift| ADR_018
-  CAP_11 -.->|ADR Drift| ADR_018
   CAP_01 -->|realized_by| ADR_COMPACT_v0_3_0
   CAP_02 -->|realized_by| ADR_COMPACT_v0_3_0
   CAP_03 -->|realized_by| ADR_COMPACT_v0_3_0
@@ -176,6 +124,18 @@ flowchart TD
   CAP_05 -->|realized_by| ADR_COMPACT_v0_4_0
   CAP_07 -->|realized_by| ADR_COMPACT_v0_4_0
   CAP_08 -->|realized_by| ADR_COMPACT_v0_4_0
+  CAP_06 -->|realized_by| ADR_COMPACT_v0_0_2
+  CAP_11 -->|realized_by| ADR_COMPACT_v0_0_2
+  CAP_05 -->|realized_by| ADR_COMPACT_v0_0_2
+  CAP_07 -->|realized_by| ADR_COMPACT_v0_0_2
+  CAP_08 -->|realized_by| ADR_COMPACT_v0_0_2
+  ADR_010 -->|realized_by| ADR_COMPACT_v0_0_2
+  ADR_009 -->|realized_by| ADR_COMPACT_v0_0_2
+  CAP_01 -->|realized_by| ADR_COMPACT_v0_0_2
+  CAP_03 -->|realized_by| ADR_COMPACT_v0_0_2
+  CAP_04 -->|realized_by| ADR_COMPACT_v0_0_2
+  CAP_02 -->|realized_by| ADR_COMPACT_v0_0_2
+  CAP_10 -->|realized_by| ADR_COMPACT_v0_0_2
 ```
 
 ---
@@ -184,16 +144,6 @@ flowchart TD
 
 | ADR ID | Decision Title | Scope | Status | Triggered By | Supersedes / Amends |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **ADR-009** | Align README, Wiki, PRD and SRS Documentation with v0.4.0 Architecture and Archlens Links | `technical` | `accepted` | #114 | CAP-06, CAP-11 |
-| **ADR-010** | Standardize on 10 Canonical SDLC Skills, Neutralize Engineering Terminology, and Compact README Workflow Diagram | `technical` | `accepted` | #116 | CAP-05, CAP-07, CAP-08, CAP-11 |
-| **ADR-011** | Strict sdlc Namespace Isolation and Decoupling from Standalone Coding-Persona Skills | `technical` | `accepted` | #118 | CAP-05, CAP-07, CAP-08, ADR-010 |
-| **ADR-012** | Reset Package, Plugin, and Documentation Version Baseline to 0.0.1 | `technical` | `accepted` | #120 | CAP-06, ADR-009 |
-| **ADR-013** | Harden Release Gate, Opt-In Issue Creation, Universal ADR Approval, Diff Review Plans, and Node 24 CI Actions | `technical` | `accepted` | L-122000 | CAP-01, CAP-03, CAP-06 |
-| **ADR-014** | Canonical Git Flow: Enforce Merges to Develop, Block Direct PRs to Main, and Automate Production Releases on Develop Merge | `technical` | `accepted` | L-124000 | CAP-01, CAP-04, CAP-06 |
-| **ADR-015** | Harden Stage 7 Gate Receipts, Ring 0 Primitives, and Git Flow Verification | `technical` | `accepted` | L-128000 | CAP-01, CAP-04 |
-| **ADR-016** | Break Ring 2 Cycles, Decompose quality-gate.mjs, Enforce Whole-Graph Cycle Detection in checkArchDiff, and Align Archlens Policy Schema | `technical` | `accepted` | #134 | CAP-02, CAP-03 |
-| **ADR-017** | Externalize Workbench Assets, Harden CSP Headers, Clean Dialect Hygiene, and Ensure Global CLI Portability | `technical` | `accepted` | #135 | CAP-03, CAP-07, CAP-08, CAP-10, CAP-11 |
-| **ADR-018** | Expand Stryker Mutation Scope, Polyglot Mutation Parsers, Hash-Chain Terminology, and Test Isolation | `technical` | `accepted` | #136 | CAP-03, CAP-04, CAP-06, CAP-11 |
 | **ADR-001** | Decompose sdlc-engine.mjs into Modular Domain Libraries with SHA-256 Gate Cache and SvelteKit 5 Decision Workbench | `technical` | `compacted` | #63 | CAP-01 |
 | **ADR-002** | Consolidate 14 Skills into 6 Schema-Valid Skills, Add Composite Stage CLI, and Enforce Real Dual-Gate Verification | `architectural` | `compacted` | #68 | CAP-01, CAP-02, CAP-03, CAP-04, CAP-05, CAP-06 |
 | **ADR-003** | Replace Legacy Shell/Java Installers with Native npx Interactive Multi-Agent Installer Wizard | `architectural` | `compacted` | #75 | CAP-06, CAP-07 |
@@ -202,6 +152,16 @@ flowchart TD
 | **ADR-006** | Unified Multi-Provider Ticket Engine and Canonical Issue Templates | `technical` | `compacted` | N/A | CAP-02, CAP-09, CAP-10 |
 | **ADR-007** | Introduce sdlc-wiki Technical Writer Skill and Deterministic Archlens AST-to-Wiki Synchronization Engine | `architectural` | `compacted` | #90 | CAP-05, CAP-06, CAP-08, CAP-11 |
 | **ADR-008** | Fail-closed enforcement: exit codes, signed measured receipts, authenticated workbench | `technical` | `compacted` | #91 | createdAt: 2026-11-03T18:52:42.656Z |
+| **ADR-009** | Align README, Wiki, PRD and SRS Documentation with v0.4.0 Architecture and Archlens Links | `technical` | `compacted` | #114 | CAP-06, CAP-11 |
+| **ADR-010** | Standardize on 10 Canonical SDLC Skills, Neutralize Engineering Terminology, and Compact README Workflow Diagram | `technical` | `compacted` | #116 | CAP-05, CAP-07, CAP-08, CAP-11 |
+| **ADR-011** | Strict sdlc Namespace Isolation and Decoupling from Standalone Coding-Persona Skills | `technical` | `compacted` | #118 | CAP-05, CAP-07, CAP-08, ADR-010 |
+| **ADR-012** | Reset Package, Plugin, and Documentation Version Baseline to 0.0.1 | `technical` | `compacted` | #120 | CAP-06, ADR-009 |
+| **ADR-013** | Harden Release Gate, Opt-In Issue Creation, Universal ADR Approval, Diff Review Plans, and Node 24 CI Actions | `technical` | `compacted` | L-122000 | CAP-01, CAP-03, CAP-06 |
+| **ADR-014** | Canonical Git Flow: Enforce Merges to Develop, Block Direct PRs to Main, and Automate Production Releases on Develop Merge | `technical` | `compacted` | L-124000 | CAP-01, CAP-04, CAP-06 |
+| **ADR-015** | Harden Stage 7 Gate Receipts, Ring 0 Primitives, and Git Flow Verification | `technical` | `compacted` | L-128000 | CAP-01, CAP-04 |
+| **ADR-016** | Break Ring 2 Cycles, Decompose quality-gate.mjs, Enforce Whole-Graph Cycle Detection in checkArchDiff, and Align Archlens Policy Schema | `technical` | `compacted` | #134 | CAP-02, CAP-03 |
+| **ADR-017** | Externalize Workbench Assets, Harden CSP Headers, Clean Dialect Hygiene, and Ensure Global CLI Portability | `technical` | `compacted` | #135 | CAP-03, CAP-07, CAP-08, CAP-10, CAP-11 |
+| **ADR-018** | Expand Stryker Mutation Scope, Polyglot Mutation Parsers, Hash-Chain Terminology, and Test Isolation | `technical` | `compacted` | #136 | CAP-03, CAP-04, CAP-06, CAP-11 |
 
 ---
 
