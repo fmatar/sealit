@@ -620,6 +620,34 @@ export function executeRelease({
     }
   }
 
+  const encodedReleaseVer = encodeURIComponent(newVersion).replace(/-/g, '--');
+  const readmePath = path.resolve(repoRoot, 'README.md');
+  if (fileExists(readmePath)) {
+    const readmeRaw = readFileSafe(readmePath);
+    const nextReadme = readmeRaw.replace(
+      /(shields\.io\/badge\/Version-)(\d+\.\d+\.\d+(?:--?[A-Za-z0-9.]+)*)(-)/g,
+      `$1${encodedReleaseVer}$3`
+    );
+    if (nextReadme !== readmeRaw) {
+      writeFileAtomic(readmePath, nextReadme);
+      updatedFiles.push('README.md');
+    }
+  }
+
+  for (const ruleRel of ['AGENTS.md', 'CLAUDE.md', '.cursorrules', '.windsurfrules', '.cursor/rules/agentic-sdlc.mdc']) {
+    const rulePath = path.resolve(repoRoot, ruleRel);
+    if (!fileExists(rulePath)) continue;
+    const ruleRaw = readFileSafe(rulePath);
+    const nextRule = ruleRaw.replace(
+      /(Universal Engine v)(\d+\.\d+\.\d+(?:-[A-Za-z0-9.]+)?)/g,
+      `$1${newVersion}`
+    );
+    if (nextRule !== ruleRaw) {
+      writeFileAtomic(rulePath, nextRule);
+      updatedFiles.push(ruleRel);
+    }
+  }
+
   const isGitIgnored = (rel) => {
     try {
       execFileSync('git', ['check-ignore', '-q', '--', rel], { cwd: repoRoot, stdio: 'pipe' });

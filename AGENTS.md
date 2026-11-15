@@ -16,7 +16,7 @@ This project is governed by the **Archlens Dynamic Clean Architecture Workbench*
 
 <!-- AGENTIC-SDLC-RULES:START -->
 # Agentic SDLC Framework Invariants & Autonomous Rules
-_Generated automatically by @fmatar/agentic-sdlc (Universal Engine v0.0.1)_
+_Generated automatically by @fmatar/agentic-sdlc (Universal Engine v0.0.2)_
 _Governed by Concentric Clean Architecture, Risk-Proportional Lanes & Config-Driven Dual-Gate TDD_
 
 ## 1. Zero Direct Pushes & Git Flow (4-Layer Git Guard — INV-01)

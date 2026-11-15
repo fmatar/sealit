@@ -1615,18 +1615,18 @@ describe('Issue #118: Strict sdlc* namespace isolation and decoupling from stand
 // ===========================================================================
 // Issue #120: Reset release baseline to version 0.0.1
 // ===========================================================================
-describe('Issue #120: Reset release baseline to version 0.0.1', () => {
-  it('sets package.json, package-lock.json, plugin manifest, installer fallback, rule headers, and README badge to 0.0.1', () => {
+describe('Issue #120: Version alignment across manifests, installer fallback, rule headers, and README badge', () => {
+  it('aligns package.json, package-lock.json, plugin manifest, installer fallback, rule headers, and README badge to the active SemVer version', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'));
     const lock = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package-lock.json'), 'utf8'));
     const plugin = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, '.claude-plugin/plugin.json'), 'utf8'));
     const readme = fs.readFileSync(path.join(REPO_ROOT, 'README.md'), 'utf8');
 
-    assert.equal(pkg.version, '0.0.1');
-    assert.equal(lock.version, '0.0.1');
-    assert.equal(lock.packages[''].version, '0.0.1');
-    assert.equal(plugin.version, '0.0.1');
-    assert.equal(installerMod.getFrameworkVersion(REPO_ROOT), '0.0.1');
+    assert.match(pkg.version, /^\d+\.\d+\.\d+/);
+    assert.equal(lock.version, pkg.version);
+    assert.equal(lock.packages[''].version, pkg.version);
+    assert.equal(plugin.version, pkg.version);
+    assert.equal(installerMod.getFrameworkVersion(REPO_ROOT), pkg.version);
 
     const emptyTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-120-ver-'));
     try {
@@ -1635,10 +1635,12 @@ describe('Issue #120: Reset release baseline to version 0.0.1', () => {
       fs.rmSync(emptyTmp, { recursive: true, force: true });
     }
 
-    assert.ok(readme.includes('Version-0.0.1-'), 'README.md version badge must be 0.0.1');
+    assert.ok(readme.includes(`Version-${pkg.version}-`), `README.md version badge must be ${pkg.version}`);
+    const escapedVer = pkg.version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const ruleVersionRegex = new RegExp(`Universal Engine v${escapedVer}`);
     for (const rel of ['AGENTS.md', 'CLAUDE.md', '.cursorrules', '.windsurfrules', '.cursor/rules/agentic-sdlc.mdc']) {
       const content = fs.readFileSync(path.join(REPO_ROOT, rel), 'utf8');
-      assert.match(content, /Universal Engine v0\.0\.1/, `${rel} must declare Universal Engine v0.0.1`);
+      assert.match(content, ruleVersionRegex, `${rel} must declare Universal Engine v${pkg.version}`);
     }
   });
 
