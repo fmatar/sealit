@@ -269,12 +269,17 @@ describe('Ring 2: lib/measure.mjs', () => {
     git(dir, 'checkout', '-q', '-b', 'feat/stryker-plan', 'develop');
     fs.mkdirSync(path.join(dir, '.agent/scripts/lib'), { recursive: true });
     fs.mkdirSync(path.join(dir, 'tests/unit'), { recursive: true });
-    fs.writeFileSync(path.join(dir, 'stryker.config.json'), JSON.stringify({ mutate: ['.agent/scripts/lib/git.mjs'], tap: { testFiles: ['tests/unit/git.test.mjs', 'tests/unit/other.test.mjs'] } }), 'utf8');
+    fs.writeFileSync(path.join(dir, 'stryker.config.json'), JSON.stringify({ mutate: ['.agent/scripts/lib/git.mjs', '.agent/scripts/lib/config.mjs'], tap: { testFiles: ['tests/unit/git.test.mjs', 'tests/unit/config.test.mjs'] } }), 'utf8');
     fs.writeFileSync(path.join(dir, '.agent/scripts/lib/git.mjs'), 'export const msg = "Binary files a and b differ";\n', 'utf8');
+    fs.writeFileSync(path.join(dir, '.agent/scripts/lib/config.mjs'), 'export const cfg = 1;\n', 'utf8');
     fs.writeFileSync(path.join(dir, 'tests/unit/git.test.mjs'), '// unit test\n', 'utf8');
+    fs.writeFileSync(path.join(dir, 'tests/unit/config.test.mjs'), '// unit test\n', 'utf8');
     const plan = buildMutationPlan(dir, { name: 'root', path: '.', commands: { mutation: './node_modules/.bin/stryker run' } });
     assert.equal(plan.diffScoped, true);
     assert.ok(plan.targets.some((t) => t.startsWith('.agent/scripts/lib/git.mjs:1-')));
+    assert.equal(Array.isArray(plan.shards) && plan.shards.length === 2, true);
+    const fullShardedPlan = buildMutationPlan(dir, { name: 'root', path: '.', commands: { mutation: './node_modules/.bin/stryker run' } }, { full: true });
+    assert.equal(Array.isArray(fullShardedPlan.shards) && fullShardedPlan.shards.length === 2, true);
 
     // Subdirectory module (mod.path = 'packages/api') diff-scoped Stryker filter MUST catch Survived mutants (never bypass via diff-zero-mutants)
     const subMutRepo = createTempGitRepo();

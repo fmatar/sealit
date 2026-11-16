@@ -6,6 +6,7 @@
   "coverageAnalysis": "perTest",
   "disableTypeChecks": false,
   "tap": {
+    "nodeArgs": ["--test", "--test-isolation=none", "--test-reporter=tap"],
     "testFiles": [
       "tests/unit/git.test.mjs",
       "tests/unit/config.test.mjs",
@@ -16,7 +17,7 @@
       "tests/unit/install.test.mjs",
       "tests/unit/cli.test.mjs"
     ],
-    "forceBail": true
+    "forceBail": false
   },
   "mutate": [
     ".agent/scripts/lib/git.mjs",
@@ -38,7 +39,7 @@
   "incremental": true,
   "incrementalFile": "reports/stryker-incremental.json",
   "ignoreStatic": true,
-  "concurrency": "75%",
+  "concurrency": 8,
   "timeoutMS": 60000,
   "tempDirName": ".stryker-tmp",
   "ignorePatterns": ["reports", "coverage"]
