@@ -184,21 +184,8 @@ export function verifyReceiptSignature(receipt, key) {
   return crypto.timingSafeEqual(a, b);
 }
 
-export function verifyAuditChain(repoRoot = '.') {
-  const auditPath = path.resolve(repoRoot, AUDIT_LEDGER_FILE);
-  if (!fileExists(auditPath)) {
-    return {
-      valid: true,
-      recordsCount: 0,
-      gateReceiptsCount: 0,
-      chainHead: GENESIS_HASH,
-      merkleRoot: GENESIS_HASH,
-      records: [],
-      message: 'No audit records present (chain empty).'
-    };
-  }
-
-  const content = fs.readFileSync(auditPath, 'utf8').trim();
+export function verifyAuditChainContent(rawContent = '') {
+  const content = String(rawContent || '').trim();
   if (!content) {
     return {
       valid: true,
@@ -284,6 +271,14 @@ export function verifyAuditChain(repoRoot = '.') {
     records,
     message: `Audit chain verified (${records.length} records, ${gateReceiptsCount} signed gate receipts).`
   };
+}
+
+export function verifyAuditChain(repoRoot = '.') {
+  const auditPath = path.resolve(repoRoot, AUDIT_LEDGER_FILE);
+  if (!fileExists(auditPath)) {
+    return verifyAuditChainContent('');
+  }
+  return verifyAuditChainContent(fs.readFileSync(auditPath, 'utf8'));
 }
 
 export function appendAuditRecord({ event, metadata = {}, repoRoot = '.' } = {}) {
@@ -774,31 +769,37 @@ export function verifyGateReceipt({ headSha = null, branch = null, repoRoot = '.
     branch && !['HEAD', 'develop', 'main', 'master'].includes(branch) ? String(branch).trim() : null;
   const targetTreeSha = computeContentTreeSha(targetSha, absRoot);
 
-  const receipts = (chain.records || [])
-    .filter((r) => (r.event === 'STAGE_7_GATE_RECEIPT_SIGNED' || r.event === 'GATE_RECEIPT_ISSUED') && r.metadata)
-    .reverse();
+  let activeChain = chain;
+  const findMatchingReceipt = (recordsList) =>
+    (recordsList || [])
+      .filter((r) => (r.event === 'STAGE_7_GATE_RECEIPT_SIGNED' || r.event === 'GATE_RECEIPT_ISSUED') && r.metadata)
+      .reverse()
+      .find((r) => {
+        const m = r.metadata;
+        if (effectiveBranch && m.branch !== effectiveBranch) return false;
+        const driftOk = m.driftPassed === true || m.driftCheckPassed === true;
+        if (m.peerReviewApproved !== true || !driftOk || !verifyReceiptSignature(m, key)) {
+          return false;
+        }
+        if (sameShaPrefix(m.headSha, targetSha) && m.headSha.length === targetSha.length) return true;
+        if (isAuditOnlyCommitRange(m.headSha, targetSha, absRoot)) return true;
+        if (m.treeSha && targetTreeSha && m.treeSha === targetTreeSha) return true;
+        if (verifyTwoParentCleanMerge(m.headSha, targetSha, absRoot)) return true;
+        return false;
+      });
 
-  const matched = receipts.find((r) => {
-    const m = r.metadata;
-    if (effectiveBranch && m.branch !== effectiveBranch) return false;
-    const driftOk = m.driftPassed === true || m.driftCheckPassed === true;
-    if (m.peerReviewApproved !== true || !driftOk || !verifyReceiptSignature(m, key)) {
-      return false;
+  let matched = findMatchingReceipt(activeChain.records);
+  if (!matched && targetSha) {
+    const commitLedgerRaw = gitOutput(['show', `${targetSha}:${AUDIT_LEDGER_FILE}`], absRoot);
+    if (commitLedgerRaw) {
+      const commitChain = verifyAuditChainContent(commitLedgerRaw);
+      if (!commitChain.valid) {
+        return { valid: false, targetSha, branch, reason: `Audit hash chain in ${targetSha} corrupted: ${commitChain.error}` };
+      }
+      matched = findMatchingReceipt(commitChain.records);
+      if (matched) activeChain = commitChain;
     }
-    if (sameShaPrefix(m.headSha, targetSha) && m.headSha.length === targetSha.length) {
-      return true;
-    }
-    if (isAuditOnlyCommitRange(m.headSha, targetSha, absRoot)) {
-      return true;
-    }
-    if (m.treeSha && targetTreeSha && m.treeSha === targetTreeSha) {
-      return true;
-    }
-    if (verifyTwoParentCleanMerge(m.headSha, targetSha, absRoot)) {
-      return true;
-    }
-    return false;
-  });
+  }
 
   if (!matched) {
     return {
@@ -814,6 +815,6 @@ export function verifyGateReceipt({ headSha = null, branch = null, repoRoot = '.
     targetSha,
     receipt: matched.metadata,
     chainHash: matched.currentHash,
-    chainHead: chain.chainHead
+    chainHead: activeChain.chainHead
   };
 }
