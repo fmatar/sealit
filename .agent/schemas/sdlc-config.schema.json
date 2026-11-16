@@ -1,98 +1,68 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/.agent/schemas/sdlc-config.schema.json",
-  "title": "Agentic SDLC Framework Configuration",
-  "description": "Repository configuration for the Agentic SDLC Engine, Dual-Gate thresholds, CI runners, execution lanes, and Clean Architecture governance.",
+  "title": "Agentic SDLC Alignment + Proof Kernel Configuration (v0.1.0)",
+  "description": "Repository configuration for @fmatar/agentic-sdlc v0.1.0 modules, test/coverage/mutation commands, thresholds, CI checks, Archlens ring policy, and audited mutant exemptions.",
   "type": "object",
   "required": ["version", "modules"],
   "properties": {
-    "$schema": {
-      "type": "string"
-    },
+    "$schema": { "type": "string" },
     "version": {
-      "type": "string"
-    },
-    "generatedAt": {
-      "type": "string"
-    },
-    "profile": {
       "type": "string",
-      "enum": ["standard", "polyglot-monorepo", "custom"]
+      "minLength": 1,
+      "pattern": "\\S"
     },
     "ci": {
       "type": "object",
       "properties": {
         "runsOn": {
-          "description": "GitHub Actions runner label, expression, or array of runner labels.",
           "oneOf": [
-            { "type": "string" },
-            { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+            { "type": "string", "minLength": 1, "pattern": "^[^\\u0000-\\u001f\\u007f]*\\S[^\\u0000-\\u001f\\u007f]*$" },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "minLength": 1, "pattern": "^[^\\u0000-\\u001f\\u007f]*\\S[^\\u0000-\\u001f\\u007f]*$" }
+            }
           ]
+        },
+        "checkName": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
         }
       },
-      "additionalProperties": true
-    },
-    "lanes": {
-      "type": "object",
-      "properties": {
-        "trivialMaxLines": { "type": "integer", "minimum": 1 },
-        "standardMaxLines": { "type": "integer", "minimum": 1 }
-      },
-      "additionalProperties": true
-    },
-    "projectManagement": {
-      "type": "object",
-      "properties": {
-        "provider": {
-          "type": "string",
-          "enum": ["github", "linear", "jira", "local"]
-        },
-        "key": { "type": "string" },
-        "livingBoard": { "type": "string" }
-      },
-      "additionalProperties": true
+      "additionalProperties": false
     },
     "archlens": {
       "type": "object",
       "properties": {
         "enabled": { "type": "boolean" },
-        "policyPath": { "type": "string" },
-        "enforceInQualityGate": { "type": "boolean" },
-        "workbenchPort": { "type": "integer" }
+        "policyPath": { "type": "string", "minLength": 1 }
       },
-      "additionalProperties": true
+      "additionalProperties": false
     },
     "modules": {
       "type": "array",
+      "minItems": 1,
       "items": {
         "type": "object",
         "required": ["name", "path", "commands"],
         "properties": {
-          "name": { "type": "string" },
-          "path": { "type": "string" },
-          "stack": { "type": "string" },
+          "name": { "type": "string", "minLength": 1, "pattern": "\\S" },
+          "path": { "type": "string", "minLength": 1, "pattern": "\\S" },
           "language": { "type": "string" },
+          "stack": { "type": "string", "deprecated": true },
           "commands": {
             "type": "object",
             "properties": {
-              "test": {
-                "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }]
-              },
-              "coverage": {
-                "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }]
-              },
-              "coverageFile": { "type": "string" },
-              "lint": {
-                "oneOf": [{ "type": ["string", "null"] }, { "type": "array", "items": { "type": "string" } }]
-              },
-              "build": {
-                "oneOf": [{ "type": ["string", "null"] }, { "type": "array", "items": { "type": "string" } }]
-              },
-              "mutation": {
-                "oneOf": [{ "type": ["string", "null"] }, { "type": "array", "items": { "type": "string" } }]
-              }
+              "lint": { "$ref": "#/$defs/commandSpec" },
+              "build": { "$ref": "#/$defs/commandSpec" },
+              "test": { "$ref": "#/$defs/commandSpec" },
+              "coverage": { "$ref": "#/$defs/commandSpec" },
+              "coverageFile": { "type": ["string", "null"] },
+              "mutation": { "$ref": "#/$defs/commandSpec" }
             },
-            "additionalProperties": true
+            "additionalProperties": false
           },
           "thresholds": {
             "type": "object",
@@ -100,12 +70,41 @@
               "diffCoverage": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
               "mutationScore": { "type": ["number", "null"], "minimum": 0, "maximum": 100 }
             },
-            "additionalProperties": true
+            "additionalProperties": false
           }
         },
-        "additionalProperties": true
+        "additionalProperties": false
       }
+    },
+    "exemptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "file", "reason", "addedAt"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "file": { "type": "string", "minLength": 1 },
+          "reason": { "type": "string", "minLength": 5 },
+          "addedAt": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "gates": { "type": "object", "deprecated": true },
+    "testing": { "type": "object", "deprecated": true },
+    "lanes": { "type": "object", "deprecated": true },
+    "projectManagement": { "type": "object", "deprecated": true },
+    "profile": { "type": "string", "deprecated": true },
+    "generatedAt": { "type": "string", "deprecated": true }
+  },
+  "$defs": {
+    "commandSpec": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string", "minLength": 1, "pattern": "\\S" },
+        { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1, "pattern": "\\S" } }
+      ]
     }
   },
-  "additionalProperties": true
+  "additionalProperties": false
 }
