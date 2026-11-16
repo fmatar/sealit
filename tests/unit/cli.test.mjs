@@ -65,8 +65,8 @@ describe('Ring 3: sdlc-engine.mjs CLI registry', () => {
               name: 'root',
               path: '.',
               commands: {
-                test: `${process.execPath} --test "tests/**/*.test.mjs"`,
-                coverage: `${process.execPath} --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info "tests/**/*.test.mjs"`,
+                test: `${process.execPath} --test --test-isolation=none "tests/**/*.test.mjs"`,
+                coverage: `${process.execPath} --test --test-isolation=none --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info "tests/**/*.test.mjs"`,
                 coverageFile: 'coverage/lcov.info'
               },
               thresholds: { diffCoverage: 85, mutationScore: null }

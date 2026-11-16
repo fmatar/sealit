@@ -384,8 +384,9 @@ export function buildMutationPlan(repoRoot = '.', mod = {}, { full = false, noCa
   const baseTokens = [parsed.file, ...parsed.args];
   const isStryker = baseTokens.some((t) => /stryker/i.test(t));
 
-  if (!isStryker) {
-    return { skip: false, diffScoped: false, full: Boolean(full), commandArgv: baseTokens, targets: [] };
+  if (full || !isStryker) {
+    const extra = isStryker && noCache ? ['--force'] : [];
+    return { skip: false, diffScoped: false, full: Boolean(full), commandArgv: [...baseTokens, ...extra], targets: [] };
   }
 
   const absRepo = path.resolve(repoRoot);
@@ -395,20 +396,6 @@ export function buildMutationPlan(repoRoot = '.', mod = {}, { full = false, noCa
   const strykerCfg = fileExists(strykerCfgPath) ? JSON.parse(readFileSafe(strykerCfgPath) || '{}') : {};
   const explicitMutate = Array.isArray(strykerCfg.mutate) ? strykerCfg.mutate.map((f) => f.replace(/^\.\//, '')) : [];
   const mutateSet = new Set(explicitMutate);
-
-  if (full) {
-    const canShardFull = explicitMutate.length > 1 && Array.isArray(strykerCfg?.tap?.testFiles) && explicitMutate.every((s) => Boolean(mapSourceToUnitTest(s, modCwd)));
-    const shards = canShardFull
-      ? explicitMutate.map((src, idx) => {
-          const shardReportRel = `reports/mutation/shard-${idx}.json`;
-          const shardCfgRel = `.agent/.cache/stryker-shard-${idx}.config.json`;
-          const shardCfg = { ...strykerCfg, thresholds: { ...(strykerCfg.thresholds || {}), break: null }, jsonReporter: { fileName: shardReportRel }, tap: { ...strykerCfg.tap, testFiles: [mapSourceToUnitTest(src, modCwd)] } };
-          writeFileAtomic(path.join(modCwd, shardCfgRel), JSON.stringify(shardCfg, null, 2) + '\n');
-          return { src, reportRel: shardReportRel, commandArgv: [...baseTokens, shardCfgRel, '-m', src, '--incrementalFile', `reports/stryker-shard-${idx}-inc.json`, ...(noCache ? ['--force'] : []), '--allowEmpty'] };
-        })
-      : null;
-    return { skip: false, diffScoped: false, full: true, commandArgv: [...baseTokens, ...(noCache ? ['--force'] : [])], targets: [], shards };
-  }
 
   const modified = getModifiedFiles(baseBranch, absRepo)
     .filter((f) => (!modPrefix ? true : f === modPrefix || f.startsWith(`${modPrefix}/`)))
@@ -429,41 +416,29 @@ export function buildMutationPlan(repoRoot = '.', mod = {}, { full = false, noCa
   const repoPathsForDiff = directSources.map((s) => (modPrefix ? `${modPrefix}/${s}` : s));
   const diffMap = getUnifiedDiffByFile(baseBranch, absRepo, repoPathsForDiff);
   const targets = [];
-  const targetsBySource = new Map();
   for (const src of directSources) {
     const repoKey = modPrefix ? `${modPrefix}/${src}` : src;
     const ranges = extractChangedHunkRanges(diffMap.get(repoKey) || diffMap.get(src) || '');
-    const srcTargets = ranges.length > 0 ? ranges.map((r) => `${src}:${r.start}-${r.end}`) : [src];
-    targets.push(...srcTargets);
-    targetsBySource.set(src, srcTargets);
+    if (ranges.length > 0) {
+      for (const r of ranges) targets.push(`${src}:${r.start}-${r.end}`);
+    } else {
+      targets.push(src);
+    }
   }
-  for (const ps of pairedSources) {
-    targets.push(ps);
-    targetsBySource.set(ps, [ps]);
-  }
+  for (const ps of pairedSources) targets.push(ps);
 
   let configArg = [];
-  let shards = null;
-  if (fileExists(strykerCfgPath) && Array.isArray(strykerCfg?.tap?.testFiles)) {
-    const pairedTests = allSources.map((s) => mapSourceToUnitTest(s, modCwd));
-    if (pairedTests.every(Boolean)) {
-      if (allSources.length > 1) {
-        shards = allSources.map((src, idx) => {
-          const shardReportRel = `reports/mutation/shard-${idx}.json`;
-          const shardCfgRel = `.agent/.cache/stryker-shard-${idx}.config.json`;
-          const shardCfg = { ...strykerCfg, thresholds: { ...(strykerCfg.thresholds || {}), break: null }, jsonReporter: { fileName: shardReportRel }, tap: { ...strykerCfg.tap, testFiles: [mapSourceToUnitTest(src, modCwd)] } };
-          writeFileAtomic(path.join(modCwd, shardCfgRel), JSON.stringify(shardCfg, null, 2) + '\n');
-          return { src, reportRel: shardReportRel, commandArgv: [...baseTokens, shardCfgRel, '-m', (targetsBySource.get(src) || [src]).join(','), '--incrementalFile', `reports/stryker-shard-${idx}-inc.json`, ...(noCache ? ['--force'] : []), '--allowEmpty'] };
-        });
-      }
+  if (allSources.length === 1 && fileExists(strykerCfgPath) && Array.isArray(strykerCfg?.tap?.testFiles)) {
+    const pairedTest = mapSourceToUnitTest(allSources[0], modCwd);
+    if (pairedTest) {
       const scopedCfgRel = '.agent/.cache/stryker-diff.config.json';
-      writeFileAtomic(path.join(modCwd, scopedCfgRel), JSON.stringify({ ...strykerCfg, tap: { ...strykerCfg.tap, testFiles: [...new Set(pairedTests)] } }, null, 2) + '\n');
+      writeFileAtomic(path.join(modCwd, scopedCfgRel), JSON.stringify({ ...strykerCfg, tap: { ...strykerCfg.tap, testFiles: [pairedTest] } }, null, 2) + '\n');
       configArg = [scopedCfgRel];
     }
   }
 
   const scopedTokens = [...baseTokens, ...configArg, '-m', targets.join(','), '--incrementalFile', 'reports/stryker-diff-incremental.json', ...(noCache ? ['--force'] : []), '--allowEmpty'];
-  return { skip: false, diffScoped: true, full: false, commandArgv: scopedTokens, targets, matchedSources: allSources, shards };
+  return { skip: false, diffScoped: true, full: false, commandArgv: scopedTokens, targets, matchedSources: allSources };
 }
 
 function parseTargetRangeFilter(targets = null, absRepo = null, modCwd = null) {
@@ -635,16 +610,10 @@ export function measureModuleMutation(repoRoot = '.', mod = {}, { full = false, 
   const modCwd = mod.path && mod.path !== '.' ? resolveInsideRepo(repoRoot, mod.path) : path.resolve(repoRoot);
   const startedAt = Date.now();
   let runnerErr = null;
-  if (Array.isArray(plan.shards) && plan.shards.length > 0) {
-    const mergedFiles = {};
-    for (const shard of plan.shards) {
-      try { runConfiguredCommand(shard.commandArgv, { cwd: modCwd, stdio: verbose ? 'inherit' : 'pipe', encoding: 'utf8' }); } catch (err) { runnerErr = err; }
-      const shardAbs = path.join(modCwd, shard.reportRel);
-      if (fileExists(shardAbs)) Object.assign(mergedFiles, JSON.parse(fs.readFileSync(shardAbs, 'utf8'))?.files || {});
-    }
-    writeFileAtomic(path.join(modCwd, 'reports/mutation/mutation.json'), JSON.stringify({ schemaVersion: '2', files: mergedFiles }, null, 2) + '\n');
-  } else {
-    try { runConfiguredCommand(plan.commandArgv, { cwd: modCwd, stdio: verbose ? 'inherit' : 'pipe', encoding: 'utf8' }); } catch (err) { runnerErr = err; }
+  try {
+    runConfiguredCommand(plan.commandArgv, { cwd: modCwd, stdio: verbose ? 'inherit' : 'pipe', encoding: 'utf8' });
+  } catch (err) {
+    runnerErr = err;
   }
   const checked = requireFreshReport(parseMutationReport(repoRoot, mod, { targets: plan.diffScoped ? plan.targets : null }), mod, repoRoot, startedAt);
   if (checked.found && !checked.stale) {

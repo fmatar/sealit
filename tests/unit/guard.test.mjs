@@ -108,7 +108,7 @@ describe('Ring 2: lib/guard.mjs', () => {
               name: 'root',
               path: '.',
               commands: {
-                coverage: `${process.execPath} --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info "tests/**/*.test.mjs"`,
+                coverage: `${process.execPath} --test --test-isolation=none --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info "tests/**/*.test.mjs"`,
                 coverageFile: 'coverage/lcov.info'
               },
               thresholds: { diffCoverage: 80, mutationScore: null }

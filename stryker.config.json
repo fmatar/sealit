@@ -39,7 +39,7 @@
   "incremental": true,
   "incrementalFile": "reports/stryker-incremental.json",
   "ignoreStatic": true,
-  "concurrency": 8,
+  "concurrency": 4,
   "timeoutMS": 60000,
   "tempDirName": ".stryker-tmp",
   "ignorePatterns": ["reports", "coverage"]

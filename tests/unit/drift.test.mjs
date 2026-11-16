@@ -159,6 +159,17 @@ describe('Ring 1: lib/drift.mjs', () => {
     fs.writeFileSync(path.join(dir, 'docs/openapi.json'), JSON.stringify({ openapi: '3.1.0', info: { title: 'API', version: '1.0.0' }, paths: {} }), 'utf8');
     assert.equal(checkSpecDrift({ ticketId: '91', repoRoot: dir }).passed, true);
 
+    // Valid YAML OpenAPI contract passes; invalid scope/id/status on createADR/decideADR handled cleanly
+    fs.writeFileSync(path.join(dir, 'docs/openapi.yaml'), 'openapi: "3.1.0"\ninfo:\n  title: "Demo"\n  version: "1.0"\npaths: {}\n', 'utf8');
+    assert.equal(checkSpecDrift({ ticketId: '91', repoRoot: dir }).passed, true);
+    assert.throws(() => createADR({ title: '', repoRoot: dir }));
+    assert.throws(() => createADR({ title: 'Bad Scope', scope: 'invalid', repoRoot: dir }));
+    assert.equal(decideADR({ adrId: '', status: 'approve', repoRoot: dir }).success, false);
+    assert.equal(decideADR({ adrId: 'ADR-999', status: 'approve', repoRoot: dir }).success, false);
+    assert.equal(decideADR({ adrId: adr.id, status: 'banana', repoRoot: dir }).success, false);
+    assert.equal(decideADR({ adrId: adr.id, status: 'supersede', repoRoot: dir }).adr.status, 'superseded');
+    assert.equal(decideADR({ adrId: adr.id, status: 'approve', repoRoot: dir }).adr.status, 'accepted');
+
     // Cross-nested YAML brackets or missing OpenAPI info/paths fails closed
     fs.writeFileSync(path.join(dir, 'docs/openapi.yaml'), 'openapi: "3.1.0"\ninfo: { title: [bad }\npaths: {}\n', 'utf8');
     assert.equal(checkSpecDrift({ ticketId: '91', repoRoot: dir }).passed, false);

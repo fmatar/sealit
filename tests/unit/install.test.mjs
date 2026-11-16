@@ -147,9 +147,13 @@ describe('Ring 2: lib/install.mjs', () => {
     const localRes = await installFramework({
       targetDir: dir,
       sourceRoot: src.srcDir,
-      agents: ['claude', 'cursor'],
+      agents: ['claude', 'cursor', 'codex', 'copilot'],
       yes: true
     });
+    assert.equal(localRes.success, true);
+    assert.equal(localRes.globalMode, false);
+    assert.equal(fs.existsSync(path.join(dir, '.codex/skills/sdlc/SKILL.md')), true);
+    assert.equal(fs.existsSync(path.join(dir, '.github/copilot-instructions.md')), true);
     // Victim file untouched because symlink was unlinked before write!
     assert.equal(fs.readFileSync(victimFile, 'utf8'), 'DO_NOT_OVERWRITE');
     assert.equal(fs.lstatSync(path.join(dir, '.claude/skills/sdlc/SKILL.md')).isSymbolicLink(), false);
@@ -189,6 +193,24 @@ describe('Ring 2: lib/install.mjs', () => {
       /symlink/i
     );
     assert.equal(fs.existsSync(path.join(outsideVictimDir, 'skills')), false);
+
+    // 6. auditSkills catches missing dir, bad frontmatter, >160 lines, unpinned npx, and cross-skill relative links
+    const badSkillRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-bad-skills-'));
+    cleanups.push(() => fs.rmSync(badSkillRepo, { recursive: true, force: true }));
+    assert.equal(auditSkills(badSkillRepo).passed, false);
+    fs.mkdirSync(path.join(badSkillRepo, '.agent/skills/sdlc'), { recursive: true });
+    fs.writeFileSync(
+      path.join(badSkillRepo, '.agent/skills/sdlc/SKILL.md'),
+      `---\nname: wrong\ndescription: "Bad desc"\n---\nRun npx cowsay hi and see ../sdlc-flow/SKILL.md\n${'line\n'.repeat(165)}`,
+      'utf8'
+    );
+    const badAudit = auditSkills(badSkillRepo);
+    assert.equal(badAudit.passed, false);
+    assert.ok(badAudit.findings.some((f) => f.rule === 'FM1'));
+    assert.ok(badAudit.findings.some((f) => f.rule === 'FM2'));
+    assert.ok(badAudit.findings.some((f) => f.rule === 'LEN1'));
+    assert.ok(badAudit.findings.some((f) => f.rule === 'RP1'));
+    assert.ok(badAudit.findings.some((f) => f.rule === 'AS3'));
   });
 
   it('drives interactive onboarding wizard via injected input/output streams without a real TTY', async () => {

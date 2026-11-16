@@ -269,17 +269,25 @@ describe('Ring 2: lib/measure.mjs', () => {
     git(dir, 'checkout', '-q', '-b', 'feat/stryker-plan', 'develop');
     fs.mkdirSync(path.join(dir, '.agent/scripts/lib'), { recursive: true });
     fs.mkdirSync(path.join(dir, 'tests/unit'), { recursive: true });
-    fs.writeFileSync(path.join(dir, 'stryker.config.json'), JSON.stringify({ mutate: ['.agent/scripts/lib/git.mjs', '.agent/scripts/lib/config.mjs'], tap: { testFiles: ['tests/unit/git.test.mjs', 'tests/unit/config.test.mjs'] } }), 'utf8');
+    fs.writeFileSync(path.join(dir, 'stryker.config.json'), JSON.stringify({ mutate: ['.agent/scripts/lib/git.mjs'], tap: { testFiles: ['tests/unit/git.test.mjs', 'tests/unit/other.test.mjs'] } }), 'utf8');
     fs.writeFileSync(path.join(dir, '.agent/scripts/lib/git.mjs'), 'export const msg = "Binary files a and b differ";\n', 'utf8');
-    fs.writeFileSync(path.join(dir, '.agent/scripts/lib/config.mjs'), 'export const cfg = 1;\n', 'utf8');
     fs.writeFileSync(path.join(dir, 'tests/unit/git.test.mjs'), '// unit test\n', 'utf8');
-    fs.writeFileSync(path.join(dir, 'tests/unit/config.test.mjs'), '// unit test\n', 'utf8');
     const plan = buildMutationPlan(dir, { name: 'root', path: '.', commands: { mutation: './node_modules/.bin/stryker run' } });
     assert.equal(plan.diffScoped, true);
     assert.ok(plan.targets.some((t) => t.startsWith('.agent/scripts/lib/git.mjs:1-')));
-    assert.equal(Array.isArray(plan.shards) && plan.shards.length === 2, true);
-    const fullShardedPlan = buildMutationPlan(dir, { name: 'root', path: '.', commands: { mutation: './node_modules/.bin/stryker run' } }, { full: true });
-    assert.equal(Array.isArray(fullShardedPlan.shards) && fullShardedPlan.shards.length === 2, true);
+
+    // Coverage-summary JSON and JaCoCo CSV parsers
+    const jsonCovRepo = createTempGitRepo();
+    cleanups.push(jsonCovRepo.cleanup);
+    fs.mkdirSync(path.join(jsonCovRepo.dir, 'coverage'), { recursive: true });
+    fs.writeFileSync(path.join(jsonCovRepo.dir, 'coverage/coverage-summary.json'), JSON.stringify({ total: { lines: { pct: 92.5 } } }), 'utf8');
+    assert.equal(parseCoverageReport(jsonCovRepo.dir, { name: 'js', path: '.', commands: { coverageFile: 'coverage/coverage-summary.json' }, thresholds: { diffCoverage: 85 } }).repoLineCoverage, 92.5);
+
+    const csvCovRepo = createTempGitRepo();
+    cleanups.push(csvCovRepo.cleanup);
+    fs.mkdirSync(path.join(csvCovRepo.dir, 'target/site/jacoco'), { recursive: true });
+    fs.writeFileSync(path.join(csvCovRepo.dir, 'target/site/jacoco/jacoco.csv'), 'GROUP,PACKAGE,CLASS,LINE_MISSED,LINE_COVERED\ng,p,C,5,95\n', 'utf8');
+    assert.equal(parseCoverageReport(csvCovRepo.dir, { name: 'jvm', path: '.', commands: { coverageFile: 'target/site/jacoco/jacoco.csv' }, thresholds: { diffCoverage: 85 } }).repoLineCoverage, 95);
 
     // Subdirectory module (mod.path = 'packages/api') diff-scoped Stryker filter MUST catch Survived mutants (never bypass via diff-zero-mutants)
     const subMutRepo = createTempGitRepo();
@@ -337,8 +345,8 @@ describe('Ring 2: lib/measure.mjs', () => {
             commands: {
               lint: null,
               build: null,
-              test: `${process.execPath} --test "tests/**/*.test.mjs"`,
-              coverage: `${process.execPath} --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info "tests/**/*.test.mjs"`,
+              test: `${process.execPath} --test --test-isolation=none "tests/**/*.test.mjs"`,
+              coverage: `${process.execPath} --test --test-isolation=none --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info "tests/**/*.test.mjs"`,
               coverageFile: 'coverage/lcov.info',
               mutation: null
             },

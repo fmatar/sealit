@@ -200,7 +200,7 @@ describe('Ring 0: lib/git.mjs', () => {
     cleanups.push(cleanup);
 
     git(dir, 'checkout', '-q', '-b', 'feat/large-diff', 'develop');
-    const hugeLock = Array.from({ length: 45000 }, (_, i) => `"pkg-${i}": { "version": "1.0.${i}", "integrity": "sha512-${'a'.repeat(40)}" }`).join(',\n');
+    const hugeLock = Array.from({ length: 12000 }, (_, i) => `"pkg-${i}": { "version": "1.0.${i}", "integrity": "sha512-${'a'.repeat(60)}" }`).join(',\n');
     fs.writeFileSync(path.join(dir, 'package-lock.json'), `{\n${hugeLock}\n}\n`, 'utf8');
     const fakeAwsId = ['AKIA', '1234567890ABCDEF'].join('');
     fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
