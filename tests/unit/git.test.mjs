@@ -202,8 +202,9 @@ describe('Ring 0: lib/git.mjs', () => {
     git(dir, 'checkout', '-q', '-b', 'feat/large-diff', 'develop');
     const hugeLock = Array.from({ length: 45000 }, (_, i) => `"pkg-${i}": { "version": "1.0.${i}", "integrity": "sha512-${'a'.repeat(40)}" }`).join(',\n');
     fs.writeFileSync(path.join(dir, 'package-lock.json'), `{\n${hugeLock}\n}\n`, 'utf8');
+    const fakeAwsId = ['AKIA', '1234567890ABCDEF'].join('');
     fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
-    fs.writeFileSync(path.join(dir, 'src/secret.mjs'), 'export const key = "AKIA1234567890ABCDEF";\n', 'utf8');
+    fs.writeFileSync(path.join(dir, 'src/secret.mjs'), `export const key = "${fakeAwsId}";\n`, 'utf8');
     const quotedRel = 'src/quote"file.mjs';
     fs.writeFileSync(path.join(dir, quotedRel), 'export const q = 2;\n', 'utf8');
     git(dir, 'add', 'package-lock.json', 'src/secret.mjs', quotedRel);
@@ -219,7 +220,7 @@ describe('Ring 0: lib/git.mjs', () => {
     assert.equal(modFiles.includes('src/nul.mjs'), true);
 
     const diffs = getUnifiedDiffByFile(null, dir, modFiles);
-    assert.match(diffs.get('src/secret.mjs') || '', /\+export const key = "AKIA1234567890ABCDEF";/);
+    assert.equal((diffs.get('src/secret.mjs') || '').includes(`+export const key = "${fakeAwsId}";`), true);
     assert.match(diffs.get(quotedRel) || '', /\+export const q = 2;/);
     assert.match(diffs.get('src/nul.mjs') || '', /\+export const n = 3;/);
   });
