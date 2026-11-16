@@ -1,20 +1,21 @@
-# 🏛️ Product Constitution: [Product Name]
+# Product Constitution: [Product Name]
 
 > **Single Source of Truth (`PRODUCT.md`)**
-> Governed by **Agentic SDLC Framework (`sdlc-product`)**.
-> Any architectural, dependency, or contract deviation from this constitution requires a linked **ADR (`docs/adr/ADR-00X.md`)**.
+> Governed by **@fmatar/agentic-sdlc (`sdlc-spec` & `sdlc-adr`)**.
+> Any architectural, dependency, or contract deviation from this constitution requires an accepted **ADR (`docs/adr/ADR-00X.md`)**.
 
 ---
 
 ## 1. Product Vision
-[Concise executive summary of the product's mission, target personas, and primary value proposition.]
+[Concise summary of the product's purpose, target users, and core engineering guarantees.]
 
 ---
 
 ## 2. Hard Domain & System Invariants (`INV-XX`)
-- **INV-01**: Zero direct commits, merges, or pushes to `main` or `develop` (enforced by 4-Layer Git Guard & Stage 7 Hash-Chain Gate Receipts).
-- **INV-02**: 100% of code changes require an active SDLC ticket session and Dual-Gate verification ($\ge 85\%$ diff coverage, $\ge 80\%$ mutation score).
-- **INV-03**: Core Domain entities (Ring 0) must remain pure with zero imports from outer Web, DB, or framework layers.
+- **INV-01**: Zero direct commits, merges, or pushes to `main` or `develop` (enforced by 4-Layer Git Guard and Stage 7 HMAC-SHA256 Gate Receipts).
+- **INV-02**: Code changes require an active SDLC session and single-path measured verification (`sdlc gate`) meeting `.agent/sdlc-config.json` diff coverage and mutation thresholds.
+- **INV-03**: Spec, architecture policy, dependency, schema, and contract changes require an accepted ADR synchronized with `PRODUCT.md`.
+- **INV-04**: Configured verification commands execute via `execFileSync` argument arrays without shell string interpolation.
 
 ---
 
@@ -24,13 +25,13 @@
 | :--- | :--- | :--- | :--- | :--- |
 | CAP-01 | Core Domain Model & Invariants | `docs/specs/cap-01.md` | None | `PLANNED` |
 | CAP-02 | Persistence & Repository Ports | `docs/specs/cap-02.md` | CAP-01 | `PLANNED` |
-| CAP-03 | Reactive API & Mission Control UI | `docs/specs/cap-03.md` | CAP-01, CAP-02 | `PLANNED` |
+| CAP-03 | Delivery Entrypoints & CLI/API | `docs/specs/cap-03.md` | CAP-01, CAP-02 | `PLANNED` |
 
 ---
 
-## 4. Genesis & Milestone Execution Rules
-- **Genesis Ticket `#1`**: `feature/issue-#1-product-genesis` initializes `PRODUCT.md`, baseline specs, and project scaffolding.
-- **Zero-Bypass Merge Rule**: No PR merges to `main` without a signed Stage 7 HMAC-SHA256 Hash-Chain Gate Receipt in `docs/AUDIT_CHAIN.jsonl`.
+## 4. Merge & Verification Rules
+- **Zero-Bypass Merge Rule**: Pull requests into `develop` or `main` require a signed Stage 7 HMAC-SHA256 Hash-Chain Gate Receipt in `docs/AUDIT_CHAIN.jsonl`.
+- **Alignment Binding**: Every Stage 7 receipt cryptographically binds `headSha`, `treeSha`, `specHash`, and `adrHashes`.
 
 ---
 

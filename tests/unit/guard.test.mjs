@@ -14,6 +14,7 @@ import {
   verifyCommitGuard,
   verifyMergeGuard,
   verifyPushGuard,
+  postMergeCleanup,
   installHooks,
   inspectHooks,
   applyBranchProtection
@@ -165,6 +166,19 @@ describe('Ring 2: lib/guard.mjs', () => {
       git(dir, 'checkout', '-q', 'develop');
       const allowedDevMerge = verifyMergeGuard({ sourceSha: receiptHead, sourceBranch: begun.session.branch, repoRoot: dir });
       assert.equal(allowedDevMerge.allowed, true);
+
+      // Fast-forward/merge onto develop and verify postMergeCleanup marks merged session inactive
+      git(dir, 'merge', '--ff-only', begun.session.branch);
+      const cleaned = postMergeCleanup({ repoRoot: dir });
+      assert.equal(cleaned.cleaned, 1);
+      assert.equal(readSessionStore(dir).sessions['44'].active, false);
+
+      // Allocating local L-N session without issueId and blocking protected branch session start
+      const blockedProtected = beginSession({ branch: 'develop', repoRoot: dir });
+      assert.equal(blockedProtected.success, false);
+      const localSess = beginSession({ title: 'Auto Local ID', checkout: true, repoRoot: dir });
+      assert.equal(localSess.success, true);
+      assert.match(localSess.session.issueId, /^L-\d+$/);
     });
   });
 

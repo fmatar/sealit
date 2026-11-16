@@ -23,6 +23,21 @@ jobs:
     runs-on: ${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}
 
     steps:
+      - name: Require Self-Hosted Runner Policy
+        if: github.repository == 'fmatar/agentic-sdlc-framework' && runner.environment == 'github-hosted'
+        run: |
+          echo "::error::This repository must run exclusively on self-hosted runners (configure vars.SDLC_RUNS_ON)."
+          exit 1
+
+      - name: Enforce Main Branch Policy
+        env:
+          CURRENT_REF: ${{ github.ref }}
+        run: |
+          if [ "$CURRENT_REF" != "refs/heads/main" ]; then
+            echo "::error::Production releases may only execute from refs/heads/main (got '$CURRENT_REF')."
+            exit 1
+          fi
+
       - name: Checkout Code
         uses: actions/checkout@v7
         with:
@@ -43,9 +58,18 @@ jobs:
             npm install --no-audit --no-fund
           fi
 
-      - name: Verify Strict Quality Gate
+      - name: Verify Quality Gate & Signed Stage 7 Receipt
+        env:
+          SDLC_RECEIPT_KEY: ${{ secrets.SDLC_RECEIPT_KEY }}
         run: |
-          node .agent/scripts/sdlc-engine.mjs gate --strict --no-cache
+          node .agent/scripts/sdlc-engine.mjs config check
+          node .agent/scripts/sdlc-engine.mjs verify --chain-only
+          node .agent/scripts/sdlc-engine.mjs gate --no-cache
+          if [ -z "$SDLC_RECEIPT_KEY" ]; then
+            echo "::error::Missing SDLC_RECEIPT_KEY secret: production release requires verified Stage 7 receipt."
+            exit 1
+          fi
+          node .agent/scripts/sdlc-engine.mjs verify
 
       - name: Inspect Package Version & Release Tag
         id: version_check
@@ -54,9 +78,11 @@ jobs:
         run: |
           VERSION=$(node -p "require('./package.json').version")
           PKG_NAME=$(node -p "require('./package.json').name")
+          IS_PRIVATE=$(node -p "Boolean(require('./package.json').private)")
           TAG="v${VERSION}"
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "pkg_name=${PKG_NAME}" >> $GITHUB_OUTPUT
+          echo "is_private=${IS_PRIVATE}" >> $GITHUB_OUTPUT
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
           if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null 2>&1; then
             echo "tag_exists=true" >> $GITHUB_OUTPUT
@@ -95,7 +121,10 @@ jobs:
             echo "release_exists=false" >> $GITHUB_OUTPUT
             echo "GitHub Release ${TAG} does not exist. Release will be created."
           fi
-          if npm view "${PKG_NAME}@${VERSION}" version >/dev/null 2>&1; then
+          if [ "$IS_PRIVATE" = "true" ]; then
+            echo "npm_published=true" >> $GITHUB_OUTPUT
+            echo "Package is marked private; skipping npm registry publish."
+          elif npm view "${PKG_NAME}@${VERSION}" version >/dev/null 2>&1; then
             echo "npm_published=true" >> $GITHUB_OUTPUT
             echo "Package ${PKG_NAME}@${VERSION} is already published on npm."
           else
@@ -132,8 +161,8 @@ jobs:
           RELEASE_EXISTS: ${{ steps.version_check.outputs.release_exists }}
         run: |
           if [ "${TAG_EXISTS}" = "false" ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git config --local user.name "github-actions[bot]"
+            git config --local user.email "github-actions[bot]@users.noreply.github.com"
             git tag -a "$TAG" -m "Release $TAG"
             git push origin "$TAG"
           fi
@@ -189,7 +218,7 @@ jobs:
           fi
 
       - name: Publish Package to NPM (When NPM_TOKEN is configured)
-        if: steps.version_check.outputs.npm_published == 'false'
+        if: steps.version_check.outputs.npm_published == 'false' && steps.version_check.outputs.is_private == 'false'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |

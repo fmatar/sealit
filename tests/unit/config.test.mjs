@@ -10,6 +10,7 @@ import {
   validateConfigFile,
   detectStack,
   generateConfig,
+  upgradeConfigToV010,
   listExemptions,
   addExemption
 } from '../../.agent/scripts/lib/config.mjs';
@@ -151,6 +152,37 @@ describe('Ring 0: lib/config.mjs', () => {
     const rustStack = detectStack(rustRepo.dir);
     assert.equal(rustStack.language, 'rust');
     assert.equal(rustStack.commands.test, 'cargo test');
+
+    // Go, Python, Maven, Gradle, and Generic stack detection + upgradeConfigToV010
+    for (const [manifest, content, expectedLang, expectedCmd] of [
+      ['go.mod', 'module example.com/demo\n', 'go', 'go test ./...'],
+      ['pyproject.toml', '[project]\nname = "demo"\n', 'python', 'pytest'],
+      ['pom.xml', '<project></project>\n', 'java', 'mvn test'],
+      ['build.gradle.kts', 'plugins { java }\n', 'java', './gradlew test']
+    ]) {
+      const subRepo = createTempGitRepo();
+      cleanups.push(subRepo.cleanup);
+      fs.writeFileSync(path.join(subRepo.dir, manifest), content, 'utf8');
+      const st = detectStack(subRepo.dir);
+      assert.equal(st.language, expectedLang);
+      assert.equal(st.commands.test, expectedCmd);
+    }
+
+    const genericRepo = createTempGitRepo();
+    cleanups.push(genericRepo.cleanup);
+    assert.equal(detectStack(genericRepo.dir).language, 'generic');
+
+    const upgraded = upgradeConfigToV010({
+      version: '2.0.0',
+      lanes: { trivialMaxLines: 20 },
+      gates: { minDiffCoverage: 88, minMutationScore: 60 },
+      testing: { testCommand: 'pytest' },
+      modules: [{ name: 'py', path: '.', language: 'python', commands: {} }]
+    });
+    assert.equal(upgraded.version, '0.1.0');
+    assert.equal(upgraded.modules[0].commands.test, 'pytest');
+    assert.equal(upgraded.modules[0].thresholds.diffCoverage, 88);
+    assert.equal(upgraded.modules[0].thresholds.mutationScore, 60);
   });
 
   it('manages audited mutant exemptions atomically and validates inputs', () => {

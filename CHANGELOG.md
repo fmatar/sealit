@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-16
+
+### Added
+- **8-Module Alignment + Proof Kernel (`ADR-019`)**: Consolidated runtime architecture into 8 concentric Clean Architecture modules (`git.mjs`, `config.mjs`, `receipt.mjs`, `drift.mjs`, `measure.mjs`, `guard.mjs`, `install.mjs`, `sdlc-engine.mjs`), each `<= 850` LOC with zero runtime dependencies and Node.js `>= 22.0.0` support.
+- **Cryptographic Alignment Binding in Stage 7 Receipts**: `issueGateReceipt` and `verifyGateReceipt` now bind `headSha`, `treeSha`, `specHash`, and `adrHashes` alongside measured `diffCoverage` and `mutationScore`, supporting exact `HEAD`, post-receipt `AUDIT_CHAIN.jsonl` commits, Squash `treeSha` equivalence, and 2-parent clean `--no-ff` merges while blocking evil merges.
+- **Canonical `sdlc-spec` Skill & 6-Skill Single-Source Suite**: Added pure-Markdown `sdlc-spec` alignment skill and consolidated `.agent/skills/` onto 6 canonical skills (`sdlc`, `sdlc-spec`, `sdlc-adr`, `sdlc-tdd`, `sdlc-gate`, `sdlc-flow`), pointing `.claude-plugin/plugin.json` directly at `./.agent/skills` and generating agent-specific copies at install time.
+
+### Changed
+- **Single-Path Measured Gate (`docs-only` vs `code`)**: Replaced multi-lane session state machines with one `HEAD`-bound `session.lastGate` measurement object, enforcing report `mtimeMs` freshness, `0%` unimported changed source file detection, diff-scoped mutation execution, and diff secret scanning.
+- **Linked-Worktree & Symlink-Safe Operations**: `guard.mjs` resolves hooks via `git rev-parse --git-common-dir` for linked `git worktree` support, `git.mjs` strips `NODE_TEST_CONTEXT` and `NODE_V8_COVERAGE` during nested runner execution, and `install.mjs` unlinks pre-existing symlinks before writing files while preserving valid `.agent/sdlc-config.json` files.
+
+### Removed
+- **Peripheral & Vendored Bloat (`~80,000+` lines removed)**: Removed embedded loopback HTTP `workbench-server.mjs` and `workbench-assets/`, `pm-provider.mjs` and `docs/KANBAN.md`, `readme-sync.mjs`, `wiki-sync.mjs` and `wiki/*`, `product-dag.mjs`, `arch-trace.mjs` and `docs/ARCH_TRACE.md`, `decision-graph.mjs` and `docs/DECISION_MAP.md`, `dossier.mjs`, synthetic `watchdog`/`proof`/`release` CLI subcommands, duplicate `enforce-branch-flow.yml` and `publish-wiki.yml` workflows, tracked `.claude`/`.cursor` skill mirrors and `.zip` archives, and vendored `impeccable` copies.
+
 ## [0.0.2] - 2026-11-15
 
 ### Added

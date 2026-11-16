@@ -9,12 +9,22 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: sdlc-gate-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   quality-gate:
     name: Universal Quality Gate, Spec-Drift & Merkle Receipt Defense
     runs-on: ${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}
 
     steps:
+      - name: Require Self-Hosted Runner Policy
+        if: github.repository == 'fmatar/agentic-sdlc-framework' && runner.environment == 'github-hosted'
+        run: |
+          echo "::error::This repository must run exclusively on self-hosted runners (configure vars.SDLC_RUNS_ON)."
+          exit 1
+
       - name: Checkout Code
         uses: actions/checkout@v7
         with:
@@ -26,10 +36,9 @@ jobs:
           HEAD_REF: ${{ github.head_ref }}
         run: |
           if [ "$HEAD_REF" != "develop" ]; then
-            echo "::error::Branch policy violation: Pull requests targeting 'main' must originate exclusively from 'develop'. Direct merges from '$HEAD_REF' into 'main' are forbidden."
+            echo "::error::Pull requests targeting 'main' must originate exclusively from 'develop' (got '$HEAD_REF')."
             exit 1
           fi
-          echo "Branch policy validated: PR targeting 'main' originates from 'develop'."
 
       - name: Setup Node.js Runtime
         uses: actions/setup-node@v7
@@ -45,26 +54,20 @@ jobs:
             npm install --no-audit --no-fund
           fi
 
-      - name: Verify Spec Drift
+      - name: Verify Env-Isolated Test Suite
+        if: hashFiles('package.json') != ''
+        env:
+          SDLC_RECEIPT_KEY: ci-dummy-test-key
         run: |
-          if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
-            node .agent/scripts/sdlc-engine.mjs drift check
-          fi
-
-      - name: Validate SDLC Configuration
-        run: |
-          if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
-            node .agent/scripts/sdlc-engine.mjs config check
-          fi
+          npm test
 
       - name: Verify Universal Quality Gate & Hash-Chain Audit Ledger
         run: |
           if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
-            node .agent/scripts/sdlc-engine.mjs audit verify
+            node .agent/scripts/sdlc-engine.mjs config check
+            node .agent/scripts/sdlc-engine.mjs verify --chain-only
             node .agent/scripts/sdlc-engine.mjs skill-audit
-            node .agent/scripts/sdlc-engine.mjs gate --strict --no-cache
-          elif npm run | grep -q 'gate'; then
-            npm run gate
+            node .agent/scripts/sdlc-engine.mjs gate --no-cache
           else
             npm test
           fi
@@ -76,15 +79,21 @@ jobs:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           BASE_REPO: ${{ github.repository }}
+          BASE_REF: ${{ github.base_ref }}
+          GITHUB_HEAD_REF: ${{ github.head_ref }}
         run: |
           if [ "$PR_HEAD_REPO" != "$BASE_REPO" ]; then
             echo "::warning::Skipping Stage 7 gate receipt verification for fork pull request ($PR_HEAD_REPO)."
             exit 0
           fi
           if [ -z "$SDLC_RECEIPT_KEY" ]; then
-            echo "::error::Missing SDLC_RECEIPT_KEY secret: configure the repository secret SDLC_RECEIPT_KEY to verify Stage 7 gate receipts."
+            echo "::error::Missing SDLC_RECEIPT_KEY secret: configure repository secret SDLC_RECEIPT_KEY to verify Stage 7 gate receipts."
             exit 1
           fi
           if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
-            node .agent/scripts/sdlc-engine.mjs guard verify --sha "$PR_HEAD_SHA"
+            if [ "$BASE_REF" = "main" ]; then
+              node .agent/scripts/sdlc-engine.mjs verify --sha "$PR_HEAD_SHA"
+            else
+              node .agent/scripts/sdlc-engine.mjs verify --sha "$PR_HEAD_SHA" --branch "$GITHUB_HEAD_REF"
+            fi
           fi

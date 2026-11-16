@@ -1,48 +1,35 @@
-# Product Requirements Document (PRD): Agentic SDLC Framework
+# Product Requirements Document (PRD): `@fmatar/agentic-sdlc` (v0.1.0)
 
 ## 1. Meta & Traceability
-- **Product Title**: Agentic SDLC Framework
+- **Product Title**: Agentic SDLC Alignment + Proof Kernel (`@fmatar/agentic-sdlc`)
+- **Version**: `0.1.0`
 - **Constitutional Source of Truth**: [`PRODUCT.md`](../PRODUCT.md)
 - **Companion System Specification**: [`docs/SRS.md`](./SRS.md)
-- **Decision Lineage Map**: [`docs/DECISION_MAP.md`](./DECISION_MAP.md)
 - **Status**: `ACTIVE`
 
-## 2. Problem Alignment (The "Why")
-- **Problem Statement**: End-to-end spec-driven autonomous software development lifecycle with risk-proportional execution lanes (`trivial`, `standard`, `full`), [Archlens](https://github.com/fmatar/archlens) concentric Clean Architecture governance (`.archlens/policy.json`), Spec-Drift ADR engine, 4-Layer Git Lockdown, config-driven polyglot Dual-Gate verification, and a zero-dependency loopback Architecture & Causal Decision Workbench (`.agent/scripts/lib/workbench-server.mjs`) governed by 10 canonical agentic skills.
-- **Target Audience**: AI-native engineering teams, software architects, and autonomous coding agents (**Gemini / Antigravity**, **Claude Code**, **Cursor**, **Grok**, **Windsurf**, **GitHub Copilot**).
-- **Value Proposition**: Replaces ad-hoc prompt engineering and fragile scripts with a deterministic, cryptographically verifiable 8-stage software engineering lifecycle that scales ceremony to change risk.
-- **Business & Engineering Goal**: Maximize feature velocity while guaranteeing zero architectural drift, zero shell injection vulnerabilities, and verified Dual-Gate test quality.
+## 2. Problem Alignment
+- **Problem Statement**: AI coding agents write code rapidly while frequently drifting from specifications, skipping edge-case tests, violating module boundaries, or claiming verification passed without fresh execution proof.
+- **Target Audience**: Developers and engineering teams using AI coding agents (`Antigravity`, `Claude Code`, `Cursor`, `Codex`, `GitHub Copilot`) across JavaScript/TypeScript, Rust, Python, Go, and Java/Kotlin repositories.
+- **Value Proposition**: Provides a lightweight, zero-dependency CLI and 6-skill suite that mechanically verifies spec/ADR alignment, Concentric Clean Architecture boundaries, diff test coverage, and diff mutation scores, sealing the verified state into an HMAC-SHA256 merge receipt.
 
-## 3. Scope & Product Capabilities (The "What")
-### In Scope (`CAP-XX` Capability Portfolio)
-- **CAP-01 (Composite Stage CLI & Session Hygiene (#68))**: Governed by [`docs/specs/cap-01-composite-stage-session.md`](../docs/specs/cap-01-composite-stage-session.md) (Depends on: None)
-- **CAP-02 (Shell Injection Remediation & Polyglot Test Runners (#69))**: Governed by [`docs/specs/cap-02-security-polyglot-runners.md`](../docs/specs/cap-02-security-polyglot-runners.md) (Depends on: None)
-- **CAP-03 (Real Coverage/Mutation Parsers & Policy ArchDiff (#70))**: Governed by [`docs/specs/cap-03-real-dual-gate-archdiff.md`](../docs/specs/cap-03-real-dual-gate-archdiff.md) (Depends on: CAP-01, CAP-02)
-- **CAP-04 (Live Canary Watchdog, Real Proofs & Polyglot Reproduce (#71))**: Governed by [`docs/specs/cap-04-live-probes-reproduce.md`](../docs/specs/cap-04-live-probes-reproduce.md) (Depends on: CAP-02)
-- **CAP-05 (Consolidate Legacy Skills into Schema-Valid Core Skills (#72, standardized on 10 canonical skills))**: Governed by [`docs/specs/cap-05-skill-consolidation.md`](../docs/specs/cap-05-skill-consolidation.md) (Depends on: CAP-03, CAP-04)
-- **CAP-06 (Dogfooding Configuration, Docs Sync & Full Test Suite (#73))**: Governed by [`docs/specs/cap-06-dogfood-docs-tests.md`](../docs/specs/cap-06-dogfood-docs-tests.md) (Depends on: CAP-05)
-- **CAP-07 (Native `npx` Multi-Agent Interactive Installer & Legacy Installer Removal (#75))**: Governed by [`docs/specs/cap-07-npx-multi-agent-installer.md`](../docs/specs/cap-07-npx-multi-agent-installer.md) (Depends on: CAP-06)
-- **CAP-08 (`/sdlc` Universal Command Router & 9 Verb-Driven Skills (#81/#109/#116))**: Governed by [`docs/specs/cap-08-command-verb-skills-router.md`](../docs/specs/cap-08-command-verb-skills-router.md) (Depends on: CAP-05, CAP-07)
-- **CAP-09 (Two-Tier PRD & IEEE 29148 SRS Specification Engine (#84))**: Governed by [`docs/specs/cap-09-prd-srs-specification-engine.md`](../docs/specs/cap-09-prd-srs-specification-engine.md) (Depends on: CAP-05, CAP-08)
-- **CAP-10 (Unified Multi-Provider Ticket Engine & Issue Templates (#86))**: Governed by [`docs/specs/cap-10-unified-multi-provider-ticket-engine-issue-templ.md`](../docs/specs/cap-10-unified-multi-provider-ticket-engine-issue-templ.md) (Depends on: CAP-02, CAP-09)
-- **CAP-11 (Technical Writer Skill (`sdlc-wiki`), 10-30-90 `README.md` & [Archlens](https://github.com/fmatar/archlens) AST-to-Wiki Sync (#90/#100))**: Governed by [`docs/specs/cap-11-technical-writer-archlens-wiki-sync.md`](../docs/specs/cap-11-technical-writer-archlens-wiki-sync.md) (Depends on: CAP-03, CAP-05, CAP-08)
+## 3. Scope & Product Capabilities (`CAP-01` .. `CAP-06`)
+### In Scope
+- **CAP-01**: Git Flow branch protection, linked `git worktree` support, and 4-Layer Git hooks ([`docs/specs/cap-01-git-and-worktree-guard.md`](./specs/cap-01-git-and-worktree-guard.md)).
+- **CAP-02**: Schema-validated `.agent/sdlc-config.json` and shell-free `execFileSync` command execution ([`docs/specs/cap-02-config-and-shell-free-execution.md`](./specs/cap-02-config-and-shell-free-execution.md)).
+- **CAP-03**: Spec/manifest/contract drift detection, human-approved ADRs, and [Archlens](https://github.com/fmatar/archlens) concentric ring & cycle governance ([`docs/specs/cap-03-spec-adr-and-ring-alignment.md`](./specs/cap-03-spec-adr-and-ring-alignment.md)).
+- **CAP-04**: Single-path (`docs-only` vs `code`) quality gate measuring real coverage/mutation reports and scanning diffs for leaked secrets ([`docs/specs/cap-04-single-path-measured-gate.md`](./specs/cap-04-single-path-measured-gate.md)).
+- **CAP-05**: Append-only SHA-256 hash chain (`docs/AUDIT_CHAIN.jsonl`) and multi-topology HMAC-SHA256 Stage 7 merge receipts ([`docs/specs/cap-05-cryptographic-merge-receipts.md`](./specs/cap-05-cryptographic-merge-receipts.md)).
+- **CAP-06**: 6 canonical `sdlc*` skills (`sdlc`, `sdlc-spec`, `sdlc-adr`, `sdlc-tdd`, `sdlc-gate`, `sdlc-flow`), symlink-safe local/global installer, and read-only `doctor` ([`docs/specs/cap-06-canonical-skills-and-installer.md`](./specs/cap-06-canonical-skills-and-installer.md)).
 
-### Out of Scope (Non-Goals)
-- Bypassing the 4-Layer Git Guard or merging unverified code without a signed Stage 7 HMAC-SHA256 Gate Receipt.
-- Bundling, prescribing, or deleting standalone coding-persona or design skills outside the `sdlc*` namespace (`ADR-011`).
+### Out of Scope (Non-Goals in OSS Kernel)
+- Embedded HTTP UI servers or visual dashboards (delegated to [Archlens](https://github.com/fmatar/archlens) or commercial cloud telemetry).
+- Issue-tracker synchronization, local Kanban Markdown mirrors, or automated prose/wiki generators.
+- Bundling or modifying third-party skills outside the `sdlc*` namespace.
 
-## 4. User Experience & Core Flows
-- **Onboarding Flow**: `npx --yes github:fmatar/agentic-sdlc-framework install` -> select coding agents -> run `/sdlc-doctor` (and optionally `npx skills add fmatar/archlens` for [Archlens](https://github.com/fmatar/archlens) MCP/visual workbench integration).
-- **Product Architecture Flow**: `/sdlc-product` synthesizes `PRODUCT.md`, `docs/PRD.md`, `docs/SRS.md`, and `docs/specs/cap-XX-*.md`, then schedules topological DAG waves.
-- **Risk-Proportional Ticket Delivery Flow**: `/sdlc-flow` auto-triages into `trivial`, `standard`, or `full` lanes across `stage begin` -> `/sdlc-tdd` -> `stage pre-pr` -> `/sdlc-gate` -> `stage complete`.
+## 4. Core User Flows
+1. **Onboarding (`sdlc init`)**: `npx @fmatar/agentic-sdlc init` detects project stacks, generates `.agent/sdlc-config.json` and `.archlens/policy.json`, installs SHA-256 verified Git hooks and `.github/workflows/sdlc-quality-gate.yml`, and provisions selected agent skills.
+2. **Branch Delivery (`sdlc-flow`)**: `sdlc begin --checkout` -> `sdlc-spec` / `sdlc-adr` (`sdlc drift`) -> `sdlc-tdd` (`test`, `coverage`, `mutation`) -> `sdlc-gate` (`gate`, independent review, `review record --verdict approve`, `verify`) -> `sdlc end`.
 
-## 5. Metrics, Success & Guardrails (The "How We Measure")
-- **Primary Quality Metrics**: Config-driven Dual-Gate thresholds in `.agent/sdlc-config.json` (default `>= 85%` coverage; configurable mutation kill threshold per repo).
-- **Guardrail Invariants (`INV-XX`)**:
-- **INV-01**: Zero direct commits, merges, or pushes to main or develop; feature PRs merge to develop, and releases trigger when develop merges to main
-- **INV-02**: Changes require an active SDLC session and risk-proportional Dual-Gate verification (`trivial`, `standard`, or `full` lane) meeting the coverage, mutation, and peer-review thresholds configured in `.agent/sdlc-config.json`
-- **INV-03**: All spec drift must be recorded via an ADR (docs/adr/ADR-00X.md) and synchronized with PRODUCT.md
-- **INV-04**: Zero shell command interpolation of untrusted user/markdown inputs in PM, Git, or test runner execution paths
-
-## 6. Go-To-Market & Rollout
-- **Rollout Plan**: Continuous semantic versioning via `/sdlc-release` with automated regression proofs (`docs/proofs/`) and live canary health watchdog probes.
+## 5. Quality & Security Guardrails
+- **Runtime Floor**: Node.js `>= 22.0.0`, zero runtime npm dependencies, package tarball `< 120 kB`, and `<= 850` LOC per kernel module.
+- **Invariants**: Enforces `INV-01` through `INV-04` as defined in [`PRODUCT.md`](../PRODUCT.md).

@@ -3,8 +3,8 @@ id: ADR-019
 title: v0.1.0 Alignment and Proof Kernel Simplification
 status: accepted
 scope: technical
-ticket: #190
-supersedes: CAP-01, CAP-02, CAP-03, CAP-04, CAP-05, CAP-06, CAP-07, CAP-08, CAP-09, CAP-10, CAP-11
+ticket: "190"
+supersedes: [CAP-01, CAP-02, CAP-03, CAP-04, CAP-05, CAP-06, CAP-07, CAP-08, CAP-09, CAP-10, CAP-11]
 createdAt: 2026-11-16T15:48:25.855Z
 ---
 

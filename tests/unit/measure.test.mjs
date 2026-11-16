@@ -108,6 +108,31 @@ describe('Ring 2: lib/measure.mjs', () => {
     const passRes = parseCoverageReport(dir, mod);
     assert.equal(passRes.passed, true);
     assert.equal(passRes.diffLineCoverage, 100);
+
+    // Cobertura XML, JaCoCo XML, and Go cover.out report formats
+    const cobRepo = createTempGitRepo();
+    cleanups.push(cobRepo.cleanup);
+    fs.mkdirSync(path.join(cobRepo.dir, 'coverage'), { recursive: true });
+    fs.writeFileSync(path.join(cobRepo.dir, 'coverage/coverage.xml'), '<coverage line-rate="0.91"></coverage>', 'utf8');
+    const cobRes = parseCoverageReport(cobRepo.dir, { name: 'py', path: '.', commands: { coverageFile: 'coverage/coverage.xml' }, thresholds: { diffCoverage: 85 } });
+    assert.equal(cobRes.passed, true);
+    assert.equal(cobRes.repoLineCoverage, 91);
+
+    const jacRepo = createTempGitRepo();
+    cleanups.push(jacRepo.cleanup);
+    fs.mkdirSync(path.join(jacRepo.dir, 'target/site/jacoco'), { recursive: true });
+    fs.writeFileSync(path.join(jacRepo.dir, 'target/site/jacoco/jacoco.xml'), '<report name="demo"><counter type="LINE" missed="10" covered="90"/></report>', 'utf8');
+    const jacRes = parseCoverageReport(jacRepo.dir, { name: 'jvm', path: '.', commands: { coverageFile: 'target/site/jacoco/jacoco.xml' }, thresholds: { diffCoverage: 85 } });
+    assert.equal(jacRes.passed, true);
+    assert.equal(jacRes.repoLineCoverage, 90);
+
+    const goRepo = createTempGitRepo();
+    cleanups.push(goRepo.cleanup);
+    fs.mkdirSync(path.join(goRepo.dir, 'coverage'), { recursive: true });
+    fs.writeFileSync(path.join(goRepo.dir, 'coverage/cover.out'), 'mode: set\nexample.com/pkg/a.go:1.1,5.2 4 1\nexample.com/pkg/a.go:6.1,8.2 1 0\n', 'utf8');
+    const goRes = parseCoverageReport(goRepo.dir, { name: 'go', path: '.', commands: { coverageFile: 'coverage/cover.out' }, thresholds: { diffCoverage: 75 } });
+    assert.equal(goRes.passed, true);
+    assert.equal(goRes.repoLineCoverage, 80);
   });
 
   it('evaluates fresh mutation reports and exemptions even when runner exits non-zero, and parses Gradle PIT + mutmut 2.x', () => {
@@ -191,6 +216,39 @@ describe('Ring 2: lib/measure.mjs', () => {
     assert.equal(mutmutParsed.found, true);
     assert.equal(mutmutParsed.score, 90);
     assert.equal(mutmutParsed.passed, true);
+
+    // cargo-mutants, mutmut JSON, and go-mutesting report formats
+    const cargoMutRepo = createTempGitRepo();
+    cleanups.push(cargoMutRepo.cleanup);
+    fs.mkdirSync(path.join(cargoMutRepo.dir, 'mutants.out'), { recursive: true });
+    fs.writeFileSync(
+      path.join(cargoMutRepo.dir, 'mutants.out/outcomes.json'),
+      JSON.stringify({ outcomes: [{ summary: 'caught' }, { summary: 'caught' }, { summary: 'missed' }] }),
+      'utf8'
+    );
+    const cargoMut = parseMutationReport(cargoMutRepo.dir, { name: 'rs', path: '.', thresholds: { mutationScore: 60 } });
+    assert.equal(cargoMut.passed, true);
+    assert.equal(cargoMut.killed, 2);
+    assert.equal(cargoMut.survived, 1);
+
+    const mutJsonRepo = createTempGitRepo();
+    cleanups.push(mutJsonRepo.cleanup);
+    fs.writeFileSync(path.join(mutJsonRepo.dir, '.mutmut-results.json'), JSON.stringify({ killed: 7, timeout: 1, survived: 2 }), 'utf8');
+    const mutJson = parseMutationReport(mutJsonRepo.dir, { name: 'py', path: '.', thresholds: { mutationScore: 75 } });
+    assert.equal(mutJson.passed, true);
+    assert.equal(mutJson.score, 80);
+
+    const goMutRepo = createTempGitRepo();
+    cleanups.push(goMutRepo.cleanup);
+    fs.mkdirSync(path.join(goMutRepo.dir, 'reports/mutation'), { recursive: true });
+    fs.writeFileSync(path.join(goMutRepo.dir, 'reports/mutation/go-mutesting.txt'), 'PASS: mut 1\nPASS: mut 2\nPASS: mut 3\nFAIL: mut 4\n', 'utf8');
+    const goMut = parseMutationReport(goMutRepo.dir, { name: 'go', path: '.', thresholds: { mutationScore: 70 } });
+    assert.equal(goMut.passed, true);
+    assert.equal(goMut.score, 75);
+
+    const reviewPlan = buildReviewPlan(dir, { sessionId: '99' });
+    assert.equal(typeof reviewPlan.mode, 'string');
+    assert.ok(Array.isArray(reviewPlan.reviewers));
 
     // Stryker diff-scoped plan does not misclassify source containing string "Binary files x differ"
     git(dir, 'checkout', '-q', '-b', 'feat/stryker-plan', 'develop');
