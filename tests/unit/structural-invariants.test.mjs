@@ -110,14 +110,24 @@ describe('v0.1.0 Structural & Governance Invariants', () => {
 
   it('Invariant 4: Workflows enforce self-hosted runner policy, main-branch release receipt guard, and env-isolated tests', () => {
     const qg = fs.readFileSync(path.join(REPO_ROOT, '.github/workflows/sdlc-quality-gate.yml'), 'utf8');
+    const cfg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, '.agent/sdlc-config.json'), 'utf8'));
+    assert.equal(qg.includes(`runs-on: ${cfg.ci.runsOn}`), true);
     assert.match(qg, /runner\.environment == 'github-hosted'/);
     assert.match(qg, /--branch "\$GITHUB_HEAD_REF"/);
     assert.match(qg, /SDLC_RECEIPT_KEY: ci-dummy-test-key/);
+    assert.match(qg, /git archive "origin\/\$BASE_REF"/);
 
     const rel = fs.readFileSync(path.join(REPO_ROOT, '.github/workflows/release.yml'), 'utf8');
+    assert.equal(rel.includes(`runs-on: ${cfg.ci.runsOn}`), true);
     assert.match(rel, /runner\.environment == 'github-hosted'/);
     assert.match(rel, /refs\/heads\/main/);
     assert.match(rel, /sdlc-engine\.mjs verify/);
+
+    // Audit #10: Active docs/skills/specs never claim Audit Ledger is a Merkle tree
+    for (const docRel of ['README.md', 'PRODUCT.md', 'CONTRIBUTING.md', 'docs/PRD.md']) {
+      const docTxt = fs.readFileSync(path.join(REPO_ROOT, docRel), 'utf8');
+      assert.equal(/\bMerkle\b/i.test(docTxt), false, `Unexpected 'Merkle' terminology in ${docRel}`);
+    }
   });
 
   it('Invariant 5: Read-only CLI commands never mutate process.env or dirty git status, and audit chain is intact', async () => {

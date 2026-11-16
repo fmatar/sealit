@@ -15,7 +15,8 @@ import {
   normalizeTicketId,
   resolveDefaultBaseBranch,
   resolveGitCommonRepoRoot,
-  resolveGitHooksDir
+  resolveGitHooksDir,
+  verifyCleanThreeWayMergeTrees
 } from './git.mjs';
 import { DEFAULT_QUALITY_GATE_CHECK, loadConfig } from './config.mjs';
 import {
@@ -78,6 +79,13 @@ export function beginSession({
       error: `Cannot start session on protected branch '${targetBranch}'. Pass --checkout or switch to a feature branch.`
     };
   }
+  if (targetBranch === 'HEAD' || targetBranch.startsWith('-')) {
+    return { success: false, error: `Invalid branch name '${targetBranch}'.` };
+  }
+  const refCheck = gitExec(['check-ref-format', '--branch', targetBranch], absRoot);
+  if (refCheck.error || refCheck.status !== 0) {
+    return { success: false, error: `Invalid branch name '${targetBranch}'.` };
+  }
 
   let resolvedWorktree = null;
   if (worktree) {
@@ -91,7 +99,7 @@ export function beginSession({
       return { success: false, error: `Failed to create git worktree: ${wtRes.stderr || wtRes.error?.message}` };
     }
   } else if (checkout && curBranch !== targetBranch) {
-    const coArgs = hasBranch(targetBranch, absRoot) ? ['checkout', targetBranch] : ['checkout', '-b', targetBranch];
+    const coArgs = hasBranch(targetBranch, absRoot) ? ['checkout', '--end-of-options', targetBranch] : ['checkout', '-b', targetBranch];
     const coRes = gitExec(coArgs, absRoot);
     if (coRes.error || coRes.status !== 0) {
       return { success: false, error: `Failed to checkout branch '${targetBranch}': ${coRes.stderr || coRes.error?.message}` };
@@ -206,6 +214,9 @@ export function recordReviewVerdict({
 
   let prCommented = false;
   if (prNumber) {
+    if (!/^[1-9]\d*$/.test(String(prNumber).trim())) {
+      return { success: false, review: reviewObj, reason: `Invalid pull request number '${prNumber}'.` };
+    }
     const summaryBody = [
       `### SDLC Gate Review (${normVerdict.toUpperCase()})`,
       `- **Ticket**: \`${active.issueId}\` | **Branch**: \`${branch}\` | **Commit**: \`${headSha?.slice(0, 8) || 'unknown'}\``,
@@ -264,7 +275,7 @@ export function endSession({ issueId = null, repoRoot = '.' } = {}) {
   if (worktreeToClean && fileExists(worktreeToClean)) {
     const commonRoot = resolveGitCommonRepoRoot(absRoot);
     // Never pass --force: preserve uncommitted user files!
-    const rmRes = gitExec(['worktree', 'remove', worktreeToClean], commonRoot);
+    const rmRes = gitExec(['worktree', 'remove', '--', worktreeToClean], commonRoot);
     if (!rmRes.error && rmRes.status === 0) {
       worktreeRemoved = true;
       gitExec(['worktree', 'prune'], commonRoot);
@@ -346,7 +357,7 @@ export function verifyMergeGuard({ targetBranch = null, sourceBranch = null, sou
 
   const { sourceSha: resolvedSha, sourceBranch: resolvedBranch } = resolveMergeSourceState(repoRoot, sourceSha, sourceBranch);
 
-  if (currentTarget === 'main' && hasDevelopBranch(repoRoot)) {
+  if ((currentTarget === 'main' || currentTarget === 'master') && hasDevelopBranch(repoRoot)) {
     if (resolvedBranch && resolvedBranch !== 'develop' && resolvedBranch !== 'origin/develop') {
       return {
         allowed: false,
@@ -354,10 +365,10 @@ export function verifyMergeGuard({ targetBranch = null, sourceBranch = null, sou
         reasonCode: 'DIRECT_MERGE_TO_MAIN_FORBIDDEN',
         targetBranch: currentTarget,
         sourceBranch: resolvedBranch,
-        message: `Merges into 'main' must originate exclusively from 'develop' (got '${resolvedBranch}').`
+        message: `Merges into '${currentTarget}' must originate exclusively from 'develop' (got '${resolvedBranch}').`
       };
     }
-    if (!resolvedBranch && resolvedSha) {
+    if (resolvedSha) {
       const devSha = (
         gitOutput(['rev-parse', '--verify', '-q', 'refs/heads/develop'], repoRoot) ||
         gitOutput(['rev-parse', '--verify', '-q', 'refs/remotes/origin/develop'], repoRoot) ||
@@ -369,10 +380,27 @@ export function verifyMergeGuard({ targetBranch = null, sourceBranch = null, sou
           layer: 'LAYER_3_GIT_FLOW_BRANCH_POLICY',
           reasonCode: 'DIRECT_MERGE_TO_MAIN_FORBIDDEN',
           targetBranch: currentTarget,
-          sourceBranch: resolvedSha,
-          message: `Merges into 'main' must originate exclusively from 'develop' (${devSha.slice(0, 7)}).`
+          sourceBranch: resolvedBranch || resolvedSha,
+          message: `Merges into '${currentTarget}' must originate exclusively from 'develop' (${devSha.slice(0, 7)}).`
         };
       }
+    }
+  }
+
+  // When MERGE_HEAD is active during pre-merge-commit, verify staged index tree matches clean 3-way merge
+  const mergeHeadPresent = Boolean((gitOutput(['rev-parse', '--verify', '-q', 'MERGE_HEAD'], repoRoot) || '').trim());
+  if (mergeHeadPresent && resolvedSha) {
+    const indexTree = (gitOutput(['write-tree'], repoRoot) || '').trim();
+    const mbSha = (gitOutput(['merge-base', '--end-of-options', 'HEAD', resolvedSha], repoRoot) || '').trim();
+    if (!indexTree || !mbSha || !verifyCleanThreeWayMergeTrees({ mbSha, p1Ref: 'HEAD', p2Ref: resolvedSha, targetRef: indexTree, repoRoot })) {
+      return {
+        allowed: false,
+        layer: 'LAYER_3_DIRTY_MERGE_INDEX',
+        reasonCode: 'EVIL_MERGE_INDEX_DETECTED',
+        targetBranch: currentTarget,
+        sourceBranch: resolvedBranch,
+        message: `Cannot merge into '${currentTarget}': staged merge index introduces modifications outside clean 3-way merge.`
+      };
     }
   }
 
@@ -396,7 +424,21 @@ export function verifyMergeGuard({ targetBranch = null, sourceBranch = null, sou
   return { allowed: true, layer: 'PASSED', targetBranch: currentTarget, receipt: receiptCheck.receipt };
 }
 
-export function verifyPushGuard({ remoteBranch = null, repoRoot = '.' } = {}) {
+export function verifyPushGuard({ remoteBranch = null, stdinText = '', repoRoot = '.' } = {}) {
+  for (const line of String(stdinText || '').replace(/\r\n/g, '\n').split('\n')) {
+    const parts = line.trim().split(/\s+/);
+    if (parts.length >= 3 && parts[2].startsWith('refs/heads/')) {
+      const destBranch = parts[2].slice('refs/heads/'.length);
+      if (PROTECTED_BRANCHES.includes(destBranch)) {
+        return {
+          allowed: false,
+          layer: 'LAYER_4_PROTECTED_PUSH',
+          branch: destBranch,
+          message: `Direct pushes to '${destBranch}' via refspec are forbidden (INV-01).`
+        };
+      }
+    }
+  }
   const target = remoteBranch || getCurrentGitBranch(repoRoot) || '';
   if (PROTECTED_BRANCHES.includes(target)) {
     return {
@@ -486,6 +528,9 @@ export function installHooks({ repoRoot = '.', fsImpl = fs } = {}) {
 
   for (const [name, content] of Object.entries(templates)) {
     const hookPath = path.join(hooksDir, name);
+    try {
+      if (fsImpl.lstatSync && fsImpl.lstatSync(hookPath).isSymbolicLink()) fsImpl.unlinkSync(hookPath);
+    } catch {}
     fsImpl.writeFileSync(hookPath, content, 'utf8');
     if (process.platform !== 'win32') {
       fsImpl.chmodSync(hookPath, 0o755);

@@ -4,10 +4,12 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import {
+  assertNoSymlinkAncestors,
   fileExists,
   gitOutput,
   parseFrontmatter,
   readFileSafe,
+  resolveGitCommonRepoRoot,
   writeFileAtomic
 } from './git.mjs';
 import {
@@ -71,21 +73,24 @@ function unlinkIfSymlink(targetPath) {
   return false;
 }
 
-function safeWriteFile(targetPath, content, mode = undefined) {
+function safeWriteFile(targetPath, content, mode = undefined, baseRoot = null) {
+  if (baseRoot) assertNoSymlinkAncestors(baseRoot, path.dirname(targetPath));
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
   unlinkIfSymlink(targetPath);
   const opts = typeof mode === 'number' ? { encoding: 'utf8', mode } : 'utf8';
   fs.writeFileSync(targetPath, content, opts);
 }
 
-function safeRemoveDir(targetDir) {
+function safeRemoveDir(targetDir, baseRoot = null) {
+  if (baseRoot) assertNoSymlinkAncestors(baseRoot, path.dirname(targetDir));
   if (!unlinkIfSymlink(targetDir) && fileExists(targetDir)) {
     fs.rmSync(targetDir, { recursive: true, force: true });
   }
 }
 
-function safeCopyDir(srcDir, dstDir, { chmodExecutable = false, errors = [], fsImpl = fs } = {}) {
+function safeCopyDir(srcDir, dstDir, { chmodExecutable = false, errors = [], fsImpl = fs, baseRoot = null } = {}) {
   if (!fileExists(srcDir)) return;
+  if (baseRoot) assertNoSymlinkAncestors(baseRoot, path.dirname(dstDir));
   unlinkIfSymlink(dstDir);
   fsImpl.mkdirSync(dstDir, { recursive: true });
   for (const entry of fsImpl.readdirSync(srcDir, { withFileTypes: true })) {
@@ -93,7 +98,7 @@ function safeCopyDir(srcDir, dstDir, { chmodExecutable = false, errors = [], fsI
     const dstPath = path.join(dstDir, entry.name);
     unlinkIfSymlink(dstPath);
     if (entry.isDirectory()) {
-      safeCopyDir(srcPath, dstPath, { chmodExecutable, errors, fsImpl });
+      safeCopyDir(srcPath, dstPath, { chmodExecutable, errors, fsImpl, baseRoot });
     } else if (entry.isFile()) {
       fsImpl.copyFileSync(srcPath, dstPath);
       if (chmodExecutable && entry.name.endsWith('.mjs') && process.platform !== 'win32') {
@@ -137,19 +142,20 @@ export function buildRulesBlock() {
   ].join('\n');
 }
 
-function upsertMarkedRulesFile(filePath, rulesBlock) {
+function upsertMarkedRulesFile(filePath, rulesBlock, baseRoot = null) {
+  if (baseRoot) assertNoSymlinkAncestors(baseRoot, path.dirname(filePath));
   unlinkIfSymlink(filePath);
   if (fileExists(filePath)) {
     const existing = fs.readFileSync(filePath, 'utf8');
     if (existing.includes('<!-- AGENTIC-SDLC-RULES:START -->') && existing.includes('<!-- AGENTIC-SDLC-RULES:END -->')) {
       const updated = existing.replace(/<!-- AGENTIC-SDLC-RULES:START -->[\s\S]*?<!-- AGENTIC-SDLC-RULES:END -->/, rulesBlock);
-      safeWriteFile(filePath, updated.endsWith('\n') ? updated : `${updated}\n`);
+      safeWriteFile(filePath, updated.endsWith('\n') ? updated : `${updated}\n`, undefined, baseRoot);
       return;
     }
-    safeWriteFile(filePath, `${existing.trimEnd()}\n\n${rulesBlock}\n`);
+    safeWriteFile(filePath, `${existing.trimEnd()}\n\n${rulesBlock}\n`, undefined, baseRoot);
     return;
   }
-  safeWriteFile(filePath, `${rulesBlock}\n`);
+  safeWriteFile(filePath, `${rulesBlock}\n`, undefined, baseRoot);
 }
 
 function adaptSkillContent(rawMarkdown, agent, { globalEnginePath = null } = {}) {
@@ -206,7 +212,7 @@ export function auditSkills(repoRoot = '.') {
 
     for (const m of body.matchAll(/\bnpx\s+(?:--yes\s+|-y\s+)?(@?[a-z0-9._/-]+)(?![@\w.-])/gi)) {
       const pkg = m[1];
-      if (pkg === '@fmatar/agentic-sdlc' || pkg === 'stryker') continue;
+      if (pkg === '@fmatar/agentic-sdlc') continue;
       findings.push({ skill: id, rule: 'RP1', message: `Unpinned npx package '${pkg}' in '${id}/SKILL.md'.` });
     }
 
@@ -227,6 +233,7 @@ export function buildQualityGateWorkflow({
   checkName = DEFAULT_QUALITY_GATE_CHECK
 } = {}) {
   const runsOnYaml = Array.isArray(runsOn) ? JSON.stringify(runsOn) : runsOn;
+  const safeCheckName = String(checkName || DEFAULT_QUALITY_GATE_CHECK).replace(/[\r\n]+/g, ' ');
   return `name: SDLC Quality Gate
 
 on:
@@ -244,7 +251,7 @@ concurrency:
 
 jobs:
   quality-gate:
-    name: ${checkName}
+    name: ${JSON.stringify(safeCheckName)}
     runs-on: ${runsOnYaml}
 
     steps:
@@ -252,6 +259,14 @@ jobs:
         if: github.repository == 'fmatar/agentic-sdlc-framework' && runner.environment == 'github-hosted'
         run: |
           echo "::error::This repository must run exclusively on self-hosted runners (configure vars.SDLC_RUNS_ON)."
+          exit 1
+
+      - name: Block Unverified Fork Pull Requests
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+        env:
+          PR_HEAD_REPO: \${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          echo "::error::Fork pull request ($PR_HEAD_REPO) requires maintainer branch verification and a signed Stage 7 gate receipt."
           exit 1
 
       - name: Checkout Code
@@ -263,9 +278,11 @@ jobs:
         if: github.event_name == 'pull_request' && github.base_ref == 'main'
         env:
           HEAD_REF: \${{ github.head_ref }}
+          PR_HEAD_REPO: \${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: \${{ github.repository }}
         run: |
-          if [ "$HEAD_REF" != "develop" ]; then
-            echo "::error::Pull requests targeting 'main' must originate exclusively from 'develop' (got '$HEAD_REF')."
+          if [ "$PR_HEAD_REPO" != "$BASE_REPO" ] || [ "$HEAD_REF" != "develop" ]; then
+            echo "::error::Pull requests targeting 'main' must originate exclusively from same-repo 'develop' (got '$PR_HEAD_REPO:$HEAD_REF')."
             exit 1
           fi
 
@@ -302,29 +319,32 @@ jobs:
           fi
 
       - name: Verify Signed Stage 7 Gate Receipt
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         env:
           SDLC_RECEIPT_KEY: \${{ secrets.SDLC_RECEIPT_KEY }}
           PR_HEAD_SHA: \${{ github.event.pull_request.head.sha }}
-          PR_HEAD_REPO: \${{ github.event.pull_request.head.repo.full_name }}
-          BASE_REPO: \${{ github.repository }}
           BASE_REF: \${{ github.base_ref }}
           GITHUB_HEAD_REF: \${{ github.head_ref }}
         run: |
-          if [ "$PR_HEAD_REPO" != "$BASE_REPO" ]; then
-            echo "::warning::Skipping Stage 7 gate receipt verification for fork pull request ($PR_HEAD_REPO)."
-            exit 0
-          fi
           if [ -z "$SDLC_RECEIPT_KEY" ]; then
             echo "::error::Missing SDLC_RECEIPT_KEY secret: configure repository secret SDLC_RECEIPT_KEY to verify Stage 7 gate receipts."
             exit 1
           fi
-          if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
-            if [ "$BASE_REF" = "main" ]; then
-              node .agent/scripts/sdlc-engine.mjs verify --sha "$PR_HEAD_SHA"
-            else
-              node .agent/scripts/sdlc-engine.mjs verify --sha "$PR_HEAD_SHA" --branch "$GITHUB_HEAD_REF"
-            fi
+          TRUSTED_DIR="\${RUNNER_TEMP:-/tmp}/sdlc-trusted-verifier"
+          rm -rf "$TRUSTED_DIR" && mkdir -p "$TRUSTED_DIR"
+          if git cat-file -e "origin/$BASE_REF:.agent/scripts/sdlc-engine.mjs" 2>/dev/null; then
+            git archive "origin/$BASE_REF" .agent/scripts | tar -x -C "$TRUSTED_DIR"
+            ENGINE_BIN="$TRUSTED_DIR/.agent/scripts/sdlc-engine.mjs"
+          elif [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
+            ENGINE_BIN=".agent/scripts/sdlc-engine.mjs"
+          else
+            echo "::error::Missing .agent/scripts/sdlc-engine.mjs; refusing unverified pull request."
+            exit 1
+          fi
+          if [ "$BASE_REF" = "main" ]; then
+            node "$ENGINE_BIN" verify --sha "$PR_HEAD_SHA"
+          else
+            node "$ENGINE_BIN" verify --sha "$PR_HEAD_SHA" --branch "$GITHUB_HEAD_REF"
           fi
 `;
 }
@@ -332,7 +352,7 @@ jobs:
 function isLegacySdlcWorkflow(raw = '') {
   return (
     raw.includes('sdlc-engine.mjs') &&
-    (!raw.includes('--branch "$GITHUB_HEAD_REF"') || raw.includes('gate --strict') || !raw.includes('SDLC_RECEIPT_KEY: ci-dummy-test-key'))
+    (!raw.includes('--branch "$GITHUB_HEAD_REF"') || raw.includes('gate --strict') || !raw.includes('git archive "origin/$BASE_REF"'))
   );
 }
 
@@ -409,6 +429,15 @@ export function runDoctor({ repoRoot = '.', fix = false } = {}) {
   const wfExists = fileExists(wfPath);
   const wfLegacy = wfExists && isLegacySdlcWorkflow(readFileSafe(wfPath) || '');
 
+  if (fix && process.platform !== 'win32') {
+    const commonRoot = resolveGitCommonRepoRoot(absRoot);
+    const keyPath = fileExists(path.join(absRoot, '.agent/.receipt-key'))
+      ? path.join(absRoot, '.agent/.receipt-key')
+      : path.join(commonRoot, '.agent/.receipt-key');
+    if (fileExists(keyPath)) {
+      try { fs.chmodSync(keyPath, 0o600); } catch {}
+    }
+  }
   const keyInfo = inspectReceiptKeyStatus(absRoot);
   const ciSecretHint = wfExists
     ? "Provision CI secret with: tr -d '\\r\\n' < .agent/.receipt-key | gh secret set SDLC_RECEIPT_KEY"
@@ -474,14 +503,16 @@ async function resolveSelectedAgents({ agents, yes, input, output }) {
   }
 }
 
-function pruneRetiredSkillsInDir(skillsParentDir) {
+function pruneRetiredSkillsInDir(skillsParentDir, baseRoot = null) {
+  if (baseRoot) assertNoSymlinkAncestors(baseRoot, skillsParentDir);
   if (!fileExists(skillsParentDir)) return;
   for (const retired of RETIRED_SKILLS) {
-    safeRemoveDir(path.join(skillsParentDir, retired));
+    safeRemoveDir(path.join(skillsParentDir, retired), baseRoot);
   }
 }
 
-function updateClaudeSettingsJson(settingsPath, warnings) {
+function updateClaudeSettingsJson(settingsPath, warnings, baseRoot = null) {
+  if (baseRoot) assertNoSymlinkAncestors(baseRoot, path.dirname(settingsPath));
   if (fileExists(settingsPath)) {
     const raw = readFileSafe(settingsPath);
     try {
@@ -492,7 +523,7 @@ function updateClaudeSettingsJson(settingsPath, warnings) {
       return;
     }
   }
-  safeWriteFile(settingsPath, JSON.stringify({ permissions: { allow: ['Bash(node .agent/scripts/sdlc-engine.mjs *)'] } }, null, 2) + '\n');
+  safeWriteFile(settingsPath, JSON.stringify({ permissions: { allow: ['Bash(node .agent/scripts/sdlc-engine.mjs *)'] } }, null, 2) + '\n', undefined, baseRoot);
 }
 
 export async function installFramework({
@@ -564,68 +595,74 @@ export async function installFramework({
 
   // Local repository installation
   if (absSource !== absTarget) {
-    safeCopyDir(path.join(absSource, '.agent/scripts'), path.join(absTarget, '.agent/scripts'), { chmodExecutable: true, errors, fsImpl });
-    safeCopyDir(path.join(absSource, '.agent/schemas'), path.join(absTarget, '.agent/schemas'), { chmodExecutable: false, errors, fsImpl });
-    safeCopyDir(path.join(absSource, 'docs/templates'), path.join(absTarget, 'docs/templates'), { chmodExecutable: false, errors, fsImpl });
+    safeCopyDir(path.join(absSource, '.agent/scripts'), path.join(absTarget, '.agent/scripts'), { chmodExecutable: true, errors, fsImpl, baseRoot: absTarget });
+    safeCopyDir(path.join(absSource, '.agent/schemas'), path.join(absTarget, '.agent/schemas'), { chmodExecutable: false, errors, fsImpl, baseRoot: absTarget });
+    safeCopyDir(path.join(absSource, 'docs/templates'), path.join(absTarget, 'docs/templates'), { chmodExecutable: false, errors, fsImpl, baseRoot: absTarget });
   }
 
-  pruneRetiredSkillsInDir(path.join(absTarget, '.agent/skills'));
+  pruneRetiredSkillsInDir(path.join(absTarget, '.agent/skills'), absTarget);
   for (const skillId of CANONICAL_SKILLS) {
     const srcSkillPath = path.join(absSource, '.agent/skills', skillId, 'SKILL.md');
     const dstSkillPath = path.join(absTarget, '.agent/skills', skillId, 'SKILL.md');
     if (fileExists(srcSkillPath) && srcSkillPath !== dstSkillPath) {
-      safeWriteFile(dstSkillPath, fs.readFileSync(srcSkillPath, 'utf8'));
+      safeWriteFile(dstSkillPath, fs.readFileSync(srcSkillPath, 'utf8'), undefined, absTarget);
     }
   }
 
   // Preserve valid existing .agent/sdlc-config.json unless --force
   const cfgPath = path.join(absTarget, '.agent/sdlc-config.json');
+  assertNoSymlinkAncestors(absTarget, path.dirname(cfgPath));
   if (force || !fileExists(cfgPath) || !validateConfigFile(absTarget).valid) {
     writeFileAtomic(cfgPath, JSON.stringify(generateConfig(absTarget), null, 2) + '\n');
   }
 
+  assertNoSymlinkAncestors(absTarget, path.join(absTarget, '.archlens'));
   scaffoldArchlensPolicy(absTarget, { force: false });
   if (fileExists(path.join(absTarget, '.git'))) {
     installHooks({ repoRoot: absTarget, fsImpl });
   }
+  assertNoSymlinkAncestors(absTarget, path.join(absTarget, '.github/workflows'));
   installCIWorkflow({ repoRoot: absTarget, force, upgradeLegacy: true });
 
-  upsertMarkedRulesFile(path.join(absTarget, 'AGENTS.md'), rulesBlock);
+  upsertMarkedRulesFile(path.join(absTarget, 'AGENTS.md'), rulesBlock, absTarget);
 
   for (const agent of selectedAgents) {
     if (agent === 'claude') {
-      pruneRetiredSkillsInDir(path.join(absTarget, '.claude/skills'));
+      pruneRetiredSkillsInDir(path.join(absTarget, '.claude/skills'), absTarget);
       for (const skillId of CANONICAL_SKILLS) {
         const raw = readFileSafe(path.join(absTarget, '.agent/skills', skillId, 'SKILL.md'));
-        if (raw) safeWriteFile(path.join(absTarget, '.claude/skills', skillId, 'SKILL.md'), adaptSkillContent(raw, 'claude'));
+        if (raw) safeWriteFile(path.join(absTarget, '.claude/skills', skillId, 'SKILL.md'), adaptSkillContent(raw, 'claude'), undefined, absTarget);
       }
-      upsertMarkedRulesFile(path.join(absTarget, 'CLAUDE.md'), rulesBlock);
-      updateClaudeSettingsJson(path.join(absTarget, '.claude/settings.json'), warnings);
+      upsertMarkedRulesFile(path.join(absTarget, 'CLAUDE.md'), rulesBlock, absTarget);
+      updateClaudeSettingsJson(path.join(absTarget, '.claude/settings.json'), warnings, absTarget);
     } else if (agent === 'cursor') {
-      pruneRetiredSkillsInDir(path.join(absTarget, '.cursor/skills'));
+      pruneRetiredSkillsInDir(path.join(absTarget, '.cursor/skills'), absTarget);
       // Remove legacy duplicate per-skill .mdc files
       const rulesDir = path.join(absTarget, '.cursor/rules');
+      assertNoSymlinkAncestors(absTarget, rulesDir);
       if (fileExists(rulesDir)) {
         for (const name of fs.readdirSync(rulesDir)) {
-          if (/^sdlc.*\.mdc$/i.test(name)) safeRemoveDir(path.join(rulesDir, name));
+          if (/^sdlc.*\.mdc$/i.test(name)) safeRemoveDir(path.join(rulesDir, name), absTarget);
         }
       }
       for (const skillId of CANONICAL_SKILLS) {
         const raw = readFileSafe(path.join(absTarget, '.agent/skills', skillId, 'SKILL.md'));
-        if (raw) safeWriteFile(path.join(absTarget, '.cursor/skills', skillId, 'SKILL.md'), adaptSkillContent(raw, 'cursor'));
+        if (raw) safeWriteFile(path.join(absTarget, '.cursor/skills', skillId, 'SKILL.md'), adaptSkillContent(raw, 'cursor'), undefined, absTarget);
       }
       safeWriteFile(
         path.join(absTarget, '.cursor/rules/agentic-sdlc.mdc'),
-        `---\ndescription: "Agentic SDLC v0.1.0 Governance Rules"\nalwaysApply: true\n---\n\n${rulesBlock}\n`
+        `---\ndescription: "Agentic SDLC v0.1.0 Governance Rules"\nalwaysApply: true\n---\n\n${rulesBlock}\n`,
+        undefined,
+        absTarget
       );
     } else if (agent === 'codex') {
-      pruneRetiredSkillsInDir(path.join(absTarget, '.codex/skills'));
+      pruneRetiredSkillsInDir(path.join(absTarget, '.codex/skills'), absTarget);
       for (const skillId of CANONICAL_SKILLS) {
         const raw = readFileSafe(path.join(absTarget, '.agent/skills', skillId, 'SKILL.md'));
-        if (raw) safeWriteFile(path.join(absTarget, '.codex/skills', skillId, 'SKILL.md'), adaptSkillContent(raw, 'codex'));
+        if (raw) safeWriteFile(path.join(absTarget, '.codex/skills', skillId, 'SKILL.md'), adaptSkillContent(raw, 'codex'), undefined, absTarget);
       }
     } else if (agent === 'copilot') {
-      upsertMarkedRulesFile(path.join(absTarget, '.github/copilot-instructions.md'), rulesBlock);
+      upsertMarkedRulesFile(path.join(absTarget, '.github/copilot-instructions.md'), rulesBlock, absTarget);
     }
   }
 

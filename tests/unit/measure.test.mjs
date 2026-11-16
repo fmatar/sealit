@@ -11,6 +11,7 @@ import {
   parseMutationReport,
   buildMutationPlan,
   measureModuleMutation,
+  resolveAffectedTests,
   runGate,
   buildReviewPlan
 } from '../../.agent/scripts/lib/measure.mjs';
@@ -42,6 +43,20 @@ describe('Ring 2: lib/measure.mjs', () => {
     });
     assert.equal(errRes.passed, false);
     assert.ok(errRes.secretViolations.some((v) => v.type === 'SCAN_ERROR'));
+
+    // Unreadable untracked file triggers SCAN_ERROR (never swallowed as clean)
+    if (process.platform !== 'win32' && process.getuid && process.getuid() !== 0) {
+      git(dir, 'rm', '-f', '-q', 'nul-secret.mjs');
+      const unreadable = path.join(dir, 'unreadable-secret.mjs');
+      fs.writeFileSync(unreadable, 'export const s = 1;\n', 'utf8');
+      fs.chmodSync(unreadable, 0o000);
+      cleanups.push(() => {
+        try { fs.chmodSync(unreadable, 0o600); } catch {}
+      });
+      const unreadRes = scanDiffSecrets(dir);
+      assert.equal(unreadRes.passed, false);
+      assert.ok(unreadRes.secretViolations.some((v) => v.type === 'SCAN_ERROR'));
+    }
   });
 
   it('requireFreshReport fails closed when statSync throws or when report mtime is stale', () => {
@@ -260,6 +275,36 @@ describe('Ring 2: lib/measure.mjs', () => {
     const plan = buildMutationPlan(dir, { name: 'root', path: '.', commands: { mutation: './node_modules/.bin/stryker run' } });
     assert.equal(plan.diffScoped, true);
     assert.ok(plan.targets.some((t) => t.startsWith('.agent/scripts/lib/git.mjs:1-')));
+
+    // Subdirectory module (mod.path = 'packages/api') diff-scoped Stryker filter MUST catch Survived mutants (never bypass via diff-zero-mutants)
+    const subMutRepo = createTempGitRepo();
+    cleanups.push(subMutRepo.cleanup);
+    git(subMutRepo.dir, 'checkout', '-q', '-b', 'feat/sub-mut', 'develop');
+    fs.mkdirSync(path.join(subMutRepo.dir, 'packages/api/src'), { recursive: true });
+    fs.writeFileSync(path.join(subMutRepo.dir, 'packages/api/src/a.js'), 'export const v = 1;\n', 'utf8');
+    fs.writeFileSync(
+      path.join(subMutRepo.dir, 'packages/api/fake-stryker.mjs'),
+      `import fs from 'node:fs';
+       fs.mkdirSync('reports/mutation', { recursive: true });
+       fs.writeFileSync('reports/mutation/mutation.json', JSON.stringify({
+         files: { 'src/a.js': { mutants: [{ id: '1', status: 'Survived', location: { start: { line: 1 }, end: { line: 1 } } }] } }
+       }));`,
+      'utf8'
+    );
+    const subMod = {
+      name: 'api',
+      path: 'packages/api',
+      commands: { mutation: `${process.execPath} fake-stryker.mjs` },
+      thresholds: { mutationScore: 80 }
+    };
+    const subMutRes = measureModuleMutation(subMutRepo.dir, subMod, { full: false });
+    assert.equal(subMutRes.passed, false, 'Subdirectory diff-scoped Survived mutant must fail');
+    assert.equal(subMutRes.score, 0);
+
+    // resolveAffectedTests excludes non-runnable helpers under tests/helpers/
+    fs.mkdirSync(path.join(subMutRepo.dir, 'tests/helpers'), { recursive: true });
+    fs.writeFileSync(path.join(subMutRepo.dir, 'tests/helpers/helper.mjs'), 'export const h = 1;\n', 'utf8');
+    assert.equal(resolveAffectedTests(subMutRepo.dir).includes('tests/helpers/helper.mjs'), false);
   });
 
   it('runGate executes docs-only vs code paths, stamps DIRTY_WORKING_TREE on uncommitted edits, and fails loud on session write error', () => {
@@ -329,6 +374,10 @@ describe('Ring 2: lib/measure.mjs', () => {
         }
       })
     );
+
+    // Corrupt .agent/.sdlc-session.json throws SESSION_CORRUPT during runGate without writeSessionFn
+    fs.writeFileSync(path.join(dir, '.agent/.sdlc-session.json'), '{corrupt-session-json', 'utf8');
+    assert.throws(() => runGate(dir, { noCache: true }), (err) => err?.code === 'SESSION_CORRUPT');
 
     // Docs-only branch runs docs-only mode
     const docRepo = createTempGitRepo();

@@ -15,5 +15,5 @@
 4. **Docs-Only vs Code Classification**: Diffs are deterministically classified into `docs-only` or `code`; governance files (`PRODUCT.md`, `docs/PRD.md`, `docs/SRS.md`, `docs/specs/*`, `docs/adr/*`, `docs/AUDIT_CHAIN.jsonl`) and dependency/contract manifests never classify as `docs-only`.
 
 ## 3. Outputs & Acceptance Criteria
-- SHA-256 verified hooks installed under `resolveGitCommonDir(repoRoot)/hooks/{pre-commit,pre-merge-commit,pre-push}` with `0755` permissions.
+- SHA-256 verified hooks installed under `resolveGitHooksDir(repoRoot)/{pre-commit,pre-merge-commit,pre-push,post-merge}` with `0755` permissions.
 - `verifyMergeGuard` verifies exact `HEAD`, post-receipt `AUDIT_CHAIN.jsonl` commit, Squash `treeSha`, and 2-parent clean `--no-ff` merges while blocking evil merges.

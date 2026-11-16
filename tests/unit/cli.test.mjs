@@ -37,6 +37,9 @@ describe('Ring 3: sdlc-engine.mjs CLI registry', () => {
     const badFlag = await runCLI(['gate', '--unknown-flag'], null, dir);
     assert.equal(badFlag.success, false);
     assert.equal(cliExitCode(badFlag), 2);
+
+    assert.equal(cliExitCode(await runCLI(['session', 'banana'], null, dir)), 2);
+    assert.equal(cliExitCode(await runCLI(['audit', 'banana'], null, dir)), 2);
   });
 
   it('drives complete begin -> drift -> adr -> test -> coverage -> exemption -> gate (--strict compat) -> review -> verify -> end flow', async () => {
@@ -88,7 +91,7 @@ describe('Ring 3: sdlc-engine.mjs CLI registry', () => {
       const adrCreated = await runCLI(['adr', 'create', '--title', 'Init Product', '--scope', 'product', '--ticket', '101'], null, dir);
       assert.equal(adrCreated.success, true);
       const adrApproved = await runCLI(
-        ['adr', 'decide', '--id', adrCreated.adr.id, '--status', 'approve', '--by', '@lead', '--reason', 'Aligned'],
+        ['adr', 'decide', '--id', adrCreated.adr.id, '--status', 'approve', '--reviewer', '@lead', '--reason', 'Aligned'],
         null,
         dir
       );

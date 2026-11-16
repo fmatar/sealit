@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+  computeAlignmentHashes,
   fileExists,
   getModifiedFiles,
   gitOutput,
@@ -14,6 +15,8 @@ import {
   writeFileAtomic
 } from './git.mjs';
 import { appendAuditRecord } from './receipt.mjs';
+
+export { computeAlignmentHashes };
 
 const STRUCTURAL_PKG_KEYS = [
   'dependencies',
@@ -209,7 +212,9 @@ export function decideADR({ adrId, status, action, reviewer = '@reviewer', reaso
   const cleanReviewer = String(reviewer || '@reviewer').trim();
   const cleanReason = String(reason || 'Reviewed and decided').trim();
 
-  let updated = raw.replace(/^status:\s*.*$/m, `status: ${nextStatus}`);
+  let updated = raw
+    .replace(/^(?:decidedBy|decidedAt|decisionReason):\s*.*\n/gm, '')
+    .replace(/^status:\s*.*$/m, `status: ${nextStatus}`);
   if (/^---\n[\s\S]*?\n---/.test(updated)) {
     updated = updated.replace(/\n---/, `\ndecidedBy: ${JSON.stringify(cleanReviewer)}\ndecidedAt: ${now}\ndecisionReason: ${JSON.stringify(cleanReason)}\n---`);
   }
@@ -225,37 +230,6 @@ export function decideADR({ adrId, status, action, reviewer = '@reviewer', reaso
 
   const refreshed = listADRs(repoRoot).find((a) => a.id === targetId);
   return { success: true, adr: refreshed };
-}
-
-export function computeAlignmentHashes(repoRoot = '.') {
-  const specHasher = crypto.createHash('sha256');
-  const specFiles = ['PRODUCT.md', 'docs/PRD.md', 'docs/SRS.md', '.archlens/policy.json'];
-  const specsDir = path.resolve(repoRoot, 'docs/specs');
-  if (fileExists(specsDir)) {
-    const entries = fs
-      .readdirSync(specsDir)
-      .filter((f) => f.endsWith('.md'))
-      .sort();
-    for (const e of entries) specFiles.push(`docs/specs/${e}`);
-  }
-  for (const rel of specFiles) {
-    const abs = path.resolve(repoRoot, rel);
-    if (fileExists(abs)) {
-      const norm = (readFileSafe(abs) || '').replace(/\r\n/g, '\n');
-      specHasher.update(`file:${rel}:${norm}\n`);
-    }
-  }
-
-  const adrHasher = crypto.createHash('sha256');
-  const acceptedAdrs = listADRs(repoRoot).filter((a) => a.status === 'accepted');
-  for (const adr of acceptedAdrs) {
-    adrHasher.update(`${adr.id}:${adr.sha256}\n`);
-  }
-
-  return {
-    specHash: specHasher.digest('hex'),
-    adrHashes: adrHasher.digest('hex')
-  };
 }
 
 function readFileAtMergeBase(relFile, mergeBase, repoRoot) {
@@ -301,18 +275,27 @@ function validateOpenApiContract(absPath, relFile) {
     } catch (err) {
       return `Invalid JSON in API contract '${relFile}': ${err.message}`;
     }
-    if (!parsed || typeof parsed !== 'object' || (!parsed.openapi && !parsed.swagger)) {
-      return `Contract '${relFile}' is missing root 'openapi' or 'swagger' field.`;
+    const ver = parsed?.openapi ?? parsed?.swagger;
+    if (!parsed || typeof parsed !== 'object' || typeof ver !== 'string' || !ver.trim()) {
+      return `Contract '${relFile}' is missing non-empty string 'openapi' or 'swagger' version.`;
+    }
+    if (!parsed.info || typeof parsed.info !== 'object' || (!parsed.paths && !parsed.webhooks && !parsed.components)) {
+      return `Contract '${relFile}' must define 'info' and at least one of 'paths', 'webhooks', or 'components'.`;
     }
     return null;
   }
 
   const normalized = raw.replace(/\r\n/g, '\n');
-  if (!/^(?:openapi|swagger)\s*:/m.test(normalized)) {
-    return `YAML contract '${relFile}' is missing root 'openapi:' or 'swagger:' declaration.`;
+  if (!/^(?:openapi|swagger)\s*:\s*['"]?\d+\.\d+/m.test(normalized)) {
+    return `YAML contract '${relFile}' is missing valid 'openapi:' or 'swagger:' version declaration.`;
   }
-  let braces = 0;
-  let brackets = 0;
+  if (!/^info\s*:/m.test(normalized) || !/^(?:paths|webhooks|components)\s*:/m.test(normalized)) {
+    return `YAML contract '${relFile}' must define 'info:' and 'paths:', 'webhooks:', or 'components:'.`;
+  }
+  if (/^\t+/m.test(normalized)) {
+    return `YAML contract '${relFile}' contains invalid tab indentation.`;
+  }
+  const stack = [];
   let inSingle = false;
   let inDouble = false;
   for (let i = 0; i < normalized.length; i++) {
@@ -330,16 +313,13 @@ function validateOpenApiContract(absPath, relFile) {
         i = nl;
         continue;
       }
-      if (ch === '{') braces++;
-      else if (ch === '}') braces--;
-      else if (ch === '[') brackets++;
-      else if (ch === ']') brackets--;
-      if (braces < 0 || brackets < 0) {
-        return `Malformed YAML flow brackets in '${relFile}'.`;
+      if (ch === '{' || ch === '[') stack.push(ch === '{' ? '}' : ']');
+      else if (ch === '}' || ch === ']') {
+        if (stack.pop() !== ch) return `Malformed YAML flow brackets in '${relFile}'.`;
       }
     }
   }
-  if (inSingle || inDouble || braces !== 0 || brackets !== 0) {
+  if (inSingle || inDouble || stack.length !== 0) {
     return `Unbalanced quotes or brackets in YAML contract '${relFile}'.`;
   }
   return null;
@@ -352,11 +332,13 @@ export function checkSpecDrift({ ticketId = null, baseBranch = null, repoRoot = 
 
   const triggers = [];
   const contractErrors = [];
+  const DELETED_GOVERNANCE_RE =
+    /^(?:PRODUCT\.md|docs\/PRD\.md|docs\/SRS\.md|docs\/specs\/.+\.md|\.archlens\/policy\.json)$|(?:^|\/)(?:package\.json|Cargo\.toml|pyproject\.toml|requirements[^/]*\.txt|go\.mod|pom\.xml|build\.gradle(?:\.kts)?|prisma\/schema\.prisma)$|\.(?:sql|graphql|proto)$|(?:openapi|swagger).*\.(?:json|ya?ml)$/i;
 
   for (const rel of modifiedFiles) {
     const abs = path.resolve(repoRoot, rel);
     if (!fileExists(abs)) {
-      if (/^(?:PRODUCT\.md|docs\/PRD\.md|docs\/SRS\.md|docs\/specs\/.+\.md|\.archlens\/policy\.json)$/.test(rel)) {
+      if (DELETED_GOVERNANCE_RE.test(rel)) {
         triggers.push({ file: rel, type: 'SPEC_DELETED', scope: 'architectural' });
       }
       continue;
@@ -413,8 +395,8 @@ export function checkSpecDrift({ ticketId = null, baseBranch = null, repoRoot = 
   const diffAdrFiles = new Set(modifiedFiles.filter((f) => /^docs\/adr\/ADR-\d+.*\.md$/i.test(f)));
 
   const relevantAdrs = allAdrs.filter((a) => {
-    if (normTicket && a.ticket === normTicket) return true;
     if (diffAdrFiles.has(a.file)) return true;
+    if (triggers.length === 0 && normTicket && a.ticket === normTicket) return true;
     return false;
   });
 
@@ -490,9 +472,56 @@ function patternMatchesPath(pattern, relPath) {
 }
 
 function stripJsComments(source) {
-  return String(source || '')
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/(^|[^:\\])\/\/.*$/gm, '$1');
+  const s = String(source || '');
+  let out = '';
+  let i = 0;
+  let mode = 'code';
+  while (i < s.length) {
+    const ch = s[i];
+    const next = s[i + 1];
+    if (mode === 'code') {
+      if (ch === '/' && next === '/') {
+        mode = 'line';
+        i += 2;
+        continue;
+      }
+      if (ch === '/' && next === '*') {
+        mode = 'block';
+        i += 2;
+        continue;
+      }
+      if (ch === "'" || ch === '"' || ch === '`') {
+        mode = ch;
+      }
+      out += ch;
+      i++;
+    } else if (mode === 'line') {
+      if (ch === '\n') {
+        mode = 'code';
+        out += '\n';
+      }
+      i++;
+    } else if (mode === 'block') {
+      if (ch === '*' && next === '/') {
+        mode = 'code';
+        out += ' ';
+        i += 2;
+        continue;
+      }
+      if (ch === '\n') out += '\n';
+      i++;
+    } else {
+      if (ch === '\\') {
+        out += ch + (next || '');
+        i += 2;
+        continue;
+      }
+      if (ch === mode) mode = 'code';
+      out += ch;
+      i++;
+    }
+  }
+  return out;
 }
 
 function extractRelativeSpecifiers(source) {

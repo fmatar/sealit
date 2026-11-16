@@ -101,6 +101,23 @@ describe('Ring 0: lib/config.mjs', () => {
     assert.ok(badRes.errors.some((e) => /shell/i.test(e)));
     assert.ok(badRes.errors.some((e) => /diffCoverage/i.test(e)));
     assert.ok(badRes.errors.some((e) => /mutationScore/i.test(e)));
+
+    // 3. Outside-repo coverageFile, policyPath, and multiline ci.checkName rejected
+    fs.writeFileSync(
+      path.join(dir, '.agent/sdlc-config.json'),
+      JSON.stringify({
+        version: '0.1.0',
+        ci: { checkName: 'Gate\nInjected: bad' },
+        archlens: { enabled: true, policyPath: '../../outside-policy.json' },
+        modules: [{ name: 'root', path: '.', commands: { coverageFile: '../../../tmp/escape.info' } }]
+      }),
+      'utf8'
+    );
+    const traversalRes = validateConfigFile(dir);
+    assert.equal(traversalRes.valid, false);
+    assert.ok(traversalRes.errors.some((e) => /coverageFile/i.test(e)));
+    assert.ok(traversalRes.errors.some((e) => /policyPath/i.test(e)));
+    assert.ok(traversalRes.errors.some((e) => /checkName/i.test(e)));
   });
 
   it('migrates legacy v2.x gates/testing/lanes/projectManagement keys in-memory with deprecation warnings', () => {

@@ -4,7 +4,8 @@ import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 
 export const GIT_MAX_BUFFER = 64 * 1024 * 1024;
-const MAX_SYNTHETIC_DIFF_BYTES = 1024 * 1024;
+export const EMPTY_TREE_SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+const MAX_SYNTHETIC_DIFF_BYTES = 16 * 1024 * 1024;
 
 const TRUE_BINARY_EXT_RE =
   /\.(?:png|jpe?g|gif|webp|ico|bmp|tiff?|avif|mp[34]|mov|avi|mkv|wav|ogg|flac|woff2?|ttf|otf|eot|pdf|zip|tar|gz|tgz|bz2|xz|7z|rar|wasm|pyc|class|jar|so|dylib|dll|exe|bin|sqlite3?|db)$/i;
@@ -46,6 +47,51 @@ export function sameShaPrefix(a, b) {
   return sa === sb || sa.startsWith(sb) || sb.startsWith(sa);
 }
 
+export function assertNoSymlinkAncestors(baseRoot, targetPath) {
+  const absBase = path.resolve(baseRoot);
+  const absTarget = path.resolve(targetPath);
+  if (absTarget !== absBase && !absTarget.startsWith(absBase + path.sep)) {
+    const err = new Error(`Path traversal refused: '${targetPath}' resolves outside repository root ('${absBase}').`);
+    err.code = 'OUTSIDE_REPO_PATH';
+    throw err;
+  }
+  const rel = path.relative(absBase, absTarget);
+  if (rel) {
+    let cur = absBase;
+    for (const part of rel.split(path.sep).filter(Boolean)) {
+      cur = path.join(cur, part);
+      try {
+        if (fs.lstatSync(cur).isSymbolicLink()) {
+          const err = new Error(`Path traversal refused: symlink component detected at '${cur}'.`);
+          err.code = 'OUTSIDE_REPO_PATH';
+          throw err;
+        }
+      } catch (err) {
+        if (err && err.code === 'OUTSIDE_REPO_PATH') throw err;
+        break;
+      }
+    }
+  }
+  if (fileExists(absBase)) {
+    const realBase = fs.realpathSync(absBase);
+    let checkCur = absTarget;
+    while (checkCur.length >= absBase.length && !fileExists(checkCur)) {
+      const parent = path.dirname(checkCur);
+      if (parent === checkCur) break;
+      checkCur = parent;
+    }
+    if (fileExists(checkCur)) {
+      const realCheck = fs.realpathSync(checkCur);
+      if (realCheck !== realBase && !realCheck.startsWith(realBase + path.sep)) {
+        const err = new Error(`Path traversal refused: '${targetPath}' resolves outside repository root via symlink.`);
+        err.code = 'OUTSIDE_REPO_PATH';
+        throw err;
+      }
+    }
+  }
+  return absTarget;
+}
+
 export function resolveInsideRepo(repoRoot = '.', relPath = '') {
   const absRoot = path.resolve(repoRoot);
   const targetStr = String(relPath ?? '').trim();
@@ -55,12 +101,7 @@ export function resolveInsideRepo(repoRoot = '.', relPath = '') {
     throw err;
   }
   const resolved = path.resolve(absRoot, targetStr);
-  if (resolved !== absRoot && !resolved.startsWith(absRoot + path.sep)) {
-    const err = new Error(`Path traversal refused: '${relPath}' resolves outside repository root.`);
-    err.code = 'OUTSIDE_REPO_PATH';
-    throw err;
-  }
-  return resolved;
+  return assertNoSymlinkAncestors(absRoot, resolved);
 }
 
 let atomicWriteCounter = 0;
@@ -75,6 +116,9 @@ export function writeFileAtomic(filePath, content, mode = undefined) {
     if (typeof mode === 'number' && process.platform !== 'win32') {
       fs.chmodSync(tmpPath, mode);
     }
+    try {
+      if (fs.lstatSync(filePath).isSymbolicLink()) fs.unlinkSync(filePath);
+    } catch {}
     fs.renameSync(tmpPath, filePath);
   } catch (err) {
     try {
@@ -388,7 +432,11 @@ export function resolveEffectiveDiffBase(baseBranch = null, repoRoot = '.') {
   if (process.env.GITHUB_BASE_REF && String(process.env.GITHUB_BASE_REF).trim()) {
     return String(process.env.GITHUB_BASE_REF).trim();
   }
-  const curBranch = getCurrentGitBranch(repoRoot);
+  let curBranch = getCurrentGitBranch(repoRoot);
+  if (curBranch === 'HEAD') {
+    const ghRef = String(process.env.GITHUB_REF_NAME || '').trim() || String(process.env.GITHUB_REF || '').replace(/^refs\/heads\//, '').trim();
+    if (ghRef && !ghRef.startsWith('refs/')) curBranch = ghRef;
+  }
   if (curBranch === 'develop' && hasBranch('main', repoRoot)) {
     return 'main';
   }
@@ -406,7 +454,7 @@ export function resolveDiffComparisonState(baseBranch = null, repoRoot = '.', { 
   }
   const curBranch = getCurrentGitBranch(repoRoot);
   for (const candidate of [`origin/${effectiveBase}`, effectiveBase]) {
-    const refSha = (gitOutput(['rev-parse', '--verify', `${candidate}^{commit}`], repoRoot) || '').trim();
+    const refSha = (gitOutput(['rev-parse', '--verify', '--end-of-options', `${candidate}^{commit}`], repoRoot) || '').trim();
     if (!refSha) continue;
     const isPushOnBase =
       refSha === headSha &&
@@ -419,9 +467,9 @@ export function resolveDiffComparisonState(baseBranch = null, repoRoot = '.', { 
       if (parentSha) {
         return { effectiveBase, headSha, mergeBase: parentSha, committedRange: 'HEAD~1..HEAD' };
       }
-      return { effectiveBase, headSha, mergeBase: headSha, committedRange: null };
+      return { effectiveBase, headSha, mergeBase: EMPTY_TREE_SHA, committedRange: `${EMPTY_TREE_SHA}..HEAD` };
     }
-    const mb = (gitOutput(['merge-base', candidate, 'HEAD'], repoRoot) || '').trim() || refSha;
+    const mb = (gitOutput(['merge-base', '--end-of-options', candidate, 'HEAD'], repoRoot) || '').trim() || refSha;
     return { effectiveBase, headSha, mergeBase: mb, committedRange: `${candidate}...HEAD` };
   }
   if (!includePushFallback) {
@@ -431,7 +479,7 @@ export function resolveDiffComparisonState(baseBranch = null, repoRoot = '.', { 
   if (parentSha) {
     return { effectiveBase, headSha, mergeBase: parentSha, committedRange: 'HEAD~1..HEAD' };
   }
-  return { effectiveBase, headSha, mergeBase: headSha, committedRange: null };
+  return { effectiveBase, headSha, mergeBase: EMPTY_TREE_SHA, committedRange: `${EMPTY_TREE_SHA}..HEAD` };
 }
 
 export function unquoteGitPath(raw) {
@@ -449,29 +497,44 @@ export function unquoteGitPath(raw) {
   return trimmed;
 }
 
-function readBoundedSyntheticDiff(file, repoRoot, withHunkHeader = false) {
+function readBoundedSyntheticDiff(file, repoRoot, withHunkHeader = false, { strict = false, preferIndex = false } = {}) {
   if (!file || TRUE_BINARY_EXT_RE.test(file)) return '';
   try {
-    const abs = resolveInsideRepo(repoRoot, file);
-    const stat = fs.statSync(abs);
-    if (!stat.isFile() || stat.size > MAX_SYNTHETIC_DIFF_BYTES) return '';
-    const raw = fs.readFileSync(abs).toString('utf8').replace(/\0/g, '').replace(/\r\n/g, '\n');
+    let rawBuf = null;
+    if (preferIndex) {
+      const idxRes = gitExec(['show', `:${file}`], repoRoot);
+      if (!idxRes.error && idxRes.status === 0 && idxRes.stdout !== undefined) {
+        rawBuf = Buffer.from(idxRes.stdout, 'utf8');
+      }
+    }
+    if (!rawBuf) {
+      const abs = resolveInsideRepo(repoRoot, file);
+      const stat = fs.statSync(abs);
+      if (!stat.isFile()) return '';
+      if (stat.size > MAX_SYNTHETIC_DIFF_BYTES) {
+        if (strict) throw new Error(`File '${file}' exceeds ${MAX_SYNTHETIC_DIFF_BYTES} bytes for secret scan.`);
+        return '';
+      }
+      rawBuf = fs.readFileSync(abs);
+    }
+    const raw = rawBuf.toString('utf8').replace(/\0/g, '').replace(/\r\n/g, '\n');
     const lines = raw.split('\n');
     const plusBody = lines.map((l) => `+${l}`).join('\n');
     if (withHunkHeader) {
       return `--- a/${file}\n+++ b/${file}\n@@ -0,0 +1,${lines.length} @@\n${plusBody}`;
     }
     return `+++ b/${file}\n${plusBody}`;
-  } catch {
+  } catch (err) {
+    if (strict && err?.code !== 'ENOENT') throw err;
     return '';
   }
 }
 
-function expandBinaryTextDiffSection(section, file, repoRoot) {
+function expandBinaryTextDiffSection(section, file, repoRoot, { strict = false, preferIndex = false } = {}) {
   if (!section || !/^Binary files .* differ$/m.test(section) || TRUE_BINARY_EXT_RE.test(file)) {
     return section;
   }
-  const synth = readBoundedSyntheticDiff(file, repoRoot, true);
+  const synth = readBoundedSyntheticDiff(file, repoRoot, true, { strict, preferIndex });
   return synth ? `${section}\n${synth}` : section;
 }
 
@@ -487,20 +550,20 @@ export function getModifiedFiles(baseBranch = null, repoRoot = '.') {
   };
 
   if (mergeBase) {
-    collect(gitOutput(['diff', '--name-only', '--diff-filter=ACMRTUXB', mergeBase], repoRoot));
-    collect(gitOutput(['diff', '--cached', '--name-only', '--diff-filter=ACMRTUXB', mergeBase], repoRoot));
+    collect(gitOutput(['diff', '--name-only', '--diff-filter=ACMRTUXBD', '--end-of-options', mergeBase], repoRoot));
+    collect(gitOutput(['diff', '--cached', '--name-only', '--diff-filter=ACMRTUXBD', '--end-of-options', mergeBase], repoRoot));
   } else if (headSha) {
-    collect(gitOutput(['diff', '--name-only', '--diff-filter=ACMRTUXB', 'HEAD'], repoRoot));
-    collect(gitOutput(['diff', '--cached', '--name-only', '--diff-filter=ACMRTUXB'], repoRoot));
+    collect(gitOutput(['diff', '--name-only', '--diff-filter=ACMRTUXBD', 'HEAD'], repoRoot));
+    collect(gitOutput(['diff', '--cached', '--name-only', '--diff-filter=ACMRTUXBD'], repoRoot));
   } else {
-    collect(gitOutput(['diff', '--cached', '--name-only', '--diff-filter=ACMRTUXB'], repoRoot));
-    collect(gitOutput(['diff', '--name-only', '--diff-filter=ACMRTUXB'], repoRoot));
+    collect(gitOutput(['diff', '--cached', '--name-only', '--diff-filter=ACMRTUXBD'], repoRoot));
+    collect(gitOutput(['diff', '--name-only', '--diff-filter=ACMRTUXBD'], repoRoot));
   }
   collect(gitOutput(['ls-files', '--others', '--exclude-standard'], repoRoot));
   return [...files].sort();
 }
 
-function appendUnifiedDiffChunks(rawDiff, map, repoRoot = '.', onlyIfMissing = false) {
+function appendUnifiedDiffChunks(rawDiff, map, repoRoot = '.', onlyIfMissing = false, opts = {}) {
   if (!rawDiff) return;
   const normalized = String(rawDiff).replace(/\r\n/g, '\n');
   const sections = normalized.split(/(?=^diff --git )/m);
@@ -520,37 +583,42 @@ function appendUnifiedDiffChunks(rawDiff, map, repoRoot = '.', onlyIfMissing = f
     if (!cleanPath) continue;
     cleanPath = cleanPath.replace(/\\/g, '/').replace(/^\.\//, '');
     if (onlyIfMissing && map.has(cleanPath)) continue;
-    const expanded = expandBinaryTextDiffSection(section, cleanPath, repoRoot);
+    const expanded = expandBinaryTextDiffSection(section, cleanPath, repoRoot, opts);
     const prev = map.get(cleanPath);
     map.set(cleanPath, prev ? `${prev}\n${expanded}` : expanded);
   }
 }
 
-export function getUnifiedDiffByFile(baseBranch = null, repoRoot = '.', files = null) {
+export function getUnifiedDiffByFile(baseBranch = null, repoRoot = '.', files = null, { strict = false } = {}) {
   const diffMap = new Map();
   if (Array.isArray(files) && files.length === 0) return diffMap;
   const { headSha, mergeBase } = resolveDiffComparisonState(baseBranch, repoRoot);
-  const pathArgs = Array.isArray(files) && files.length > 0 && files.length <= 200 ? ['--', ...files] : [];
+  const pathArgs = Array.isArray(files) && files.length > 0 && files.length <= 200 ? ['--', ...files] : ['--'];
+  const gitDiffStrict = (args) => {
+    const out = gitOutput(args, repoRoot);
+    if (out === null && strict) throw new Error(`git ${args.slice(0, 2).join(' ')} failed.`);
+    return out;
+  };
 
   if (mergeBase) {
-    const unified = gitOutput(['diff', '--no-color', mergeBase, ...pathArgs], repoRoot);
+    const unified = gitDiffStrict(['diff', '--no-color', mergeBase, ...pathArgs]);
     if (unified !== null) {
-      appendUnifiedDiffChunks(unified, diffMap, repoRoot, false);
+      appendUnifiedDiffChunks(unified, diffMap, repoRoot, false, { strict, preferIndex: false });
     }
-    const cachedOnly = gitOutput(['diff', '--no-color', '--cached', mergeBase, ...pathArgs], repoRoot);
+    const cachedOnly = gitDiffStrict(['diff', '--no-color', '--cached', mergeBase, ...pathArgs]);
     if (cachedOnly) {
-      appendUnifiedDiffChunks(cachedOnly, diffMap, repoRoot, true);
+      appendUnifiedDiffChunks(cachedOnly, diffMap, repoRoot, true, { strict, preferIndex: true });
     }
   } else {
     const workingDiff =
-      (headSha ? gitOutput(['diff', '--no-color', 'HEAD', ...pathArgs], repoRoot) : null) ??
-      gitOutput(['diff', '--no-color', '--cached', ...pathArgs], repoRoot) ??
-      gitOutput(['diff', '--no-color', ...pathArgs], repoRoot) ??
+      (headSha ? gitDiffStrict(['diff', '--no-color', 'HEAD', ...pathArgs]) : null) ??
+      gitDiffStrict(['diff', '--no-color', '--cached', ...pathArgs]) ??
+      gitDiffStrict(['diff', '--no-color', ...pathArgs]) ??
       '';
-    appendUnifiedDiffChunks(workingDiff, diffMap, repoRoot, false);
+    appendUnifiedDiffChunks(workingDiff, diffMap, repoRoot, false, { strict, preferIndex: false });
   }
 
-  const untrackedOut = gitOutput(['ls-files', '--others', '--exclude-standard'], repoRoot) || '';
+  const untrackedOut = gitDiffStrict(['ls-files', '--others', '--exclude-standard']) || '';
   const untrackedList = untrackedOut
     .replace(/\r\n/g, '\n')
     .split('\n')
@@ -561,7 +629,7 @@ export function getUnifiedDiffByFile(baseBranch = null, repoRoot = '.', files = 
   for (const uf of untrackedList) {
     if (targetFilter && !targetFilter.has(uf)) continue;
     if (!diffMap.has(uf)) {
-      const synth = readBoundedSyntheticDiff(uf, repoRoot, true);
+      const synth = readBoundedSyntheticDiff(uf, repoRoot, true, { strict });
       if (synth) diffMap.set(uf, synth);
     }
   }
@@ -609,15 +677,60 @@ export function isDocsOnlyDiff(files = []) {
   return files.every((f) => isDocsOnlyFile(f));
 }
 
+export function readTreeBlobMap(treeOrCommitRef, repoRoot = '.') {
+  const ref = String(treeOrCommitRef || '').trim();
+  if (!ref) return null;
+  const out = gitOutput(['ls-tree', '-r', '--full-tree', '--end-of-options', ref], repoRoot);
+  if (out === null) return null;
+  const map = new Map();
+  for (const line of out.replace(/\r\n/g, '\n').split('\n')) {
+    if (!line.trim()) continue;
+    const tabIdx = line.indexOf('\t');
+    if (tabIdx === -1) continue;
+    const meta = line.slice(0, tabIdx).trim();
+    const rel = unquoteGitPath(line.slice(tabIdx + 1)).replace(/\\/g, '/');
+    if (rel === 'docs/AUDIT_CHAIN.jsonl') continue;
+    map.set(rel, meta);
+  }
+  return map;
+}
+
+export function verifyCleanThreeWayMergeTrees({ mbSha, p1Ref, p2Ref, targetRef, repoRoot = '.' } = {}) {
+  if (!mbSha || !p1Ref || !p2Ref || !targetRef) return false;
+  const mapMb = readTreeBlobMap(mbSha, repoRoot);
+  const mapP1 = readTreeBlobMap(p1Ref, repoRoot);
+  const mapP2 = readTreeBlobMap(p2Ref, repoRoot);
+  const mapTarget = readTreeBlobMap(targetRef, repoRoot);
+  if (!mapMb || !mapP1 || !mapP2 || !mapTarget) return false;
+
+  const allFiles = new Set([...mapMb.keys(), ...mapP1.keys(), ...mapP2.keys(), ...mapTarget.keys()]);
+  for (const f of allFiles) {
+    const eMb = mapMb.get(f);
+    const e1 = mapP1.get(f);
+    const e2 = mapP2.get(f);
+    const eT = mapTarget.get(f);
+    if (e1 === e2) {
+      if (eT !== e1) return false;
+    } else if (e1 === eMb) {
+      if (eT !== e2) return false;
+    } else if (e2 === eMb) {
+      if (eT !== e1) return false;
+    } else {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function hasDirtyNonGovernanceFiles(repoRoot = '.', { allowAuditChain = false } = {}) {
   const out = gitOutput(['status', '--porcelain', '--untracked-files=all'], repoRoot);
-  if (out === null) return false;
+  if (out === null) return true;
   for (const line of out.replace(/\r\n/g, '\n').split('\n')) {
     if (!line.trim()) continue;
     const rawRel = line.slice(3).trim();
     const arrowIdx = rawRel.indexOf(' -> ');
     const targetRel = unquoteGitPath(arrowIdx !== -1 ? rawRel.slice(arrowIdx + 4) : rawRel).replace(/\\/g, '/');
-    if (allowAuditChain && targetRel === 'docs/AUDIT_CHAIN.jsonl') continue;
+    if (allowAuditChain && arrowIdx === -1 && targetRel === 'docs/AUDIT_CHAIN.jsonl') continue;
     return true;
   }
   return false;
@@ -645,4 +758,37 @@ export function parseFrontmatter(markdown = '') {
     frontmatter[key] = val;
   }
   return { frontmatter, body };
+}
+
+export function computeAlignmentHashes(repoRoot = '.') {
+  const specHasher = crypto.createHash('sha256');
+  const specFiles = ['PRODUCT.md', 'docs/PRD.md', 'docs/SRS.md', '.archlens/policy.json'];
+  const specsDir = path.resolve(repoRoot, 'docs/specs');
+  if (fileExists(specsDir)) {
+    for (const e of fs.readdirSync(specsDir).filter((f) => f.endsWith('.md')).sort()) {
+      specFiles.push(`docs/specs/${e}`);
+    }
+  }
+  for (const rel of specFiles) {
+    const abs = path.resolve(repoRoot, rel);
+    if (fileExists(abs)) {
+      specHasher.update(`file:${rel}:${(readFileSafe(abs) || '').replace(/\r\n/g, '\n')}\n`);
+    }
+  }
+
+  const adrHasher = crypto.createHash('sha256');
+  const adrDir = path.resolve(repoRoot, 'docs/adr');
+  if (fileExists(adrDir)) {
+    for (const name of fs.readdirSync(adrDir).filter((n) => /^ADR-\d+.*\.md$/i.test(n)).sort()) {
+      const raw = readFileSafe(path.join(adrDir, name));
+      if (!raw) continue;
+      const { frontmatter } = parseFrontmatter(raw);
+      if (String(frontmatter.status || '').toLowerCase() !== 'accepted') continue;
+      const idMatch = name.match(/^(ADR-\d+)/i);
+      const id = (frontmatter.id || (idMatch ? idMatch[1] : name.replace(/\.md$/i, ''))).toUpperCase();
+      const sha = crypto.createHash('sha256').update(raw.replace(/\r\n/g, '\n')).digest('hex');
+      adrHasher.update(`${id}:${sha}\n`);
+    }
+  }
+  return { specHash: specHasher.digest('hex'), adrHashes: adrHasher.digest('hex') };
 }

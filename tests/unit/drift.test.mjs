@@ -159,6 +159,19 @@ describe('Ring 1: lib/drift.mjs', () => {
     fs.writeFileSync(path.join(dir, 'docs/openapi.json'), JSON.stringify({ openapi: '3.1.0', info: { title: 'API', version: '1.0.0' }, paths: {} }), 'utf8');
     assert.equal(checkSpecDrift({ ticketId: '91', repoRoot: dir }).passed, true);
 
+    // Cross-nested YAML brackets or missing OpenAPI info/paths fails closed
+    fs.writeFileSync(path.join(dir, 'docs/openapi.yaml'), 'openapi: "3.1.0"\ninfo: { title: [bad }\npaths: {}\n', 'utf8');
+    assert.equal(checkSpecDrift({ ticketId: '91', repoRoot: dir }).passed, false);
+    fs.unlinkSync(path.join(dir, 'docs/openapi.yaml'));
+
+    // Newborn 1-commit repo catches dependency drift on root commit
+    const nb = createTempGitRepo({ withDevelop: false, initialBranch: 'feat/genesis' });
+    cleanups.push(nb.cleanup);
+    fs.writeFileSync(path.join(nb.dir, 'package.json'), JSON.stringify({ name: 'nb', dependencies: { express: '^5.0.0' } }), 'utf8');
+    git(nb.dir, 'add', 'package.json');
+    git(nb.dir, 'commit', '--amend', '-q', '--no-edit');
+    assert.equal(checkSpecDrift({ repoRoot: nb.dir }).passed, false);
+
     const h1 = computeAlignmentHashes(dir);
     fs.writeFileSync(path.join(dir, 'PRODUCT.md'), '# Constitution v1\n', 'utf8');
     const h2 = computeAlignmentHashes(dir);
@@ -210,5 +223,16 @@ describe('Ring 1: lib/drift.mjs', () => {
     const cycleRes = checkArchRings({ repoRoot: dir });
     assert.equal(cycleRes.passed, false);
     assert.ok(cycleRes.violations.some((v) => v.type === 'CYCLE_VIOLATION'));
+
+    // String literal containing '/*' does NOT hide subsequent upward import before a block comment!
+    fs.writeFileSync(path.join(dir, 'src/core/helper.ts'), 'export const h = 1;\n', 'utf8');
+    fs.writeFileSync(
+      path.join(dir, 'src/core/entity.ts'),
+      "export const glob = 'packages/*';\nimport { server } from '../adapters/http';\n/* trailing comment */\nexport const e = server;\n",
+      'utf8'
+    );
+    const commentStringRes = checkArchRings({ repoRoot: dir });
+    assert.equal(commentStringRes.passed, false);
+    assert.ok(commentStringRes.violations.some((v) => v.type === 'LAYER_VIOLATION'));
   });
 });

@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createTempGitRepo, git, withoutReceiptEnv } from '../helpers/test-harness.mjs';
 import { computeContentTreeSha } from '../../.agent/scripts/lib/git.mjs';
+import { computeAlignmentHashes } from '../../.agent/scripts/lib/drift.mjs';
 import {
   RECEIPT_KEY_FILE,
   loadReceiptKey,
@@ -27,6 +28,7 @@ afterEach(() => {
 
 function seedPassingSession(dir, branch, headSha, mode = 'code') {
   const treeSha = computeContentTreeSha(headSha, dir);
+  const { specHash, adrHashes } = computeAlignmentHashes(dir);
   writeActiveSession(dir, (store) => {
     store.activeSessionId = '42';
     store.sessions['42'] = {
@@ -43,8 +45,8 @@ function seedPassingSession(dir, branch, headSha, mode = 'code') {
         headSha,
         treeSha,
         mode,
-        specHash: 'spec-sha-1',
-        adrHashes: 'adr-sha-1',
+        specHash,
+        adrHashes,
         lintPassed: true,
         buildPassed: true,
         testsPassed: true,
@@ -166,6 +168,18 @@ describe('Ring 1: lib/receipt.mjs', () => {
 
     fs.writeFileSync(path.join(dir, '.agent/.sdlc-session.json'), '{not-valid-json', 'utf8');
     assert.throws(() => writeActiveSession(dir, (s) => s), (err) => err?.code === 'SESSION_CORRUPT');
+    assert.throws(() => readActiveSession(dir), (err) => err?.code === 'SESSION_CORRUPT');
+
+    // Committed .env containing SDLC_RECEIPT_KEY fails closed with RECEIPT_KEY_UNUSABLE
+    const envCommitRepo = createTempGitRepo();
+    cleanups.push(envCommitRepo.cleanup);
+    withoutReceiptEnv(() => {
+      fs.writeFileSync(path.join(envCommitRepo.dir, '.env'), 'SDLC_RECEIPT_KEY=committed-secret\n', 'utf8');
+      git(envCommitRepo.dir, 'add', '-f', '.env');
+      git(envCommitRepo.dir, 'commit', '-q', '-m', 'bad: commit .env');
+      assert.throws(() => loadReceiptKey(envCommitRepo.dir), (err) => err?.code === 'RECEIPT_KEY_UNUSABLE');
+      assert.equal(inspectReceiptKeyStatus(envCommitRepo.dir).usable, false);
+    });
 
     // Non-git folder marks computeTreeHash as cacheable: false
     const nonGit = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-nongit-'));
@@ -218,7 +232,7 @@ describe('Ring 1: lib/receipt.mjs', () => {
       const mergeSha = git(dir, 'rev-parse', 'HEAD').stdout.trim();
       assert.equal(verifyGateReceipt({ headSha: mergeSha, branch: 'develop', repoRoot: dir }).valid, true);
 
-      // 3. Evil merge injecting unreviewed code into src/evil.mjs during merge is rejected
+      // 3. Evil merge injecting unreviewed code OR reverting p1 (develop) changes OR unverified p1 on feature branch is rejected
       git(dir, 'reset', '--hard', 'HEAD~1');
       git(dir, 'merge', '--no-ff', '--no-commit', 'feat/merge-modes');
       fs.writeFileSync(path.join(dir, 'src/evil.mjs'), 'export const backdoor = true;\n', 'utf8');
@@ -226,6 +240,39 @@ describe('Ring 1: lib/receipt.mjs', () => {
       git(dir, 'commit', '-q', '-m', 'Evil merge PR #42');
       const evilMergeSha = git(dir, 'rev-parse', 'HEAD').stdout.trim();
       assert.equal(verifyGateReceipt({ headSha: evilMergeSha, branch: 'develop', repoRoot: dir }).valid, false);
+
+      // Evil merge deleting develop-added src/other.mjs is ALSO rejected
+      git(dir, 'reset', '--hard', 'HEAD~1');
+      git(dir, 'merge', '--no-ff', '--no-commit', 'feat/merge-modes');
+      git(dir, 'rm', '-f', '-q', 'src/other.mjs');
+      git(dir, 'commit', '-q', '-m', 'Evil revert of develop file');
+      const evilDeleteSha = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+      assert.equal(verifyGateReceipt({ headSha: evilDeleteSha, branch: 'develop', repoRoot: dir }).valid, false);
+
+      // Unresolved flag-like --sha is rejected without git option injection
+      assert.equal(verifyGateReceipt({ headSha: '--output=/tmp/pwn', repoRoot: dir }).valid, false);
+
+      // Clean 2-hop --no-ff merge (feat -> develop -> main) verifies on main!
+      git(dir, 'reset', '--hard', 'HEAD~1');
+      assert.equal(git(dir, 'merge', '--no-ff', '-q', '-m', 'Clean merge PR #42', 'feat/merge-modes').status, 0);
+      git(dir, 'checkout', '-q', 'main');
+      fs.mkdirSync(path.join(dir, 'docs'), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'docs/hotfix-note.md'), '# Note\n', 'utf8');
+      git(dir, 'add', 'docs/hotfix-note.md');
+      git(dir, 'commit', '-q', '-m', 'docs: main note');
+      assert.equal(git(dir, 'merge', '--no-ff', '-q', '-m', 'Release develop to main', 'develop').status, 0);
+      const releaseMainSha = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+      assert.equal(verifyGateReceipt({ headSha: releaseMainSha, branch: 'main', repoRoot: dir }).valid, true);
+
+      // Stale specHash on session is rejected by issueGateReceipt
+      git(dir, 'checkout', '-q', 'feat/merge-modes');
+      writeActiveSession(dir, (s) => {
+        s.sessions['42'].lastGate.headSha = receiptCommitSha;
+        s.sessions['42'].peerReview.headSha = receiptCommitSha;
+        s.sessions['42'].lastGate.specHash = 'stale-spec-hash-mismatch';
+        return s;
+      });
+      assert.equal(issueGateReceipt({ repoRoot: dir }).success, false);
 
       // 4. Squash merge onto unchanged base (treeSha match) verifies cleanly
       const sqRepo = createTempGitRepo();

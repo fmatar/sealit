@@ -148,6 +148,23 @@ export function validateConfigFile(repoRoot = '.', customConfigPath = null) {
     errors.push('Configuration requires a non-empty string "version".');
   }
 
+  if (parsed.ci && typeof parsed.ci === 'object') {
+    if (typeof parsed.ci.checkName === 'string' && /[\r\n]/.test(parsed.ci.checkName)) {
+      errors.push('ci.checkName must be a single-line string.');
+    }
+    if (typeof parsed.ci.runsOn === 'string' && /[\r\n]/.test(parsed.ci.runsOn)) {
+      errors.push('ci.runsOn must be a single-line string.');
+    }
+  }
+
+  if (parsed.archlens && typeof parsed.archlens === 'object' && typeof parsed.archlens.policyPath === 'string') {
+    try {
+      resolveInsideRepo(repoRoot, parsed.archlens.policyPath);
+    } catch (err) {
+      errors.push(`archlens.policyPath invalid: ${err.message}`);
+    }
+  }
+
   if (!Array.isArray(parsed.modules) || parsed.modules.length < 1) {
     errors.push('Configuration "modules" must be an array containing at least one module.');
   } else {
@@ -181,12 +198,16 @@ export function validateConfigFile(repoRoot = '.', customConfigPath = null) {
             errors.push(`${label}.commands.${cmdKey} invalid: ${err.message}`);
           }
         }
-        if (
-          mod.commands.coverageFile !== undefined &&
-          mod.commands.coverageFile !== null &&
-          (typeof mod.commands.coverageFile !== 'string' || !mod.commands.coverageFile.trim())
-        ) {
-          errors.push(`${label}.commands.coverageFile must be a non-empty string or null.`);
+        if (mod.commands.coverageFile !== undefined && mod.commands.coverageFile !== null) {
+          if (typeof mod.commands.coverageFile !== 'string' || !mod.commands.coverageFile.trim()) {
+            errors.push(`${label}.commands.coverageFile must be a non-empty string or null.`);
+          } else {
+            try {
+              resolveInsideRepo(repoRoot, path.join(mod.path || '.', mod.commands.coverageFile));
+            } catch (err) {
+              errors.push(`${label}.commands.coverageFile invalid: ${err.message}`);
+            }
+          }
         }
       }
 

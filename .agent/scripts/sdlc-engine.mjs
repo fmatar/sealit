@@ -260,9 +260,13 @@ export async function runCLI(customArgs = null, customConfigPath = null, repoRoo
 
     case 'status':
     case 'session': {
-      const subArgs = rawCmd === 'session' ? cmdArgs.slice(1) : cmdArgs;
+      if (rawCmd === 'session' && cmdArgs[0] && cmdArgs[0].toLowerCase() !== 'status') {
+        return failInvalid(result, `Unknown session subcommand '${cmdArgs[0]}'. Expected 'status'.`);
+      }
+      const subArgs = rawCmd === 'session' && cmdArgs[0] ? cmdArgs.slice(1) : cmdArgs;
       const p = parseFlags(subArgs, {});
       if (p.error) return failInvalid(result, p.error, p.exitCode);
+      if (p.positionals.length > 0) return failInvalid(result, `Unexpected argument '${p.positionals[0]}'.`);
       result.command = 'status';
       result.status = getSessionStatus(repoRoot);
       return result;
@@ -318,12 +322,12 @@ export async function runCLI(customArgs = null, customConfigPath = null, repoRoo
         return result;
       }
       if (sub === 'decide') {
-        const p = parseFlags(subArgs, { values: ['--id', '--status', '--by', '--reason'] });
+        const p = parseFlags(subArgs, { values: ['--id', '--status', '--by', '--reviewer', '--reason'] });
         if (p.error) return failInvalid(result, p.error, p.exitCode);
         const decided = decideADR({
           adrId: p.flags['--id'] || p.positionals[0],
           status: p.flags['--status'] || p.positionals[1],
-          reviewer: p.flags['--by'] || '@reviewer',
+          reviewer: p.flags['--reviewer'] || p.flags['--by'] || '@reviewer',
           reason: p.flags['--reason'] || '',
           repoRoot
         });
@@ -339,10 +343,12 @@ export async function runCLI(customArgs = null, customConfigPath = null, repoRoo
       const p = parseFlags(cmdArgs, { bools: ['--affected-only'] });
       if (p.error) return failInvalid(result, p.error, p.exitCode);
       const { config } = loadConfig(repoRoot, customConfigPath);
-      if (p.flags['--affected-only']) {
+      const usesNodeTest = config.modules.length === 1 && /\bnode\b.*--test\b/.test(String(config.modules[0]?.commands?.test || ''));
+      if (p.flags['--affected-only'] && usesNodeTest) {
         const affected = resolveAffectedTests(repoRoot);
         if (affected.length > 0) {
-          runConfiguredCommand([process.execPath, '--test', '--test-reporter=dot', ...affected], {
+          const safeTestPaths = affected.map((f) => (f.startsWith('./') ? f : `./${f}`));
+          runConfiguredCommand([process.execPath, '--test', '--test-reporter=dot', ...safeTestPaths], {
             cwd: path.resolve(repoRoot),
             stdio: verbose && !jsonMode ? 'inherit' : 'pipe'
           });
@@ -471,6 +477,9 @@ export async function runCLI(customArgs = null, customConfigPath = null, repoRoo
 
     case 'verify':
     case 'audit': {
+      if (rawCmd === 'audit' && cmdArgs[0] && cmdArgs[0].toLowerCase() !== 'verify') {
+        return failInvalid(result, `Unknown audit subcommand '${cmdArgs[0]}'. Expected 'verify'.`);
+      }
       const subArgs = rawCmd === 'audit' && cmdArgs[0]?.toLowerCase() === 'verify' ? cmdArgs.slice(1) : cmdArgs;
       const p = parseFlags(subArgs, { bools: ['--chain-only'], values: ['--sha', '--branch'] });
       if (p.error) return failInvalid(result, p.error, p.exitCode);
@@ -518,7 +527,11 @@ export async function runCLI(customArgs = null, customConfigPath = null, repoRoo
         return result;
       }
       if (sub === 'pre-push') {
-        const g = verifyPushGuard({ repoRoot });
+        let stdinText = '';
+        if (!process.stdin.isTTY) {
+          try { stdinText = fs.readFileSync(0, 'utf8'); } catch {}
+        }
+        const g = verifyPushGuard({ stdinText, repoRoot });
         result.guard = g;
         result.success = g.allowed;
         if (!g.allowed) result.error = g.message;
@@ -595,7 +608,7 @@ export function formatCLIResult(cmd, res = {}) {
         `  Archlens Rings: ${d.policyOk ? 'Present' : 'Missing'}`,
         `  4-Layer Hooks : ${d.hooks.upToDate ? 'Up to date' : `Missing/Outdated [${[...d.hooks.missingHooks, ...d.hooks.outdatedHooks].join(', ')}]`}`,
         `  CI Workflow   : ${d.workflow.exists ? (d.workflow.legacyNeedsUpgrade ? 'Needs v0.1.0 upgrade (--fix)' : 'Up to date') : 'Missing'}`,
-        `  Receipt Key   : ${d.receiptKey.source} (${d.receiptKey.usable ? 'usable' : d.receiptKey.error || 'not provisioned'})`,
+        `  Receipt Key   : ${d.receiptKey.source} (${d.receiptKey.usable ? `usable${d.receiptKey.mode !== null ? `, mode 0${d.receiptKey.mode.toString(8)}, untracked` : ''}` : d.receiptKey.error || 'not provisioned'})`,
         ...(d.receiptKey.ciSecretHint ? [`                  ${d.receiptKey.ciSecretHint}`] : []),
         `  Skills Audit  : ${d.skills.passed ? `Passed (${d.skills.skillsCount}/6)` : `${d.skills.findings.length} finding(s)`}`,
         `  Audit Ledger  : ${d.auditChain.valid ? `Verified (${d.auditChain.recordsCount} records, ${d.auditChain.gateReceiptsCount} receipts)` : d.auditChain.error}`

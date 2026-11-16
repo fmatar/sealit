@@ -179,13 +179,20 @@ describe('Ring 0: lib/git.mjs', () => {
     assert.equal(mainPushState.committedRange, 'HEAD~1..HEAD');
     assert.deepEqual(getModifiedFiles(null, dir), ['second.txt']);
 
-    // Single-commit newborn repo without develop does not throw or blind diffs
-    const newborn = createTempGitRepo({ withDevelop: false, initialBranch: 'main' });
+    // Single-commit newborn repo without develop or main returns committed files via empty-tree diff
+    const newborn = createTempGitRepo({ withDevelop: false, initialBranch: 'feat/init' });
     cleanups.push(newborn.cleanup);
-    assert.equal(resolveDefaultBaseBranch(newborn.dir), 'main');
-    fs.writeFileSync(path.join(newborn.dir, 'uncommitted.mjs'), 'export const x = 1;\n', 'utf8');
-    assert.deepEqual(getModifiedFiles(null, newborn.dir), ['uncommitted.mjs']);
-    assert.match(getUnifiedDiffByFile(null, newborn.dir).get('uncommitted.mjs') || '', /\+export const x = 1;/);
+    fs.writeFileSync(path.join(newborn.dir, 'committed-on-root.mjs'), 'export const rootVal = 99;\n', 'utf8');
+    git(newborn.dir, 'add', 'committed-on-root.mjs');
+    git(newborn.dir, 'commit', '--amend', '-q', '--no-edit');
+    assert.equal(getModifiedFiles(null, newborn.dir).includes('committed-on-root.mjs'), true);
+    assert.match(getUnifiedDiffByFile(null, newborn.dir).get('committed-on-root.mjs') || '', /\+export const rootVal = 99;/);
+
+    // Symlink inside repo escaping repoRoot is blocked by resolveInsideRepo
+    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-sym-escape-'));
+    cleanups.push(() => fs.rmSync(outsideDir, { recursive: true, force: true }));
+    fs.symlinkSync(outsideDir, path.join(dir, 'sym-out'));
+    assert.throws(() => resolveInsideRepo(dir, 'sym-out/secret.txt'), /symlink|outside/i);
   });
 
   it('gitOutput 64 MiB maxBuffer survives >2 MiB lockfile diffs and handles C-quoted and NUL-padded files', () => {

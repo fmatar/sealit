@@ -112,11 +112,12 @@ describe('Ring 2: lib/install.mjs', () => {
       assert.equal(preservedCfg.modules[0].name, 'custom');
       assert.equal(preservedCfg.modules[0].thresholds.diffCoverage, 93);
 
-      // Legacy workflow upgraded with self-hosted runner guard and --branch "$GITHUB_HEAD_REF"
+      // Legacy workflow upgraded with self-hosted runner guard, fork PR block, trusted base archive, and --branch "$GITHUB_HEAD_REF"
       const wf = fs.readFileSync(path.join(dir, '.github/workflows/sdlc-quality-gate.yml'), 'utf8');
       assert.match(wf, /runner\.environment == 'github-hosted'/);
       assert.match(wf, /--branch "\$GITHUB_HEAD_REF"/);
       assert.match(wf, /SDLC_RECEIPT_KEY: ci-dummy-test-key/);
+      assert.match(wf, /git archive "origin\/\$BASE_REF"/);
     });
   });
 
@@ -176,6 +177,18 @@ describe('Ring 2: lib/install.mjs', () => {
     const globalSkill = fs.readFileSync(path.join(fakeHome, '.claude/skills/sdlc/SKILL.md'), 'utf8');
     assert.equal(globalSkill.includes(path.join(fakeHome, '.agentic-sdlc/scripts/sdlc-engine.mjs')), true);
     assert.equal(fs.existsSync(path.join(fakeHome, '.claude/CLAUDE.md')), true);
+
+    // 5. Parent-directory symlink (.cursor -> outsideDir) inside targetDir is refused/unlinked without writing into outsideDir!
+    const symTargetRepo = createTempGitRepo();
+    cleanups.push(symTargetRepo.cleanup);
+    const outsideVictimDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-parent-sym-'));
+    cleanups.push(() => fs.rmSync(outsideVictimDir, { recursive: true, force: true }));
+    fs.symlinkSync(outsideVictimDir, path.join(symTargetRepo.dir, '.cursor'));
+    await assert.rejects(
+      () => installFramework({ targetDir: symTargetRepo.dir, sourceRoot: src.srcDir, agents: ['cursor'], yes: true }),
+      /symlink/i
+    );
+    assert.equal(fs.existsSync(path.join(outsideVictimDir, 'skills')), false);
   });
 
   it('drives interactive onboarding wizard via injected input/output streams without a real TTY', async () => {

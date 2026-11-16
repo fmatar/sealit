@@ -148,6 +148,19 @@ describe('Ring 2: lib/guard.mjs', () => {
       git(dir, 'commit', '-q', '-m', 'chore: commit receipt');
       const receiptHead = git(dir, 'rev-parse', 'HEAD').stdout.trim();
 
+      // Simulate git merge into main with spoofed GIT_REFLOG_ACTION='merge develop' while MERGE_HEAD points to featSha -> MUST block!
+      git(dir, 'checkout', '-q', 'main');
+      fs.writeFileSync(path.join(dir, '.git/MERGE_HEAD'), `${receiptHead}\n`, 'utf8');
+      process.env.GIT_REFLOG_ACTION = 'merge develop';
+      try {
+        const spoofedMainMerge = verifyMergeGuard({ repoRoot: dir });
+        assert.equal(spoofedMainMerge.allowed, false);
+        assert.equal(spoofedMainMerge.reasonCode, 'DIRECT_MERGE_TO_MAIN_FORBIDDEN');
+      } finally {
+        delete process.env.GIT_REFLOG_ACTION;
+        fs.unlinkSync(path.join(dir, '.git/MERGE_HEAD'));
+      }
+
       // Simulate git merge into main with BOTH MERGE_HEAD and GITHEAD_<sha>='feat/...' -> MUST block non-develop merge to main!
       git(dir, 'checkout', '-q', 'main');
       fs.writeFileSync(path.join(dir, '.git/MERGE_HEAD'), `${receiptHead}\n`, 'utf8');
@@ -173,9 +186,20 @@ describe('Ring 2: lib/guard.mjs', () => {
       assert.equal(cleaned.cleaned, 1);
       assert.equal(readSessionStore(dir).sessions['44'].active, false);
 
-      // Allocating local L-N session without issueId and blocking protected branch session start
+      // Allocating local L-N session without issueId and blocking protected/flag/HEAD branch session start
       const blockedProtected = beginSession({ branch: 'develop', repoRoot: dir });
       assert.equal(blockedProtected.success, false);
+      assert.equal(beginSession({ branch: 'HEAD', repoRoot: dir }).success, false);
+      assert.equal(beginSession({ branch: '--evil-flag', repoRoot: dir }).success, false);
+      assert.equal(recordReviewVerdict({ verdict: 'approve', prNumber: '--repo=evil/repo', repoRoot: dir }).success, false);
+
+      // Refspec push smuggling (git push origin HEAD:main) blocked via stdinText
+      const smuggledPush = verifyPushGuard({
+        stdinText: 'refs/heads/feat/x 1111111111111111111111111111111111111111 refs/heads/main 0000000000000000000000000000000000000000\n',
+        repoRoot: dir
+      });
+      assert.equal(smuggledPush.allowed, false);
+
       const localSess = beginSession({ title: 'Auto Local ID', checkout: true, repoRoot: dir });
       assert.equal(localSess.success, true);
       assert.match(localSess.session.issueId, /^L-\d+$/);

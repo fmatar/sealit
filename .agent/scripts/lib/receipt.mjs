@@ -3,22 +3,24 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   cleanGitEnv,
+  computeAlignmentHashes,
   computeContentTreeSha,
   fileExists,
   getCurrentGitBranch,
   getModifiedFiles,
-  getRepoEnv,
   gitExec,
   gitOutput,
   hasDirtyNonGovernanceFiles,
   isDocsOnlyDiff,
   normalizeTicketId,
+  parseEnvFile,
   parseTicketId,
   readFileSafe,
   resolveEffectiveDiffBase,
   resolveGitCommonRepoRoot,
   sameShaPrefix,
-   unquoteGitPath,
+  unquoteGitPath,
+  verifyCleanThreeWayMergeTrees,
   withFileLock,
   writeFileAtomic
 } from './git.mjs';
@@ -43,8 +45,8 @@ export function calculateRecordHash({ index, timestamp, event, metadata, previou
   return crypto.createHash('sha256').update(payload).digest('hex');
 }
 
-function keyFileCommitState(checkRoot) {
-  const ls = spawnSync('git', ['-C', checkRoot, 'ls-files', '--error-unmatch', '--', RECEIPT_KEY_FILE], {
+function keyFileCommitState(checkRoot, relFile = RECEIPT_KEY_FILE, atRef = 'HEAD') {
+  const ls = spawnSync('git', ['-C', checkRoot, 'ls-files', '--error-unmatch', '--', relFile], {
     cwd: checkRoot,
     env: cleanGitEnv(),
     stdio: 'pipe'
@@ -52,7 +54,7 @@ function keyFileCommitState(checkRoot) {
   if (ls.error || (ls.status !== 0 && ls.status !== 1)) return 'unknown';
   if (ls.status === 0) return 'committed';
 
-  const head = spawnSync('git', ['-C', checkRoot, 'cat-file', '-e', `HEAD:${RECEIPT_KEY_FILE}`], {
+  const head = spawnSync('git', ['-C', checkRoot, 'cat-file', '-e', '--end-of-options', `${atRef}:${relFile}`], {
     cwd: checkRoot,
     env: cleanGitEnv(),
     stdio: 'pipe'
@@ -61,24 +63,30 @@ function keyFileCommitState(checkRoot) {
   return head.status === 0 ? 'committed' : 'clean';
 }
 
-function makeUnusableKeyError(state) {
+function makeUnusableKeyError(state, relFile = RECEIPT_KEY_FILE) {
   const err = new Error(
     state === 'committed'
-      ? `${RECEIPT_KEY_FILE} is committed to git; run 'git rm --cached ${RECEIPT_KEY_FILE}' and rotate the key.`
-      : `Cannot confirm ${RECEIPT_KEY_FILE} is untracked (git unavailable or repository unreadable); refusing to trust key file.`
+      ? `${relFile} is committed to git; run 'git rm --cached ${relFile}' and rotate the key.`
+      : `Cannot confirm ${relFile} is untracked (git unavailable or repository unreadable); refusing to trust key file.`
   );
   err.code = 'RECEIPT_KEY_UNUSABLE';
   return err;
 }
 
 export function loadReceiptKey(repoRoot = '.', { create = false } = {}) {
-  const envRaw = getRepoEnv('SDLC_RECEIPT_KEY', repoRoot).trim();
-  if (envRaw) {
-    return Buffer.from(envRaw, 'utf8');
+  if (Object.prototype.hasOwnProperty.call(process.env, 'SDLC_RECEIPT_KEY') && process.env.SDLC_RECEIPT_KEY !== undefined) {
+    const procVal = String(process.env.SDLC_RECEIPT_KEY).trim();
+    if (procVal) return Buffer.from(procVal, 'utf8');
   }
 
   const absRoot = path.resolve(repoRoot);
   const commonRoot = resolveGitCommonRepoRoot(absRoot);
+  const dotEnv = parseEnvFile(absRoot);
+  if (dotEnv.SDLC_RECEIPT_KEY && String(dotEnv.SDLC_RECEIPT_KEY).trim()) {
+    const envState = keyFileCommitState(absRoot, '.env');
+    if (envState !== 'clean') throw makeUnusableKeyError(envState, '.env');
+    return Buffer.from(String(dotEnv.SDLC_RECEIPT_KEY).trim(), 'utf8');
+  }
   const localKeyPath = path.resolve(absRoot, RECEIPT_KEY_FILE);
   const sharedKeyPath = path.resolve(commonRoot, RECEIPT_KEY_FILE);
   const keyPath = fileExists(localKeyPath) ? localKeyPath : sharedKeyPath;
@@ -116,11 +124,18 @@ export function loadReceiptKey(repoRoot = '.', { create = false } = {}) {
 }
 
 export function inspectReceiptKeyStatus(repoRoot = '.') {
-  const envRaw = getRepoEnv('SDLC_RECEIPT_KEY', repoRoot).trim();
-  if (envRaw) {
+  if (Object.prototype.hasOwnProperty.call(process.env, 'SDLC_RECEIPT_KEY') && String(process.env.SDLC_RECEIPT_KEY || '').trim()) {
     return { source: 'env', usable: true, committed: false, mode: null, error: null };
   }
   const absRoot = path.resolve(repoRoot);
+  const dotEnv = parseEnvFile(absRoot);
+  if (dotEnv.SDLC_RECEIPT_KEY && String(dotEnv.SDLC_RECEIPT_KEY).trim()) {
+    const envState = keyFileCommitState(absRoot, '.env');
+    if (envState !== 'clean') {
+      return { source: 'dotenv', usable: false, committed: envState === 'committed', mode: null, error: makeUnusableKeyError(envState, '.env').message };
+    }
+    return { source: 'env', usable: true, committed: false, mode: null, error: null };
+  }
   const commonRoot = resolveGitCommonRepoRoot(absRoot);
   const localKeyPath = path.resolve(absRoot, RECEIPT_KEY_FILE);
   const sharedKeyPath = path.resolve(commonRoot, RECEIPT_KEY_FILE);
@@ -176,7 +191,9 @@ export function signReceiptPayload(payload, key) {
 export function verifyReceiptSignature(receipt, key) {
   if (!receipt || !receipt.signature || !key) return false;
   const { signature, ...payload } = receipt;
-  if (signature.alg !== 'HMAC-SHA256' || typeof signature.value !== 'string') return false;
+  if (signature.alg !== 'HMAC-SHA256' || typeof signature.value !== 'string' || !/^[0-9a-f]{64}$/i.test(signature.value)) {
+    return false;
+  }
   const expected = signReceiptPayload(payload, key);
   const a = Buffer.from(expected, 'hex');
   const b = Buffer.from(signature.value, 'hex');
@@ -353,12 +370,7 @@ export function readSessionStore(repoRoot = '.') {
 }
 
 export function readActiveSession(repoRoot = '.', targetBranch = null) {
-  let store;
-  try {
-    store = readSessionStore(repoRoot);
-  } catch {
-    return null;
-  }
+  const store = readSessionStore(repoRoot);
   const branch = targetBranch || getCurrentGitBranch(repoRoot);
   const entries = Object.values(store.sessions || {});
   if (branch) {
@@ -405,7 +417,7 @@ export function computeTreeHash({ repoRoot = '.', modulePath = '.', checkType = 
   }
   const headSha = headRes.stdout.trim();
   const effBase = resolveEffectiveDiffBase(null, absRoot);
-  const mbOut = effBase ? gitOutput(['merge-base', effBase, 'HEAD'], absRoot) : '';
+  const mbOut = effBase ? gitOutput(['merge-base', '--end-of-options', effBase, 'HEAD'], absRoot) : '';
 
   const statusRes = gitExec(['status', '--porcelain', '--untracked-files=all', '--', modulePath], absRoot);
   if (statusRes.error || statusRes.status !== 0) {
@@ -486,6 +498,8 @@ function isAuditOnlyCommitRange(fromSha, toSha, repoRoot) {
   if (fromSha === toSha) return true;
   const anc = gitExec(['merge-base', '--is-ancestor', '--end-of-options', fromSha, toSha], repoRoot);
   if (anc.error || anc.status !== 0) return false;
+  const merges = gitOutput(['rev-list', '--merges', '--end-of-options', `${fromSha}..${toSha}`], repoRoot);
+  if (merges === null || merges.trim() !== '') return false;
   const diffRes = gitExec(['diff', '--name-only', '--end-of-options', `${fromSha}..${toSha}`], repoRoot);
   if (diffRes.error || diffRes.status !== 0) return false;
   const changed = diffRes.stdout
@@ -496,61 +510,29 @@ function isAuditOnlyCommitRange(fromSha, toSha, repoRoot) {
   return changed.every((f) => f === AUDIT_LEDGER_FILE);
 }
 
-function readTreeBlobMap(commitSha, repoRoot) {
-  const out = gitOutput(['ls-tree', '-r', '--full-tree', '--end-of-options', commitSha], repoRoot);
-  if (out === null) return null;
-  const map = new Map();
-  for (const line of out.replace(/\r\n/g, '\n').split('\n')) {
-    if (!line.trim()) continue;
-    const tabIdx = line.indexOf('\t');
-    if (tabIdx === -1) continue;
-    const meta = line.slice(0, tabIdx).trim();
-    const rel = unquoteGitPath(line.slice(tabIdx + 1)).replace(/\\/g, '/');
-    if (rel === AUDIT_LEDGER_FILE) continue;
-    map.set(rel, meta);
+function isProtectedBranchHistory(commitSha, repoRoot) {
+  for (const ref of ['refs/heads/main', 'refs/heads/master', 'refs/heads/develop', 'refs/remotes/origin/main', 'refs/remotes/origin/master', 'refs/remotes/origin/develop']) {
+    const res = gitExec(['merge-base', '--is-ancestor', '--end-of-options', commitSha, ref], repoRoot);
+    if (!res.error && res.status === 0) return true;
   }
-  return map;
+  return false;
 }
 
-function verifyTwoParentCleanMerge(receiptHeadSha, targetSha, repoRoot) {
-  const p1 = (gitOutput(['rev-parse', '--verify', '-q', `${targetSha}^1`], repoRoot) || '').trim();
-  const p2 = (gitOutput(['rev-parse', '--verify', '-q', `${targetSha}^2`], repoRoot) || '').trim();
-  const p3 = (gitOutput(['rev-parse', '--verify', '-q', `${targetSha}^3`], repoRoot) || '').trim();
+function verifyTwoParentCleanMerge(receiptHeadSha, targetSha, repoRoot, depth = 0) {
+  const p1 = (gitOutput(['rev-parse', '--verify', '-q', '--end-of-options', `${targetSha}^1`], repoRoot) || '').trim();
+  const p2 = (gitOutput(['rev-parse', '--verify', '-q', '--end-of-options', `${targetSha}^2`], repoRoot) || '').trim();
+  const p3 = (gitOutput(['rev-parse', '--verify', '-q', '--end-of-options', `${targetSha}^3`], repoRoot) || '').trim();
   if (!p1 || !p2 || p3) return false;
-  if (receiptHeadSha !== p2 && !isAuditOnlyCommitRange(receiptHeadSha, p2, repoRoot)) {
-    return false;
-  }
+  if (!isProtectedBranchHistory(p1, repoRoot)) return false;
 
-  const mapP1 = readTreeBlobMap(p1, repoRoot);
-  const mapP2 = readTreeBlobMap(p2, repoRoot);
-  const mapTarget = readTreeBlobMap(targetSha, repoRoot);
-  if (!mapP1 || !mapP2 || !mapTarget) return false;
+  const p2Matches =
+    receiptHeadSha === p2 ||
+    isAuditOnlyCommitRange(receiptHeadSha, p2, repoRoot) ||
+    (depth < 1 && verifyTwoParentCleanMerge(receiptHeadSha, p2, repoRoot, depth + 1));
+  if (!p2Matches) return false;
 
-  for (const [file, entry] of mapTarget.entries()) {
-    if (entry !== mapP1.get(file) && entry !== mapP2.get(file)) {
-      return false;
-    }
-  }
-
-  const allParentFiles = new Set([...mapP1.keys(), ...mapP2.keys()]);
-  for (const file of allParentFiles) {
-    if (!mapTarget.has(file) && mapP1.has(file) && mapP2.has(file)) {
-      return false;
-    }
-  }
-
-  const mb = (gitOutput(['merge-base', p1, p2], repoRoot) || '').trim();
-  if (mb) {
-    const mapMb = readTreeBlobMap(mb, repoRoot);
-    if (mapMb) {
-      for (const [file, p2Entry] of mapP2.entries()) {
-        if (mapMb.get(file) !== p2Entry && mapP1.get(file) === mapMb.get(file)) {
-          if (mapTarget.get(file) !== p2Entry) return false;
-        }
-      }
-    }
-  }
-  return true;
+  const mb = (gitOutput(['merge-base', '--end-of-options', p1, p2], repoRoot) || '').trim();
+  return verifyCleanThreeWayMergeTrees({ mbSha: mb, p1Ref: p1, p2Ref: p2, targetRef: targetSha, repoRoot });
 }
 
 export function issueGateReceipt({ repoRoot = '.', docsOnly = false, reviewerOverride = null } = {}) {
@@ -599,31 +581,40 @@ export function issueGateReceipt({ repoRoot = '.', docsOnly = false, reviewerOve
     };
   }
 
+  const liveHashes = computeAlignmentHashes(repoRoot);
+  if (!lastGate.specHash || lastGate.specHash !== liveHashes.specHash || lastGate.adrHashes !== liveHashes.adrHashes) {
+    return {
+      success: false,
+      reason: 'Refusing to issue gate receipt: specHash or adrHashes changed since lastGate measurement. Re-run sdlc gate.'
+    };
+  }
+
   const effectiveMode = lastGate.mode || (isDocsDiff ? 'docs-only' : 'code');
   const { config } = loadConfig(repoRoot);
   const mods = config?.modules || [];
 
   if (effectiveMode === 'code') {
-    const covThresholds = mods.map((m) => m.thresholds?.diffCoverage).filter((v) => typeof v === 'number');
-    const minCov = covThresholds.length > 0 ? Math.max(...covThresholds) : null;
-    if (minCov !== null && (typeof lastGate.diffCoveragePct !== 'number' || lastGate.diffCoveragePct < minCov)) {
-      return {
-        success: false,
-        reason: `Refusing to issue gate receipt: diff coverage (${lastGate.diffCoveragePct ?? 'unmeasured'}%) is below threshold ${minCov}%.`
-      };
-    }
-
-    const mutThresholds = mods
-      .filter((m) => Boolean(m.commands?.mutation) && typeof m.thresholds?.mutationScore === 'number')
-      .map((m) => m.thresholds.mutationScore);
-    const minMut = mutThresholds.length > 0 ? Math.max(...mutThresholds) : null;
-    const emptyMutSkip =
-      lastGate.mutationStatus === 'diff-no-mutated-sources' || lastGate.mutationStatus === 'diff-zero-mutants';
-    if (minMut !== null && !emptyMutSkip && (typeof lastGate.mutationPct !== 'number' || lastGate.mutationPct < minMut)) {
-      return {
-        success: false,
-        reason: `Refusing to issue gate receipt: mutation score (${lastGate.mutationPct ?? 'unmeasured'}%) is below threshold ${minMut}%.`
-      };
+    const measuredByMod = new Map((lastGate.modules || []).map((m) => [m.module, m]));
+    for (const mod of mods) {
+      const mRec = measuredByMod.get(mod.name);
+      const covFloor = typeof mod.thresholds?.diffCoverage === 'number' ? mod.thresholds.diffCoverage : null;
+      const actualCov = mRec ? mRec.diffCoveragePct : lastGate.diffCoveragePct;
+      if (covFloor !== null && (typeof actualCov !== 'number' || actualCov < covFloor)) {
+        return {
+          success: false,
+          reason: `Refusing to issue gate receipt: module '${mod.name}' diff coverage (${actualCov ?? 'unmeasured'}%) is below threshold ${covFloor}%.`
+        };
+      }
+      const mutFloor = Boolean(mod.commands?.mutation) && typeof mod.thresholds?.mutationScore === 'number' ? mod.thresholds.mutationScore : null;
+      const actualMut = mRec ? mRec.mutationPct : lastGate.mutationPct;
+      const mutStat = mRec ? mRec.mutationStatus : lastGate.mutationStatus;
+      const emptyMutSkip = mutStat === 'diff-no-mutated-sources' || mutStat === 'diff-zero-mutants';
+      if (mutFloor !== null && !emptyMutSkip && (typeof actualMut !== 'number' || actualMut < mutFloor)) {
+        return {
+          success: false,
+          reason: `Refusing to issue gate receipt: module '${mod.name}' mutation score (${actualMut ?? 'unmeasured'}%) is below threshold ${mutFloor}%.`
+        };
+      }
     }
   }
 
@@ -725,10 +716,12 @@ export function verifyGateReceipt({ headSha = null, branch = null, repoRoot = '.
 
   if (targetSha && isHexSha(targetSha) && targetSha.length < 40) {
     const expanded = (gitOutput(['rev-parse', '--verify', '-q', '--end-of-options', `${targetSha}^{commit}`], absRoot) || '').trim();
-    if (expanded) targetSha = expanded;
+    if (!expanded) return { valid: false, targetSha, branch, reason: `Cannot resolve commit '${targetSha}'.` };
+    targetSha = expanded;
   } else if (targetSha && !isHexSha(targetSha)) {
-    const resolved = (gitOutput(['rev-parse', '--verify', '-q', '--end-of-options', targetSha], absRoot) || '').trim();
-    if (resolved) targetSha = resolved;
+    const resolved = (gitOutput(['rev-parse', '--verify', '-q', '--end-of-options', `${targetSha}^{commit}`], absRoot) || '').trim();
+    if (!resolved) return { valid: false, targetSha, branch, reason: `Cannot resolve target ref '${targetSha}'.` };
+    targetSha = resolved;
   } else if (!targetSha && branch && branch !== 'HEAD') {
     for (const candidate of [branch, `refs/heads/${branch}`, `refs/remotes/origin/${branch}`]) {
       const resolved = (gitOutput(['rev-parse', '--verify', '-q', '--end-of-options', candidate], absRoot) || '').trim();
@@ -765,9 +758,14 @@ export function verifyGateReceipt({ headSha = null, branch = null, repoRoot = '.
     };
   }
 
+  if (keyFileCommitState(absRoot, RECEIPT_KEY_FILE, targetSha) === 'committed') {
+    return { valid: false, targetSha, branch, reason: makeUnusableKeyError('committed', RECEIPT_KEY_FILE).message };
+  }
+
   const effectiveBranch =
     branch && !['HEAD', 'develop', 'main', 'master'].includes(branch) ? String(branch).trim() : null;
   const targetTreeSha = computeContentTreeSha(targetSha, absRoot);
+  const isMultiParent = Boolean((gitOutput(['rev-parse', '--verify', '-q', '--end-of-options', `${targetSha}^2`], absRoot) || '').trim());
 
   let activeChain = chain;
   const findMatchingReceipt = (recordsList) =>
@@ -783,14 +781,14 @@ export function verifyGateReceipt({ headSha = null, branch = null, repoRoot = '.
         }
         if (sameShaPrefix(m.headSha, targetSha) && m.headSha.length === targetSha.length) return true;
         if (isAuditOnlyCommitRange(m.headSha, targetSha, absRoot)) return true;
-        if (m.treeSha && targetTreeSha && m.treeSha === targetTreeSha) return true;
-        if (verifyTwoParentCleanMerge(m.headSha, targetSha, absRoot)) return true;
+        if (!isMultiParent && m.treeSha && targetTreeSha && m.treeSha === targetTreeSha) return true;
+        if (!effectiveBranch && verifyTwoParentCleanMerge(m.headSha, targetSha, absRoot)) return true;
         return false;
       });
 
   let matched = findMatchingReceipt(activeChain.records);
   if (!matched && targetSha) {
-    const commitLedgerRaw = gitOutput(['show', `${targetSha}:${AUDIT_LEDGER_FILE}`], absRoot);
+    const commitLedgerRaw = gitOutput(['show', '--end-of-options', `${targetSha}:${AUDIT_LEDGER_FILE}`], absRoot);
     if (commitLedgerRaw) {
       const commitChain = verifyAuditChainContent(commitLedgerRaw);
       if (!commitChain.valid) {

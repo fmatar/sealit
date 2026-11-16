@@ -13,5 +13,5 @@
 3. **Node >= 22 Compatibility**: Default JavaScript/TypeScript test commands emit `node --test --test-reporter=dot "tests/**/*.test.mjs"` so discovery succeeds identically on Node 22, Node 24 LTS, and Node 26+.
 
 ## 3. Outputs & Acceptance Criteria
-- Deterministic `detectStack(repoRoot)` and `generateConfig(repoRoot)` supporting monorepo workspaces (`workspaces`, `Cargo.toml`, `pnpm-workspace.yaml`).
+- Deterministic `detectStack(repoRoot)` and `generateConfig(repoRoot)` across JavaScript/TypeScript, Rust, Go, Python, and Java/Kotlin manifests.
 - `sdlc config check` exits `0` on valid schemas and `1` with actionable field diagnostics on invalid schemas.

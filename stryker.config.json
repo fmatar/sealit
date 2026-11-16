@@ -14,8 +14,7 @@
       "tests/unit/measure.test.mjs",
       "tests/unit/guard.test.mjs",
       "tests/unit/install.test.mjs",
-      "tests/unit/cli.test.mjs",
-      "tests/unit/structural-invariants.test.mjs"
+      "tests/unit/cli.test.mjs"
     ],
     "forceBail": true
   },

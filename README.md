@@ -16,7 +16,7 @@ AI coding agents write code quickly while making it easy to drift from specifica
 
 1. **Git Flow & Session Guard (`INV-01`)**: Blocks direct commits, pushes, or unverified merges to `main` and `develop` via SHA-256 verified Git hooks and linked-worktree-aware session locks.
 2. **Spec, ADR & Architecture Alignment (`INV-03`)**: Detects changes to `PRODUCT.md`, `docs/specs/*.md`, `.archlens/policy.json`, structural dependency manifests, schemas, and OpenAPI contracts, requiring a human-approved (`accepted`) ADR and zero inward ring or circular dependency violations.
-3. **Single-Path Measured Proof (`INV-02` & `INV-04`)**: Parses real coverage (`lcov`, `coverage-summary.json`, `jacoco.csv`, `coverage.xml`, `coverage.out`) and diff-scoped mutation reports (`Stryker`, `PITest`, `cargo-mutants`, `mutmut`, `go-mutesting`) via shell-free `execFileSync` execution, failing closed on stale reports, unimported `0%` source files, or leaked secrets.
+3. **Single-Path Measured Proof (`INV-02` & `INV-04`)**: Parses real coverage (`lcov`, `coverage-summary.json`, `jacoco.xml`, `jacoco.csv`, `coverage.xml`, `cover.out`) and diff-scoped mutation reports (`Stryker`, `PITest`, `cargo-mutants`, `mutmut`, `go-mutesting`) via shell-free `execFileSync` execution, failing closed on stale reports, unimported `0%` source files, or leaked secrets.
 4. **Cryptographic Merge Receipts**: Signs `headSha`, `treeSha`, `specHash`, `adrHashes`, measured `diffCoverage`, measured `mutationScore`, and independent reviewer sign-off into an append-only SHA-256 hash chain (`docs/AUDIT_CHAIN.jsonl`), verified across Squash, `--no-ff`, and fast-forward merges.
 
 ---
@@ -58,11 +58,11 @@ flowchart TD
 | Ring | Module | Responsibility |
 | :--- | :--- | :--- |
 | **Ring 0** (`domain-core`) | `.agent/scripts/lib/git.mjs` | Sanitized `git` execution, linked-worktree resolution, shell-free `parseCommandArgv` / `runConfiguredCommand`, atomic file locks |
-| **Ring 0** (`domain-core`) | `.agent/scripts/lib/config.mjs` | Stack & workspace auto-detection, `.agent/sdlc-config.json` validation, `v0.0.2` -> `v0.1.0` config migration |
+| **Ring 0** (`domain-core`) | `.agent/scripts/lib/config.mjs` | Polyglot stack auto-detection, `.agent/sdlc-config.json` validation, `v0.0.2` -> `v0.1.0` config migration |
 | **Ring 1** (`governance-models`) | `.agent/scripts/lib/receipt.mjs` | Session persistence, SHA-256 gate cache, append-only `AUDIT_CHAIN.jsonl`, multi-topology HMAC-SHA256 Stage 7 receipts |
 | **Ring 1** (`governance-models`) | `.agent/scripts/lib/drift.mjs` | Spec/manifest/OpenAPI drift detection, ADR lifecycle (`pending_approval` -> `accepted`), [Archlens](https://github.com/fmatar/archlens) ring & cycle checker |
-| **Ring 2** (`adapters-orchestrators`) | `.agent/scripts/lib/measure.mjs` | Polyglot test, diff coverage, and diff-scoped mutation execution & freshness-checked report parsers |
-| **Ring 2** (`adapters-orchestrators`) | `.agent/scripts/lib/guard.mjs` | Single-path `gate` (`docs-only` vs `code`), diff secret scanner, 4-Layer Git hooks, reviewer prompt generator |
+| **Ring 2** (`adapters-orchestrators`) | `.agent/scripts/lib/measure.mjs` | Single-path `runGate` (`docs-only` vs `code`), diff secret scanner, polyglot coverage/mutation report parsers, `buildReviewPlan` |
+| **Ring 2** (`adapters-orchestrators`) | `.agent/scripts/lib/guard.mjs` | Session lifecycle (`beginSession` / `endSession`), 4-Layer Git hooks, branch protection, review recording |
 | **Ring 2** (`adapters-orchestrators`) | `.agent/scripts/lib/install.mjs` | Symlink-safe local & `--global` multi-agent skill installer, `skill-audit`, `doctor`, and GitHub Actions workflow generator |
 | **Ring 3** (`cli-entrypoints`) | `.agent/scripts/sdlc-engine.mjs` | Declarative CLI command registry, `--json` output, and fail-closed exit codes |
 
