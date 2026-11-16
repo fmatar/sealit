@@ -284,7 +284,12 @@ export function parseCommandArgv(cmdSpec) {
 
 export function runConfiguredCommand(cmdSpec, options = {}) {
   const { file, args } = parseCommandArgv(cmdSpec);
-  return execFileSync(file, args, { maxBuffer: GIT_MAX_BUFFER, ...options });
+  const childEnv = { ...(options.env || process.env) };
+  if (!options.env) {
+    delete childEnv.NODE_TEST_CONTEXT;
+    delete childEnv.NODE_V8_COVERAGE;
+  }
+  return execFileSync(file, args, { maxBuffer: GIT_MAX_BUFFER, ...options, env: childEnv });
 }
 
 export function cleanGitEnv(baseEnv = process.env) {
