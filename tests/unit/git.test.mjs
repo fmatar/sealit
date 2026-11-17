@@ -149,44 +149,46 @@ describe('Ring 0: lib/git.mjs', () => {
     const { dir, cleanup } = createTempGitRepo();
     cleanups.push(cleanup);
 
-    git(dir, 'checkout', '-q', '-b', 'feat/a', 'develop');
-    assert.equal(hasDevelopBranch(dir), true);
-    assert.equal(hasBranch('main', dir), true);
-    assert.equal(resolveDefaultBaseBranch(dir), 'develop');
-    assert.equal(resolveEffectiveDiffBase(null, dir), 'develop');
-
-    // Checked-out develop compares against main
-    git(dir, 'checkout', '-q', 'develop');
-    assert.equal(resolveEffectiveDiffBase(null, dir), 'main');
-
-    // GITHUB_BASE_REF=main overrides default develop
     const prevBaseRef = process.env.GITHUB_BASE_REF;
-    process.env.GITHUB_BASE_REF = 'main';
+    delete process.env.GITHUB_BASE_REF;
     try {
+      git(dir, 'checkout', '-q', '-b', 'feat/a', 'develop');
+      assert.equal(hasDevelopBranch(dir), true);
+      assert.equal(hasBranch('main', dir), true);
+      assert.equal(resolveDefaultBaseBranch(dir), 'develop');
+      assert.equal(resolveEffectiveDiffBase(null, dir), 'develop');
+
+      // GITHUB_BASE_REF=main overrides default develop on feature branch
+      process.env.GITHUB_BASE_REF = 'main';
       assert.equal(resolveEffectiveDiffBase(null, dir), 'main');
+      delete process.env.GITHUB_BASE_REF;
+
+      // Checked-out develop compares against main
+      git(dir, 'checkout', '-q', 'develop');
+      assert.equal(resolveEffectiveDiffBase(null, dir), 'main');
+
+      // Push directly on main falls back to HEAD~1..HEAD when >1 commit exists
+      git(dir, 'checkout', '-q', 'main');
+      fs.writeFileSync(path.join(dir, 'second.txt'), '2\n', 'utf8');
+      git(dir, 'add', 'second.txt');
+      git(dir, 'commit', '-q', '-m', 'chore: second on main');
+      assert.equal(resolveEffectiveDiffBase(null, dir), 'main');
+      const mainPushState = resolveDiffComparisonState(null, dir);
+      assert.equal(mainPushState.committedRange, 'HEAD~1..HEAD');
+      assert.deepEqual(getModifiedFiles(null, dir), ['second.txt']);
+
+      // Single-commit newborn repo without develop or main returns committed files via empty-tree diff
+      const newborn = createTempGitRepo({ withDevelop: false, initialBranch: 'feat/init' });
+      cleanups.push(newborn.cleanup);
+      fs.writeFileSync(path.join(newborn.dir, 'committed-on-root.mjs'), 'export const rootVal = 99;\n', 'utf8');
+      git(newborn.dir, 'add', 'committed-on-root.mjs');
+      git(newborn.dir, 'commit', '--amend', '-q', '--no-edit');
+      assert.equal(getModifiedFiles(null, newborn.dir).includes('committed-on-root.mjs'), true);
+      assert.match(getUnifiedDiffByFile(null, newborn.dir).get('committed-on-root.mjs') || '', /\+export const rootVal = 99;/);
     } finally {
       if (prevBaseRef === undefined) delete process.env.GITHUB_BASE_REF;
       else process.env.GITHUB_BASE_REF = prevBaseRef;
     }
-
-    // Push directly on main falls back to HEAD~1..HEAD when >1 commit exists
-    git(dir, 'checkout', '-q', 'main');
-    fs.writeFileSync(path.join(dir, 'second.txt'), '2\n', 'utf8');
-    git(dir, 'add', 'second.txt');
-    git(dir, 'commit', '-q', '-m', 'chore: second on main');
-    assert.equal(resolveEffectiveDiffBase(null, dir), 'main');
-    const mainPushState = resolveDiffComparisonState(null, dir);
-    assert.equal(mainPushState.committedRange, 'HEAD~1..HEAD');
-    assert.deepEqual(getModifiedFiles(null, dir), ['second.txt']);
-
-    // Single-commit newborn repo without develop or main returns committed files via empty-tree diff
-    const newborn = createTempGitRepo({ withDevelop: false, initialBranch: 'feat/init' });
-    cleanups.push(newborn.cleanup);
-    fs.writeFileSync(path.join(newborn.dir, 'committed-on-root.mjs'), 'export const rootVal = 99;\n', 'utf8');
-    git(newborn.dir, 'add', 'committed-on-root.mjs');
-    git(newborn.dir, 'commit', '--amend', '-q', '--no-edit');
-    assert.equal(getModifiedFiles(null, newborn.dir).includes('committed-on-root.mjs'), true);
-    assert.match(getUnifiedDiffByFile(null, newborn.dir).get('committed-on-root.mjs') || '', /\+export const rootVal = 99;/);
 
     // Symlink inside repo escaping repoRoot is blocked by resolveInsideRepo
     const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-sym-escape-'));
