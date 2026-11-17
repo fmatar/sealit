@@ -342,9 +342,9 @@ jobs:
             exit 1
           fi
           if [ "$BASE_REF" = "main" ]; then
-            node "$ENGINE_BIN" verify --sha "$PR_HEAD_SHA"
+            node "$ENGINE_BIN" guard verify --sha "$PR_HEAD_SHA"
           else
-            node "$ENGINE_BIN" verify --sha "$PR_HEAD_SHA" --branch "$GITHUB_HEAD_REF"
+            node "$ENGINE_BIN" guard verify --sha "$PR_HEAD_SHA" --branch "$GITHUB_HEAD_REF"
           fi
 `;
 }
@@ -352,7 +352,7 @@ jobs:
 function isLegacySdlcWorkflow(raw = '') {
   return (
     raw.includes('sdlc-engine.mjs') &&
-    (!raw.includes('--branch "$GITHUB_HEAD_REF"') || raw.includes('gate --strict') || !raw.includes('git archive "origin/$BASE_REF"'))
+    (!raw.includes('--branch "$GITHUB_HEAD_REF"') || raw.includes('gate --strict') || !raw.includes('git archive "origin/$BASE_REF"') || /\bnode "\$ENGINE_BIN" verify --sha\b/.test(raw))
   );
 }
 
@@ -455,6 +455,7 @@ export function runDoctor({ repoRoot = '.', fix = false } = {}) {
     wfExists &&
     !wfLegacy &&
     !keyInfo.committed &&
+    !keyInfo.error &&
     skills.passed &&
     auditChain.valid;
 

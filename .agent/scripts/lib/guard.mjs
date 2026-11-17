@@ -171,6 +171,9 @@ export function recordReviewVerdict({
   if (normVerdict !== 'approve' && normVerdict !== 'request-changes') {
     return { success: false, reason: `Invalid --verdict '${verdict}'. Expected 'approve' or 'request-changes'.` };
   }
+  if (prNumber && !/^[1-9]\d*$/.test(String(prNumber).trim())) {
+    return { success: false, reason: `Invalid pull request number '${prNumber}'.` };
+  }
 
   if (normVerdict === 'approve' && hasDirtyNonGovernanceFiles(repoRoot, { allowAuditChain: true })) {
     return {
@@ -214,9 +217,6 @@ export function recordReviewVerdict({
 
   let prCommented = false;
   if (prNumber) {
-    if (!/^[1-9]\d*$/.test(String(prNumber).trim())) {
-      return { success: false, review: reviewObj, reason: `Invalid pull request number '${prNumber}'.` };
-    }
     const summaryBody = [
       `### SDLC Gate Review (${normVerdict.toUpperCase()})`,
       `- **Ticket**: \`${active.issueId}\` | **Branch**: \`${branch}\` | **Commit**: \`${headSha?.slice(0, 8) || 'unknown'}\``,
@@ -224,12 +224,16 @@ export function recordReviewVerdict({
       ...(receiptRes?.receipt ? [`- **Signed Receipt**: \`${receiptRes.receipt.receiptId}\``] : []),
       ...(combinedNotes ? ['', combinedNotes] : [])
     ].join('\n');
-    execFn('gh', ['pr', 'comment', String(prNumber), '--body', summaryBody], {
-      cwd: path.resolve(repoRoot),
-      stdio: 'pipe',
-      encoding: 'utf8'
-    });
-    prCommented = true;
+    try {
+      execFn('gh', ['pr', 'comment', String(prNumber).trim(), '--body', summaryBody], {
+        cwd: path.resolve(repoRoot),
+        stdio: 'pipe',
+        encoding: 'utf8'
+      });
+      prCommented = true;
+    } catch (err) {
+      return { success: false, review: reviewObj, receipt: receiptRes?.receipt || null, reason: `Failed to post PR comment: ${err.message}` };
+    }
   }
 
   return {
@@ -449,7 +453,9 @@ export function verifyPushGuard({ remoteBranch = null, stdinText = '', repoRoot 
     };
   }
 
-  const secrets = scanDiffSecrets(repoRoot, { runNpmAudit: false });
+  const session = readActiveSession(repoRoot, target);
+  const baseBranch = session?.baseBranch || null;
+  const secrets = scanDiffSecrets(repoRoot, { baseBranch, runNpmAudit: false });
   if (!secrets.passed) {
     const details = secrets.secretViolations.map((v) => `${v.file} (${v.pattern || v.type})`).join(', ');
     return {
@@ -461,8 +467,7 @@ export function verifyPushGuard({ remoteBranch = null, stdinText = '', repoRoot 
     };
   }
 
-  const session = readActiveSession(repoRoot, target);
-  const drift = checkSpecDrift({ ticketId: session?.issueId || null, repoRoot });
+  const drift = checkSpecDrift({ ticketId: session?.issueId || null, baseBranch, repoRoot });
   if (!drift.passed) {
     return {
       allowed: false,
@@ -504,6 +509,9 @@ elif [ -f "$HOME/.agentic-sdlc/scripts/sdlc-engine.mjs" ]; then
   node "$HOME/.agentic-sdlc/scripts/sdlc-engine.mjs" guard ${sub}
 elif command -v sdlc >/dev/null 2>&1; then
   sdlc guard ${sub}
+else
+  echo "SDLC Git Guard (${sub}): missing sdlc-engine.mjs; failing closed." >&2
+  exit 1
 fi
 `;
 

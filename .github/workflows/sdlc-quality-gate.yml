@@ -106,7 +106,7 @@ jobs:
             exit 1
           fi
           if [ "$BASE_REF" = "main" ]; then
-            node "$ENGINE_BIN" verify --sha "$PR_HEAD_SHA"
+            node "$ENGINE_BIN" guard verify --sha "$PR_HEAD_SHA"
           else
-            node "$ENGINE_BIN" verify --sha "$PR_HEAD_SHA" --branch "$GITHUB_HEAD_REF"
+            node "$ENGINE_BIN" guard verify --sha "$PR_HEAD_SHA" --branch "$GITHUB_HEAD_REF"
           fi

@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { createTempGitRepo, git, withoutReceiptEnv } from '../helpers/test-harness.mjs';
-import { readSessionStore } from '../../.agent/scripts/lib/receipt.mjs';
+import { readSessionStore, verifyAuditChain } from '../../.agent/scripts/lib/receipt.mjs';
 import { runGate } from '../../.agent/scripts/lib/measure.mjs';
 import {
   beginSession,
@@ -134,6 +135,31 @@ describe('Ring 2: lib/guard.mjs', () => {
       // Run gate and record review -> issues signed receipt
       const gateRes = runGate(dir, { noCache: true });
       assert.equal(gateRes.passed, true);
+      // Invalid --pr is rejected BEFORE appending a Stage 7 receipt to docs/AUDIT_CHAIN.jsonl
+      const countBeforeBadPr = verifyAuditChain(dir).recordsCount;
+      assert.equal(recordReviewVerdict({ verdict: 'approve', prNumber: '--repo=evil/repo', repoRoot: dir }).success, false);
+      assert.equal(verifyAuditChain(dir).recordsCount, countBeforeBadPr);
+
+      let ghArgs = null;
+      const okPrRev = recordReviewVerdict({
+        verdict: 'request-changes',
+        prNumber: '145',
+        notes: 'Needs fix',
+        repoRoot: dir,
+        execFn: (_cmd, args) => { ghArgs = args; return ''; }
+      });
+      assert.equal(okPrRev.success, true);
+      assert.equal(okPrRev.prCommented, true);
+      assert.equal(ghArgs[0], 'pr');
+      const errPrRev = recordReviewVerdict({
+        verdict: 'request-changes',
+        prNumber: '145',
+        repoRoot: dir,
+        execFn: () => { throw new Error('gh offline'); }
+      });
+      assert.equal(errPrRev.success, false);
+      assert.match(errPrRev.reason, /gh offline/);
+
       const revRes = recordReviewVerdict({
         verdict: 'approve',
         reviewer: '@gate-reviewer',
@@ -191,7 +217,7 @@ describe('Ring 2: lib/guard.mjs', () => {
       assert.equal(blockedProtected.success, false);
       assert.equal(beginSession({ branch: 'HEAD', repoRoot: dir }).success, false);
       assert.equal(beginSession({ branch: '--evil-flag', repoRoot: dir }).success, false);
-      assert.equal(recordReviewVerdict({ verdict: 'approve', prNumber: '--repo=evil/repo', repoRoot: dir }).success, false);
+      assert.equal(beginSession({ branch: 'feat/bad..ref', repoRoot: dir }).success, false);
 
       // Refspec push smuggling (git push origin HEAD:main) blocked via stdinText
       const smuggledPush = verifyPushGuard({
@@ -199,6 +225,20 @@ describe('Ring 2: lib/guard.mjs', () => {
         repoRoot: dir
       });
       assert.equal(smuggledPush.allowed, false);
+
+      // verifyPushGuard honors session.baseBranch instead of always comparing against develop
+      const customBaseRepo = createTempGitRepo();
+      cleanups.push(customBaseRepo.cleanup);
+      git(customBaseRepo.dir, 'checkout', '-q', '-b', 'release/v1', 'develop');
+      fs.writeFileSync(path.join(customBaseRepo.dir, 'PRODUCT.md'), '# Release Spec\n', 'utf8');
+      git(customBaseRepo.dir, 'add', 'PRODUCT.md');
+      git(customBaseRepo.dir, 'commit', '-q', '-m', 'docs: release spec');
+      git(customBaseRepo.dir, 'checkout', '-q', '-b', 'fix/on-release', 'release/v1');
+      beginSession({ issueId: '77', title: 'Release Fix', branch: 'fix/on-release', repoRoot: customBaseRepo.dir });
+      const storeCustom = readSessionStore(customBaseRepo.dir);
+      storeCustom.sessions['77'].baseBranch = 'release/v1';
+      fs.writeFileSync(path.join(customBaseRepo.dir, '.agent/.sdlc-session.json'), JSON.stringify(storeCustom, null, 2), 'utf8');
+      assert.equal(verifyPushGuard({ repoRoot: customBaseRepo.dir }).allowed, true);
 
       const localSess = beginSession({ title: 'Auto Local ID', checkout: true, repoRoot: dir });
       assert.equal(localSess.success, true);
@@ -243,5 +283,96 @@ describe('Ring 2: lib/guard.mjs', () => {
     });
     assert.equal(prot.localHookInstalled, true);
     assert.equal(calls.length, 1);
+
+    // Installed hook fails closed (exit non-zero) when no engine exists in repo, HOME, or PATH
+    const emptyHome = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-empty-home-'));
+    cleanups.push(() => fs.rmSync(emptyHome, { recursive: true, force: true }));
+    const hookRun = spawnSync(path.join(dir, '.git/hooks/pre-push'), [], {
+      cwd: dir,
+      env: { HOME: emptyHome, PATH: '/usr/bin:/bin' },
+      encoding: 'utf8'
+    });
+    assert.notEqual(hookRun.status, 0);
+    assert.match(hookRun.stderr, /missing|failing closed/i);
+  });
+
+  it('covers missing-session commit guard, dirty merge-index detection, unverified merge rejection, review error paths, and remote protection failure', () => {
+    const { dir, cleanup } = createTempGitRepo();
+    cleanups.push(cleanup);
+
+    withoutReceiptEnv(() => {
+      // End with no active session fails cleanly
+      assert.equal(endSession({ repoRoot: dir }).success, false);
+
+      // Feature branch with no session triggers LAYER_2_MISSING_SESSION & recordReviewVerdict errors
+      git(dir, 'checkout', '-q', '-b', 'feat/untracked-branch', 'develop');
+      const noSessCommit = verifyCommitGuard({ repoRoot: dir });
+      assert.equal(noSessCommit.allowed, false);
+      assert.equal(noSessCommit.layer, 'LAYER_2_MISSING_SESSION');
+      assert.equal(recordReviewVerdict({ verdict: 'banana', repoRoot: dir }).success, false);
+      assert.equal(recordReviewVerdict({ verdict: 'approve', repoRoot: dir }).success, false);
+
+      // Dirty working tree blocks approve review and marks getSessionStatus.readyForReceipt false
+      beginSession({ issueId: '50', title: 'Dirty Review', branch: 'feat/untracked-branch', repoRoot: dir });
+      fs.writeFileSync(path.join(dir, 'uncommitted.mjs'), 'export const u = 1;\n', 'utf8');
+      const dirtyStatus = getSessionStatus(dir);
+      assert.equal(dirtyStatus.dirty, true);
+      assert.equal(dirtyStatus.readyForReceipt, false);
+      assert.match(recordReviewVerdict({ verdict: 'approve', repoRoot: dir }).reason, /dirty working tree/i);
+      git(dir, 'add', 'uncommitted.mjs');
+      git(dir, 'commit', '-q', '-m', 'feat: commit unverified work');
+      const unverifiedSha = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+
+      // Merge into non-protected branch is allowed; merge into develop without receipt is blocked
+      assert.equal(verifyMergeGuard({ targetBranch: 'feat/untracked-branch', repoRoot: dir }).allowed, true);
+      git(dir, 'checkout', '-q', 'develop');
+      const missingRecMerge = verifyMergeGuard({ sourceSha: unverifiedSha, sourceBranch: 'feat/untracked-branch', repoRoot: dir });
+      assert.equal(missingRecMerge.allowed, false);
+      assert.equal(missingRecMerge.reasonCode, 'MISSING_STAGE_7_GATE_RECEIPT');
+
+      // Evil staged index during active MERGE_HEAD triggers EVIL_MERGE_INDEX_DETECTED
+      git(dir, 'merge', '--no-ff', '--no-commit', 'feat/untracked-branch');
+      fs.writeFileSync(path.join(dir, 'evil-index.mjs'), 'export const evil = 1;\n', 'utf8');
+      git(dir, 'add', 'evil-index.mjs');
+      const dirtyIndexMerge = verifyMergeGuard({ repoRoot: dir });
+      assert.equal(dirtyIndexMerge.allowed, false);
+      assert.equal(dirtyIndexMerge.reasonCode, 'EVIL_MERGE_INDEX_DETECTED');
+      git(dir, 'merge', '--abort');
+
+      // Outdated hook mode/content detected by inspectHooks; applyBranchProtection surfaces gh errors cleanly
+      installHooks({ repoRoot: dir });
+      fs.writeFileSync(path.join(dir, '.git/hooks/pre-commit'), '#!/bin/sh\nexit 0\n', 'utf8');
+      assert.equal(inspectHooks(dir).upToDate, false);
+      assert.ok(inspectHooks(dir).outdatedHooks.includes('pre-commit'));
+
+      const failedProt = applyBranchProtection({
+        branches: ['main', 'develop'],
+        repoRoot: dir,
+        execFn: () => { throw new Error('HTTP 403 Forbidden'); }
+      });
+      assert.equal(failedProt.success, false);
+      assert.equal(failedProt.errors.length, 2);
+
+      // Additional branch paths: postMergeCleanup on non-protected branch, GIT_REFLOG_ACTION merge source, unknown session type fallback, resume checkout
+      git(dir, 'checkout', '-q', 'feat/untracked-branch');
+      assert.equal(postMergeCleanup({ repoRoot: dir }).cleaned, 0);
+      const fallbackType = beginSession({ issueId: '51', title: '', type: 'unknown-type', branch: 'feat/untracked-branch', checkout: true, repoRoot: dir });
+      assert.equal(fallbackType.session.type, 'feat');
+      git(dir, 'checkout', '-q', 'develop');
+      const resumedCo = beginSession({ issueId: '51', branch: 'feat/untracked-branch', checkout: true, repoRoot: dir });
+      assert.equal(resumedCo.success, true);
+      git(dir, 'checkout', '-q', 'main');
+      assert.equal(verifyMergeGuard({ sourceSha: unverifiedSha, repoRoot: dir }).reasonCode, 'DIRECT_MERGE_TO_MAIN_FORBIDDEN');
+      process.env.GIT_REFLOG_ACTION = 'merge feat/untracked-branch';
+      try {
+        assert.equal(verifyMergeGuard({ repoRoot: dir }).reasonCode, 'DIRECT_MERGE_TO_MAIN_FORBIDDEN');
+      } finally {
+        delete process.env.GIT_REFLOG_ACTION;
+      }
+      assert.equal(verifyPushGuard({ remoteBranch: 'main', repoRoot: dir }).allowed, false);
+      const nonGitDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-not-git-'));
+      cleanups.push(() => fs.rmSync(nonGitDir, { recursive: true, force: true }));
+      assert.throws(() => installHooks({ repoRoot: nonGitDir }), /Not a git repository/);
+    });
   });
 });

@@ -6,6 +6,7 @@ import path from 'node:path';
 import {
   DEFAULT_QUALITY_THRESHOLDS,
   DEFAULT_QUALITY_GATE_CHECK,
+  migrateConfigObject,
   loadConfig,
   validateConfigFile,
   detectStack,
@@ -160,6 +161,12 @@ describe('Ring 0: lib/config.mjs', () => {
     assert.equal(loaded.config.modules[0].commands.mutation, 'npm run mut');
     assert.equal(loaded.config.modules[0].thresholds.diffCoverage, 90);
     assert.equal(loaded.config.modules[0].thresholds.mutationScore, 65);
+
+    const upgraded = upgradeConfigToV010(JSON.parse(fs.readFileSync(path.join(dir, '.agent/sdlc-config.json'), 'utf8')));
+    assert.equal(upgraded.version, '0.1.0');
+    assert.equal(upgraded.lanes, undefined);
+    assert.equal(upgraded.modules[0].thresholds.diffCoverage, 90);
+    assert.equal(upgradeConfigToV010(null), null);
   });
 
   it('detectStack and generateConfig synthesize exact commands and thresholds across JS/TS, Rust, Go, Python, Maven, Gradle, and Generic', () => {
@@ -241,5 +248,34 @@ describe('Ring 0: lib/config.mjs', () => {
     assert.equal(list[0].file, 'src/a.mjs');
     assert.equal(list[0].reason, 'Updated reason');
     assert.equal(list[1].id, '43');
+
+    // migrateConfigObject edge cases: testing thresholds fallback, false/null/NaN normalization, archlens.enabled=false, __legacyExemptions
+    assert.equal(migrateConfigObject(null).config, null);
+    assert.equal(migrateConfigObject([]).config, null);
+    const mig = migrateConfigObject({
+      testing: { coverageThreshold: 77, mutationThreshold: 55 },
+      archlens: { enabled: false, policyPath: 'custom/policy.json' },
+      ci: { runsOn: 'self-hosted', checkName: 'Custom Check' },
+      __legacyExemptions: [{ id: '1', file: 'a.js', reason: 'legacy' }],
+      modules: [
+        { name: 'm1', path: '.' },
+        { name: 'm2', path: 'sub', commands: { mutation: 'stryker run' }, thresholds: { diffCoverage: false, mutationScore: 'not-a-num' } }
+      ]
+    });
+    assert.equal(mig.config.modules[0].thresholds.diffCoverage, 77);
+    assert.equal(mig.config.modules[0].thresholds.mutationScore, 55);
+    assert.equal(mig.config.modules[1].thresholds.diffCoverage, null);
+    assert.equal(mig.config.modules[1].thresholds.mutationScore, 80);
+    assert.equal(mig.config.archlens.enabled, false);
+    assert.equal(mig.config.archlens.policyPath, 'custom/policy.json');
+    assert.equal(mig.config.ci.runsOn, 'self-hosted');
+    assert.equal(mig.config.ci.checkName, 'Custom Check');
+    assert.equal(mig.config.exemptions.length, 1);
+
+    const up2 = upgradeConfigToV010(mig.config);
+    assert.equal(up2.archlens.enabled, false);
+    assert.equal(up2.archlens.policyPath, 'custom/policy.json');
+    assert.equal(up2.ci.runsOn, 'self-hosted');
+    assert.equal(up2.ci.checkName, 'Custom Check');
   });
 });

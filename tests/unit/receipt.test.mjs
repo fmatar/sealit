@@ -8,6 +8,11 @@ import { computeContentTreeSha } from '../../.agent/scripts/lib/git.mjs';
 import { computeAlignmentHashes } from '../../.agent/scripts/lib/drift.mjs';
 import {
   RECEIPT_KEY_FILE,
+  calculateRecordHash,
+  signReceiptPayload,
+  verifyReceiptSignature,
+  verifyAuditChainContent,
+  readSessionStore,
   loadReceiptKey,
   inspectReceiptKeyStatus,
   appendAuditRecord,
@@ -295,6 +300,189 @@ describe('Ring 1: lib/receipt.mjs', () => {
       git(sqRepo.dir, 'commit', '-q', '-m', 'feat: squashed PR');
       const squashedSha = git(sqRepo.dir, 'rev-parse', 'HEAD').stdout.trim();
       assert.equal(verifyGateReceipt({ headSha: squashedSha, branch: 'develop', repoRoot: sqRepo.dir }).valid, true);
+    });
+  });
+
+  it('enforces HMAC tamper detection, branch binding, stale lastGate/peerReview HEAD checks, threshold floors, coverage:null support, and base-ledger continuity', () => {
+    const { dir, cleanup } = createTempGitRepo();
+    cleanups.push(cleanup);
+
+    withoutReceiptEnv(() => {
+      // Seed baseline develop with 2 audit records so truncation/rewrite attacks are caught
+      appendAuditRecord({ event: 'BASELINE_1', metadata: { n: 1 }, repoRoot: dir });
+      appendAuditRecord({ event: 'BASELINE_2', metadata: { n: 2 }, repoRoot: dir });
+      fs.mkdirSync(path.join(dir, '.agent'), { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, '.agent/sdlc-config.json'),
+        JSON.stringify({
+          version: '0.1.0',
+          modules: [{ name: 'root', path: '.', commands: { coverage: 'npm run cov', mutation: './node_modules/.bin/stryker run' }, thresholds: { diffCoverage: 85, mutationScore: 60 } }]
+        }),
+        'utf8'
+      );
+      git(dir, 'add', 'docs/AUDIT_CHAIN.jsonl', '.agent/sdlc-config.json');
+      git(dir, 'commit', '-q', '-m', 'chore: baseline ledger and config on develop');
+      git(dir, 'branch', '-f', 'main', 'HEAD');
+
+      git(dir, 'checkout', '-q', '-b', 'feat/sec-props', 'develop');
+      fs.writeFileSync(path.join(dir, 'app.mjs'), 'export const k = 1;\n', 'utf8');
+      git(dir, 'add', 'app.mjs');
+      git(dir, 'commit', '-q', '-m', 'feat: app');
+      const sha1 = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+      seedPassingSession(dir, 'feat/sec-props', sha1, 'code');
+
+      // 1. Below-threshold coverage and mutation in lastGate are refused
+      writeActiveSession(dir, (s) => { s.sessions['42'].lastGate.diffCoveragePct = 50; return s; });
+      assert.match(issueGateReceipt({ repoRoot: dir }).reason, /diff coverage/i);
+      writeActiveSession(dir, (s) => { s.sessions['42'].lastGate.diffCoveragePct = 95; s.sessions['42'].lastGate.mutationPct = 40; return s; });
+      assert.match(issueGateReceipt({ repoRoot: dir }).reason, /mutation score/i);
+      writeActiveSession(dir, (s) => { s.sessions['42'].lastGate.mutationPct = 66; return s; });
+
+      // 2. Stale lastGate.headSha and mismatched peerReview.headSha are refused
+      fs.writeFileSync(path.join(dir, 'app.mjs'), 'export const k = 2;\n', 'utf8');
+      git(dir, 'add', 'app.mjs');
+      git(dir, 'commit', '-q', '-m', 'feat: post-gate edit');
+      const sha2 = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+      assert.match(issueGateReceipt({ repoRoot: dir }).reason, /lastGate measurement/i);
+
+      writeActiveSession(dir, (s) => { s.sessions['42'].lastGate.headSha = sha2; return s; });
+      assert.match(issueGateReceipt({ repoRoot: dir }).reason, /peer review was recorded for/i);
+
+      // 3. Valid receipt signs -> wrong branch rejected -> forged HMAC (even with recalculated SHA-256 chain hash) rejected
+      writeActiveSession(dir, (s) => { s.sessions['42'].peerReview.headSha = sha2; return s; });
+      const issued = issueGateReceipt({ repoRoot: dir });
+      assert.equal(issued.success, true);
+      assert.equal(verifyGateReceipt({ headSha: sha2, branch: 'feat/other-branch', repoRoot: dir }).valid, false);
+
+      // Tamper with receipt metadata: without recalculating currentHash -> chain invalid; WITH recalculated currentHash -> chain valid, HMAC INVALID!
+      const ledgerPath = path.join(dir, 'docs/AUDIT_CHAIN.jsonl');
+      const origLedger = fs.readFileSync(ledgerPath, 'utf8');
+      const lines = origLedger.trim().split('\n').map((l) => JSON.parse(l));
+      lines[lines.length - 1].metadata.reviewer = '@attacker';
+      fs.writeFileSync(ledgerPath, lines.map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf8');
+      assert.equal(verifyAuditChain(dir).valid, false);
+      const last = lines[lines.length - 1];
+      last.currentHash = calculateRecordHash(last);
+      fs.writeFileSync(ledgerPath, lines.map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf8');
+      assert.equal(verifyAuditChain(dir).valid, true);
+      assert.equal(verifyGateReceipt({ headSha: sha2, branch: 'feat/sec-props', repoRoot: dir }).valid, false);
+      fs.writeFileSync(ledgerPath, origLedger, 'utf8');
+
+      // 4. Truncating historical develop audit records and issuing a fresh index:0 receipt is rejected by verifyGateReceipt!
+      fs.unlinkSync(ledgerPath);
+      const truncIssued = issueGateReceipt({ repoRoot: dir });
+      assert.equal(truncIssued.success, true);
+      git(dir, 'add', 'docs/AUDIT_CHAIN.jsonl');
+      git(dir, 'commit', '-q', '-m', 'evil: truncate audit chain');
+      const truncSha = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+      const truncVer = verifyGateReceipt({ headSha: truncSha, branch: 'feat/sec-props', repoRoot: dir });
+      assert.equal(truncVer.valid, false);
+      assert.match(truncVer.reason, /truncat|continuity|historical/i);
+
+      // 5. Generic module with commands.coverage: null and default diffCoverage: 85 does NOT deadlock issueGateReceipt
+      const genRepo = createTempGitRepo();
+      cleanups.push(genRepo.cleanup);
+      git(genRepo.dir, 'checkout', '-q', '-b', 'feat/gen', 'develop');
+      fs.mkdirSync(path.join(genRepo.dir, '.agent'), { recursive: true });
+      fs.writeFileSync(
+        path.join(genRepo.dir, '.agent/sdlc-config.json'),
+        JSON.stringify({
+          version: '0.1.0',
+          modules: [{ name: 'root', path: '.', commands: { coverage: null, mutation: null }, thresholds: { diffCoverage: 85, mutationScore: null } }]
+        }),
+        'utf8'
+      );
+      git(genRepo.dir, 'add', '.agent/sdlc-config.json');
+      git(genRepo.dir, 'commit', '-q', '-m', 'feat: generic config');
+      const genSha = git(genRepo.dir, 'rev-parse', 'HEAD').stdout.trim();
+      seedPassingSession(genRepo.dir, 'feat/gen', genSha, 'code');
+      writeActiveSession(genRepo.dir, (s) => {
+        s.sessions['42'].lastGate.diffCoveragePct = null;
+        s.sessions['42'].lastGate.mutationPct = null;
+        return s;
+      });
+      assert.equal(issueGateReceipt({ repoRoot: genRepo.dir }).success, true);
+
+      // 6. computeTreeHash honors explicit baseBranch
+      const hDev = computeTreeHash({ repoRoot: genRepo.dir, modulePath: '.', baseBranch: 'develop' });
+      git(genRepo.dir, 'branch', 'other-base', genSha);
+      const hOther = computeTreeHash({ repoRoot: genRepo.dir, modulePath: '.', baseBranch: 'other-base' });
+      assert.notEqual(hDev.hash, hOther.hash);
+    });
+  });
+
+  it('covers inspectReceiptKeyStatus states, canonicalJSON arrays, chain index/prevHash errors, legacy session store, docs-only receipts, and short-SHA/branch lookup', () => {
+    const { dir, cleanup } = createTempGitRepo();
+    cleanups.push(cleanup);
+
+    withoutReceiptEnv(() => {
+      // No key present -> source: 'none', verifyGateReceipt fails closed
+      assert.equal(inspectReceiptKeyStatus(dir).source, 'none');
+      assert.equal(verifyGateReceipt({ repoRoot: dir }).valid, false);
+
+      // Env key -> source: 'env'
+      process.env.SDLC_RECEIPT_KEY = 'env-key-val';
+      assert.equal(inspectReceiptKeyStatus(dir).source, 'env');
+      delete process.env.SDLC_RECEIPT_KEY;
+
+      // canonicalJSON array signing & verifyReceiptSignature edge cases
+      const key = Buffer.from('test-hmac-key', 'utf8');
+      const arrPayload = { items: [1, undefined, { b: 2, a: 1 }] };
+      const sigVal = signReceiptPayload(arrPayload, key);
+      assert.equal(verifyReceiptSignature({ ...arrPayload, signature: { alg: 'HMAC-SHA256', value: sigVal } }, key), true);
+      assert.equal(verifyReceiptSignature({ ...arrPayload, signature: { alg: 'NONE', value: sigVal } }, key), false);
+      assert.equal(verifyReceiptSignature({ ...arrPayload, signature: { alg: 'HMAC-SHA256', value: 'not-hex' } }, key), false);
+      assert.equal(verifyReceiptSignature(null, key), false);
+
+      // verifyAuditChainContent index mismatch and previousHash mismatch
+      assert.equal(verifyAuditChainContent('').valid, true);
+      assert.match(verifyAuditChainContent(JSON.stringify({ index: 3, previousHash: '0'.repeat(64) })).error, /Index mismatch/);
+      assert.match(verifyAuditChainContent(JSON.stringify({ index: 0, previousHash: 'f'.repeat(64) })).error, /previousHash mismatch/);
+
+      // Legacy flat session store format ({ issueId, branch })
+      fs.mkdirSync(path.join(dir, '.agent'), { recursive: true });
+      fs.writeFileSync(path.join(dir, '.agent/.sdlc-session.json'), JSON.stringify({ issueId: '#15', branch: 'develop', active: true }), 'utf8');
+      const legacyStore = readSessionStore(dir);
+      assert.equal(legacyStore.activeSessionId, '15');
+      assert.equal(readActiveSession(dir, 'develop')?.issueId, '#15');
+
+      // Guard branches inside issueGateReceipt (no session, missing lastGate, --docs-only on code diff, missing peerReview, valid docs-only receipt)
+      git(dir, 'checkout', '-q', '-b', 'feat/no-sess', 'develop');
+      assert.match(issueGateReceipt({ repoRoot: dir }).reason, /no active session/i);
+
+      writeActiveSession(dir, (s) => {
+        s.activeSessionId = '88';
+        s.sessions['88'] = { issueId: '88', branch: 'feat/no-sess', baseBranch: 'develop', lastGate: null, peerReview: null };
+        return s;
+      });
+      fs.writeFileSync(path.join(dir, 'code.mjs'), 'export const c = 1;\n', 'utf8');
+      git(dir, 'add', 'code.mjs');
+      git(dir, 'commit', '-q', '-m', 'feat: code');
+      assert.match(issueGateReceipt({ repoRoot: dir, docsOnly: true }).reason, /Refusing --docs-only/);
+      assert.match(issueGateReceipt({ repoRoot: dir }).reason, /no passing sdlc gate/i);
+
+      const codeHead = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+      seedPassingSession(dir, 'feat/no-sess', codeHead, 'code');
+      writeActiveSession(dir, (s) => { s.sessions['42'].branch = 'feat/no-sess'; s.sessions['42'].peerReview = { verdict: 'request-changes', headSha: codeHead }; return s; });
+      delete legacyStore.sessions['88'];
+      writeActiveSession(dir, (s) => { delete s.sessions['88']; return s; });
+      assert.match(issueGateReceipt({ repoRoot: dir }).reason, /approved peer review/i);
+
+      // Docs-only branch signs receipt without peerReview, and verifies via 8-char short SHA and branch-only lookup
+      const docRepo = createTempGitRepo();
+      cleanups.push(docRepo.cleanup);
+      git(docRepo.dir, 'checkout', '-q', '-b', 'docs/only', 'develop');
+      fs.writeFileSync(path.join(docRepo.dir, 'README.md'), '# Docs edit\n', 'utf8');
+      git(docRepo.dir, 'add', 'README.md');
+      git(docRepo.dir, 'commit', '-q', '-m', 'docs: edit readme');
+      const docSha = git(docRepo.dir, 'rev-parse', 'HEAD').stdout.trim();
+      seedPassingSession(docRepo.dir, 'docs/only', docSha, 'docs-only');
+      const docRec = issueGateReceipt({ repoRoot: docRepo.dir, docsOnly: true });
+      assert.equal(docRec.success, true);
+      assert.equal(verifyGateReceipt({ headSha: docSha.slice(0, 8), branch: 'docs/only', repoRoot: docRepo.dir }).valid, true);
+      assert.equal(verifyGateReceipt({ headSha: 'deadbeef', repoRoot: docRepo.dir }).valid, false);
+      assert.equal(verifyGateReceipt({ branch: 'docs/only', repoRoot: docRepo.dir }).valid, true);
+      assert.equal(verifyGateReceipt({ repoRoot: docRepo.dir }).valid, true);
     });
   });
 });

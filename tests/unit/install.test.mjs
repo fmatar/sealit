@@ -11,6 +11,7 @@ import {
   SUPPORTED_AGENTS,
   auditSkills,
   installCIWorkflow,
+  scaffoldArchlensPolicy,
   runDoctor,
   installFramework
 } from '../../.agent/scripts/lib/install.mjs';
@@ -112,12 +113,19 @@ describe('Ring 2: lib/install.mjs', () => {
       assert.equal(preservedCfg.modules[0].name, 'custom');
       assert.equal(preservedCfg.modules[0].thresholds.diffCoverage, 93);
 
-      // Legacy workflow upgraded with self-hosted runner guard, fork PR block, trusted base archive, and --branch "$GITHUB_HEAD_REF"
+      // Legacy workflow upgraded with self-hosted runner guard, fork PR block, trusted base archive, and guard verify --sha ... --branch "$GITHUB_HEAD_REF"
       const wf = fs.readFileSync(path.join(dir, '.github/workflows/sdlc-quality-gate.yml'), 'utf8');
       assert.match(wf, /runner\.environment == 'github-hosted'/);
-      assert.match(wf, /--branch "\$GITHUB_HEAD_REF"/);
+      assert.match(wf, /guard verify --sha "\$PR_HEAD_SHA" --branch "\$GITHUB_HEAD_REF"/);
+      assert.match(wf, /guard verify --sha "\$PR_HEAD_SHA"$/m);
       assert.match(wf, /SDLC_RECEIPT_KEY: ci-dummy-test-key/);
       assert.match(wf, /git archive "origin\/\$BASE_REF"/);
+
+      // 0-byte .agent/.receipt-key fails runDoctor instead of reporting HEALTHY
+      fs.writeFileSync(path.join(dir, '.agent/.receipt-key'), '', { mode: 0o600 });
+      const emptyKeyDoc = runDoctor({ repoRoot: dir, fix: false });
+      assert.equal(emptyKeyDoc.passed, false);
+      assert.match(emptyKeyDoc.receiptKey.error || '', /empty/i);
     });
   });
 
@@ -241,5 +249,22 @@ describe('Ring 2: lib/install.mjs', () => {
     assert.match(capturedOut, /Select AI agents/i);
     assert.equal(fs.existsSync(path.join(dir, '.claude/skills/sdlc-flow/SKILL.md')), true);
     assert.equal(fs.existsSync(path.join(dir, '.agent/skills/sdlc-flow/SKILL.md')), true);
+
+    // Second install updates marked rules block in-place (zero duplication), skips up-to-date workflow/policy unless --force, and preserves tools: only on antigravity
+    fs.writeFileSync(path.join(dir, 'AGENTS.md'), `# Custom Header\n\n${fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8')}`, 'utf8');
+    await installFramework({ targetDir: dir, sourceRoot: src.srcDir, agents: ['all'], yes: true });
+    const agentsMd = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
+    assert.ok(agentsMd.startsWith('# Custom Header'));
+    assert.equal((agentsMd.match(/AGENTIC-SDLC-RULES:START/g) || []).length, 1);
+    assert.match(fs.readFileSync(path.join(dir, '.claude/skills/sdlc/SKILL.md'), 'utf8'), /\bTask\b/);
+    assert.match(fs.readFileSync(path.join(dir, '.cursor/skills/sdlc/SKILL.md'), 'utf8'), /\bsubagent\b/);
+
+    const wfSkip = installCIWorkflow({ repoRoot: dir, force: false });
+    assert.equal(wfSkip.skipped, true);
+    assert.equal(wfSkip.installed, false);
+    const wfForce = installCIWorkflow({ repoRoot: dir, force: true });
+    assert.equal(wfForce.upgraded, true);
+    assert.equal(scaffoldArchlensPolicy(dir, { force: false }).created, false);
+    assert.equal(scaffoldArchlensPolicy(dir, { force: true }).created, true);
   });
 });

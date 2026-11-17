@@ -24,32 +24,30 @@ export function git(cwd, ...args) {
   });
 }
 
+const templateRepoCache = new Map();
+process.once('exit', () => {
+  for (const tpl of templateRepoCache.values()) {
+    try { fs.rmSync(tpl, { recursive: true, force: true }); } catch {}
+  }
+});
+
 function getOrBuildTemplateRepo(initialBranch, withDevelop) {
-  const safeBranch = String(initialBranch || 'main').replace(/[^a-zA-Z0-9_-]/g, '_');
-  const uid = typeof process.getuid === 'function' ? process.getuid() : 0;
-  const tpl = path.join(os.tmpdir(), `sdlc-repo-tpl-v2-${uid}-${safeBranch}-${withDevelop ? 'dev' : 'nodev'}`);
-  if (fs.existsSync(path.join(tpl, '.git', 'HEAD')) && fs.existsSync(path.join(tpl, 'README.md'))) {
-    return tpl;
-  }
-  const staging = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-tpl-build-'));
-  git(staging, 'init', '-q', '-b', initialBranch);
-  git(staging, 'config', 'user.name', 'Test Bot');
-  git(staging, 'config', 'user.email', 'test@example.com');
-  fs.writeFileSync(path.join(staging, '.gitignore'), 'node_modules/\n.env\n.agent/.sdlc-session.json\n.agent/.sdlc-session.lock\n.agent/.receipt-key\n.agent/.audit-chain.lock\n.agent/.cache/\ncoverage/\nreports/\n', 'utf8');
-  fs.writeFileSync(path.join(staging, 'README.md'), '# Test Repo\n', 'utf8');
-  git(staging, 'add', '.gitignore', 'README.md');
-  git(staging, 'commit', '-q', '-m', 'chore: initial commit');
+  const key = `${initialBranch || 'main'}::${withDevelop ? 'dev' : 'nodev'}`;
+  const cached = templateRepoCache.get(key);
+  if (cached && fs.existsSync(path.join(cached, '.git', 'HEAD'))) return cached;
+  const tpl = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-repo-tpl-'));
+  git(tpl, 'init', '-q', '-b', initialBranch);
+  git(tpl, 'config', 'user.name', 'Test Bot');
+  git(tpl, 'config', 'user.email', 'test@example.com');
+  fs.writeFileSync(path.join(tpl, '.gitignore'), 'node_modules/\n.env\n.agent/.sdlc-session.json\n.agent/.sdlc-session.lock\n.agent/.receipt-key\n.agent/.audit-chain.lock\n.agent/.cache/\ncoverage/\nreports/\n', 'utf8');
+  fs.writeFileSync(path.join(tpl, 'README.md'), '# Test Repo\n', 'utf8');
+  git(tpl, 'add', '.gitignore', 'README.md');
+  git(tpl, 'commit', '-q', '-m', 'chore: initial commit');
   if (withDevelop && initialBranch !== 'develop') {
-    git(staging, 'checkout', '-q', '-b', 'develop');
+    git(tpl, 'checkout', '-q', '-b', 'develop');
   }
-  try {
-    fs.renameSync(staging, tpl);
-    return tpl;
-  } catch {
-    try { fs.rmSync(staging, { recursive: true, force: true }); } catch {}
-    if (fs.existsSync(path.join(tpl, '.git', 'HEAD'))) return tpl;
-    throw new Error(`Failed to materialize template git repo at ${tpl}`);
-  }
+  templateRepoCache.set(key, tpl);
+  return tpl;
 }
 
 export function createTempGitRepo({ prefix = 'sdlc-v010-', withDevelop = true, initialBranch = 'main' } = {}) {

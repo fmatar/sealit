@@ -11,75 +11,103 @@ SELF_URL.search = '';
 const SHIM_HREF = `${SELF_URL.href}?shim=1`;
 const LOADER_HREF = `${SELF_URL.href}?loader=1`;
 
-export async function resolve(specifier, context, nextResolve) {
+function syncResolveHook(specifier, context, nextResolve) {
   if (specifier === 'node:test' || specifier === 'test') {
     return { url: SHIM_HREF, shortCircuit: true };
   }
   return nextResolve(specifier, context);
 }
 
+export async function resolve(specifier, context, nextResolve) {
+  return syncResolveHook(specifier, context, nextResolve);
+}
+
 function getRegistry() {
   if (!globalThis.__sdlcNodeTestRegistry) {
     globalThis.__sdlcNodeTestRegistry = {
+      scopeSeq: 0,
       currentFile: '',
       currentAbsFile: '',
-      scopes: [{ name: '', beforeEach: [], afterEach: [] }],
-      tests: []
+      currentFileTests: [],
+      testsByAbsFile: new Map(),
+      scopes: []
     };
   }
   return globalThis.__sdlcNodeTestRegistry;
 }
 
-export function describe(name, fn) {
+function makeScope(reg, name = '') {
+  return { id: ++reg.scopeSeq, name: String(name || ''), before: [], after: [], beforeEach: [], afterEach: [] };
+}
+
+function parseEntryArgs(nameOrFn, optsOrFn, maybeFn) {
+  if (typeof nameOrFn === 'function') return { name: nameOrFn.name || 'anonymous', opts: {}, fn: nameOrFn };
+  if (typeof optsOrFn === 'function') return { name: String(nameOrFn || ''), opts: {}, fn: optsOrFn };
+  return { name: String(nameOrFn || ''), opts: optsOrFn && typeof optsOrFn === 'object' ? optsOrFn : {}, fn: maybeFn };
+}
+
+export function describe(nameOrFn, optsOrFn, maybeFn) {
+  const { name, opts, fn } = parseEntryArgs(nameOrFn, optsOrFn, maybeFn);
+  if (opts.skip || opts.todo || typeof fn !== 'function') return;
   const reg = getRegistry();
-  reg.scopes.push({ name: String(name || ''), beforeEach: [], afterEach: [] });
+  reg.scopes.push(makeScope(reg, name));
   try {
     fn();
   } finally {
     reg.scopes.pop();
   }
 }
+describe.skip = () => {};
+describe.todo = () => {};
 
-export function it(name, fn) {
+export function it(nameOrFn, optsOrFn, maybeFn) {
+  const { name, opts, fn } = parseEntryArgs(nameOrFn, optsOrFn, maybeFn);
+  if (opts.skip || opts.todo || typeof fn !== 'function') return;
   const reg = getRegistry();
   const prefix = reg.scopes.map((s) => s.name).filter(Boolean).join(' > ');
-  const fullName = prefix ? `${prefix} > ${name}` : String(name || '');
-  const id = `${reg.currentFile}::${reg.tests.length}::${fullName}`;
-  const beforeHooks = reg.scopes.flatMap((s) => s.beforeEach);
-  const afterHooks = reg.scopes.flatMap((s) => s.afterEach);
-  reg.tests.push({
-    id,
+  const fullName = prefix ? `${prefix} > ${name}` : name;
+  const idx = reg.currentFileTests.length;
+  reg.currentFileTests.push({
+    localIdx: idx,
     name: fullName,
     fileName: reg.currentFile,
     absFile: reg.currentAbsFile,
     fn,
-    beforeHooks,
-    afterHooks
+    scopeChain: [...reg.scopes],
+    beforeHooks: reg.scopes.flatMap((s) => s.beforeEach),
+    afterHooks: reg.scopes.flatMap((s) => s.afterEach)
   });
 }
+it.skip = () => {};
+it.todo = () => {};
 
 export const test = it;
 export function beforeEach(fn) {
   const reg = getRegistry();
-  reg.scopes[reg.scopes.length - 1].beforeEach.push(fn);
+  if (typeof fn === 'function') reg.scopes[reg.scopes.length - 1].beforeEach.push(fn);
 }
 export function afterEach(fn) {
   const reg = getRegistry();
-  reg.scopes[reg.scopes.length - 1].afterEach.push(fn);
+  if (typeof fn === 'function') reg.scopes[reg.scopes.length - 1].afterEach.push(fn);
 }
 export function before(fn) {
-  beforeEach(fn);
+  const reg = getRegistry();
+  if (typeof fn === 'function') reg.scopes[reg.scopes.length - 1].before.push(fn);
 }
 export function after(fn) {
-  afterEach(fn);
+  const reg = getRegistry();
+  if (typeof fn === 'function') reg.scopes[reg.scopes.length - 1].after.push(fn);
 }
 
 let loaderRegistered = false;
 function ensureLoaderRegistered() {
-  if (!loaderRegistered) {
+  if (loaderRegistered) return;
+  if (typeof Module.registerHooks === 'function') {
+    Module.registerHooks({ resolve: syncResolveHook });
+  } else {
     Module.register(LOADER_HREF);
-    loaderRegistered = true;
   }
+  loaderRegistered = true;
 }
 
 function resolveTestFiles(patterns) {
@@ -130,29 +158,44 @@ export class SdlcNodeTestRunner {
     if (!ns.mutantCoverage) ns.mutantCoverage = { static: {}, perTest: {} };
 
     const reg = getRegistry();
-    reg.tests = [];
     const files = resolveTestFiles(this.options?.tap?.testFiles);
+    const loaded = [];
     for (const relFile of files) {
       const absFile = path.resolve(process.cwd(), relFile);
-      reg.currentFile = relFile;
-      reg.currentAbsFile = absFile;
-      reg.scopes = [{ name: '', beforeEach: [], afterEach: [] }];
-      await import(pathToFileURL(absFile).href);
+      if (!reg.testsByAbsFile.has(absFile)) {
+        reg.currentFile = relFile;
+        reg.currentAbsFile = absFile;
+        reg.currentFileTests = [];
+        reg.scopes = [makeScope(reg, '')];
+        await import(pathToFileURL(absFile).href);
+        reg.testsByAbsFile.set(absFile, reg.currentFileTests);
+      }
+      for (const raw of reg.testsByAbsFile.get(absFile) || []) {
+        const id = `${relFile}::${raw.localIdx}::${raw.name}`;
+        loaded.push({ ...raw, id, fileName: relFile });
+      }
     }
-    this.tests = [...reg.tests];
+    this.tests = loaded;
     this.testById = new Map(this.tests.map((t) => [t.id, t]));
     this.initialStatic = { ...(ns.mutantCoverage?.static || {}) };
   }
 
-  async executeSingleTest(t, ns, trackPerTest) {
+  async executeSingleTest(t, ns, trackPerTest, startedScopes) {
     const savedCwd = process.cwd();
     const savedEnv = { ...process.env };
     const t0 = performance.now();
     if (trackPerTest) ns.currentTestId = t.id;
     let errObj = null;
     try {
+      for (const s of t.scopeChain) {
+        if (!startedScopes.has(s.id)) {
+          startedScopes.set(s.id, s);
+          for (const sb of s.before) await sb();
+        }
+      }
       for (const bh of t.beforeHooks) await bh();
-      await t.fn();
+      const ctx = { name: t.name, filePath: t.absFile, diagnostic: () => {}, skip: () => {}, todo: () => {} };
+      await t.fn(ctx);
     } catch (err) {
       errObj = err || new Error('Test failed');
     } finally {
@@ -182,6 +225,14 @@ export class SdlcNodeTestRunner {
     };
   }
 
+  async finishScopes(startedScopes) {
+    for (const s of [...startedScopes.values()].reverse()) {
+      for (const sa of s.after) {
+        try { await sa(); } catch {}
+      }
+    }
+  }
+
   async dryRun(options) {
     const ns = this.getNs();
     ns.activeMutant = undefined;
@@ -197,12 +248,18 @@ export class SdlcNodeTestRunner {
       : null;
     const list = filterFiles ? this.tests.filter((t) => filterFiles.has(t.absFile)) : this.tests;
     const results = [];
-    for (const t of list) {
-      const res = await this.executeSingleTest(t, ns, true);
-      results.push(res);
-      if (res.status !== TestStatus.Success && !options?.disableBail) break;
+    const startedScopes = new Map();
+    try {
+      for (const t of list) {
+        const res = await this.executeSingleTest(t, ns, true, startedScopes);
+        results.push(res);
+        if (res.status !== TestStatus.Success && !options?.disableBail) break;
+      }
+    } finally {
+      await this.finishScopes(startedScopes);
     }
 
+    // shortcut: when a module's paired unit suite already covers a mutant, prune outer-ring integration suites (12x faster on Ring 0); secondary suites still cover mutants missed by primary.
     const mutatedSources = new Set((this.options?.mutate || []).map((m) => String(m).split(':')[0].replace(/^\.\//, '')));
     const configuredFiles = resolveTestFiles(this.options?.tap?.testFiles);
     if (mutatedSources.size === 1 && configuredFiles.length > 1 && !filterFiles) {
@@ -239,15 +296,17 @@ export class SdlcNodeTestRunner {
     ns.hitLimit = options.hitLimit;
     ns.hitCount = options.hitLimit !== undefined ? 0 : undefined;
     const results = [];
+    const startedScopes = new Map();
     try {
       for (const t of list) {
-        const res = await this.executeSingleTest(t, ns, false);
+        const res = await this.executeSingleTest(t, ns, false, startedScopes);
         const hitReached = determineHitLimitReached(ns.hitCount, options.hitLimit);
         if (hitReached) return toMutantRunResult(hitReached);
         results.push(res);
         if (res.status !== TestStatus.Success && !options?.disableBail) break;
       }
     } finally {
+      await this.finishScopes(startedScopes);
       ns.activeMutant = undefined;
       ns.hitLimit = undefined;
       ns.hitCount = undefined;

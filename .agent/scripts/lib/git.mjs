@@ -154,10 +154,14 @@ export function withFileLock(lockPath, fn, { timeoutMs = 5000, staleMs = 30000 }
     } catch (err) {
       if (!err || err.code !== 'EEXIST') throw err;
       try {
-        const raw = fs.readFileSync(absLock, 'utf8');
-        const parsed = JSON.parse(raw);
-        const age = Date.now() - Number(parsed?.createdAt || 0);
-        if (!isPidAlive(parsed?.pid) || age > staleMs) {
+        let stale = false;
+        try {
+          const parsed = JSON.parse(fs.readFileSync(absLock, 'utf8'));
+          stale = !isPidAlive(parsed?.pid) || Date.now() - Number(parsed?.createdAt || 0) > staleMs;
+        } catch {
+          stale = Date.now() - fs.statSync(absLock).mtimeMs > staleMs;
+        }
+        if (stale) {
           const reclaimPath = `${absLock}.reclaim.${process.pid}.${Date.now()}`;
           fs.renameSync(absLock, reclaimPath);
           fs.unlinkSync(reclaimPath);
@@ -210,14 +214,6 @@ export function parseEnvFile(repoRoot = '.') {
     out[key] = val;
   }
   return out;
-}
-
-export function getRepoEnv(key, repoRoot = '.') {
-  if (Object.prototype.hasOwnProperty.call(process.env, key) && process.env[key] !== undefined) {
-    return String(process.env[key]);
-  }
-  const fileEnv = parseEnvFile(repoRoot);
-  return Object.prototype.hasOwnProperty.call(fileEnv, key) ? String(fileEnv[key]) : '';
 }
 
 export function parseCommandArgv(cmdSpec) {
@@ -393,39 +389,6 @@ export function resolveGitHooksDir(repoRoot = '.') {
 
 function readGitRefsMap(repoRoot = '.') {
   const map = new Map();
-  try {
-    const dotGit = path.resolve(repoRoot, '.git');
-    if (fs.lstatSync(dotGit).isDirectory() && !fileExists(path.join(dotGit, 'commondir')) && !fileExists(path.join(dotGit, 'reftable'))) {
-      const packed = readFileSafe(path.join(dotGit, 'packed-refs')) || '';
-      for (const line of packed.split('\n')) {
-        if (!line || line[0] === '#' || line[0] === '^') continue;
-        const sp = line.indexOf(' ');
-        if (sp > 0) map.set(line.slice(sp + 1).trim(), line.slice(0, sp).trim());
-      }
-      const symRefs = [];
-      const walk = (dir, prefix) => {
-        if (!fileExists(dir)) return;
-        for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
-          const full = path.join(dir, ent.name);
-          const ref = `${prefix}/${ent.name}`;
-          if (ent.isDirectory()) walk(full, ref);
-          else if (ent.isFile()) {
-            const raw = (readFileSafe(full) || '').trim();
-            if (raw.startsWith('ref:')) symRefs.push([ref, raw.slice(4).trim()]);
-            else if (/^[0-9a-f]{40,64}$/i.test(raw)) map.set(ref, raw);
-          }
-        }
-      };
-      walk(path.join(dotGit, 'refs'), 'refs');
-      for (const [ref, target] of symRefs) {
-        if (map.has(target)) map.set(ref, map.get(target));
-      }
-      const headRaw = (readFileSafe(path.join(dotGit, 'HEAD')) || '').trim();
-      const headSha = headRaw.startsWith('ref:') ? map.get(headRaw.slice(4).trim()) : (/^[0-9a-f]{40,64}$/i.test(headRaw) ? headRaw : '');
-      if (headSha) map.set('HEAD', headSha);
-      return map;
-    }
-  } catch {}
   const out = gitOutput(['show-ref', '--head'], repoRoot) || '';
   for (const line of out.split('\n')) {
     const idx = line.indexOf(' ');
@@ -441,15 +404,17 @@ export function getCurrentGitBranch(repoRoot = '.') {
       const headRaw = (readFileSafe(path.join(dotGit, 'HEAD')) || '').trim();
       if (headRaw.startsWith('ref: refs/heads/')) {
         const branch = headRaw.slice('ref: refs/heads/'.length).trim();
-        if (branch && (fileExists(path.join(dotGit, 'refs/heads', branch)) || `${readFileSafe(path.join(dotGit, 'packed-refs')) || ''}\n`.includes(` refs/heads/${branch}\n`))) {
-          return branch;
-        }
+        if (branch) return branch;
       } else if (/^[0-9a-f]{40,64}$/i.test(headRaw)) {
         return 'HEAD';
       }
     }
   } catch {}
-  return (gitOutput(['rev-parse', '--abbrev-ref', 'HEAD'], repoRoot) || '').trim();
+  return (
+    gitOutput(['symbolic-ref', '-q', '--short', 'HEAD'], repoRoot) ||
+    gitOutput(['rev-parse', '--abbrev-ref', 'HEAD'], repoRoot) ||
+    ''
+  ).trim();
 }
 
 export function hasBranch(branchName, repoRoot = '.', refsMap = null) {
@@ -704,13 +669,13 @@ export function computeContentTreeSha(commitRef = 'HEAD', repoRoot = '.') {
 }
 
 const EXCLUDED_FROM_DOCS_ONLY_RE =
-  /^(?:PRODUCT\.md|docs\/PRD\.md|docs\/SRS\.md|docs\/specs\/|docs\/adr\/|docs\/AUDIT_CHAIN\.jsonl)/i;
+  /^(?:PRODUCT\.md|docs\/PRD\.md|docs\/SRS\.md|docs\/specs\/|docs\/adr\/|docs\/AUDIT_CHAIN\.jsonl)|(?:^|\/)(?:AGENTS\.md|CLAUDE\.md|llms\.txt|\.)/i;
 
 const CONTRACT_OR_MANIFEST_RE =
   /(?:^|\/)(?:requirements[^/]*\.txt|constraints[^/]*\.txt|CMakeLists\.txt|package(?:-lock)?\.json|Cargo\.(?:toml|lock)|pyproject\.toml|go\.(?:mod|sum)|pom\.xml|build\.gradle(?:\.kts)?|[^/]*(?:openapi|swagger)[^/]*\.(?:ya?ml|json))$/i;
 
 const PURE_DOC_ALLOW_RE =
-  /(?:\.(?:md|mdx|rst|adoc)$|^(?:LICENSE|NOTICE|AUTHORS|CHANGELOG|CONTRIBUTING|SECURITY|CODE_OF_CONDUCT)(?:\.[A-Za-z0-9]+)?$|^\.(?:gitignore|gitattributes|editorconfig|prettierrc|prettierignore)$|^(?:docs|media)\/.*\.(?:svg|png|jpe?g|webp|gif)$)/i;
+  /(?:\.(?:md|mdx|rst|adoc)$|^(?:LICENSE|NOTICE|AUTHORS|CHANGELOG|CONTRIBUTING|SECURITY|CODE_OF_CONDUCT)(?:\.[A-Za-z0-9]+)?$|^(?:docs|media)\/.*\.(?:svg|png|jpe?g|webp|gif)$)/i;
 
 export function isDocsOnlyFile(relPath = '') {
   const norm = String(relPath || '').trim().replace(/\\/g, '/').replace(/^\.\//, '');

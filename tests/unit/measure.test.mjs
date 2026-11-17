@@ -7,9 +7,11 @@ import { readActiveSession, writeActiveSession } from '../../.agent/scripts/lib/
 import {
   scanDiffSecrets,
   requireFreshReport,
+  extractChangedHunkRanges,
   parseCoverageReport,
   parseMutationReport,
   buildMutationPlan,
+  measureModuleCoverage,
   measureModuleMutation,
   resolveAffectedTests,
   runGate,
@@ -340,6 +342,63 @@ describe('Ring 2: lib/measure.mjs', () => {
     const malformedRes = measureModuleMutation(dir, { name: 'root', path: '.', commands: { mutation: `${process.execPath} scripts/malformed-stryker-shard.mjs run` }, thresholds: { mutationScore: 80 } });
     assert.equal(malformedRes.passed, false);
 
+    // Partial/crashing shard exiting non-zero MUST fail closed even if it wrote a partial report file
+    fs.writeFileSync(
+      path.join(dir, 'scripts/partial-crash-shard.mjs'),
+      `import fs from 'node:fs'; import path from 'node:path';
+       const cfg = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+       fs.mkdirSync(path.dirname(cfg.jsonReporter.fileName), { recursive: true });
+       const src = process.argv[5].split(':')[0];
+       fs.writeFileSync(cfg.jsonReporter.fileName, JSON.stringify({ files: { [src]: { mutants: [{ id: '1', status: 'Killed', location: { start: { line: 1 }, end: { line: 1 } } }] } } }));
+       process.exit(2);`,
+      'utf8'
+    );
+    assert.throws(() =>
+      measureModuleMutation(dir, { name: 'root', path: '.', commands: { mutation: `${process.execPath} scripts/partial-crash-shard.mjs run` }, thresholds: { mutationScore: 80 } })
+    );
+
+    // Glob mutate patterns (positive + !-negated) in stryker.config.json match diff files and guarantee 'json' reporter on non-tap runners
+    const globRepo = createTempGitRepo();
+    cleanups.push(globRepo.cleanup);
+    fs.mkdirSync(path.join(globRepo.dir, 'src'), { recursive: true });
+    fs.writeFileSync(
+      path.join(globRepo.dir, 'stryker.config.json'),
+      JSON.stringify({
+        testRunner: 'vitest',
+        reporters: ['clear-text'],
+        mutate: ['src/**/*.ts', '!src/**/*.gen.ts']
+      }),
+      'utf8'
+    );
+    git(globRepo.dir, 'add', 'stryker.config.json');
+    git(globRepo.dir, 'commit', '-q', '-m', 'chore: glob stryker config');
+    git(globRepo.dir, 'checkout', '-q', '-b', 'feat/glob-mut', 'develop');
+    fs.writeFileSync(path.join(globRepo.dir, 'src/service.ts'), 'export const s = 1;\n', 'utf8');
+    fs.writeFileSync(path.join(globRepo.dir, 'src/schema.gen.ts'), 'export const g = 1;\n', 'utf8');
+    const globPlan = buildMutationPlan(globRepo.dir, { name: 'root', path: '.', commands: { mutation: './node_modules/.bin/stryker run' } });
+    assert.equal(globPlan.skip, false);
+    assert.ok(globPlan.targets.some((t) => t.startsWith('src/service.ts')));
+    assert.equal(globPlan.targets.some((t) => t.includes('schema.gen.ts')), false);
+    assert.ok(globPlan.commandArgv.some((a) => a.includes('json')));
+    const globFullPlan = buildMutationPlan(globRepo.dir, { name: 'root', path: '.', commands: { mutation: './node_modules/.bin/stryker run' } }, { full: true });
+    assert.ok(globFullPlan.commandArgv.some((a) => a.includes('json')));
+
+    // Editing a test whose stem matches a !-negated file ('!src/ignored.ts') MUST NOT pair '!src/ignored.ts' into targets
+    fs.mkdirSync(path.join(globRepo.dir, 'tests/unit'), { recursive: true });
+    fs.writeFileSync(
+      path.join(globRepo.dir, 'stryker.config.json'),
+      JSON.stringify({ testRunner: 'vitest', mutate: ['src/**/*.ts', '!src/ignored.ts'] }),
+      'utf8'
+    );
+    git(globRepo.dir, 'add', 'stryker.config.json');
+    git(globRepo.dir, 'commit', '-q', '-m', 'chore: update glob negate');
+    fs.rmSync(path.join(globRepo.dir, 'src/service.ts'));
+    fs.rmSync(path.join(globRepo.dir, 'src/schema.gen.ts'));
+    git(globRepo.dir, 'checkout', '-q', '-b', 'feat/neg-pair', 'HEAD');
+    fs.writeFileSync(path.join(globRepo.dir, 'tests/unit/ignored.test.ts'), '// test\n', 'utf8');
+    const negPairPlan = buildMutationPlan(globRepo.dir, { name: 'root', path: '.', commands: { mutation: './node_modules/.bin/stryker run' } }, { baseBranch: 'feat/glob-mut' });
+    assert.equal(negPairPlan.skip, true);
+
     // Non-tap testRunner falls back to unsharded execution
     fs.writeFileSync(
       path.join(dir, 'stryker.config.json'),
@@ -508,5 +567,137 @@ describe('Ring 2: lib/measure.mjs', () => {
     const plan = buildReviewPlan(docRepo.dir);
     assert.equal(plan.modifiedFiles.includes('README.md'), true);
     assert.ok(Array.isArray(plan.reviewers) && plan.reviewers.length >= 1);
+  });
+
+  it('covers warm gate cache hits, module step failures (lint/build/test/coverage/mutation), hunk collapsing, diff-zero-mutants, and affected-test mapping', () => {
+    const { dir, cleanup } = createTempGitRepo();
+    cleanups.push(cleanup);
+
+    // Invalid config returns stage: 'config'
+    assert.equal(runGate(dir).stage, 'config');
+
+    // Hunk range merging & >maxRanges collapsing
+    const manyHunks = Array.from({ length: 6 }, (_, i) => `@@ -1,1 +${i * 20 + 1},2 @@\n+a\n+b`).join('\n');
+    assert.equal(extractChangedHunkRanges(manyHunks, { maxGapLines: 2, maxRanges: 3 }).length, 1);
+    assert.deepEqual(extractChangedHunkRanges('Binary files a and b differ'), []);
+
+    // Unconfigured coverage/mutation commands return clean statuses
+    assert.equal(measureModuleCoverage(dir, { name: 'root', path: '.', commands: {} }).passed, false);
+    assert.equal(measureModuleMutation(dir, { name: 'root', path: '.', commands: {} }).skipped, true);
+
+    // Setup code branch for warm gate cache hit & step failure checks
+    git(dir, 'checkout', '-q', '-b', 'feat/steps', 'develop');
+    fs.mkdirSync(path.join(dir, '.agent/scripts/lib'), { recursive: true });
+    fs.mkdirSync(path.join(dir, 'tests/unit'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.agent/scripts/sdlc-engine.mjs'), 'export const cli = 1;\n', 'utf8');
+    fs.writeFileSync(path.join(dir, 'tests/unit/cli.test.mjs'), '// cli test\n', 'utf8');
+    assert.deepEqual(resolveAffectedTests(dir), ['tests/unit/cli.test.mjs']);
+
+    const writeCfg = (commands, thresholds = { diffCoverage: null, mutationScore: null }) => {
+      fs.writeFileSync(
+        path.join(dir, '.agent/sdlc-config.json'),
+        JSON.stringify({ version: '0.1.0', archlens: { enabled: false }, modules: [{ name: 'root', path: '.', commands, thresholds }] }),
+        'utf8'
+      );
+    };
+
+    // Failing lint, build, test, and mutation steps record exact failedStep
+    writeCfg({ lint: `${process.execPath} -e "process.exit(1)"` });
+    assert.equal(runGate(dir, { noCache: true }).modules[0].failedStep, 'lint');
+
+    writeCfg({ build: `${process.execPath} -e "process.exit(1)"` });
+    assert.equal(runGate(dir, { noCache: true }).modules[0].failedStep, 'build');
+
+    writeCfg({ test: `${process.execPath} -e "process.exit(1)"` });
+    assert.equal(runGate(dir, { noCache: true }).modules[0].failedStep, 'test');
+
+    // Warm gate cache hit on clean committed tree
+    writeCfg({ test: `${process.execPath} -e "process.exit(0)"` });
+    git(dir, 'add', '.agent/sdlc-config.json', '.agent/scripts/sdlc-engine.mjs', 'tests/unit/cli.test.mjs');
+    git(dir, 'commit', '-q', '-m', 'feat: clean passing module');
+    const cold = runGate(dir, { noCache: false });
+    assert.equal(cold.passed, true);
+    assert.equal(cold.modules[0].cached, false);
+    const warm = runGate(dir, { noCache: false });
+    assert.equal(warm.passed, true);
+    assert.equal(warm.modules[0].cached, true);
+
+    // Diff-scoped Stryker run with 0 mutants in target range returns diff-zero-mutants (passed: true, skipped: true)
+    fs.writeFileSync(path.join(dir, 'stryker.config.json'), JSON.stringify({ mutate: ['.agent/scripts/sdlc-engine.mjs'] }), 'utf8');
+    fs.writeFileSync(
+      path.join(dir, 'emit-empty-mut.mjs'),
+      `import fs from 'node:fs'; fs.mkdirSync('reports/mutation', { recursive: true }); fs.writeFileSync('reports/mutation/mutation.json', JSON.stringify({ files: {} }));`,
+      'utf8'
+    );
+    git(dir, 'add', 'stryker.config.json', 'emit-empty-mut.mjs');
+    git(dir, 'commit', '-q', '-m', 'chore: empty mut fixture');
+    git(dir, 'checkout', '-q', '-b', 'feat/zero-mut', 'feat/steps');
+    fs.writeFileSync(path.join(dir, '.agent/scripts/sdlc-engine.mjs'), '// comment-only edit\nexport const cli = 1;\n', 'utf8');
+    const zeroMut = measureModuleMutation(
+      dir,
+      { name: 'root', path: '.', commands: { mutation: `${process.execPath} emit-empty-mut.mjs stryker` }, thresholds: { mutationScore: 80 } },
+      { baseBranch: 'feat/steps' }
+    );
+    assert.equal(zeroMut.passed, true);
+    assert.equal(zeroMut.status, 'diff-zero-mutants');
+
+    // Missing reports, EMPTY_REPORT on full mutation, skipInTests secret rule, and 2-reviewer code reviewPlan
+    const emptyRepo = createTempGitRepo();
+    cleanups.push(emptyRepo.cleanup);
+    assert.equal(parseCoverageReport(emptyRepo.dir, { name: 'root', path: '.' }).found, false);
+    assert.equal(parseMutationReport(emptyRepo.dir, { name: 'root', path: '.' }).found, false);
+    fs.mkdirSync(path.join(emptyRepo.dir, 'reports/mutation'), { recursive: true });
+    fs.writeFileSync(path.join(emptyRepo.dir, 'reports/mutation/mutation.json'), JSON.stringify({ files: {} }), 'utf8');
+    const emptyFullMut = parseMutationReport(emptyRepo.dir, { name: 'root', path: '.' });
+    assert.equal(emptyFullMut.passed, false);
+    assert.equal(emptyFullMut.zeroMutants, true);
+
+    // Target line-range filter + Ignored/CompileError/Timeout/RuntimeError statuses in parseMutationReport
+    fs.writeFileSync(
+      path.join(emptyRepo.dir, 'reports/mutation/mutation.json'),
+      JSON.stringify({
+        files: {
+          'src/a.js': {
+            mutants: [
+              { id: '1', status: 'Timeout', location: { start: { line: 2 } } },
+              { id: '2', status: 'Ignored', location: { start: { line: 2 } } },
+              { id: '3', status: 'CompileError', location: { start: { line: 2 } } },
+              { id: '4', status: 'RuntimeError', location: { start: { line: 2 } } },
+              { id: '5', status: 'Survived', location: { start: { line: 50 } } }
+            ]
+          },
+          'src/untargeted.js': { mutants: [{ id: '9', status: 'Survived', location: { start: { line: 1 } } }] }
+        }
+      }),
+      'utf8'
+    );
+    const rangedMut = parseMutationReport(emptyRepo.dir, { name: 'root', path: '.', thresholds: { mutationScore: 50 } }, { targets: ['src/a.js:1-10'] });
+    assert.equal(rangedMut.killed, 1);
+    assert.equal(rangedMut.survived, 1);
+    assert.equal(rangedMut.passed, true);
+
+    git(emptyRepo.dir, 'checkout', '-q', '-b', 'feat/sec-skip', 'develop');
+    fs.mkdirSync(path.join(emptyRepo.dir, 'tests'), { recursive: true });
+    fs.writeFileSync(path.join(emptyRepo.dir, 'tests/s.test.mjs'), 'const api_key = "1234567890123456789012345";\n', 'utf8');
+    assert.equal(scanDiffSecrets(emptyRepo.dir).passed, true);
+    fs.writeFileSync(path.join(emptyRepo.dir, 'guard-sec.mjs'), 'const api_key = "1234567890123456789012345";\n', 'utf8');
+    assert.equal(scanDiffSecrets(emptyRepo.dir).passed, false);
+    const codePlan = buildReviewPlan(emptyRepo.dir);
+    assert.equal(codePlan.mode, 'code');
+    assert.equal(codePlan.reviewers.length, 2);
+
+    // Small non-governance code diff gets 1 reviewer; >32kB diff gets truncated prompt marker
+    fs.unlinkSync(path.join(emptyRepo.dir, 'guard-sec.mjs'));
+    fs.writeFileSync(path.join(emptyRepo.dir, 'math.mjs'), 'export const add = (a, b) => a + b;\n', 'utf8');
+    const smallPlan = buildReviewPlan(emptyRepo.dir);
+    assert.equal(smallPlan.mode, 'code');
+    assert.equal(smallPlan.reviewers.length, 1);
+    assert.equal(smallPlan.reviewers[0].role, 'PR Peer Reviewer');
+    assert.match(smallPlan.reviewers[0].prompt, /math\.mjs/);
+
+    fs.writeFileSync(path.join(emptyRepo.dir, 'big.mjs'), `${'// line\n'.repeat(210)}export const s = "${'x'.repeat(35000)}";\n`, 'utf8');
+    const bigPlan = buildReviewPlan(emptyRepo.dir);
+    assert.equal(bigPlan.reviewers.length, 2);
+    assert.match(bigPlan.reviewers[0].prompt, /diff truncated at 32kB/);
   });
 });

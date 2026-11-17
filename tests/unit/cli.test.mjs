@@ -130,11 +130,18 @@ describe('Ring 3: sdlc-engine.mjs CLI registry', () => {
           mode: 'code',
           headSha: 'abcdef123456',
           drift: { passed: false, message: 'Unapproved PRODUCT.md change' },
+          secrets: {
+            passed: false,
+            secretViolations: [{ file: 'src/leak.mjs', pattern: 'AWS Access Key ID' }],
+            auditError: 'npm audit reported 2 high/critical vulnerability(s).'
+          },
           modules: [{ module: 'root', passed: false, failedStep: 'mutation', error: 'Mutation score 42.9% is below threshold 52%.' }]
         }
       });
       assert.match(failedFmt, /Gate FAILED \[mode=code, head=abcdef12\]/);
       assert.match(failedFmt, /drift: Unapproved PRODUCT\.md change/);
+      assert.match(failedFmt, /src\/leak\.mjs \(AWS Access Key ID\)/);
+      assert.match(failedFmt, /npm audit reported 2 high\/critical/);
       assert.match(failedFmt, /root \(mutation\): Mutation score 42\.9% is below threshold 52%\./);
 
       // 4. Review plan + record approve -> signs receipt -> verify passes -> end closes session
@@ -175,6 +182,74 @@ describe('Ring 3: sdlc-engine.mjs CLI registry', () => {
       const ended = await runCLI(['end'], null, dir);
       assert.equal(ended.success, true);
       assert.match(formatCLIResult('end', ended), /closed/);
+    });
+  });
+
+  it('covers --version, --help, init, config check, guard subcommands, mutation/receipt CLI routes, protect, and formatCLIResult branches', async () => {
+    const { dir, cleanup } = createTempGitRepo();
+    cleanups.push(cleanup);
+
+    await withoutReceiptEnv(async () => {
+      const ver = await runCLI(['--version'], null, dir);
+      assert.equal(ver.success, true);
+      assert.match(formatCLIResult('version', ver), /^\d+\.\d+\.\d+/);
+
+      const hlp = await runCLI(['--help'], null, dir);
+      assert.match(formatCLIResult('help', hlp), /Usage:/);
+
+      assert.equal(cliExitCode(await runCLI(['begin', '--issue'], null, dir)), 2);
+      assert.equal(cliExitCode(await runCLI(['config', 'banana'], null, dir)), 2);
+      assert.equal(cliExitCode(await runCLI(['stage', 'banana'], null, dir)), 2);
+      assert.equal(cliExitCode(await runCLI(['adr', 'banana'], null, dir)), 2);
+      assert.equal(cliExitCode(await runCLI(['exemption', 'banana'], null, dir)), 2);
+      assert.equal(cliExitCode(await runCLI(['review', 'banana'], null, dir)), 2);
+      assert.equal(cliExitCode(await runCLI(['guard', 'banana'], null, dir)), 2);
+      assert.equal(cliExitCode(await runCLI(['hooks', 'banana'], null, dir)), 2);
+
+      // Local init provisions config, policy, hooks, and skills; commit baseline on develop so feature branch is pure docs-only
+      const initRes = await runCLI(['init', '--yes', '--agents=claude,cursor', '--with-hooks'], null, dir);
+      assert.equal(initRes.success, true);
+      assert.match(formatCLIResult('init', initRes), /Initialized/);
+      assert.equal((await runCLI(['config', 'check'], null, dir)).success, true);
+      fs.appendFileSync(path.join(dir, '.gitignore'), '.claude/\n.cursor/\n', 'utf8');
+      git(dir, 'add', '-A');
+      git(dir, 'commit', '--no-verify', '-q', '-m', 'chore: baseline init');
+
+      // Begin session, run guard pre-commit / pre-push / post-merge, mutation (skipped), docs-only receipt via guard receipt
+      await runCLI(['begin', '--issue', '202', '--title', 'Guard CLI', '--checkout'], null, dir);
+      const gCommit = await runCLI(['guard', 'pre-commit'], null, dir);
+      assert.equal(gCommit.success, true);
+      assert.match(formatCLIResult('guard', gCommit), /ALLOWED/);
+      assert.equal((await runCLI(['guard', 'pre-push'], null, dir)).success, true);
+      assert.equal((await runCLI(['guard', 'pre-merge'], null, dir)).success, true);
+      assert.equal((await runCLI(['guard', 'post-merge'], null, dir)).success, true);
+
+      // Docs-only change -> gate -> receipt --docs-only -> stage complete
+      fs.writeFileSync(path.join(dir, 'README.md'), '# Updated via CLI\n', 'utf8');
+      git(dir, 'add', 'README.md');
+      git(dir, 'commit', '-q', '-m', 'docs: update readme');
+
+      const mutRes = await runCLI(['mutation'], null, dir);
+      assert.equal(mutRes.success, true);
+      assert.match(formatCLIResult('mutation', mutRes), /root:/);
+
+      const docGate = await runCLI(['gate', '--no-cache'], null, dir);
+      assert.equal(docGate.success, true);
+      const docRec = await runCLI(['guard', 'receipt', '--docs-only'], null, dir);
+      assert.equal(docRec.success, true);
+      assert.match(formatCLIResult('receipt', docRec), /Issued Stage 7 receipt/);
+
+      assert.match(formatCLIResult('any', { error: 'boom' }), /Error: boom/);
+      assert.match(
+        formatCLIResult('gate', {
+          gate: { passed: false, mode: 'code', reason: 'Invalid configuration', arch: { passed: false, violations: [{ type: 'LAYER_VIOLATION' }] } }
+        }),
+        /Invalid configuration[\s\S]*ring violation/
+      );
+      assert.match(formatCLIResult('adr', { adrs: [] }), /none/);
+      assert.equal((await runCLI(['adr', 'create'], null, dir)).success, false);
+      assert.equal((await runCLI(['audit', 'verify'], null, dir)).success, true);
+      assert.equal((await runCLI(['stage', 'complete'], null, dir)).success, true);
     });
   });
 });

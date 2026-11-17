@@ -354,14 +354,21 @@ function mapSourceToUnitTest(modRelSource, modCwd) {
 }
 
 function mapUnitTestToSource(modRelTest, explicitMutateFiles) {
-  const norm = modRelTest.replace(/\\/g, '/');
-  const m = norm.match(/^tests\/unit\/(.+?)\.test\.[cm]?[jt]s$/);
+  const m = modRelTest.replace(/\\/g, '/').match(/^tests\/unit\/(.+?)\.test\.[cm]?[jt]s$/);
   if (!m) return null;
-  const stem = m[1];
-  if (stem === 'cli') {
-    return explicitMutateFiles.find((f) => f.endsWith('sdlc-engine.mjs')) || null;
+  if (m[1] === 'cli') return explicitMutateFiles.find((f) => f.endsWith('sdlc-engine.mjs')) || null;
+  return explicitMutateFiles.find((f) => path.basename(f).replace(/\.[cm]?[jt]sx?$/i, '') === m[1]) || null;
+}
+
+function matchesMutatePatterns(relFile, patterns) {
+  let matched = false;
+  for (const raw of patterns) {
+    const neg = raw.startsWith('!');
+    const clean = (neg ? raw.slice(1) : raw).replace(/\\/g, '/').replace(/^\.\//, '').replace(/:\d+(?:-\d+)?$/, '');
+    const re = new RegExp('^' + clean.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*\*\//g, '\0D\0').replace(/\*\*/g, '\0G\0').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]').replace(/\0D\0/g, '(?:.+/)?').replace(/\0G\0/g, '.*') + '$');
+    if (re.test(relFile)) matched = !neg;
   }
-  return explicitMutateFiles.find((f) => path.basename(f).replace(/\.[cm]?[jt]sx?$/i, '') === stem) || null;
+  return matched;
 }
 
 export function buildMutationPlan(repoRoot = '.', mod = {}, { full = false, noCache = false, baseBranch = null } = {}) {
@@ -379,7 +386,7 @@ export function buildMutationPlan(repoRoot = '.', mod = {}, { full = false, noCa
   const strykerCfgPath = path.join(modCwd, 'stryker.config.json');
   const strykerCfg = fileExists(strykerCfgPath) ? JSON.parse(readFileSafe(strykerCfgPath) || '{}') : {};
   const explicitMutate = Array.isArray(strykerCfg.mutate) ? strykerCfg.mutate.map((f) => f.replace(/^\.\//, '')) : [];
-  const mutateSet = new Set(explicitMutate);
+  const concreteMutate = explicitMutate.filter((f) => !f.startsWith('!') && !/[?*[\]{}]/.test(f) && matchesMutatePatterns(f, explicitMutate));
   const defaultIncFile = strykerCfg.incrementalFile || 'reports/stryker-incremental.json';
   const extraFlags = noCache ? ['--force'] : [];
   const runIdx = baseTokens.indexOf('run');
@@ -387,6 +394,7 @@ export function buildMutationPlan(repoRoot = '.', mod = {}, { full = false, noCa
   const canScopeTap = runIdx >= 0 && !hasPositionalCfg && fileExists(strykerCfgPath) && (!strykerCfg.testRunner || strykerCfg.testRunner === 'tap' || strykerCfg.testRunner === 'sdlc-node') && Array.isArray(strykerCfg?.tap?.testFiles);
   const modSlug = String(mod.name || 'root').replace(/[^a-zA-Z0-9_-]/g, '_');
   const scopedReporters = [...new Set([...(Array.isArray(strykerCfg.reporters) ? strykerCfg.reporters : ['clear-text', 'progress']), 'json'])];
+  const jsonRepArgs = !Array.isArray(strykerCfg.reporters) || !strykerCfg.reporters.includes('json') ? ['--reporters', scopedReporters.join(',')] : [];
   const writeScopedCfg = (name, extra) => {
     const absCfg = path.join(absRepo, '.agent/.cache', `${modSlug}-${name}`);
     writeFileAtomic(absCfg, JSON.stringify({ ...strykerCfg, reporters: scopedReporters, ...extra }, null, 2) + '\n');
@@ -413,16 +421,13 @@ export function buildMutationPlan(repoRoot = '.', mod = {}, { full = false, noCa
   };
 
   if (full) {
-    return { skip: false, diffScoped: false, full: true, commandArgv: [...baseTokens, ...extraFlags], targets: [], shards: makeShards(explicitMutate) };
+    return { skip: false, diffScoped: false, full: true, commandArgv: [...baseTokens, ...jsonRepArgs, ...extraFlags], targets: [], shards: makeShards(concreteMutate) };
   }
 
-  const modified = getModifiedFiles(baseBranch, absRepo)
-    .filter((f) => (!modPrefix ? true : f === modPrefix || f.startsWith(`${modPrefix}/`)))
-    .map((f) => (!modPrefix ? f : f.slice(modPrefix.length + 1)));
-
-  const directSources = modified.filter((f) => (mutateSet.size > 0 ? mutateSet.has(f) : isTrackableSourceFile(f)));
+  const modified = getModifiedFiles(baseBranch, absRepo).filter((f) => (!modPrefix ? true : f === modPrefix || f.startsWith(`${modPrefix}/`))).map((f) => (!modPrefix ? f : f.slice(modPrefix.length + 1)));
+  const directSources = modified.filter((f) => (explicitMutate.length > 0 ? matchesMutatePatterns(f, explicitMutate) : isTrackableSourceFile(f)));
   const directSet = new Set(directSources);
-  const pairedSources = modified.filter((f) => isTestFilePath(f)).map((t) => mapUnitTestToSource(t, explicitMutate)).filter((s) => s && !directSet.has(s));
+  const pairedSources = modified.filter((f) => isTestFilePath(f)).map((t) => mapUnitTestToSource(t, concreteMutate)).filter((s) => s && !directSet.has(s));
   const allSources = [...new Set([...directSources, ...pairedSources])];
   if (allSources.length === 0) {
     return { skip: true, diffScoped: true, reason: 'diff-no-mutated-sources', commandArgv: null, targets: [] };
@@ -457,7 +462,7 @@ export function buildMutationPlan(repoRoot = '.', mod = {}, { full = false, noCa
   }
 
   const shards = makeShards(allSources, targetsBySource);
-  const scopedTokens = [...baseTokens, ...configArg, '-m', targets.join(','), '--incrementalFile', incFile, ...extraFlags, '--allowEmpty'];
+  const scopedTokens = [...baseTokens, ...(configArg.length > 0 ? configArg : jsonRepArgs), '-m', targets.join(','), '--incrementalFile', incFile, ...extraFlags, '--allowEmpty'];
   return { skip: false, diffScoped: true, full: false, commandArgv: scopedTokens, targets, matchedSources: allSources, shards };
 }
 
@@ -633,9 +638,8 @@ export function measureModuleMutation(repoRoot = '.', mod = {}, { full = false, 
       const shardAbs = path.join(modCwd, shard.reportRel);
       fs.rmSync(shardAbs, { force: true });
       const shardStart = Date.now();
-      let shardErr = null;
       if (onProgress) onProgress(`[gate] Mutation shard ${i + 1}/${plan.shards.length}: ${shard.src}`);
-      try { runConfiguredCommand(shard.commandArgv, { cwd: modCwd, stdio: verbose ? 'inherit' : 'pipe', encoding: 'utf8' }); } catch (err) { shardErr = err; }
+      runConfiguredCommand(shard.commandArgv, { cwd: modCwd, stdio: verbose ? 'inherit' : 'pipe', encoding: 'utf8' });
       let shardFiles = null;
       if (fileExists(shardAbs) && fs.statSync(shardAbs).mtimeMs + 2000 >= shardStart) {
         try {
@@ -644,7 +648,6 @@ export function measureModuleMutation(repoRoot = '.', mod = {}, { full = false, 
         } catch {}
       }
       if (!shardFiles) {
-        if (shardErr) throw shardErr;
         return { found: false, passed: false, threshold: mod?.thresholds?.mutationScore ?? 80, reason: `Invalid or missing mutation shard report '${shard.reportRel}'.` };
       }
       Object.assign(mergedFiles, shardFiles);
@@ -678,10 +681,7 @@ export function runGate(repoRoot = '.', { noCache = false, online = false, verbo
 
   if (onProgress) onProgress(`[gate] Checking spec/ADR drift, architecture rings & secrets (mode=${mode})...`);
   const drift = checkSpecDrift({ ticketId: activeSession?.issueId || null, baseBranch: effectiveBase, repoRoot });
-  const arch =
-    config.archlens?.enabled !== false
-      ? checkArchRings({ repoRoot, policyPath: config.archlens?.policyPath || '.archlens/policy.json' })
-      : { passed: true, violations: [] };
+  const arch = config.archlens?.enabled !== false ? checkArchRings({ repoRoot, policyPath: config.archlens?.policyPath || '.archlens/policy.json' }) : { passed: true, violations: [] };
   const secrets = scanDiffSecrets(repoRoot, { baseBranch: effectiveBase, runNpmAudit: Boolean(online || process.env.CI === 'true') });
 
   const moduleResults = [];
@@ -696,7 +696,7 @@ export function runGate(repoRoot = '.', { noCache = false, online = false, verbo
   if (mode === 'code' && drift.passed && arch.passed && secrets.passed) {
     for (const mod of config.modules) {
       const modCwd = mod.path && mod.path !== '.' ? resolveInsideRepo(repoRoot, mod.path) : path.resolve(repoRoot);
-      const tree = computeTreeHash({ repoRoot, modulePath: mod.path || '.', checkType: 'gate' });
+      const tree = computeTreeHash({ repoRoot, modulePath: mod.path || '.', checkType: 'gate', baseBranch: effectiveBase });
       const cached = !noCache && !dirty && tree.cacheable ? readGateCache(repoRoot, mod.name, tree.hash) : null;
 
       if (cached && cached.passed === true) {

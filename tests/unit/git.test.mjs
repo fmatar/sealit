@@ -14,7 +14,6 @@ import {
   writeFileAtomic,
   withFileLock,
   parseEnvFile,
-  getRepoEnv,
   resolveGitCommonRepoRoot,
   resolveGitHooksDir,
   getCurrentGitBranch,
@@ -30,6 +29,9 @@ import {
   isDocsOnlyDiff,
   hasDirtyNonGovernanceFiles,
   normalizeTicketId,
+  parseTicketId,
+  unquoteGitPath,
+  parseFrontmatter,
   sameShaPrefix
 } from '../../.agent/scripts/lib/git.mjs';
 
@@ -80,13 +82,13 @@ describe('Ring 0: lib/git.mjs', () => {
     assert.throws(() => resolveInsideRepo(dir, ''), /empty path/i);
   });
 
-  it('parseEnvFile and getRepoEnv handle CRLF and inline comments without mutating process.env', () => {
+  it('parseEnvFile handles CRLF, export prefix, and inline comments without mutating process.env', () => {
     const { dir, cleanup } = createTempGitRepo();
     cleanups.push(cleanup);
 
     fs.writeFileSync(
       path.join(dir, '.env'),
-      '# comment\r\nLINEAR_API_KEY=lin_secret_123 # trailing comment\r\nQUOTED_HASH="val#keep"\r\nSINGLE_QUOTED=\'hello=world\'\r\n',
+      '# comment\r\nexport LINEAR_API_KEY=lin_secret_123 # trailing comment\r\nQUOTED_HASH="val#keep"\r\nSINGLE_QUOTED=\'hello=world\'\r\n',
       'utf8'
     );
     const beforeKeys = Object.keys(process.env).sort();
@@ -95,17 +97,9 @@ describe('Ring 0: lib/git.mjs', () => {
     assert.equal(parsed.LINEAR_API_KEY, 'lin_secret_123');
     assert.equal(parsed.QUOTED_HASH, 'val#keep');
     assert.equal(parsed.SINGLE_QUOTED, 'hello=world');
-    assert.equal(getRepoEnv('LINEAR_API_KEY', dir), 'lin_secret_123');
-
-    process.env.LINEAR_API_KEY = 'override_from_env';
-    try {
-      assert.equal(getRepoEnv('LINEAR_API_KEY', dir), 'override_from_env');
-    } finally {
-      delete process.env.LINEAR_API_KEY;
-    }
   });
 
-  it('writeFileAtomic writes atomically and withFileLock recovers from dead-PID stale locks', () => {
+  it('writeFileAtomic writes atomically and withFileLock recovers from dead-PID and corrupt/0-byte stale locks', () => {
     const { dir, cleanup } = createTempGitRepo();
     cleanups.push(cleanup);
 
@@ -123,6 +117,21 @@ describe('Ring 0: lib/git.mjs', () => {
     });
     assert.equal(value, 42);
     assert.equal(fs.existsSync(lockPath), false);
+
+    // 0-byte/corrupt stale lockfile older than staleMs is reclaimed via mtimeMs
+    fs.writeFileSync(lockPath, '', 'utf8');
+    const oldDate = new Date(Date.now() - 120000);
+    fs.utimesSync(lockPath, oldDate, oldDate);
+    assert.equal(withFileLock(lockPath, () => 'reclaimed', { timeoutMs: 200, staleMs: 30000 }), 'reclaimed');
+    assert.equal(fs.existsSync(lockPath), false);
+
+    // Live-PID fresh lockfile times out with FILE_LOCK_TIMEOUT
+    fs.writeFileSync(lockPath, JSON.stringify({ pid: process.pid, createdAt: Date.now() }), 'utf8');
+    try {
+      assert.throws(() => withFileLock(lockPath, () => 1, { timeoutMs: 40, staleMs: 30000 }), (err) => err?.code === 'FILE_LOCK_TIMEOUT');
+    } finally {
+      fs.rmSync(lockPath, { force: true });
+    }
   });
 
   it('cleanGitEnv strips GIT_* overrides and linked worktrees share common repo root and hooks dir', () => {
@@ -143,6 +152,12 @@ describe('Ring 0: lib/git.mjs', () => {
     assert.equal(fs.realpathSync(resolveGitCommonRepoRoot(wtDir)), fs.realpathSync(dir));
     assert.equal(fs.realpathSync(resolveGitHooksDir(wtDir)), fs.realpathSync(path.join(dir, '.git/hooks')));
     assert.equal(getCurrentGitBranch(wtDir), 'feat/wt');
+
+    // Unborn 0-commit repository resolves symbolic HEAD branch instead of empty string
+    const unbornDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-unborn-'));
+    cleanups.push(() => fs.rmSync(unbornDir, { recursive: true, force: true }));
+    git(unbornDir, 'init', '-q', '-b', 'feat/unborn');
+    assert.equal(getCurrentGitBranch(unbornDir), 'feat/unborn');
   });
 
   it('resolveEffectiveDiffBase handles feature->develop, develop->main, main pushes, and 1-commit newborn repos', () => {
@@ -254,10 +269,22 @@ describe('Ring 0: lib/git.mjs', () => {
     assert.notEqual(computeContentTreeSha(sha3, dir), tree1);
   });
 
-  it('isDocsOnlyDiff strictly distinguishes prose docs from specs, manifests, contracts, and source files', () => {
+  it('isDocsOnlyDiff strictly distinguishes prose docs from agent skills, rules, dotfiles, specs, manifests, and code', () => {
     assert.equal(isDocsOnlyDiff([]), false);
-    assert.equal(isDocsOnlyDiff(['README.md', 'CHANGELOG.md', 'docs/guide.md', 'docs/logo-dark.svg']), true);
+    assert.equal(isDocsOnlyDiff(['README.md', 'CHANGELOG.md', 'CONTRIBUTING.md', 'LICENSE', 'docs/guide.md', 'docs/logo-dark.svg']), true);
     for (const nonDoc of [
+      '.agent/skills/sdlc-gate/SKILL.md',
+      '.claude/skills/sdlc/SKILL.md',
+      '.cursor/rules/agentic-sdlc.mdc',
+      '.codex/skills/sdlc/SKILL.md',
+      '.github/PULL_REQUEST_TEMPLATE.md',
+      '.github/copilot-instructions.md',
+      'AGENTS.md',
+      'CLAUDE.md',
+      'llms.txt',
+      '.gitignore',
+      '.gitattributes',
+      '.editorconfig',
       'requirements.txt',
       'CMakeLists.txt',
       'docs/openapi.yaml',
@@ -275,6 +302,12 @@ describe('Ring 0: lib/git.mjs', () => {
 
     assert.equal(normalizeTicketId('#42'), '42');
     assert.equal(normalizeTicketId('N/A'), null);
+    assert.equal(parseTicketId('#42'), 42);
+    assert.equal(parseTicketId('L-7'), 'L-7');
+    assert.equal(parseTicketId(''), null);
+    assert.equal(unquoteGitPath('"a\\tb\\nc\\\"d\\\\e"'), 'a\tb\nc"d\\e');
+    assert.deepEqual(parseFrontmatter('---\nid: ADR-001\ntitle: "Quoted"\n---\nBody text').frontmatter, { id: 'ADR-001', title: 'Quoted' });
+    assert.deepEqual(parseFrontmatter('No frontmatter').frontmatter, {});
     assert.equal(sameShaPrefix('abcdef1234567890', 'abcdef1'), true);
     assert.equal(sameShaPrefix('abc12', 'abc12'), false);
   });

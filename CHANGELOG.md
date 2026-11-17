@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-11-16
+## [0.1.0] - 2026-11-17
 
 ### Added
 - **8-Module Alignment + Proof Kernel (`ADR-019`)**: Consolidated runtime architecture into 8 concentric Clean Architecture modules (`git.mjs`, `config.mjs`, `receipt.mjs`, `drift.mjs`, `measure.mjs`, `guard.mjs`, `install.mjs`, `sdlc-engine.mjs`), each `<= 850` LOC with zero runtime dependencies and Node.js `>= 22.0.0` support.
@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 - **Peripheral & Vendored Bloat (`~80,000+` lines removed)**: Removed embedded loopback HTTP `workbench-server.mjs` and `workbench-assets/`, `pm-provider.mjs` and `docs/KANBAN.md`, `readme-sync.mjs`, `wiki-sync.mjs` and `wiki/*`, `product-dag.mjs`, `arch-trace.mjs` and `docs/ARCH_TRACE.md`, `decision-graph.mjs` and `docs/DECISION_MAP.md`, `dossier.mjs`, synthetic `watchdog`/`proof`/`release` CLI subcommands, duplicate `enforce-branch-flow.yml` and `publish-wiki.yml` workflows, tracked `.claude`/`.cursor` skill mirrors and `.zip` archives, and vendored `impeccable` copies.
+
+### Migration (`v0.0.2` -> `v0.1.0`)
+- **CLI Commands**: Use `sdlc begin` / `sdlc end` (or compatibility aliases `stage begin` / `stage complete`), `sdlc status` (`session status`), `sdlc drift`, `sdlc gate`, `sdlc review <plan|record>`, `sdlc receipt`, and `sdlc verify` (`guard verify` / `audit verify`). Removed peripheral commands (`pm`, `ticket`, `serve`, `ui-snapshot`, `wiki`, `readme`, `triage`, `decision-graph`, `dossier`, `watchdog`, `proof`, `release`) exit `2`.
+- **Configuration Schema (`.agent/sdlc-config.json`)**: Legacy top-level keys (`lanes`, `gates`, `testing`, `projectManagement`, `profile`, `generatedAt`) are migrated in memory with deprecation warnings; run `node .agent/scripts/sdlc-engine.mjs doctor --fix` to rewrite `.agent/sdlc-config.json` to the `0.1.0` schema while preserving custom module commands and thresholds.
+- **Git Hooks & CI Workflows**: Run `node .agent/scripts/sdlc-engine.mjs doctor --fix` (or `sdlc init --yes`) to upgrade all 4 fail-closed Git hooks (`pre-commit`, `pre-merge-commit`, `pre-push`, `post-merge`) and `.github/workflows/sdlc-quality-gate.yml` (which consolidates branch-flow checks from the retired `enforce-branch-flow.yml`).
 
 ## [0.0.2] - 2026-11-15
 

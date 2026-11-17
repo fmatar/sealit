@@ -9,7 +9,7 @@
     "excludedMutations": ["StringLiteral", "Regex"]
   },
   "tap": {
-    "nodeArgs": ["--test", "--test-isolation=none", "--test-reporter=tap"],
+    "nodeArgs": ["--test", "--test-reporter=tap"],
     "testFiles": [
       "tests/unit/config.test.mjs",
       "tests/unit/install.test.mjs",

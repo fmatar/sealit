@@ -16,6 +16,7 @@ import {
   parseEnvFile,
   parseTicketId,
   readFileSafe,
+  resolveDiffComparisonState,
   resolveEffectiveDiffBase,
   resolveGitCommonRepoRoot,
   sameShaPrefix,
@@ -401,10 +402,10 @@ function isCacheExcludedPath(relPath = '') {
   return CACHE_EXCLUDED_PATHS.has(norm) || norm.startsWith('.agent/.cache/');
 }
 
-export function computeTreeHash({ repoRoot = '.', modulePath = '.', checkType = '' } = {}) {
+export function computeTreeHash({ repoRoot = '.', modulePath = '.', checkType = '', baseBranch = null } = {}) {
   const absRoot = path.resolve(repoRoot);
   const hash = crypto.createHash('sha256');
-  hash.update(`module:${modulePath}\nnode:${process.version}\ncheckType:${checkType}\n`);
+  hash.update(`module:${modulePath}\nnode:${process.version}\ncheckType:${checkType}\nbase:${baseBranch || ''}\n`);
 
   for (const cfgRel of ['.agent/sdlc-config.json', '.archlens/policy.json', 'stryker.config.json', 'package.json']) {
     const cfgAbs = path.join(absRoot, cfgRel);
@@ -416,8 +417,7 @@ export function computeTreeHash({ repoRoot = '.', modulePath = '.', checkType = 
     return { hash: hash.digest('hex'), cacheable: false };
   }
   const headSha = headRes.stdout.trim();
-  const effBase = resolveEffectiveDiffBase(null, absRoot);
-  const mbOut = effBase ? gitOutput(['merge-base', '--end-of-options', effBase, 'HEAD'], absRoot) : '';
+  const { mergeBase: mbOut } = resolveDiffComparisonState(baseBranch, absRoot);
 
   const statusRes = gitExec(['status', '--porcelain', '--untracked-files=all', '--', modulePath], absRoot);
   if (statusRes.error || statusRes.status !== 0) {
@@ -597,7 +597,7 @@ export function issueGateReceipt({ repoRoot = '.', docsOnly = false, reviewerOve
     const measuredByMod = new Map((lastGate.modules || []).map((m) => [m.module, m]));
     for (const mod of mods) {
       const mRec = measuredByMod.get(mod.name);
-      const covFloor = typeof mod.thresholds?.diffCoverage === 'number' ? mod.thresholds.diffCoverage : null;
+      const covFloor = Boolean(mod.commands?.coverage) && typeof mod.thresholds?.diffCoverage === 'number' ? mod.thresholds.diffCoverage : null;
       const actualCov = mRec ? mRec.diffCoveragePct : lastGate.diffCoveragePct;
       if (covFloor !== null && (typeof actualCov !== 'number' || actualCov < covFloor)) {
         return {
@@ -806,6 +806,28 @@ export function verifyGateReceipt({ headSha = null, branch = null, repoRoot = '.
       branch,
       reason: `No valid signed Stage 7 gate receipt found for ${targetSha}.`
     };
+  }
+
+  let baseCommit = isMultiParent ? (gitOutput(['rev-parse', '--verify', '-q', '--end-of-options', `${targetSha}^1`], absRoot) || '').trim() : '';
+  if (!baseCommit) {
+    const effBase = resolveEffectiveDiffBase(null, absRoot);
+    for (const cand of [`origin/${effBase}`, effBase]) {
+      const cSha = (gitOutput(['rev-parse', '--verify', '-q', '--end-of-options', `${cand}^{commit}`], absRoot) || '').trim();
+      if (!cSha) continue;
+      baseCommit = cSha === targetSha
+        ? (gitOutput(['rev-parse', '--verify', '-q', '--end-of-options', `${targetSha}~1`], absRoot) || '').trim()
+        : (gitOutput(['merge-base', '--end-of-options', cand, targetSha], absRoot) || '').trim();
+      if (baseCommit) break;
+    }
+  }
+  if (baseCommit) {
+    const baseLedgerRaw = gitOutput(['show', '--end-of-options', `${baseCommit}:${AUDIT_LEDGER_FILE}`], absRoot);
+    if (baseLedgerRaw) {
+      const baseChain = verifyAuditChainContent(baseLedgerRaw);
+      if (baseChain.valid && baseChain.recordsCount > 0 && (activeChain.recordsCount < baseChain.recordsCount || activeChain.records[baseChain.recordsCount - 1]?.currentHash !== baseChain.chainHead)) {
+        return { valid: false, targetSha, branch, reason: 'Audit ledger continuity broken: historical records from base commit were truncated or rewritten.' };
+      }
+    }
   }
 
   return {

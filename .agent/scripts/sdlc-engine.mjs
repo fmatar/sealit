@@ -638,7 +638,13 @@ export function formatCLIResult(cmd, res = {}) {
       if (g.reason) details.push(`  - ${g.reason}`);
       if (g.drift && !g.drift.passed) details.push(`  - drift: ${g.drift.message || 'Spec/ADR drift detected'}`);
       if (g.arch && !g.arch.passed) details.push(`  - arch: ${g.arch.message || `${g.arch.violations?.length || 1} ring violation(s)`}`);
-      if (g.secrets && !g.secrets.passed) details.push(`  - secrets: ${g.secrets.findings?.length || 1} secret/audit finding(s)`);
+      if (g.secrets && !g.secrets.passed) {
+        const parts = [
+          ...(g.secrets.secretViolations || []).map((v) => `${v.file} (${v.pattern || v.type || 'secret'})`),
+          ...(g.secrets.auditError ? [g.secrets.auditError] : [])
+        ];
+        details.push(`  - secrets: ${parts.join('; ') || 'secret/audit check failed'}`);
+      }
       for (const m of g.modules || []) {
         if (!m.passed) details.push(`  - ${m.module} (${m.failedStep || 'module'}): ${m.error || 'check failed'}`);
       }

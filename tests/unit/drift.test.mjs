@@ -187,6 +187,20 @@ describe('Ring 1: lib/drift.mjs', () => {
     fs.writeFileSync(path.join(dir, 'PRODUCT.md'), '# Constitution v1\n', 'utf8');
     const h2 = computeAlignmentHashes(dir);
     assert.notEqual(h1.specHash, h2.specHash);
+
+    // Deleting an accepted ADR or docs/AUDIT_CHAIN.jsonl triggers SPEC_DELETED drift
+    const delRepo = createTempGitRepo();
+    cleanups.push(delRepo.cleanup);
+    const createdDelAdr = createADR({ title: 'Baseline Decision', scope: 'technical', ticket: '12', repoRoot: delRepo.dir });
+    decideADR({ adrId: createdDelAdr.id, status: 'approve', reviewer: '@arch', reason: 'ok', repoRoot: delRepo.dir });
+    git(delRepo.dir, 'add', createdDelAdr.file, 'docs/AUDIT_CHAIN.jsonl');
+    git(delRepo.dir, 'commit', '-q', '-m', 'chore: baseline ADR and audit ledger');
+    git(delRepo.dir, 'checkout', '-q', '-b', 'feat/delete-adr', 'develop');
+    git(delRepo.dir, 'rm', '-q', createdDelAdr.file, 'docs/AUDIT_CHAIN.jsonl');
+    const delDrift = checkSpecDrift({ repoRoot: delRepo.dir });
+    assert.equal(delDrift.passed, false);
+    assert.ok(delDrift.triggers.some((t) => t.file === createdDelAdr.file && t.type === 'SPEC_DELETED'));
+    assert.ok(delDrift.triggers.some((t) => t.file === 'docs/AUDIT_CHAIN.jsonl' && t.type === 'SPEC_DELETED'));
   });
 
   it('checkArchRings enforces concentric rings across .mjs and extensionless .ts/.tsx imports and detects cycles', () => {
@@ -245,5 +259,55 @@ describe('Ring 1: lib/drift.mjs', () => {
     const commentStringRes = checkArchRings({ repoRoot: dir });
     assert.equal(commentStringRes.passed, false);
     assert.ok(commentStringRes.violations.some((v) => v.type === 'LAYER_VIOLATION'));
+
+    // Comments containing fake imports are stripped; dynamic import()/require(), unmapped modules, glob patterns, and invalid policy JSON are enforced
+    fs.writeFileSync(
+      path.join(dir, 'src/core/entity.ts'),
+      "// import '../adapters/http';\n/* import '../adapters/http'; */\nexport const s = \"escaped \\\" /* still string\";\nexport const h = 1;\n",
+      'utf8'
+    );
+    assert.equal(checkArchRings({ repoRoot: dir }).passed, true);
+
+    fs.writeFileSync(path.join(dir, 'src/core/entity.ts'), "export const dyn = () => import('../adapters/http');\n", 'utf8');
+    assert.equal(checkArchRings({ repoRoot: dir }).passed, false);
+
+    fs.writeFileSync(path.join(dir, 'src/core/unmapped.ts'), 'export const u = 1;\n', 'utf8');
+    fs.writeFileSync(path.join(dir, 'src/core/entity.ts'), 'export const e = 1;\n', 'utf8');
+    assert.ok(checkArchRings({ repoRoot: dir }).violations.some((v) => v.type === 'UNMAPPED_MODULE'));
+    fs.unlinkSync(path.join(dir, 'src/core/unmapped.ts'));
+
+    // Glob level pattern matching + invalid JSON policy + missing policy file
+    fs.writeFileSync(
+      path.join(dir, '.archlens/policy.json'),
+      JSON.stringify({ title: 'glob', src: 'src', order: ['core', 'adapters'], levels: [['src/core/**'], ['src/adapters/**']] }),
+      'utf8'
+    );
+    assert.equal(checkArchRings({ repoRoot: dir }).passed, true);
+    fs.writeFileSync(path.join(dir, '.archlens/policy.json'), '{bad-policy', 'utf8');
+    assert.equal(checkArchRings({ repoRoot: dir }).passed, false);
+    fs.unlinkSync(path.join(dir, '.archlens/policy.json'));
+    assert.equal(checkArchRings({ repoRoot: dir }).passed, true);
+
+    // OpenAPI JSON/YAML validation branches: missing version, missing info/paths, tab indentation, comments with brackets, escaped quotes, unbalanced quotes
+    git(dir, 'checkout', '-q', '-b', 'feat/oas-edges', 'develop');
+    fs.mkdirSync(path.join(dir, 'api'), { recursive: true });
+    for (const [name, body, expectPass] of [
+      ['openapi-no-ver.json', JSON.stringify({ info: {}, paths: {} }), false],
+      ['openapi-no-paths.json', JSON.stringify({ openapi: '3.0.0', info: {} }), false],
+      ['openapi-no-ver.yaml', 'info:\n  title: x\npaths: {}\n', false],
+      ['openapi-no-info.yaml', 'openapi: 3.0.0\npaths: {}\n', false],
+      ['openapi-tabs.yaml', 'openapi: 3.0.0\ninfo:\n\ttitle: tab\npaths: {}\n', false],
+      ['openapi-unbalanced.yaml', 'openapi: 3.0.0\ninfo:\n  title: "unclosed\npaths: {}\n', false],
+      ['openapi-comments.yaml', 'openapi: 3.0.0\n# comment with [unmatched {\ninfo: { title: "a\\"b", desc: \'c#d\' }\nwebhooks: {}\n', true]
+    ]) {
+      const p = path.join(dir, 'api', name);
+      fs.writeFileSync(p, body, 'utf8');
+      if (expectPass) {
+        const a = createADR({ title: `Contract ${name}`, scope: 'contract', ticket: '99', repoRoot: dir });
+        decideADR({ adrId: a.id, status: 'approve', reviewer: '@r', reason: 'ok', repoRoot: dir });
+      }
+      assert.equal(checkSpecDrift({ ticketId: '99', repoRoot: dir }).passed, expectPass, `Failed expectation for ${name}`);
+      fs.unlinkSync(p);
+    }
   });
 });

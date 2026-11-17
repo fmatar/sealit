@@ -333,13 +333,14 @@ export function checkSpecDrift({ ticketId = null, baseBranch = null, repoRoot = 
   const triggers = [];
   const contractErrors = [];
   const DELETED_GOVERNANCE_RE =
-    /^(?:PRODUCT\.md|docs\/PRD\.md|docs\/SRS\.md|docs\/specs\/.+\.md|\.archlens\/policy\.json)$|(?:^|\/)(?:package\.json|Cargo\.toml|pyproject\.toml|requirements[^/]*\.txt|go\.mod|pom\.xml|build\.gradle(?:\.kts)?|prisma\/schema\.prisma)$|\.(?:sql|graphql|proto)$|(?:openapi|swagger).*\.(?:json|ya?ml)$/i;
+    /^(?:PRODUCT\.md|docs\/PRD\.md|docs\/SRS\.md|docs\/specs\/.+\.md|docs\/adr\/ADR-\d+.*\.md|docs\/AUDIT_CHAIN\.jsonl|\.archlens\/policy\.json)$|(?:^|\/)(?:package\.json|Cargo\.toml|pyproject\.toml|requirements[^/]*\.txt|go\.mod|pom\.xml|build\.gradle(?:\.kts)?|prisma\/schema\.prisma)$|\.(?:sql|graphql|proto)$|(?:openapi|swagger).*\.(?:json|ya?ml)$/i;
 
   for (const rel of modifiedFiles) {
     const abs = path.resolve(repoRoot, rel);
     if (!fileExists(abs)) {
       if (DELETED_GOVERNANCE_RE.test(rel)) {
         triggers.push({ file: rel, type: 'SPEC_DELETED', scope: 'architectural' });
+        if (rel === 'docs/AUDIT_CHAIN.jsonl') contractErrors.push("Audit ledger 'docs/AUDIT_CHAIN.jsonl' cannot be deleted.");
       }
       continue;
     }
