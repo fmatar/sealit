@@ -95,7 +95,7 @@ describe('Ring 2: lib/guard.mjs', () => {
       fs.mkdirSync(path.join(dir, 'tests'), { recursive: true });
       fs.writeFileSync(
         path.join(dir, 'tests/basic.test.mjs'),
-        "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\ntest('ok', () => assert.equal(2, 2));\n",
+        "import fs from 'node:fs';\nfs.mkdirSync('coverage', { recursive: true });\nfs.writeFileSync('coverage/lcov.info', 'SF:tests/basic.test.mjs\\nDA:1,1\\nLF:1\\nLH:1\\nend_of_record\\n', 'utf8');\n",
         'utf8'
       );
       fs.writeFileSync(
@@ -108,7 +108,7 @@ describe('Ring 2: lib/guard.mjs', () => {
               name: 'root',
               path: '.',
               commands: {
-                coverage: `${process.execPath} --test --test-isolation=none --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info "tests/**/*.test.mjs"`,
+                coverage: `${process.execPath} tests/basic.test.mjs`,
                 coverageFile: 'coverage/lcov.info'
               },
               thresholds: { diffCoverage: 80, mutationScore: null }
@@ -125,7 +125,7 @@ describe('Ring 2: lib/guard.mjs', () => {
       fs.writeFileSync(path.join(dir, 'feature.mjs'), 'export const x = 44;\n', 'utf8');
       fs.writeFileSync(
         path.join(dir, 'tests/basic.test.mjs'),
-        "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { x } from '../feature.mjs';\ntest('ok', () => assert.equal(x, 44));\n",
+        "import assert from 'node:assert/strict';\nimport fs from 'node:fs';\nimport { x } from '../feature.mjs';\nassert.equal(x, 44);\nfs.mkdirSync('coverage', { recursive: true });\nfs.writeFileSync('coverage/lcov.info', 'SF:feature.mjs\\nDA:1,1\\nLF:1\\nLH:1\\nend_of_record\\n', 'utf8');\n",
         'utf8'
       );
       git(dir, 'add', 'feature.mjs', 'tests/basic.test.mjs');

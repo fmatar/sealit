@@ -195,6 +195,9 @@ describe('Ring 2: lib/measure.mjs', () => {
     assert.equal(mutRes.passed, true);
     assert.equal(mutRes.score, 100);
 
+  });
+
+  it('parses PIT, mutmut, cargo-mutants, go-mutesting, and buildReviewPlan without child spawns', () => {
     // Gradle PIT report discovery (build/reports/pitest/mutations.xml)
     const gradleRepo = createTempGitRepo();
     cleanups.push(gradleRepo.cleanup);
@@ -261,20 +264,107 @@ describe('Ring 2: lib/measure.mjs', () => {
     assert.equal(goMut.passed, true);
     assert.equal(goMut.score, 75);
 
-    const reviewPlan = buildReviewPlan(dir, { sessionId: '99' });
+    const reviewPlan = buildReviewPlan(gradleRepo.dir, { sessionId: '99' });
     assert.equal(typeof reviewPlan.mode, 'string');
     assert.ok(Array.isArray(reviewPlan.reviewers));
+  });
 
-    // Stryker diff-scoped plan does not misclassify source containing string "Binary files x differ"
-    git(dir, 'checkout', '-q', '-b', 'feat/stryker-plan', 'develop');
+  it('buildMutationPlan and measureModuleMutation shard multi-source runs, keep cache in repo root, and fail closed on broken shards', () => {
+    const { dir, cleanup } = createTempGitRepo();
+    cleanups.push(cleanup);
+    fs.mkdirSync(path.join(dir, 'scripts'), { recursive: true });
+
+    // Stryker diff-scoped plan does not misclassify source containing string "Binary files x differ" and shards multi-source runs 1:1 per unit test
     fs.mkdirSync(path.join(dir, '.agent/scripts/lib'), { recursive: true });
     fs.mkdirSync(path.join(dir, 'tests/unit'), { recursive: true });
-    fs.writeFileSync(path.join(dir, 'stryker.config.json'), JSON.stringify({ mutate: ['.agent/scripts/lib/git.mjs'], tap: { testFiles: ['tests/unit/git.test.mjs', 'tests/unit/other.test.mjs'] } }), 'utf8');
-    fs.writeFileSync(path.join(dir, '.agent/scripts/lib/git.mjs'), 'export const msg = "Binary files a and b differ";\n', 'utf8');
+    fs.writeFileSync(
+      path.join(dir, 'stryker.config.json'),
+      JSON.stringify({
+        incrementalFile: 'reports/stryker-incremental.json',
+        mutate: ['.agent/scripts/lib/config.mjs', '.agent/scripts/lib/git.mjs', '.agent/scripts/lib/drift.mjs'],
+        tap: { testFiles: ['tests/unit/config.test.mjs', 'tests/unit/git.test.mjs', 'tests/unit/drift.test.mjs'] }
+      }),
+      'utf8'
+    );
+    fs.writeFileSync(path.join(dir, 'tests/unit/config.test.mjs'), '// unit test\n', 'utf8');
     fs.writeFileSync(path.join(dir, 'tests/unit/git.test.mjs'), '// unit test\n', 'utf8');
-    const plan = buildMutationPlan(dir, { name: 'root', path: '.', commands: { mutation: './node_modules/.bin/stryker run' } });
-    assert.equal(plan.diffScoped, true);
-    assert.ok(plan.targets.some((t) => t.startsWith('.agent/scripts/lib/git.mjs:1-')));
+    fs.writeFileSync(path.join(dir, 'tests/unit/drift.test.mjs'), '// unit test\n', 'utf8');
+    git(dir, 'add', 'stryker.config.json', 'tests/unit');
+    git(dir, 'commit', '-q', '-m', 'chore: add stryker baseline');
+    git(dir, 'checkout', '-q', '-b', 'feat/stryker-plan', 'develop');
+    fs.writeFileSync(path.join(dir, '.agent/scripts/lib/git.mjs'), 'export const msg = "Binary files a and b differ";\n', 'utf8');
+    const singlePlan = buildMutationPlan(dir, { name: 'root', path: '.', commands: { mutation: './node_modules/.bin/stryker run' } });
+    assert.equal(singlePlan.diffScoped, true);
+    assert.equal(singlePlan.shards, null);
+    assert.ok(singlePlan.targets.some((t) => t.startsWith('.agent/scripts/lib/git.mjs:1-')));
+    assert.equal(singlePlan.commandArgv.includes('reports/stryker-diff-incremental.json'), false);
+
+    // Multi-file diff builds 1:1 per-module shards excluding unmodified drift.test.mjs and merges shard reports
+    fs.writeFileSync(path.join(dir, '.agent/scripts/lib/config.mjs'), 'export const cfg = 1;\n', 'utf8');
+    const multiPlan = buildMutationPlan(dir, { name: 'root', path: '.', commands: { mutation: './node_modules/.bin/stryker run' } });
+    assert.equal(Array.isArray(multiPlan.shards), true);
+    assert.equal(multiPlan.shards.length, 2);
+    const fullPlan = buildMutationPlan(dir, { name: 'root', path: '.', commands: { mutation: './node_modules/.bin/stryker run' } }, { full: true });
+    assert.equal(Array.isArray(fullPlan.shards) && fullPlan.shards.length === 3, true);
+
+    fs.writeFileSync(
+      path.join(dir, 'scripts/fake-stryker-shard.mjs'),
+      `import fs from 'node:fs'; import path from 'node:path';
+       const cfg = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+       if (!Array.isArray(cfg.reporters) || !cfg.reporters.includes('json')) process.exit(3);
+       const out = cfg.jsonReporter.fileName;
+       fs.mkdirSync(path.dirname(out), { recursive: true });
+       const src = process.argv[5].split(':')[0];
+       fs.writeFileSync(out, JSON.stringify({ files: { [src]: { mutants: [{ id: '1', status: 'Killed', location: { start: { line: 1 }, end: { line: 1 } } }] } } }));`,
+      'utf8'
+    );
+    const shardedRes = measureModuleMutation(dir, { name: 'root', path: '.', commands: { mutation: `${process.execPath} scripts/fake-stryker-shard.mjs run` }, thresholds: { mutationScore: 80 } });
+    assert.equal(shardedRes.passed, true);
+    assert.equal(shardedRes.killed, 2);
+
+    // Crashing shard (missing/stale shard report) MUST fail closed instead of bypassing via diff-zero-mutants
+    fs.writeFileSync(path.join(dir, 'scripts/crash-stryker-shard.mjs'), 'process.exit(2);\n', 'utf8');
+    assert.throws(() =>
+      measureModuleMutation(dir, { name: 'root', path: '.', commands: { mutation: `${process.execPath} scripts/crash-stryker-shard.mjs run` }, thresholds: { mutationScore: 80 } })
+    );
+
+    // Malformed shard JSON missing 'files' object fails closed even if runner exits 0
+    fs.writeFileSync(
+      path.join(dir, 'scripts/malformed-stryker-shard.mjs'),
+      `import fs from 'node:fs'; import path from 'node:path';
+       const cfg = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+       fs.mkdirSync(path.dirname(cfg.jsonReporter.fileName), { recursive: true });
+       fs.writeFileSync(cfg.jsonReporter.fileName, '{}');`,
+      'utf8'
+    );
+    const malformedRes = measureModuleMutation(dir, { name: 'root', path: '.', commands: { mutation: `${process.execPath} scripts/malformed-stryker-shard.mjs run` }, thresholds: { mutationScore: 80 } });
+    assert.equal(malformedRes.passed, false);
+
+    // Non-tap testRunner falls back to unsharded execution
+    fs.writeFileSync(
+      path.join(dir, 'stryker.config.json'),
+      JSON.stringify({ testRunner: 'vitest', mutate: ['.agent/scripts/lib/config.mjs', '.agent/scripts/lib/git.mjs'], tap: { testFiles: ['tests/unit/config.test.mjs', 'tests/unit/git.test.mjs'] } }),
+      'utf8'
+    );
+    assert.equal(buildMutationPlan(dir, { name: 'root', path: '.', commands: { mutation: './node_modules/.bin/stryker run' } }).shards, null);
+
+    // Subdirectory mod.path writes generated Stryker cache configs inside repo-root .agent/.cache/ (never dirtying packages/api/.agent)
+    const subCacheRepo = createTempGitRepo();
+    cleanups.push(subCacheRepo.cleanup);
+    fs.mkdirSync(path.join(subCacheRepo.dir, 'packages/api/src'), { recursive: true });
+    fs.mkdirSync(path.join(subCacheRepo.dir, 'packages/api/tests/unit'), { recursive: true });
+    fs.writeFileSync(path.join(subCacheRepo.dir, 'packages/api/stryker.config.json'), JSON.stringify({ mutate: ['src/a.mjs'], tap: { testFiles: ['tests/unit/a.test.mjs', 'tests/unit/b.test.mjs'] } }), 'utf8');
+    fs.writeFileSync(path.join(subCacheRepo.dir, 'packages/api/tests/unit/a.test.mjs'), '// t\n', 'utf8');
+    fs.writeFileSync(path.join(subCacheRepo.dir, 'packages/api/src/a.mjs'), 'export const a = 1;\n', 'utf8');
+    git(subCacheRepo.dir, 'add', 'packages/api');
+    git(subCacheRepo.dir, 'commit', '-q', '-m', 'chore: sub baseline');
+    git(subCacheRepo.dir, 'checkout', '-q', '-b', 'feat/sub-cache', 'develop');
+    fs.writeFileSync(path.join(subCacheRepo.dir, 'packages/api/src/a.mjs'), 'export const a = 2;\n', 'utf8');
+    git(subCacheRepo.dir, 'add', 'packages/api/src/a.mjs');
+    git(subCacheRepo.dir, 'commit', '-q', '-m', 'feat: update a');
+    buildMutationPlan(subCacheRepo.dir, { name: 'api', path: 'packages/api', commands: { mutation: './node_modules/.bin/stryker run' } });
+    assert.equal(fs.existsSync(path.join(subCacheRepo.dir, 'packages/api/.agent')), false);
+    assert.equal(git(subCacheRepo.dir, 'status', '--porcelain').stdout.trim(), '');
 
     // Coverage-summary JSON and JaCoCo CSV parsers
     const jsonCovRepo = createTempGitRepo();
@@ -328,8 +418,8 @@ describe('Ring 2: lib/measure.mjs', () => {
     fs.mkdirSync(path.join(dir, '.agent'), { recursive: true });
     fs.mkdirSync(path.join(dir, 'tests'), { recursive: true });
     fs.writeFileSync(
-      path.join(dir, 'tests/sample.test.mjs'),
-      "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\ntest('ok', () => assert.equal(1 + 1, 2));\n",
+      path.join(dir, 'tests/emit-cov.mjs'),
+      "import fs from 'node:fs';\nfs.mkdirSync('coverage', { recursive: true });\nfs.writeFileSync('coverage/lcov.info', 'SF:tests/emit-cov.mjs\\nDA:1,1\\nLF:1\\nLH:1\\nend_of_record\\n', 'utf8');\n",
       'utf8'
     );
     fs.writeFileSync(
@@ -345,8 +435,8 @@ describe('Ring 2: lib/measure.mjs', () => {
             commands: {
               lint: null,
               build: null,
-              test: `${process.execPath} --test --test-isolation=none "tests/**/*.test.mjs"`,
-              coverage: `${process.execPath} --test --test-isolation=none --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info "tests/**/*.test.mjs"`,
+              test: `${process.execPath} tests/emit-cov.mjs`,
+              coverage: `${process.execPath} tests/emit-cov.mjs`,
               coverageFile: 'coverage/lcov.info',
               mutation: null
             },
@@ -356,7 +446,7 @@ describe('Ring 2: lib/measure.mjs', () => {
       }),
       'utf8'
     );
-    git(dir, 'add', '.agent/sdlc-config.json', 'tests/sample.test.mjs');
+    git(dir, 'add', '.agent/sdlc-config.json', 'tests/emit-cov.mjs');
     git(dir, 'commit', '-q', '-m', 'feat: add sample test and config');
 
     writeActiveSession(dir, (s) => {
@@ -365,9 +455,11 @@ describe('Ring 2: lib/measure.mjs', () => {
       return s;
     });
 
-    const cleanGate = runGate(dir, { noCache: true });
+    const progressSteps = [];
+    const cleanGate = runGate(dir, { noCache: true, onProgress: (msg) => progressSteps.push(msg) });
     assert.equal(cleanGate.passed, true);
     assert.equal(cleanGate.mode, 'code');
+    assert.ok(progressSteps.some((m) => /coverage/i.test(m)));
     const sessAfterClean = readActiveSession(dir);
     assert.equal(sessAfterClean.lastGate.passed, true);
     assert.notEqual(sessAfterClean.lastGate.headSha, 'DIRTY_WORKING_TREE');

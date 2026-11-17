@@ -110,7 +110,6 @@ export function requireFreshReport(report, mod, repoRoot, startedAt) {
   if (!report || !report.found) {
     return { ...(report || {}), found: false, passed: false, reason: report?.reason || 'Report not found on disk.' };
   }
-  const modDir = mod?.path && mod.path !== '.' ? resolveInsideRepo(repoRoot, mod.path) : path.resolve(repoRoot);
   let mtimeMs;
   try {
     const absRep = resolveInsideRepo(repoRoot, path.join(mod?.path || '.', report.file));
@@ -298,28 +297,16 @@ export function parseCoverageReport(repoRoot = '.', mod = {}, { baseBranch = nul
         } else {
           // Unimported file absent from LCOV: every executable added line counts as 0 hits
           for (const [, text] of addedLines.entries()) {
-            if (isExecutableSourceLine(text)) {
-              diffTotal++;
-            }
+            if (isExecutableSourceLine(text)) diffTotal++;
           }
         }
       }
-      if (diffTotal > 0) {
-        diffLineCoverage = Number(((diffHit / diffTotal) * 100).toFixed(2));
-      }
+      if (diffTotal > 0) diffLineCoverage = Number(((diffHit / diffTotal) * 100).toFixed(2));
   }
 
   const passed = threshold === null ? true : diffLineCoverage >= threshold;
-  return {
-    found: true,
-    passed,
-    file: relFound,
-    threshold,
-    repoLineCoverage,
-    diffLineCoverage,
-    formatted: `${diffLineCoverage.toFixed(1)}%`,
-    reason: passed ? null : `Diff line coverage ${diffLineCoverage.toFixed(1)}% is below threshold ${threshold}%.`
-  };
+  const reason = passed ? null : `Diff line coverage ${diffLineCoverage.toFixed(1)}% is below threshold ${threshold}%.`;
+  return { found: true, passed, file: relFound, threshold, repoLineCoverage, diffLineCoverage, formatted: `${diffLineCoverage.toFixed(1)}%`, reason };
 }
 
 export function extractChangedHunkRanges(diffText = '', { maxGapLines = 5, maxRanges = 25 } = {}) {
@@ -382,11 +369,8 @@ export function buildMutationPlan(repoRoot = '.', mod = {}, { full = false, noCa
   if (!baseCmd) return { skip: true, reason: 'not-configured', commandArgv: null, targets: [] };
   const parsed = parseCommandArgv(baseCmd);
   const baseTokens = [parsed.file, ...parsed.args];
-  const isStryker = baseTokens.some((t) => /stryker/i.test(t));
-
-  if (full || !isStryker) {
-    const extra = isStryker && noCache ? ['--force'] : [];
-    return { skip: false, diffScoped: false, full: Boolean(full), commandArgv: [...baseTokens, ...extra], targets: [] };
+  if (!baseTokens.some((t) => /stryker/i.test(t))) {
+    return { skip: false, diffScoped: false, full: Boolean(full), commandArgv: baseTokens, targets: [] };
   }
 
   const absRepo = path.resolve(repoRoot);
@@ -396,6 +380,41 @@ export function buildMutationPlan(repoRoot = '.', mod = {}, { full = false, noCa
   const strykerCfg = fileExists(strykerCfgPath) ? JSON.parse(readFileSafe(strykerCfgPath) || '{}') : {};
   const explicitMutate = Array.isArray(strykerCfg.mutate) ? strykerCfg.mutate.map((f) => f.replace(/^\.\//, '')) : [];
   const mutateSet = new Set(explicitMutate);
+  const defaultIncFile = strykerCfg.incrementalFile || 'reports/stryker-incremental.json';
+  const extraFlags = noCache ? ['--force'] : [];
+  const runIdx = baseTokens.indexOf('run');
+  const hasPositionalCfg = runIdx >= 0 && baseTokens.slice(runIdx + 1).some((t) => !t.startsWith('-'));
+  const canScopeTap = runIdx >= 0 && !hasPositionalCfg && fileExists(strykerCfgPath) && (!strykerCfg.testRunner || strykerCfg.testRunner === 'tap' || strykerCfg.testRunner === 'sdlc-node') && Array.isArray(strykerCfg?.tap?.testFiles);
+  const modSlug = String(mod.name || 'root').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const scopedReporters = [...new Set([...(Array.isArray(strykerCfg.reporters) ? strykerCfg.reporters : ['clear-text', 'progress']), 'json'])];
+  const writeScopedCfg = (name, extra) => {
+    const absCfg = path.join(absRepo, '.agent/.cache', `${modSlug}-${name}`);
+    writeFileAtomic(absCfg, JSON.stringify({ ...strykerCfg, reporters: scopedReporters, ...extra }, null, 2) + '\n');
+    return path.relative(modCwd, absCfg).replace(/\\/g, '/');
+  };
+
+  const orderTests = (primary) => (strykerCfg.testRunner === 'sdlc-node' ? [primary, ...strykerCfg.tap.testFiles.filter((f) => f !== primary)] : [primary]);
+  const makeShards = (sources, targetsBySource = null) => {
+    const stems = sources.map((s) => path.basename(s).replace(/\.[cm]?[jt]sx?$/i, ''));
+    if (sources.length <= 1 || !canScopeTap || new Set(stems).size !== sources.length) return null;
+    const paired = sources.map((s) => mapSourceToUnitTest(s, modCwd));
+    if (!paired.every(Boolean) || new Set(paired).size !== paired.length) return null;
+    return sources.map((src, idx) => {
+      const stem = stems[idx];
+      const reportRel = `reports/mutation/shard-${idx}-${stem}.json`;
+      const cfgRel = writeScopedCfg(`stryker-shard-${idx}-${stem}.config.json`, {
+        thresholds: { ...(strykerCfg.thresholds || {}), break: null },
+        jsonReporter: { ...(strykerCfg.jsonReporter || {}), fileName: reportRel },
+        tap: { ...strykerCfg.tap, testFiles: orderTests(paired[idx]) }
+      });
+      const mutSpec = (targetsBySource?.get(src) || [src]).join(',');
+      return { src, reportRel, commandArgv: [...baseTokens, cfgRel, '-m', mutSpec, '--incrementalFile', `reports/stryker-${stem}-incremental.json`, ...extraFlags, '--allowEmpty'] };
+    });
+  };
+
+  if (full) {
+    return { skip: false, diffScoped: false, full: true, commandArgv: [...baseTokens, ...extraFlags], targets: [], shards: makeShards(explicitMutate) };
+  }
 
   const modified = getModifiedFiles(baseBranch, absRepo)
     .filter((f) => (!modPrefix ? true : f === modPrefix || f.startsWith(`${modPrefix}/`)))
@@ -403,42 +422,43 @@ export function buildMutationPlan(repoRoot = '.', mod = {}, { full = false, noCa
 
   const directSources = modified.filter((f) => (mutateSet.size > 0 ? mutateSet.has(f) : isTrackableSourceFile(f)));
   const directSet = new Set(directSources);
-  const pairedSources = modified
-    .filter((f) => isTestFilePath(f))
-    .map((t) => mapUnitTestToSource(t, explicitMutate))
-    .filter((s) => s && !directSet.has(s));
-
+  const pairedSources = modified.filter((f) => isTestFilePath(f)).map((t) => mapUnitTestToSource(t, explicitMutate)).filter((s) => s && !directSet.has(s));
   const allSources = [...new Set([...directSources, ...pairedSources])];
   if (allSources.length === 0) {
     return { skip: true, diffScoped: true, reason: 'diff-no-mutated-sources', commandArgv: null, targets: [] };
   }
 
-  const repoPathsForDiff = directSources.map((s) => (modPrefix ? `${modPrefix}/${s}` : s));
-  const diffMap = getUnifiedDiffByFile(baseBranch, absRepo, repoPathsForDiff);
+  const diffMap = getUnifiedDiffByFile(baseBranch, absRepo, directSources.map((s) => (modPrefix ? `${modPrefix}/${s}` : s)));
   const targets = [];
+  const targetsBySource = new Map();
   for (const src of directSources) {
-    const repoKey = modPrefix ? `${modPrefix}/${src}` : src;
-    const ranges = extractChangedHunkRanges(diffMap.get(repoKey) || diffMap.get(src) || '');
-    if (ranges.length > 0) {
-      for (const r of ranges) targets.push(`${src}:${r.start}-${r.end}`);
-    } else {
-      targets.push(src);
-    }
+    const ranges = extractChangedHunkRanges(diffMap.get(modPrefix ? `${modPrefix}/${src}` : src) || diffMap.get(src) || '');
+    const srcTargets = ranges.length > 0 ? ranges.map((r) => `${src}:${r.start}-${r.end}`) : [src];
+    targets.push(...srcTargets);
+    targetsBySource.set(src, srcTargets);
   }
-  for (const ps of pairedSources) targets.push(ps);
+  for (const ps of pairedSources) {
+    targets.push(ps);
+    targetsBySource.set(ps, [ps]);
+  }
 
   let configArg = [];
-  if (allSources.length === 1 && fileExists(strykerCfgPath) && Array.isArray(strykerCfg?.tap?.testFiles)) {
+  let incFile = defaultIncFile;
+  if (allSources.length === 1 && canScopeTap) {
     const pairedTest = mapSourceToUnitTest(allSources[0], modCwd);
     if (pairedTest) {
-      const scopedCfgRel = '.agent/.cache/stryker-diff.config.json';
-      writeFileAtomic(path.join(modCwd, scopedCfgRel), JSON.stringify({ ...strykerCfg, tap: { ...strykerCfg.tap, testFiles: [pairedTest] } }, null, 2) + '\n');
-      configArg = [scopedCfgRel];
+      const stem = path.basename(allSources[0]).replace(/\.[cm]?[jt]sx?$/i, '');
+      configArg = [writeScopedCfg('stryker-diff.config.json', {
+        jsonReporter: { ...(strykerCfg.jsonReporter || {}), fileName: 'reports/mutation/mutation.json' },
+        tap: { ...strykerCfg.tap, testFiles: orderTests(pairedTest) }
+      })];
+      incFile = `reports/stryker-${stem}-incremental.json`;
     }
   }
 
-  const scopedTokens = [...baseTokens, ...configArg, '-m', targets.join(','), '--incrementalFile', 'reports/stryker-diff-incremental.json', ...(noCache ? ['--force'] : []), '--allowEmpty'];
-  return { skip: false, diffScoped: true, full: false, commandArgv: scopedTokens, targets, matchedSources: allSources };
+  const shards = makeShards(allSources, targetsBySource);
+  const scopedTokens = [...baseTokens, ...configArg, '-m', targets.join(','), '--incrementalFile', incFile, ...extraFlags, '--allowEmpty'];
+  return { skip: false, diffScoped: true, full: false, commandArgv: scopedTokens, targets, matchedSources: allSources, shards };
 }
 
 function parseTargetRangeFilter(targets = null, absRepo = null, modCwd = null) {
@@ -466,14 +486,8 @@ function findPitestReport(modCwd) {
   for (const base of ['target/pit-reports', 'build/reports/pitest']) {
     const absBase = path.join(modCwd, base);
     if (!fileExists(absBase)) continue;
-    const direct = path.join(absBase, 'mutations.xml');
-    if (fileExists(direct)) return `${base}/mutations.xml`;
-    const subs = fs
-      .readdirSync(absBase, { withFileTypes: true })
-      .filter((d) => d.isDirectory())
-      .map((d) => `${base}/${d.name}/mutations.xml`)
-      .filter((rel) => fileExists(path.join(modCwd, rel)))
-      .sort();
+    if (fileExists(path.join(absBase, 'mutations.xml'))) return `${base}/mutations.xml`;
+    const subs = fs.readdirSync(absBase, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => `${base}/${d.name}/mutations.xml`).filter((rel) => fileExists(path.join(modCwd, rel))).sort();
     if (subs.length > 0) return subs[subs.length - 1];
   }
   return null;
@@ -601,7 +615,7 @@ export function measureModuleCoverage(repoRoot = '.', mod = {}, { verbose = fals
   return requireFreshReport(parseCoverageReport(repoRoot, mod, { baseBranch }), mod, repoRoot, startedAt);
 }
 
-export function measureModuleMutation(repoRoot = '.', mod = {}, { full = false, noCache = false, verbose = false, baseBranch = null } = {}) {
+export function measureModuleMutation(repoRoot = '.', mod = {}, { full = false, noCache = false, verbose = false, baseBranch = null, onProgress = null } = {}) {
   const plan = buildMutationPlan(repoRoot, mod, { full, noCache, baseBranch });
   if (plan.skip) {
     const status = plan.reason || 'not-configured';
@@ -610,10 +624,35 @@ export function measureModuleMutation(repoRoot = '.', mod = {}, { full = false, 
   const modCwd = mod.path && mod.path !== '.' ? resolveInsideRepo(repoRoot, mod.path) : path.resolve(repoRoot);
   const startedAt = Date.now();
   let runnerErr = null;
-  try {
-    runConfiguredCommand(plan.commandArgv, { cwd: modCwd, stdio: verbose ? 'inherit' : 'pipe', encoding: 'utf8' });
-  } catch (err) {
-    runnerErr = err;
+  if (Array.isArray(plan.shards) && plan.shards.length > 0) {
+    const mergedReportAbs = path.join(modCwd, 'reports/mutation/mutation.json');
+    fs.rmSync(mergedReportAbs, { force: true });
+    const mergedFiles = {};
+    for (let i = 0; i < plan.shards.length; i++) {
+      const shard = plan.shards[i];
+      const shardAbs = path.join(modCwd, shard.reportRel);
+      fs.rmSync(shardAbs, { force: true });
+      const shardStart = Date.now();
+      let shardErr = null;
+      if (onProgress) onProgress(`[gate] Mutation shard ${i + 1}/${plan.shards.length}: ${shard.src}`);
+      try { runConfiguredCommand(shard.commandArgv, { cwd: modCwd, stdio: verbose ? 'inherit' : 'pipe', encoding: 'utf8' }); } catch (err) { shardErr = err; }
+      let shardFiles = null;
+      if (fileExists(shardAbs) && fs.statSync(shardAbs).mtimeMs + 2000 >= shardStart) {
+        try {
+          const parsed = JSON.parse(fs.readFileSync(shardAbs, 'utf8'));
+          if (parsed?.files && typeof parsed.files === 'object' && !Array.isArray(parsed.files)) shardFiles = parsed.files;
+        } catch {}
+      }
+      if (!shardFiles) {
+        if (shardErr) throw shardErr;
+        return { found: false, passed: false, threshold: mod?.thresholds?.mutationScore ?? 80, reason: `Invalid or missing mutation shard report '${shard.reportRel}'.` };
+      }
+      Object.assign(mergedFiles, shardFiles);
+    }
+    writeFileAtomic(mergedReportAbs, JSON.stringify({ schemaVersion: '2', files: mergedFiles }, null, 2) + '\n');
+  } else {
+    if (onProgress) onProgress(`[gate] Running mutation check (${mod.name})...`);
+    try { runConfiguredCommand(plan.commandArgv, { cwd: modCwd, stdio: verbose ? 'inherit' : 'pipe', encoding: 'utf8' }); } catch (err) { runnerErr = err; }
   }
   const checked = requireFreshReport(parseMutationReport(repoRoot, mod, { targets: plan.diffScoped ? plan.targets : null }), mod, repoRoot, startedAt);
   if (checked.found && !checked.stale) {
@@ -626,7 +665,7 @@ export function measureModuleMutation(repoRoot = '.', mod = {}, { full = false, 
   return checked;
 }
 
-export function runGate(repoRoot = '.', { noCache = false, online = false, verbose = false, baseBranch = null, writeSessionFn = null } = {}) {
+export function runGate(repoRoot = '.', { noCache = false, online = false, verbose = false, baseBranch = null, writeSessionFn = null, onProgress = null } = {}) {
   const cfgCheck = validateConfigFile(repoRoot);
   if (!cfgCheck.valid) {
     return { passed: false, stage: 'config', errors: cfgCheck.errors, reason: `Invalid configuration: ${cfgCheck.errors.join('; ')}` };
@@ -637,6 +676,7 @@ export function runGate(repoRoot = '.', { noCache = false, online = false, verbo
   const modifiedFiles = getModifiedFiles(effectiveBase, repoRoot);
   const mode = modifiedFiles.length > 0 && isDocsOnlyDiff(modifiedFiles) ? 'docs-only' : 'code';
 
+  if (onProgress) onProgress(`[gate] Checking spec/ADR drift, architecture rings & secrets (mode=${mode})...`);
   const drift = checkSpecDrift({ ticketId: activeSession?.issueId || null, baseBranch: effectiveBase, repoRoot });
   const arch =
     config.archlens?.enabled !== false
@@ -674,6 +714,7 @@ export function runGate(repoRoot = '.', { noCache = false, online = false, verbo
       let modMutStatus = 'not-configured';
 
       if (mod.commands?.lint) {
+        if (onProgress) onProgress(`[gate] Running lint (${mod.name})...`);
         try { runCmd(mod.commands.lint); } catch (err) {
           lintPassed = false;
           moduleResults.push({ module: mod.name, passed: false, failedStep: 'lint', error: err.message });
@@ -681,6 +722,7 @@ export function runGate(repoRoot = '.', { noCache = false, online = false, verbo
         }
       }
       if (mod.commands?.build) {
+        if (onProgress) onProgress(`[gate] Running build (${mod.name})...`);
         try { runCmd(mod.commands.build); } catch (err) {
           buildPassed = false;
           moduleResults.push({ module: mod.name, passed: false, failedStep: 'build', error: err.message });
@@ -689,6 +731,7 @@ export function runGate(repoRoot = '.', { noCache = false, online = false, verbo
       }
       try {
         if (mod.commands?.coverage && mod.thresholds?.diffCoverage !== null) {
+          if (onProgress) onProgress(`[gate] Measuring diff coverage (${mod.name})...`);
           const cov = measureModuleCoverage(repoRoot, mod, { verbose, baseBranch: effectiveBase });
           modCovPct = cov.diffLineCoverage ?? null;
           if (!cov.passed) {
@@ -697,6 +740,7 @@ export function runGate(repoRoot = '.', { noCache = false, online = false, verbo
             break;
           }
         } else if (mod.commands?.test) {
+          if (onProgress) onProgress(`[gate] Running tests (${mod.name})...`);
           runCmd(mod.commands.test);
         }
       } catch (err) {
@@ -707,7 +751,7 @@ export function runGate(repoRoot = '.', { noCache = false, online = false, verbo
 
       if (mod.commands?.mutation && mod.thresholds?.mutationScore !== null) {
         try {
-          const mut = measureModuleMutation(repoRoot, mod, { noCache, verbose, baseBranch: effectiveBase });
+          const mut = measureModuleMutation(repoRoot, mod, { noCache, verbose, baseBranch: effectiveBase, onProgress });
           modMutPct = mut.score ?? null;
           modMutStatus = mut.status || 'measured';
           if (!mut.passed) {

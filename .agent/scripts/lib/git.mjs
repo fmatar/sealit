@@ -371,6 +371,10 @@ export function gitOutput(args, repoRoot = '.') {
 
 export function resolveGitCommonRepoRoot(repoRoot = '.') {
   const absRoot = path.resolve(repoRoot);
+  try {
+    const dotGit = path.join(absRoot, '.git');
+    if (fs.lstatSync(dotGit).isDirectory() && !fileExists(path.join(dotGit, 'commondir'))) return absRoot;
+  } catch {}
   const commonRaw = (gitOutput(['rev-parse', '--git-common-dir'], absRoot) || '').trim();
   if (!commonRaw) return absRoot;
   const absCommon = path.resolve(absRoot, commonRaw);
@@ -387,48 +391,103 @@ export function resolveGitHooksDir(repoRoot = '.') {
   return path.join(resolveGitCommonRepoRoot(absRoot), '.git', 'hooks');
 }
 
+function readGitRefsMap(repoRoot = '.') {
+  const map = new Map();
+  try {
+    const dotGit = path.resolve(repoRoot, '.git');
+    if (fs.lstatSync(dotGit).isDirectory() && !fileExists(path.join(dotGit, 'commondir')) && !fileExists(path.join(dotGit, 'reftable'))) {
+      const packed = readFileSafe(path.join(dotGit, 'packed-refs')) || '';
+      for (const line of packed.split('\n')) {
+        if (!line || line[0] === '#' || line[0] === '^') continue;
+        const sp = line.indexOf(' ');
+        if (sp > 0) map.set(line.slice(sp + 1).trim(), line.slice(0, sp).trim());
+      }
+      const symRefs = [];
+      const walk = (dir, prefix) => {
+        if (!fileExists(dir)) return;
+        for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+          const full = path.join(dir, ent.name);
+          const ref = `${prefix}/${ent.name}`;
+          if (ent.isDirectory()) walk(full, ref);
+          else if (ent.isFile()) {
+            const raw = (readFileSafe(full) || '').trim();
+            if (raw.startsWith('ref:')) symRefs.push([ref, raw.slice(4).trim()]);
+            else if (/^[0-9a-f]{40,64}$/i.test(raw)) map.set(ref, raw);
+          }
+        }
+      };
+      walk(path.join(dotGit, 'refs'), 'refs');
+      for (const [ref, target] of symRefs) {
+        if (map.has(target)) map.set(ref, map.get(target));
+      }
+      const headRaw = (readFileSafe(path.join(dotGit, 'HEAD')) || '').trim();
+      const headSha = headRaw.startsWith('ref:') ? map.get(headRaw.slice(4).trim()) : (/^[0-9a-f]{40,64}$/i.test(headRaw) ? headRaw : '');
+      if (headSha) map.set('HEAD', headSha);
+      return map;
+    }
+  } catch {}
+  const out = gitOutput(['show-ref', '--head'], repoRoot) || '';
+  for (const line of out.split('\n')) {
+    const idx = line.indexOf(' ');
+    if (idx > 0) map.set(line.slice(idx + 1).trim(), line.slice(0, idx).trim());
+  }
+  return map;
+}
+
 export function getCurrentGitBranch(repoRoot = '.') {
+  try {
+    const dotGit = path.resolve(repoRoot, '.git');
+    if (fs.lstatSync(dotGit).isDirectory()) {
+      const headRaw = (readFileSafe(path.join(dotGit, 'HEAD')) || '').trim();
+      if (headRaw.startsWith('ref: refs/heads/')) {
+        const branch = headRaw.slice('ref: refs/heads/'.length).trim();
+        if (branch && (fileExists(path.join(dotGit, 'refs/heads', branch)) || `${readFileSafe(path.join(dotGit, 'packed-refs')) || ''}\n`.includes(` refs/heads/${branch}\n`))) {
+          return branch;
+        }
+      } else if (/^[0-9a-f]{40,64}$/i.test(headRaw)) {
+        return 'HEAD';
+      }
+    }
+  } catch {}
   return (gitOutput(['rev-parse', '--abbrev-ref', 'HEAD'], repoRoot) || '').trim();
 }
 
-export function hasBranch(branchName, repoRoot = '.') {
+export function hasBranch(branchName, repoRoot = '.', refsMap = null) {
   const cleanBranch = String(branchName || '').trim();
   if (!cleanBranch) return false;
-  const refs = [
-    `refs/heads/${cleanBranch}`,
-    `refs/remotes/origin/${cleanBranch}`
-  ];
-  for (const ref of refs) {
-    if (gitOutput(['show-ref', '--verify', '--quiet', ref], repoRoot) !== null) {
-      return true;
+  const refs = refsMap || readGitRefsMap(repoRoot);
+  if (refs.has(`refs/heads/${cleanBranch}`) || refs.has(`refs/remotes/origin/${cleanBranch}`)) return true;
+  for (const ref of refs.keys()) {
+    if (ref.startsWith('refs/remotes/')) {
+      const rest = ref.slice('refs/remotes/'.length);
+      const slash = rest.indexOf('/');
+      if (slash > 0 && rest.slice(slash + 1) === cleanBranch) return true;
     }
   }
-  const escaped = cleanBranch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const branches = gitOutput(['branch', '-a'], repoRoot) || '';
-  const re = new RegExp(`(^|\\n)[ *+]*remotes\\/[^/]+\\/${escaped}($|\\n)|(^|\\n)[ *+]*${escaped}($|\\n)`);
-  return re.test(branches);
+  return false;
 }
 
 export function hasDevelopBranch(repoRoot = '.') {
   return hasBranch('develop', repoRoot);
 }
 
-export function resolveDefaultBaseBranch(repoRoot = '.') {
-  if (hasDevelopBranch(repoRoot)) return 'develop';
-  if (hasBranch('main', repoRoot)) return 'main';
-  const originHead = (gitOutput(['symbolic-ref', '-q', '--short', 'refs/remotes/origin/HEAD'], repoRoot) || '').trim();
-  if (originHead.startsWith('origin/')) {
-    const target = originHead.slice('origin/'.length).trim();
-    if (target) return target;
+export function resolveDefaultBaseBranch(repoRoot = '.', refsMap = null) {
+  const refs = refsMap || readGitRefsMap(repoRoot);
+  if (hasBranch('develop', repoRoot, refs)) return 'develop';
+  if (hasBranch('main', repoRoot, refs)) return 'main';
+  if (refs.has('refs/remotes/origin/HEAD')) {
+    const originHead = (gitOutput(['symbolic-ref', '-q', '--short', 'refs/remotes/origin/HEAD'], repoRoot) || '').trim();
+    if (originHead.startsWith('origin/')) {
+      const target = originHead.slice('origin/'.length).trim();
+      if (target) return target;
+    }
   }
-  if (hasBranch('master', repoRoot)) return 'master';
+  if (hasBranch('master', repoRoot, refs)) return 'master';
   return 'main';
 }
 
-export function resolveEffectiveDiffBase(baseBranch = null, repoRoot = '.') {
-  if (baseBranch && String(baseBranch).trim()) {
-    return String(baseBranch).trim();
-  }
+export function resolveEffectiveDiffBase(baseBranch = null, repoRoot = '.', refsMap = null) {
+  if (baseBranch && String(baseBranch).trim()) return String(baseBranch).trim();
   if (process.env.GITHUB_BASE_REF && String(process.env.GITHUB_BASE_REF).trim()) {
     return String(process.env.GITHUB_BASE_REF).trim();
   }
@@ -437,48 +496,37 @@ export function resolveEffectiveDiffBase(baseBranch = null, repoRoot = '.') {
     const ghRef = String(process.env.GITHUB_REF_NAME || '').trim() || String(process.env.GITHUB_REF || '').replace(/^refs\/heads\//, '').trim();
     if (ghRef && !ghRef.startsWith('refs/')) curBranch = ghRef;
   }
-  if (curBranch === 'develop' && hasBranch('main', repoRoot)) {
-    return 'main';
-  }
-  if ((curBranch === 'main' || curBranch === 'master') && hasBranch(curBranch, repoRoot)) {
-    return curBranch;
-  }
-  return resolveDefaultBaseBranch(repoRoot);
+  const refs = refsMap || readGitRefsMap(repoRoot);
+  if (curBranch === 'develop' && hasBranch('main', repoRoot, refs)) return 'main';
+  if ((curBranch === 'main' || curBranch === 'master') && hasBranch(curBranch, repoRoot, refs)) return curBranch;
+  return resolveDefaultBaseBranch(repoRoot, refs);
 }
 
 export function resolveDiffComparisonState(baseBranch = null, repoRoot = '.', { includePushFallback = true } = {}) {
-  const effectiveBase = resolveEffectiveDiffBase(baseBranch, repoRoot);
-  const headSha = (gitOutput(['rev-parse', '--verify', 'HEAD'], repoRoot) || '').trim();
-  if (!headSha) {
-    return { effectiveBase, headSha: null, mergeBase: null, committedRange: null };
-  }
+  const refs = readGitRefsMap(repoRoot);
+  const effectiveBase = resolveEffectiveDiffBase(baseBranch, repoRoot, refs);
+  const headSha = refs.get('HEAD') || '';
+  if (!headSha) return { effectiveBase, headSha: null, mergeBase: null, committedRange: null };
   const curBranch = getCurrentGitBranch(repoRoot);
   for (const candidate of [`origin/${effectiveBase}`, effectiveBase]) {
-    const refSha = (gitOutput(['rev-parse', '--verify', '--end-of-options', `${candidate}^{commit}`], repoRoot) || '').trim();
+    let refSha = refs.get(`refs/remotes/${candidate}`) || refs.get(`refs/heads/${candidate}`) || '';
+    if (!refSha && !candidate.startsWith('origin/')) {
+      refSha = (gitOutput(['rev-parse', '--verify', '--end-of-options', `${candidate}^{commit}`], repoRoot) || '').trim();
+    }
     if (!refSha) continue;
-    const isPushOnBase =
-      refSha === headSha &&
-      (curBranch === effectiveBase || (curBranch === 'HEAD' && !process.env.GITHUB_BASE_REF));
+    const isPushOnBase = refSha === headSha && (curBranch === effectiveBase || (curBranch === 'HEAD' && !process.env.GITHUB_BASE_REF));
     if (isPushOnBase) {
-      if (!includePushFallback) {
-        return { effectiveBase, headSha, mergeBase: headSha, committedRange: null };
-      }
+      if (!includePushFallback) return { effectiveBase, headSha, mergeBase: headSha, committedRange: null };
       const parentSha = (gitOutput(['rev-parse', '--verify', 'HEAD~1^{commit}'], repoRoot) || '').trim();
-      if (parentSha) {
-        return { effectiveBase, headSha, mergeBase: parentSha, committedRange: 'HEAD~1..HEAD' };
-      }
+      if (parentSha) return { effectiveBase, headSha, mergeBase: parentSha, committedRange: 'HEAD~1..HEAD' };
       return { effectiveBase, headSha, mergeBase: EMPTY_TREE_SHA, committedRange: `${EMPTY_TREE_SHA}..HEAD` };
     }
-    const mb = (gitOutput(['merge-base', '--end-of-options', candidate, 'HEAD'], repoRoot) || '').trim() || refSha;
+    const mb = refSha === headSha ? headSha : (gitOutput(['merge-base', '--end-of-options', candidate, 'HEAD'], repoRoot) || '').trim() || refSha;
     return { effectiveBase, headSha, mergeBase: mb, committedRange: `${candidate}...HEAD` };
   }
-  if (!includePushFallback) {
-    return { effectiveBase, headSha, mergeBase: headSha, committedRange: null };
-  }
+  if (!includePushFallback) return { effectiveBase, headSha, mergeBase: headSha, committedRange: null };
   const parentSha = (gitOutput(['rev-parse', '--verify', 'HEAD~1^{commit}'], repoRoot) || '').trim();
-  if (parentSha) {
-    return { effectiveBase, headSha, mergeBase: parentSha, committedRange: 'HEAD~1..HEAD' };
-  }
+  if (parentSha) return { effectiveBase, headSha, mergeBase: parentSha, committedRange: 'HEAD~1..HEAD' };
   return { effectiveBase, headSha, mergeBase: EMPTY_TREE_SHA, committedRange: `${EMPTY_TREE_SHA}..HEAD` };
 }
 

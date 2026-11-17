@@ -133,9 +133,10 @@ function failInvalid(result, message, exitCode = 2) {
   return result;
 }
 
-export async function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.', { isTTY = Boolean(process.stdin.isTTY && process.stdout.isTTY) } = {}) {
+export async function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.', { isTTY = Boolean(process.stdin.isTTY && process.stdout.isTTY), onProgress = null } = {}) {
   const rawArgs = Array.isArray(customArgs) ? customArgs : process.argv.slice(2);
   const { rest, jsonMode, verbose, help, version } = extractGlobalFlags(rawArgs);
+  const progressFn = !jsonMode ? onProgress : null;
 
   if (version) {
     return { command: 'version', success: true, version: readPackageVersion() };
@@ -387,7 +388,8 @@ export async function runCLI(customArgs = null, customConfigPath = null, repoRoo
         ...measureModuleMutation(repoRoot, mod, {
           full: Boolean(p.flags['--full']),
           noCache: Boolean(p.flags['--no-cache']),
-          verbose: verbose && !jsonMode
+          verbose: verbose && !jsonMode,
+          onProgress: progressFn
         })
       }));
       result.mutation = reports;
@@ -427,7 +429,8 @@ export async function runCLI(customArgs = null, customConfigPath = null, repoRoo
       const gate = runGate(repoRoot, {
         noCache: Boolean(p.flags['--no-cache']),
         online: Boolean(p.flags['--online']),
-        verbose: verbose && !jsonMode
+        verbose: verbose && !jsonMode,
+        onProgress: progressFn
       });
       result.gate = gate;
       result.success = gate.passed;
@@ -627,8 +630,20 @@ export function formatCLIResult(cmd, res = {}) {
     case 'adr':
       if (Array.isArray(res.adrs)) return `ADRs (${res.adrs.length}): ${res.adrs.map((a) => `${a.id} [${a.status}]`).join(', ') || 'none'}`;
       return `ADR ${res.adr?.id}: ${res.adr?.status} (${res.adr?.file || ''})`;
-    case 'gate':
-      return `Gate ${res.gate?.passed ? 'PASSED' : 'FAILED'} [mode=${res.gate?.mode}, head=${res.gate?.headSha?.slice(0, 8) || 'dirty'}]`;
+    case 'gate': {
+      const g = res.gate || {};
+      const header = `Gate ${g.passed ? 'PASSED' : 'FAILED'} [mode=${g.mode || 'unknown'}, head=${g.headSha?.slice(0, 8) || 'dirty'}]`;
+      if (g.passed) return header;
+      const details = [];
+      if (g.reason) details.push(`  - ${g.reason}`);
+      if (g.drift && !g.drift.passed) details.push(`  - drift: ${g.drift.message || 'Spec/ADR drift detected'}`);
+      if (g.arch && !g.arch.passed) details.push(`  - arch: ${g.arch.message || `${g.arch.violations?.length || 1} ring violation(s)`}`);
+      if (g.secrets && !g.secrets.passed) details.push(`  - secrets: ${g.secrets.findings?.length || 1} secret/audit finding(s)`);
+      for (const m of g.modules || []) {
+        if (!m.passed) details.push(`  - ${m.module} (${m.failedStep || 'module'}): ${m.error || 'check failed'}`);
+      }
+      return details.length > 0 ? `${header}\n${details.join('\n')}` : header;
+    }
     case 'coverage':
       return (res.coverage || [])
         .map((c) => `${c.module}: ${c.formatted || 'n/a'} (${c.passed ? 'PASS' : c.reason || 'FAIL'})`)
@@ -662,7 +677,8 @@ const isDirectRun =
 
 if (isDirectRun) {
   const jsonMode = process.argv.includes('--json');
-  runCLI()
+  const onProgress = jsonMode ? null : (msg) => process.stderr.write(`${msg}\n`);
+  runCLI(null, null, '.', { onProgress })
     .then((res) => {
       const code = cliExitCode(res);
       if (jsonMode) {

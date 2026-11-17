@@ -51,7 +51,7 @@ describe('Ring 3: sdlc-engine.mjs CLI registry', () => {
       fs.mkdirSync(path.join(dir, 'tests'), { recursive: true });
       fs.writeFileSync(
         path.join(dir, 'tests/app.test.mjs'),
-        "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { val } from '../app.mjs';\ntest('val', () => assert.equal(val, 7));\n",
+        "import assert from 'node:assert/strict';\nimport fs from 'node:fs';\nimport { val } from '../app.mjs';\nassert.equal(val, 7);\nfs.mkdirSync('coverage', { recursive: true });\nfs.writeFileSync('coverage/lcov.info', 'SF:app.mjs\\nDA:1,1\\nLF:1\\nLH:1\\nend_of_record\\n', 'utf8');\n",
         'utf8'
       );
       fs.writeFileSync(path.join(dir, 'app.mjs'), 'export const val = 7;\n', 'utf8');
@@ -65,8 +65,8 @@ describe('Ring 3: sdlc-engine.mjs CLI registry', () => {
               name: 'root',
               path: '.',
               commands: {
-                test: `${process.execPath} --test --test-isolation=none "tests/**/*.test.mjs"`,
-                coverage: `${process.execPath} --test --test-isolation=none --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info "tests/**/*.test.mjs"`,
+                test: `${process.execPath} tests/app.test.mjs`,
+                coverage: `${process.execPath} tests/app.test.mjs`,
                 coverageFile: 'coverage/lcov.info'
               },
               thresholds: { diffCoverage: 85, mutationScore: null }
@@ -118,10 +118,24 @@ describe('Ring 3: sdlc-engine.mjs CLI registry', () => {
       const exList = await runCLI(['exemption', 'list'], null, dir);
       assert.equal(exList.exemptions.length, 1);
 
-      const gateRes = await runCLI(['gate', '--strict', '--allow-offline', '--no-cache'], null, dir);
+      const cliProgress = [];
+      const gateRes = await runCLI(['gate', '--strict', '--allow-offline', '--no-cache'], null, dir, { onProgress: (m) => cliProgress.push(m) });
       assert.equal(gateRes.success, true);
+      assert.ok(cliProgress.some((m) => /coverage/i.test(m)));
       assert.ok(gateRes.warnings.length >= 1);
       assert.match(formatCLIResult('gate', gateRes), /Gate PASSED/i);
+      const failedFmt = formatCLIResult('gate', {
+        gate: {
+          passed: false,
+          mode: 'code',
+          headSha: 'abcdef123456',
+          drift: { passed: false, message: 'Unapproved PRODUCT.md change' },
+          modules: [{ module: 'root', passed: false, failedStep: 'mutation', error: 'Mutation score 42.9% is below threshold 52%.' }]
+        }
+      });
+      assert.match(failedFmt, /Gate FAILED \[mode=code, head=abcdef12\]/);
+      assert.match(failedFmt, /drift: Unapproved PRODUCT\.md change/);
+      assert.match(failedFmt, /root \(mutation\): Mutation score 42\.9% is below threshold 52%\./);
 
       // 4. Review plan + record approve -> signs receipt -> verify passes -> end closes session
       const planRes = await runCLI(['review', 'plan'], null, dir);
