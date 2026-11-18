@@ -55,6 +55,17 @@ export const SDLC_GITIGNORE_ENTRIES = Object.freeze([
   '.stryker-tmp/'
 ]);
 
+const SDLC_ENGINE_CMD = 'node .agent/scripts/sdlc-engine.mjs';
+const LEGACY_CLAUDE_WILDCARD = `Bash(${SDLC_ENGINE_CMD} *)`;
+// Read/measure commands only. Approve/sign/exempt/install commands (adr decide, review record, receipt,
+// guard receipt, exemption add, protect, init, hooks, ci-workflow, doctor --fix) always prompt a human.
+const CLAUDE_EXACT_ONLY = ['status', 'doctor', 'skill-audit', 'config check', 'session status'];
+const CLAUDE_WITH_FLAGS = ['drift', 'test', 'coverage', 'mutation', 'gate', 'verify', 'guard verify', 'audit verify', 'review plan', 'adr list', 'adr create', 'begin', 'end'];
+export const CLAUDE_SDLC_ALLOW_RULES = Object.freeze([
+  ...CLAUDE_EXACT_ONLY.map((c) => `Bash(${SDLC_ENGINE_CMD} ${c})`),
+  ...CLAUDE_WITH_FLAGS.flatMap((c) => [`Bash(${SDLC_ENGINE_CMD} ${c})`, `Bash(${SDLC_ENGINE_CMD} ${c} *)`])
+]);
+
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 
 function normalizeAgentList(rawAgents) {
@@ -599,18 +610,24 @@ function pruneRetiredSkillsInDir(skillsParentDir, baseRoot = null) {
 }
 
 function updateClaudeSettingsJson(settingsPath, warnings, baseRoot = null) {
-  if (baseRoot) assertNoSymlinkAncestors(baseRoot, path.dirname(settingsPath));
-  if (fileExists(settingsPath)) {
-    const raw = readFileSafe(settingsPath);
-    try {
-      JSON.parse(raw || '{}');
-      return;
-    } catch {
-      warnings.push(`Malformed JSON in '${settingsPath}'; left untouched so user configuration is not lost.`);
-      return;
-    }
+  const target = resolveUserFileTarget(settingsPath, baseRoot, warnings);
+  if (!fileExists(target)) {
+    writeFileAtomic(target, JSON.stringify({ permissions: { allow: [...CLAUDE_SDLC_ALLOW_RULES] } }, null, 2) + '\n');
+    return;
   }
-  safeWriteFile(settingsPath, JSON.stringify({ permissions: { allow: ['Bash(node .agent/scripts/sdlc-engine.mjs *)'] } }, null, 2) + '\n', undefined, baseRoot);
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSafe(target) || '{}');
+  } catch {
+    warnings.push(`Malformed JSON in '${settingsPath}'; left untouched so user configuration is not lost.`);
+    return;
+  }
+  const allow = parsed?.permissions?.allow;
+  if (!Array.isArray(allow) || !allow.includes(LEGACY_CLAUDE_WILDCARD)) return;
+  const kept = allow.filter((r) => r !== LEGACY_CLAUDE_WILDCARD);
+  parsed.permissions.allow = [...kept, ...CLAUDE_SDLC_ALLOW_RULES.filter((r) => !kept.includes(r))];
+  writeFileAtomic(target, JSON.stringify(parsed, null, 2) + '\n');
+  warnings.push(`Replaced legacy '${LEGACY_CLAUDE_WILDCARD}' in '${settingsPath}' with read/measure-only rules; approvals now prompt.`);
 }
 
 export async function installFramework({
@@ -666,7 +683,7 @@ export async function installFramework({
       }
       if (agent === 'claude') {
         upsertMarkedRulesFile(path.join(resolvedHome, '.claude/CLAUDE.md'), rulesBlock, resolvedHome, warnings);
-        updateClaudeSettingsJson(path.join(resolvedHome, '.claude/settings.json'), warnings);
+        updateClaudeSettingsJson(path.join(resolvedHome, '.claude/settings.json'), warnings, resolvedHome);
       }
     }
 

@@ -12,6 +12,7 @@ import {
   RETIRED_SKILLS,
   SUPPORTED_AGENTS,
   SDLC_GITIGNORE_ENTRIES,
+  CLAUDE_SDLC_ALLOW_RULES,
   upsertGitignore,
   auditSkills,
   installCIWorkflow,
@@ -19,6 +20,21 @@ import {
   runDoctor,
   installFramework
 } from '../../.agent/scripts/lib/install.mjs';
+
+const ENGINE_CMD = 'node .agent/scripts/sdlc-engine.mjs';
+
+// Claude Code Bash rule semantics: "Bash(X *)" matches X or X followed by a space; "Bash(X)" matches X exactly.
+function claudeRuleAllows(rule, command) {
+  const m = /^Bash\((.*)\)$/.exec(rule);
+  if (!m) return false;
+  const body = m[1];
+  if (body.endsWith(' *')) {
+    const prefix = body.slice(0, -2);
+    return command === prefix || command.startsWith(`${prefix} `);
+  }
+  if (body.endsWith('*')) return command.startsWith(body.slice(0, -1));
+  return command === body;
+}
 
 const cleanups = [];
 afterEach(() => {
@@ -393,5 +409,66 @@ describe('Ring 2: lib/install.mjs', () => {
       assert.equal(docFixed.passed, true);
       assert.equal(docFixed.gitignore.upToDate, true);
     });
+  });
+
+  it('generated Claude allowlist never prefix-matches approve/sign/exempt commands and migrates the legacy wildcard', async () => {
+    const forbidden = [
+      'adr decide --id ADR-001 --status approve --by @me',
+      'review record --verdict approve',
+      'receipt',
+      'receipt --docs-only',
+      'guard receipt --docs-only',
+      'exemption add --mutant 3 --file a.mjs --reason equivalent',
+      'protect main develop',
+      'init --yes',
+      'hooks install',
+      'doctor --fix',
+      'ci-workflow install --force'
+    ];
+    for (const sub of forbidden) {
+      const cmd = `${ENGINE_CMD} ${sub}`;
+      assert.equal(CLAUDE_SDLC_ALLOW_RULES.some((r) => claudeRuleAllows(r, cmd)), false, `must prompt for: ${cmd}`);
+    }
+    for (const sub of ['status', 'doctor', 'drift', 'gate --no-cache', 'coverage', 'mutation --full', 'review plan', 'adr list', 'verify', 'guard verify --sha abc', 'begin --checkout --title x', 'end --issue 7']) {
+      const cmd = `${ENGINE_CMD} ${sub}`;
+      assert.equal(CLAUDE_SDLC_ALLOW_RULES.some((r) => claudeRuleAllows(r, cmd)), true, `should auto-allow: ${cmd}`);
+    }
+    assert.equal(CLAUDE_SDLC_ALLOW_RULES.includes(`Bash(${ENGINE_CMD} *)`), false);
+
+    const src = createSourceBundleFixture();
+    cleanups.push(src.cleanup);
+
+    // Fresh repo: narrow allowlist written
+    const fresh = createTempGitRepo();
+    cleanups.push(fresh.cleanup);
+    await installFramework({ targetDir: fresh.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+    const freshSettings = JSON.parse(fs.readFileSync(path.join(fresh.dir, '.claude/settings.json'), 'utf8'));
+    assert.deepEqual(freshSettings.permissions.allow, [...CLAUDE_SDLC_ALLOW_RULES]);
+
+    // Legacy wildcard is replaced; user entries and other keys preserved
+    const legacy = createTempGitRepo();
+    cleanups.push(legacy.cleanup);
+    fs.mkdirSync(path.join(legacy.dir, '.claude'), { recursive: true });
+    fs.writeFileSync(
+      path.join(legacy.dir, '.claude/settings.json'),
+      JSON.stringify({ $schema: 'x', model: 'opus', permissions: { allow: ['Bash(npm test)', `Bash(${ENGINE_CMD} *)`], deny: ['Bash(rm -rf *)'] } }, null, 2),
+      'utf8'
+    );
+    await installFramework({ targetDir: legacy.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+    const migrated = JSON.parse(fs.readFileSync(path.join(legacy.dir, '.claude/settings.json'), 'utf8'));
+    assert.equal(migrated.model, 'opus');
+    assert.deepEqual(migrated.permissions.deny, ['Bash(rm -rf *)']);
+    assert.ok(migrated.permissions.allow.includes('Bash(npm test)'));
+    assert.equal(migrated.permissions.allow.includes(`Bash(${ENGINE_CMD} *)`), false);
+    for (const rule of CLAUDE_SDLC_ALLOW_RULES) assert.ok(migrated.permissions.allow.includes(rule));
+
+    // User-managed settings without the legacy wildcard are left byte-identical
+    const custom = createTempGitRepo();
+    cleanups.push(custom.cleanup);
+    fs.mkdirSync(path.join(custom.dir, '.claude'), { recursive: true });
+    const customRaw = JSON.stringify({ permissions: { allow: ['Bash(npm test)'] } });
+    fs.writeFileSync(path.join(custom.dir, '.claude/settings.json'), customRaw, 'utf8');
+    await installFramework({ targetDir: custom.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+    assert.equal(fs.readFileSync(path.join(custom.dir, '.claude/settings.json'), 'utf8'), customRaw);
   });
 });
