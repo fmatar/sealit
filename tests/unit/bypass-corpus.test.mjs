@@ -5,9 +5,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { createTempGitRepo, git } from '../helpers/test-harness.mjs';
 import { isDocsOnlyDiff, readChangeSet, resolveRange } from '../../.agent/scripts/lib/git.mjs';
+import { formatMutantIdentity } from '../../.agent/scripts/lib/config.mjs';
 import { checkSpecDrift, createADR } from '../../.agent/scripts/lib/drift.mjs';
 import { runGate } from '../../.agent/scripts/lib/measure.mjs';
-import { beginSession, verifyPushGuard } from '../../.agent/scripts/lib/guard.mjs';
+import { beginSession, buildReviewPlan, verifyPushGuard } from '../../.agent/scripts/lib/guard.mjs';
 
 const cleanups = [];
 afterEach(() => {
@@ -318,10 +319,247 @@ const CASES = [
       return dir;
     },
     expect: { gate: false, prepush: false, drift: false }
+  },
+  {
+    id: '18: lowering diffCoverage in the PR does not lower the gate floor',
+    setup() {
+      const dir = seedBaselineRepo((d) => {
+        fs.mkdirSync(path.join(d, 'tests'), { recursive: true });
+        fs.writeFileSync(
+          path.join(d, 'tests/cov50.mjs'),
+          "import fs from 'node:fs'; fs.mkdirSync('coverage', { recursive: true }); fs.writeFileSync('coverage/lcov.info', 'SF:src/low.mjs\\nDA:1,1\\nDA:2,0\\nLF:2\\nLH:1\\nend_of_record\\n');\n",
+          'utf8'
+        );
+        fs.writeFileSync(
+          path.join(d, '.agent/sdlc-config.json'),
+          JSON.stringify({
+            version: '0.1.0',
+            archlens: { enabled: false, policyPath: '.archlens/policy.json' },
+            modules: [{ name: 'root', path: '.', commands: { coverage: `${process.execPath} tests/cov50.mjs` }, thresholds: { diffCoverage: 85, mutationScore: null } }]
+          }, null, 2) + '\n',
+          'utf8'
+        );
+      });
+      fs.writeFileSync(path.join(dir, 'src/low.mjs'), 'export const a = 1;\nexport const b = 2;\n', 'utf8');
+      fs.writeFileSync(
+        path.join(dir, '.agent/sdlc-config.json'),
+        JSON.stringify({
+          version: '0.1.0',
+          archlens: { enabled: false, policyPath: '.archlens/policy.json' },
+          modules: [{ name: 'root', path: '.', commands: { coverage: `${process.execPath} tests/cov50.mjs` }, thresholds: { diffCoverage: 10, mutationScore: null } }]
+        }, null, 2) + '\n',
+        'utf8'
+      );
+      fs.writeFileSync(
+        path.join(dir, 'docs/adr/ADR-003-lower-cov.md'),
+        '---\nid: ADR-003\ntitle: Lower Coverage\nstatus: accepted\nscope: architectural\nticket: "77"\n---\n\n# ADR-003\n',
+        'utf8'
+      );
+      git(dir, 'add', '-A');
+      git(dir, 'commit', '-q', '-m', 'attack 18');
+      return dir;
+    },
+    expect: {
+      gate: false,
+      gateCheck: (g) => g.passed === false && /below threshold 85%/i.test(g.modules?.[0]?.error || '')
+    }
+  },
+  {
+    id: '19: archlens.enabled:false in the PR still checks rings',
+    setup() {
+      const dir = seedBaselineRepo((d) => {
+        fs.writeFileSync(
+          path.join(d, '.archlens/policy.json'),
+          JSON.stringify({ src: 'src', order: ['core', 'adapters'], levels: [['src/core/**'], ['src/adapters/**']] }) + '\n',
+          'utf8'
+        );
+        fs.writeFileSync(
+          path.join(d, '.agent/sdlc-config.json'),
+          JSON.stringify({
+            version: '0.1.0',
+            archlens: { enabled: true, policyPath: '.archlens/policy.json' },
+            modules: [{ name: 'root', path: '.', commands: {}, thresholds: { diffCoverage: null, mutationScore: null } }]
+          }, null, 2) + '\n',
+          'utf8'
+        );
+      });
+      fs.mkdirSync(path.join(dir, 'src/core'), { recursive: true });
+      fs.mkdirSync(path.join(dir, 'src/adapters'), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'src/adapters/out.mjs'), 'export const out = 1;\n', 'utf8');
+      fs.writeFileSync(path.join(dir, 'src/core/bad.mjs'), "import { out } from '../adapters/out.mjs';\nexport const x = out;\n", 'utf8');
+      fs.writeFileSync(
+        path.join(dir, '.agent/sdlc-config.json'),
+        JSON.stringify({
+          version: '0.1.0',
+          archlens: { enabled: false, policyPath: '.archlens/policy.json' },
+          modules: [{ name: 'root', path: '.', commands: {}, thresholds: { diffCoverage: null, mutationScore: null } }]
+        }, null, 2) + '\n',
+        'utf8'
+      );
+      fs.writeFileSync(
+        path.join(dir, 'docs/adr/ADR-003-disable-arch.md'),
+        '---\nid: ADR-003\ntitle: Disable Arch\nstatus: accepted\nscope: architectural\nticket: "77"\n---\n\n# ADR-003\n',
+        'utf8'
+      );
+      git(dir, 'add', '-A');
+      git(dir, 'commit', '-q', '-m', 'attack 19');
+      return dir;
+    },
+    expect: {
+      gate: false,
+      gateCheck: (g) => g.passed === false && g.arch?.passed === false
+    }
+  },
+  {
+    id: '20: narrowing stryker mutate keeps the base scope',
+    setup() {
+      const dir = seedBaselineRepo((d) => {
+        fs.mkdirSync(path.join(d, 'tests/helpers'), { recursive: true });
+        fs.writeFileSync(
+          path.join(d, 'tests/helpers/mock-stryker.mjs'),
+          `import fs from 'node:fs';
+           const mIdx = process.argv.indexOf('-m');
+           const targets = mIdx >= 0 ? process.argv[mIdx + 1] : '';
+           const sneaky = targets.includes('src/sneaky.mjs');
+           fs.mkdirSync('reports/mutation', { recursive: true });
+           fs.writeFileSync('reports/mutation/mutation.json', JSON.stringify({
+             files: {
+               'src/sneaky.mjs': {
+                 mutants: [{ id: '1', mutatorName: 'BooleanLiteral', replacement: 'false', status: sneaky ? 'Survived' : 'Killed', location: { start: { line: 1, column: 0 } } }]
+               }
+             }
+           }));\n`,
+          'utf8'
+        );
+        fs.writeFileSync(path.join(d, 'stryker.config.json'), JSON.stringify({ mutate: ['src/**/*.mjs'] }) + '\n', 'utf8');
+        fs.writeFileSync(
+          path.join(d, '.agent/sdlc-config.json'),
+          JSON.stringify({
+            version: '0.1.0',
+            archlens: { enabled: false, policyPath: '.archlens/policy.json' },
+            modules: [{ name: 'root', path: '.', commands: { mutation: `${process.execPath} tests/helpers/mock-stryker.mjs run` }, thresholds: { diffCoverage: null, mutationScore: 80 } }]
+          }, null, 2) + '\n',
+          'utf8'
+        );
+      });
+      fs.writeFileSync(path.join(dir, 'src/sneaky.mjs'), 'export const ok = true;\n', 'utf8');
+      fs.writeFileSync(path.join(dir, 'stryker.config.json'), JSON.stringify({ mutate: ['src/core.mjs', '!src/sneaky.mjs'] }) + '\n', 'utf8');
+      fs.writeFileSync(
+        path.join(dir, 'docs/adr/ADR-003-narrow-mutate.md'),
+        '---\nid: ADR-003\ntitle: Narrow Mutate\nstatus: accepted\nscope: architectural\nticket: "77"\n---\n\n# ADR-003\n',
+        'utf8'
+      );
+      git(dir, 'add', '-A');
+      git(dir, 'commit', '-q', '-m', 'attack 20');
+      return dir;
+    },
+    expect: { gate: false }
+  },
+  {
+    id: '21: exemption added in the PR is pending, not applied, and forces the security reviewer',
+    setup() {
+      const survivor = {
+        id: '1',
+        mutatorName: 'ConditionalExpression',
+        replacement: 'false',
+        status: 'Survived',
+        location: { start: { line: 1, column: 13 } }
+      };
+      const stableId = formatMutantIdentity(survivor);
+      const dir = seedBaselineRepo((d) => {
+        fs.mkdirSync(path.join(d, 'tests/helpers'), { recursive: true });
+        fs.writeFileSync(
+          path.join(d, 'tests/helpers/survive-stryker.mjs'),
+          `import fs from 'node:fs';
+           fs.mkdirSync('reports/mutation', { recursive: true });
+           fs.writeFileSync('reports/mutation/mutation.json', JSON.stringify({ files: { 'src/app.mjs': { mutants: [${JSON.stringify(survivor)}] } } }));\n`,
+          'utf8'
+        );
+        fs.writeFileSync(path.join(d, 'stryker.config.json'), JSON.stringify({ mutate: ['src/**/*.mjs'] }) + '\n', 'utf8');
+        fs.writeFileSync(
+          path.join(d, '.agent/sdlc-config.json'),
+          JSON.stringify({
+            version: '0.1.0',
+            archlens: { enabled: false, policyPath: '.archlens/policy.json' },
+            modules: [{ name: 'root', path: '.', commands: { mutation: `${process.execPath} tests/helpers/survive-stryker.mjs run` }, thresholds: { diffCoverage: null, mutationScore: 80 } }],
+            exemptions: []
+          }, null, 2) + '\n',
+          'utf8'
+        );
+      });
+      fs.writeFileSync(path.join(dir, 'src/app.mjs'), 'export const v = true ? 1 : 0;\n', 'utf8');
+      fs.writeFileSync(
+        path.join(dir, '.agent/sdlc-config.json'),
+        JSON.stringify({
+          version: '0.1.0',
+          archlens: { enabled: false, policyPath: '.archlens/policy.json' },
+          modules: [{ name: 'root', path: '.', commands: { mutation: `${process.execPath} tests/helpers/survive-stryker.mjs run` }, thresholds: { diffCoverage: null, mutationScore: 80 } }],
+          exemptions: [{ id: stableId, file: 'src/app.mjs', reason: 'Self-waived in same PR', addedAt: '2026-11-18T00:00:00Z' }]
+        }, null, 2) + '\n',
+        'utf8'
+      );
+      git(dir, 'add', '-A');
+      git(dir, 'commit', '-q', '-m', 'attack 21');
+      return dir;
+    },
+    expect: {
+      drift: true,
+      gate: false,
+      gateCheck: (g, dir) => {
+        const plan = buildReviewPlan(dir, { baseBranch: 'develop' });
+        return (
+          g.pendingExemptions?.length === 1 &&
+          g.modules?.[0]?.mutation?.exempted === 0 &&
+          plan.pendingExemptions?.length === 1 &&
+          plan.reviewers.some((r) => r.role === 'Architecture & Security Reviewer')
+        );
+      }
+    }
+  },
+  {
+    id: '22: changing a command or editing the vendored engine raises GATE_POLICY_DRIFT',
+    setup() {
+      const dir = seedBaselineRepo((d) => {
+        fs.mkdirSync(path.join(d, '.agent/scripts'), { recursive: true });
+        fs.writeFileSync(path.join(d, '.agent/scripts/sdlc-engine.mjs'), '// vendored engine\n', 'utf8');
+        fs.writeFileSync(
+          path.join(d, '.agent/sdlc-config.json'),
+          JSON.stringify({
+            version: '0.1.0',
+            archlens: { enabled: false, policyPath: '.archlens/policy.json' },
+            modules: [{ name: 'root', path: '.', commands: { test: `${process.execPath} -e "process.exit(0)"` }, thresholds: { diffCoverage: null, mutationScore: null } }]
+          }, null, 2) + '\n',
+          'utf8'
+        );
+      });
+      // Attempt to weaken commands.test, tamper with vendored engine, AND spoof package.json name to @fmatar/agentic-sdlc!
+      fs.writeFileSync(path.join(dir, '.agent/scripts/sdlc-engine.mjs'), '// tampered engine\n', 'utf8');
+      fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: '@fmatar/agentic-sdlc', version: '0.1.0', dependencies: {} }, null, 2) + '\n', 'utf8');
+      fs.writeFileSync(
+        path.join(dir, '.agent/sdlc-config.json'),
+        JSON.stringify({
+          version: '0.1.0',
+          archlens: { enabled: false, policyPath: '.archlens/policy.json' },
+          modules: [{ name: 'root', path: '.', commands: { test: `${process.execPath} -e "process.exit(0)" --no-warnings` }, thresholds: { diffCoverage: null, mutationScore: null } }]
+        }, null, 2) + '\n',
+        'utf8'
+      );
+      git(dir, 'add', '-A');
+      git(dir, 'commit', '-q', '-m', 'attack 22');
+      return dir;
+    },
+    expect: {
+      gate: false,
+      prepush: false,
+      driftCheck: (d) =>
+        d.passed === false &&
+        d.triggers.some((t) => t.type === 'GATE_POLICY_DRIFT' && t.file === '.agent/sdlc-config.json') &&
+        d.triggers.some((t) => t.type === 'GATE_POLICY_DRIFT' && t.file === '.agent/scripts/sdlc-engine.mjs')
+    }
   }
 ];
 
-describe('Adversarial Gate Bypass Corpus (ADR-020)', () => {
+describe('Adversarial Gate Bypass Corpus (ADR-020 & ADR-021)', () => {
   for (const tc of CASES) {
     it(tc.id, () => {
       const dir = tc.setup();
@@ -354,9 +592,10 @@ describe('Adversarial Gate Bypass Corpus (ADR-020)', () => {
             const p = verifyPushGuard({ repoRoot: dir });
             assert.equal(p.allowed, tc.expect.prepush, `${ctx}: verifyPushGuard (${p.message || 'PASSED'})`);
           }
-          if (tc.expect.gate !== undefined) {
+          if (tc.expect.gate !== undefined || tc.expect.gateCheck) {
             const g = runGate(dir, { noCache: true });
-            assert.equal(g.passed, tc.expect.gate, `${ctx}: runGate (${g.reason || 'completed'})`);
+            if (tc.expect.gate !== undefined) assert.equal(g.passed, tc.expect.gate, `${ctx}: runGate (${g.reason || 'completed'})`);
+            if (tc.expect.gateCheck) assert.equal(tc.expect.gateCheck(g, dir), true, `${ctx}: gateCheck (${JSON.stringify(g)})`);
           }
         } finally {
           for (const [k, v] of Object.entries(savedEnv)) {

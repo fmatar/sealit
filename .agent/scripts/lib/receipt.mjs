@@ -25,7 +25,7 @@ import {
   withFileLock,
   writeFileAtomic
 } from './git.mjs';
-import { loadConfig } from './config.mjs';
+import { loadEffectivePolicy } from './config.mjs';
 import { spawnSync } from 'node:child_process';
 
 export const AUDIT_LEDGER_FILE = 'docs/AUDIT_CHAIN.jsonl';
@@ -548,14 +548,15 @@ export function issueGateReceipt({ repoRoot = '.', docsOnly = false, reviewerOve
   }
 
   const effectiveMode = lastGate.mode || (isDocsDiff ? 'docs-only' : 'code');
-  const { config } = loadConfig(repoRoot);
+  const effRange = resolveRange({ baseBranch: session.baseBranch || null, head: headSha, repoRoot });
+  const { config } = loadEffectivePolicy({ repoRoot, baseSha: effRange.baseSha, headSha });
   const mods = config?.modules || [];
 
   if (effectiveMode === 'code') {
     const measuredByMod = new Map((lastGate.modules || []).map((m) => [m.module, m]));
     for (const mod of mods) {
       const mRec = measuredByMod.get(mod.name);
-      const covFloor = Boolean(mod.commands?.coverage) && typeof mod.thresholds?.diffCoverage === 'number' ? mod.thresholds.diffCoverage : null;
+      const covFloor = typeof mod.thresholds?.diffCoverage === 'number' ? mod.thresholds.diffCoverage : null;
       const actualCov = mRec ? mRec.diffCoveragePct : lastGate.diffCoveragePct;
       if (covFloor !== null && (typeof actualCov !== 'number' || actualCov < covFloor)) {
         return {
@@ -563,7 +564,7 @@ export function issueGateReceipt({ repoRoot = '.', docsOnly = false, reviewerOve
           reason: `Refusing to issue gate receipt: module '${mod.name}' diff coverage (${actualCov ?? 'unmeasured'}%) is below threshold ${covFloor}%.`
         };
       }
-      const mutFloor = Boolean(mod.commands?.mutation) && typeof mod.thresholds?.mutationScore === 'number' ? mod.thresholds.mutationScore : null;
+      const mutFloor = typeof mod.thresholds?.mutationScore === 'number' ? mod.thresholds.mutationScore : null;
       const actualMut = mRec ? mRec.mutationPct : lastGate.mutationPct;
       const mutStat = mRec ? mRec.mutationStatus : lastGate.mutationStatus;
       const emptyMutSkip = mutStat === 'diff-no-mutated-sources' || mutStat === 'diff-zero-mutants';

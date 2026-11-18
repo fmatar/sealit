@@ -16,6 +16,7 @@ import {
   resolveRange,
   writeFileAtomic
 } from './git.mjs';
+import { loadEffectivePolicy } from './config.mjs';
 import { appendAuditRecord } from './receipt.mjs';
 
 export { computeAlignmentHashes };
@@ -341,14 +342,16 @@ function validateOpenApiContract(raw, relFile) {
   return null;
 }
 
-export function checkSpecDrift({ ticketId = null, baseBranch = null, changeSet = null, repoRoot = '.' } = {}) {
+export function checkSpecDrift({ ticketId = null, baseBranch = null, changeSet = null, policyTriggers = null, repoRoot = '.' } = {}) {
   const resolvedBase = resolveEffectiveDiffBase(baseBranch, repoRoot);
   const range = changeSet ? null : resolveRange({ baseBranch: resolvedBase, head: 'HEAD', repoRoot });
   const cs = changeSet || readChangeSet({ ...range, source: 'worktree', repoRoot });
   const mergeBase = cs.baseSha && cs.baseSha !== EMPTY_TREE_SHA ? cs.baseSha : null;
   const fromCommit = cs.source === 'commit' && Boolean(cs.headSha);
 
-  const triggers = [];
+  const triggers = [
+    ...(policyTriggers ?? loadEffectivePolicy({ repoRoot, baseSha: mergeBase, headSha: fromCommit ? cs.headSha : null, changedPaths: cs.paths }).policyTriggers)
+  ];
   const contractErrors = [];
   const DELETED_GOVERNANCE_RE =
     /^(?:PRODUCT\.md|docs\/PRD\.md|docs\/SRS\.md|docs\/specs\/.+\.md|docs\/adr\/ADR-\d+.*\.md|docs\/AUDIT_CHAIN\.jsonl|\.archlens\/policy\.json)$|(?:^|\/)(?:package\.json|Cargo\.toml|pyproject\.toml|requirements[^/]*\.txt|go\.mod|pom\.xml|build\.gradle(?:\.kts)?|prisma\/schema\.prisma)$|\.(?:sql|graphql|proto)$|(?:openapi|swagger).*\.(?:json|ya?ml)$/i;

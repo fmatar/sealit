@@ -1,7 +1,11 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+  EMPTY_TREE_SHA,
   fileExists,
+  readBlobs,
+  readChangeSet,
   readFileSafe,
   parseCommandArgv,
   resolveInsideRepo,
@@ -15,9 +19,29 @@ export const DEFAULT_QUALITY_THRESHOLDS = Object.freeze({
 });
 
 export const DEFAULT_QUALITY_GATE_CHECK = 'Universal Quality Gate, Spec-Drift & Merkle Receipt Defense';
+export const STABLE_MUTANT_ID_RE = /^[A-Za-z0-9_-]+@\d+:\d+#[0-9a-f]{8}$/;
 
 const LEGACY_TOP_KEYS = ['gates', 'testing', 'lanes', 'projectManagement', 'profile', 'generatedAt'];
 const COMMAND_KEYS = ['lint', 'build', 'test', 'coverage', 'mutation'];
+
+export const CONFIG_SCHEMA_KEYS = Object.freeze({
+  root: Object.freeze(['$schema', 'version', 'ci', 'archlens', 'modules', 'exemptions', ...LEGACY_TOP_KEYS]),
+  ci: Object.freeze(['runsOn', 'checkName']),
+  archlens: Object.freeze(['enabled', 'policyPath']),
+  module: Object.freeze(['name', 'path', 'language', 'stack', 'commands', 'thresholds']),
+  commands: Object.freeze([...COMMAND_KEYS, 'coverageFile']),
+  thresholds: Object.freeze(['diffCoverage', 'mutationScore']),
+  exemption: Object.freeze(['id', 'file', 'reason', 'addedAt'])
+});
+
+function pushUnknownKeys(obj, allowed, scope, errors) {
+  const allowSet = new Set(allowed);
+  for (const key of Object.keys(obj)) {
+    if (!allowSet.has(key)) {
+      errors.push(`Unknown configuration key '${scope ? `${scope}.${key}` : key}'.`);
+    }
+  }
+}
 
 function normalizeThreshold(val, fallback) {
   if (val === null || val === false) return null;
@@ -74,9 +98,10 @@ export function migrateConfigObject(rawCfg) {
     for (const mod of clone.modules) {
       if (!mod || typeof mod !== 'object') continue;
       mod.commands = mod.commands && typeof mod.commands === 'object' ? mod.commands : {};
+      const defaultCov = mod.commands.coverage ? DEFAULT_QUALITY_THRESHOLDS.diffCoverage : null;
       const defaultMut = mod.commands.mutation ? 80 : DEFAULT_QUALITY_THRESHOLDS.mutationScore;
       mod.thresholds = {
-        diffCoverage: normalizeThreshold(mod.thresholds?.diffCoverage, DEFAULT_QUALITY_THRESHOLDS.diffCoverage),
+        diffCoverage: normalizeThreshold(mod.thresholds?.diffCoverage, defaultCov),
         mutationScore: normalizeThreshold(mod.thresholds?.mutationScore, defaultMut)
       };
     }
@@ -143,27 +168,52 @@ export function validateConfigFile(repoRoot = '.', customConfigPath = null) {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     return { valid: false, errors: ['Configuration root must be a JSON object.'], warnings: [], config: null };
   }
+  pushUnknownKeys(parsed, CONFIG_SCHEMA_KEYS.root, '', errors);
 
   if (typeof parsed.version !== 'string' || !parsed.version.trim()) {
     errors.push('Configuration requires a non-empty string "version".');
   }
 
-  if (parsed.ci && typeof parsed.ci === 'object') {
-    if (typeof parsed.ci.checkName === 'string' && /[\r\n]/.test(parsed.ci.checkName)) {
-      errors.push('ci.checkName must be a single-line string.');
-    }
-    if (typeof parsed.ci.runsOn === 'string' && /[\r\n]/.test(parsed.ci.runsOn)) {
-      errors.push('ci.runsOn must be a single-line string.');
+  if (parsed.ci !== undefined) {
+    if (!parsed.ci || typeof parsed.ci !== 'object' || Array.isArray(parsed.ci)) {
+      errors.push('"ci" must be an object.');
+    } else {
+      pushUnknownKeys(parsed.ci, CONFIG_SCHEMA_KEYS.ci, 'ci', errors);
+      if (parsed.ci.checkName !== undefined && (typeof parsed.ci.checkName !== 'string' || !parsed.ci.checkName.trim() || /[\r\n]/.test(parsed.ci.checkName))) {
+        errors.push('ci.checkName must be a non-empty single-line string.');
+      }
+      if (parsed.ci.runsOn !== undefined) {
+        const okStr = (s) => typeof s === 'string' && Boolean(s.trim()) && !/[\r\n\u0000-\u001f\u007f]/.test(s);
+        const okRunsOn = okStr(parsed.ci.runsOn) || (Array.isArray(parsed.ci.runsOn) && parsed.ci.runsOn.length > 0 && parsed.ci.runsOn.every(okStr));
+        if (!okRunsOn) errors.push('ci.runsOn must be a single-line string or non-empty array of single-line strings.');
+      }
     }
   }
 
-  if (parsed.archlens && typeof parsed.archlens === 'object' && typeof parsed.archlens.policyPath === 'string') {
-    try {
-      resolveInsideRepo(repoRoot, parsed.archlens.policyPath);
-    } catch (err) {
-      errors.push(`archlens.policyPath invalid: ${err.message}`);
+  if (parsed.archlens !== undefined) {
+    if (!parsed.archlens || typeof parsed.archlens !== 'object' || Array.isArray(parsed.archlens)) {
+      errors.push('"archlens" must be an object.');
+    } else {
+      pushUnknownKeys(parsed.archlens, CONFIG_SCHEMA_KEYS.archlens, 'archlens', errors);
+      if (parsed.archlens.enabled !== undefined && typeof parsed.archlens.enabled !== 'boolean') {
+        errors.push('archlens.enabled must be a boolean.');
+      }
+      if (parsed.archlens.policyPath !== undefined) {
+        if (typeof parsed.archlens.policyPath !== 'string' || !parsed.archlens.policyPath.trim()) {
+          errors.push('archlens.policyPath must be a non-empty string.');
+        } else {
+          try {
+            resolveInsideRepo(repoRoot, parsed.archlens.policyPath);
+          } catch (err) {
+            errors.push(`archlens.policyPath invalid: ${err.message}`);
+          }
+        }
+      }
     }
   }
+
+  const migrated = migrateConfigObject(parsed);
+  const extraWarnings = [];
 
   if (!Array.isArray(parsed.modules) || parsed.modules.length < 1) {
     errors.push('Configuration "modules" must be an array containing at least one module.');
@@ -174,6 +224,7 @@ export function validateConfigFile(repoRoot = '.', customConfigPath = null) {
         errors.push(`${label} must be an object.`);
         return;
       }
+      pushUnknownKeys(mod, CONFIG_SCHEMA_KEYS.module, label, errors);
       if (typeof mod.name !== 'string' || !mod.name.trim()) {
         errors.push(`${label}.name must be a non-empty string.`);
       }
@@ -189,6 +240,7 @@ export function validateConfigFile(repoRoot = '.', customConfigPath = null) {
       if (!mod.commands || typeof mod.commands !== 'object' || Array.isArray(mod.commands)) {
         errors.push(`${label}.commands must be an object.`);
       } else {
+        pushUnknownKeys(mod.commands, CONFIG_SCHEMA_KEYS.commands, `${label}.commands`, errors);
         for (const cmdKey of COMMAND_KEYS) {
           const spec = mod.commands[cmdKey];
           if (spec === undefined || spec === null) continue;
@@ -215,6 +267,7 @@ export function validateConfigFile(repoRoot = '.', customConfigPath = null) {
         if (!mod.thresholds || typeof mod.thresholds !== 'object' || Array.isArray(mod.thresholds)) {
           errors.push(`${label}.thresholds must be an object.`);
         } else {
+          pushUnknownKeys(mod.thresholds, CONFIG_SCHEMA_KEYS.thresholds, `${label}.thresholds`, errors);
           for (const tKey of ['diffCoverage', 'mutationScore']) {
             const tv = mod.thresholds[tKey];
             if (tv === undefined || tv === null) continue;
@@ -222,6 +275,16 @@ export function validateConfigFile(repoRoot = '.', customConfigPath = null) {
               errors.push(`${label}.thresholds.${tKey} must be a number between 0 and 100 or null.`);
             }
           }
+        }
+      }
+
+      const migMod = migrated.config?.modules?.[idx];
+      if (migMod) {
+        if (typeof migMod.thresholds?.diffCoverage === 'number' && !migMod.commands?.coverage) {
+          errors.push(`${label}.thresholds.diffCoverage requires ${label}.commands.coverage (threshold without command is invalid).`);
+        }
+        if (typeof migMod.thresholds?.mutationScore === 'number' && !migMod.commands?.mutation) {
+          errors.push(`${label}.thresholds.mutationScore requires ${label}.commands.mutation (threshold without command is invalid).`);
         }
       }
     });
@@ -232,11 +295,16 @@ export function validateConfigFile(repoRoot = '.', customConfigPath = null) {
       errors.push('"exemptions" must be an array.');
     } else {
       parsed.exemptions.forEach((ex, idx) => {
-        if (!ex || typeof ex !== 'object') {
+        if (!ex || typeof ex !== 'object' || Array.isArray(ex)) {
           errors.push(`exemptions[${idx}] must be an object.`);
           return;
         }
-        if (typeof ex.id !== 'string' || !ex.id.trim()) errors.push(`exemptions[${idx}].id must be non-empty.`);
+        pushUnknownKeys(ex, CONFIG_SCHEMA_KEYS.exemption, `exemptions[${idx}]`, errors);
+        if (typeof ex.id !== 'string' || !ex.id.trim()) {
+          errors.push(`exemptions[${idx}].id must be non-empty.`);
+        } else if (!STABLE_MUTANT_ID_RE.test(ex.id.trim())) {
+          extraWarnings.push(`Legacy exemption id '${ex.id}' in '${ex.file || ''}' ignored; use '<mutatorName>@<line>:<col>#<sha256[0:8]>'.`);
+        }
         if (typeof ex.file !== 'string' || !ex.file.trim()) {
           errors.push(`exemptions[${idx}].file must be non-empty.`);
         } else {
@@ -249,15 +317,17 @@ export function validateConfigFile(repoRoot = '.', customConfigPath = null) {
         if (typeof ex.reason !== 'string' || ex.reason.trim().length < 5) {
           errors.push(`exemptions[${idx}].reason must be at least 5 characters.`);
         }
+        if (ex.addedAt !== undefined && typeof ex.addedAt !== 'string') {
+          errors.push(`exemptions[${idx}].addedAt must be a string.`);
+        }
       });
     }
   }
 
-  const migrated = migrateConfigObject(parsed);
   return {
     valid: errors.length === 0,
     errors,
-    warnings: migrated.warnings,
+    warnings: [...migrated.warnings, ...extraWarnings],
     config: errors.length === 0 ? migrated.config : null
   };
 }
@@ -397,7 +467,7 @@ export function detectStack(repoRoot = '.') {
       coverageFile: null,
       mutation: null
     },
-    thresholds: { diffCoverage: 85, mutationScore: null }
+    thresholds: { diffCoverage: null, mutationScore: null }
   };
 }
 
@@ -435,7 +505,7 @@ export function upgradeConfigToV010(rawCfg) {
       mutation: mod.commands?.mutation ?? null
     },
     thresholds: {
-      diffCoverage: mod.thresholds?.diffCoverage ?? DEFAULT_QUALITY_THRESHOLDS.diffCoverage,
+      diffCoverage: mod.thresholds?.diffCoverage ?? (mod.commands?.coverage ? DEFAULT_QUALITY_THRESHOLDS.diffCoverage : null),
       mutationScore: mod.thresholds?.mutationScore ?? DEFAULT_QUALITY_THRESHOLDS.mutationScore
     }
   }));
@@ -455,19 +525,86 @@ export function upgradeConfigToV010(rawCfg) {
   };
 }
 
+export function formatMutantIdentity(mut) {
+  const name = String(mut?.mutatorName || '').trim();
+  const line = mut?.location?.start?.line;
+  const col = mut?.location?.start?.column;
+  if (!name || !Number.isInteger(line) || line < 1 || !Number.isInteger(col) || col < 0) return null;
+  const hash = crypto.createHash('sha256').update(String(mut?.replacement ?? ''), 'utf8').digest('hex').slice(0, 8);
+  return `${name}@${line}:${col}#${hash}`;
+}
+
+export function resolveActiveExemptions(exemptions = []) {
+  const activeSet = new Set();
+  const warnings = [];
+  for (const ex of Array.isArray(exemptions) ? exemptions : []) {
+    if (!ex || typeof ex !== 'object') continue;
+    const id = String(ex.id || '').trim();
+    const file = String(ex.file || '').trim().replace(/\\/g, '/').replace(/^\.\//, '');
+    if (!id || !file) continue;
+    if (!STABLE_MUTANT_ID_RE.test(id)) {
+      warnings.push(`Legacy mutant exemption id '${id}' in '${file}' ignored; use '<mutatorName>@<line>:<col>#<sha256[0:8]>'.`);
+      continue;
+    }
+    activeSet.add(`${file}::${id}`);
+  }
+  return { activeSet, warnings };
+}
+
+export function matchesMutatePatterns(relFile, patterns) {
+  let matched = false;
+  for (const raw of patterns) {
+    const neg = raw.startsWith('!');
+    const clean = (neg ? raw.slice(1) : raw).replace(/\\/g, '/').replace(/^\.\//, '').replace(/:\d+(?:-\d+)?$/, '');
+    const re = new RegExp(
+      '^' +
+        clean
+          .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+          .replace(/\*\*\//g, '\0D\0')
+          .replace(/\*\*/g, '\0G\0')
+          .replace(/\*/g, '[^/]*')
+          .replace(/\?/g, '[^/]')
+          .replace(/\0D\0/g, '(?:.+/)?')
+          .replace(/\0G\0/g, '.*') +
+        '$'
+    );
+    if (re.test(relFile)) matched = !neg;
+  }
+  return matched;
+}
+
 export function listExemptions(repoRoot = '.') {
   const { config } = loadConfig(repoRoot);
   return Array.isArray(config?.exemptions) ? config.exemptions : [];
 }
 
 export function addExemption({ id, file, reason, repoRoot = '.' } = {}) {
-  const cleanId = String(id || '').trim();
+  let cleanId = String(id || '').trim();
   const cleanFile = String(file || '').trim().replace(/\\/g, '/').replace(/^\.\//, '');
   const cleanReason = String(reason || '').trim();
   if (!cleanId) throw new Error('Exemption requires a non-empty mutant id.');
   resolveInsideRepo(repoRoot, cleanFile);
   if (cleanReason.length < 5) {
     throw new Error('Exemption requires a reason of at least 5 characters.');
+  }
+  if (!STABLE_MUTANT_ID_RE.test(cleanId)) {
+    const repPath = path.resolve(repoRoot, 'reports/mutation/mutation.json');
+    if (fileExists(repPath)) {
+      try {
+        const rep = JSON.parse(fs.readFileSync(repPath, 'utf8'));
+        for (const [rawFile, fileObj] of Object.entries(rep?.files || {})) {
+          const normRep = rawFile.replace(/\\/g, '/').replace(/^\.\//, '');
+          if (normRep === cleanFile || normRep.endsWith(`/${cleanFile}`)) {
+            const hit = (fileObj?.mutants || []).find((m) => String(m.id) === cleanId);
+            const derived = hit ? formatMutantIdentity(hit) : null;
+            if (derived) { cleanId = derived; break; }
+          }
+        }
+      } catch {}
+    }
+    if (!STABLE_MUTANT_ID_RE.test(cleanId)) {
+      throw new Error(`Exemption id '${cleanId}' must match '<mutatorName>@<line>:<col>#<sha256[0:8]>'.`);
+    }
   }
 
   const cfgPath = resolveConfigPath(repoRoot);
@@ -488,4 +625,163 @@ export function addExemption({ id, file, reason, repoRoot = '.' } = {}) {
     writeFileAtomic(cfgPath, JSON.stringify(base, null, 2) + '\n');
     return { success: true, exemption: entry };
   });
+}
+
+function stableJson(val) {
+  if (val === null || val === undefined || typeof val !== 'object') return JSON.stringify(val ?? null);
+  if (Array.isArray(val)) return `[${val.map(stableJson).join(',')}]`;
+  return `{${Object.keys(val).sort().map((k) => `${JSON.stringify(k)}:${stableJson(val[k])}`).join(',')}}`;
+}
+
+function parseJsonSafe(raw) {
+  if (raw === null || raw === undefined) return { ok: false, present: false, value: null };
+  try {
+    const value = JSON.parse(raw);
+    return value && typeof value === 'object' && !Array.isArray(value) ? { ok: true, present: true, value } : { ok: false, present: true, value: null };
+  } catch {
+    return { ok: false, present: true, value: null };
+  }
+}
+
+export function loadEffectivePolicy({ repoRoot = '.', baseSha = null, headSha = null, changedPaths = null } = {}) {
+  const hasBase = Boolean(baseSha && baseSha !== EMPTY_TREE_SHA);
+  const relFiles = ['.agent/sdlc-config.json', 'stryker.config.json', 'package.json'];
+  const specs = [
+    ...(hasBase ? relFiles.map((f) => `${baseSha}:${f}`) : []),
+    ...(headSha ? relFiles.map((f) => `${headSha}:${f}`) : [])
+  ];
+  const blobs = specs.length > 0 ? readBlobs(specs, repoRoot) : new Map();
+  const getBaseRaw = (f) => (hasBase ? blobs.get(`${baseSha}:${f}`) ?? null : null);
+  const getHeadRaw = (f) => (headSha ? blobs.get(`${headSha}:${f}`) ?? null : readFileSafe(path.resolve(repoRoot, f)));
+
+  const baseCfgParsed = parseJsonSafe(getBaseRaw('.agent/sdlc-config.json'));
+  const headCfgParsed = parseJsonSafe(getHeadRaw('.agent/sdlc-config.json'));
+  const baseStrykerParsed = parseJsonSafe(getBaseRaw('stryker.config.json'));
+  const headStrykerParsed = parseJsonSafe(getHeadRaw('stryker.config.json'));
+  const basePkgParsed = parseJsonSafe(getBaseRaw('package.json'));
+  const headPkgParsed = parseJsonSafe(getHeadRaw('package.json'));
+
+  if (!hasBase || !baseCfgParsed.present || !baseCfgParsed.ok) {
+    const headCfg = headCfgParsed.ok ? migrateConfigObject(headCfgParsed.value).config : generateConfig(repoRoot);
+    return {
+      config: headCfg,
+      stryker: headStrykerParsed.ok ? structuredClone(headStrykerParsed.value) : {},
+      policySource: 'bootstrap',
+      policyTriggers: [],
+      pendingExemptions: []
+    };
+  }
+
+  const triggerMap = new Map();
+  const addTrigger = (file) => {
+    if (!triggerMap.has(file)) triggerMap.set(file, { file, type: 'GATE_POLICY_DRIFT', scope: 'architectural' });
+  };
+
+  const baseCfg = migrateConfigObject(baseCfgParsed.value).config;
+  let headCfg = baseCfg;
+  if (!headCfgParsed.present || !headCfgParsed.ok) {
+    addTrigger('.agent/sdlc-config.json');
+  } else {
+    headCfg = migrateConfigObject(headCfgParsed.value).config;
+  }
+
+  const baseArchEn = baseCfg.archlens?.enabled !== false;
+  const headArchEn = headCfg.archlens?.enabled !== false;
+  const basePolPath = baseCfg.archlens?.policyPath || '.archlens/policy.json';
+  const headPolPath = headCfg.archlens?.policyPath || '.archlens/policy.json';
+  if (baseArchEn && (!headArchEn || headPolPath !== basePolPath)) addTrigger('.agent/sdlc-config.json');
+
+  const baseByName = new Map((baseCfg.modules || []).map((m) => [m.name, m]));
+  const headByName = new Map((headCfg.modules || []).map((m) => [m.name, m]));
+  const mergeFloor = (bVal, hVal) => {
+    const b = typeof bVal === 'number' ? bVal : null;
+    const h = typeof hVal === 'number' ? hVal : null;
+    if (b === null && h === null) return { value: null, loosened: false };
+    if (b !== null && (h === null || h < b)) return { value: b, loosened: true };
+    return { value: h, loosened: false };
+  };
+
+  const effModules = [];
+  for (const hMod of headCfg.modules || []) {
+    const bMod = baseByName.get(hMod.name);
+    if (!bMod) {
+      effModules.push(structuredClone(hMod));
+      continue;
+    }
+    if ((hMod.path || '.') !== (bMod.path || '.')) addTrigger('.agent/sdlc-config.json');
+    for (const ck of CONFIG_SCHEMA_KEYS.commands) {
+      if (stableJson(hMod.commands?.[ck] ?? null) !== stableJson(bMod.commands?.[ck] ?? null)) {
+        addTrigger('.agent/sdlc-config.json');
+      }
+    }
+    const covM = mergeFloor(bMod.thresholds?.diffCoverage, hMod.thresholds?.diffCoverage);
+    const mutM = mergeFloor(bMod.thresholds?.mutationScore, hMod.thresholds?.mutationScore);
+    if (covM.loosened || mutM.loosened) addTrigger('.agent/sdlc-config.json');
+    effModules.push({
+      ...structuredClone(hMod),
+      thresholds: { diffCoverage: covM.value, mutationScore: mutM.value }
+    });
+  }
+  for (const bMod of baseCfg.modules || []) {
+    if (!headByName.has(bMod.name)) {
+      addTrigger('.agent/sdlc-config.json');
+      effModules.push(structuredClone(bMod));
+    }
+  }
+
+  const exKey = (ex) => `${String(ex?.file || '').replace(/\\/g, '/').replace(/^\.\//, '')}::${String(ex?.id || '').trim()}`;
+  const baseEx = Array.isArray(baseCfg.exemptions) ? baseCfg.exemptions : [];
+  const baseExSet = new Set(baseEx.map(exKey));
+  const pendingExemptions = (Array.isArray(headCfg.exemptions) ? headCfg.exemptions : []).filter(
+    (ex) => ex && typeof ex === 'object' && !baseExSet.has(exKey(ex))
+  );
+
+  let effStryker = headStrykerParsed.ok ? structuredClone(headStrykerParsed.value) : {};
+  if (headStrykerParsed.present && !headStrykerParsed.ok) addTrigger('stryker.config.json');
+  if (baseStrykerParsed.ok) {
+    if (!headStrykerParsed.present || !headStrykerParsed.ok) {
+      addTrigger('stryker.config.json');
+      effStryker = structuredClone(baseStrykerParsed.value);
+    } else {
+      const normPos = (p) => String(p).replace(/\\/g, '/').replace(/^\.\//, '');
+      const normNeg = (p) => `!${String(p).slice(1).replace(/\\/g, '/').replace(/^\.\//, '')}`;
+      const bMut = Array.isArray(baseStrykerParsed.value.mutate) ? baseStrykerParsed.value.mutate : [];
+      const hMut = Array.isArray(headStrykerParsed.value.mutate) ? headStrykerParsed.value.mutate : [];
+      const bPos = [...new Set(bMut.filter((p) => !String(p).startsWith('!')).map(normPos))];
+      const hPos = [...new Set(hMut.filter((p) => !String(p).startsWith('!')).map(normPos))];
+      const bNegSet = new Set(bMut.filter((p) => String(p).startsWith('!')).map(normNeg));
+      const hNeg = [...new Set(hMut.filter((p) => String(p).startsWith('!')).map(normNeg))];
+      if (bPos.some((p) => !hPos.includes(p)) || hNeg.some((n) => !bNegSet.has(n))) addTrigger('stryker.config.json');
+      if (Array.isArray(baseStrykerParsed.value.mutate) || Array.isArray(headStrykerParsed.value.mutate)) {
+        effStryker.mutate = [...new Set([...bPos, ...hPos]), ...hNeg.filter((n) => bNegSet.has(n))];
+      }
+      const stripMut = ({ mutate: _m, ...rest }) => rest;
+      if (stableJson(stripMut(baseStrykerParsed.value)) !== stableJson(stripMut(headStrykerParsed.value))) {
+        addTrigger('stryker.config.json');
+      }
+    }
+  }
+
+  const ownerPkgName = basePkgParsed.ok ? basePkgParsed.value.name : headPkgParsed.ok ? headPkgParsed.value.name : null;
+  if (ownerPkgName !== '@fmatar/agentic-sdlc') {
+    const diffPaths = Array.isArray(changedPaths)
+      ? changedPaths
+      : readChangeSet({ baseSha, headSha, source: headSha ? 'commit' : 'worktree', repoRoot }).paths;
+    for (const p of diffPaths) {
+      if (/^\.agent\/scripts\//.test(p)) addTrigger(p);
+    }
+  }
+
+  return {
+    config: {
+      ...structuredClone(headCfg),
+      archlens: { enabled: Boolean(baseArchEn || headArchEn), policyPath: baseArchEn ? basePolPath : headPolPath },
+      modules: effModules,
+      exemptions: structuredClone(baseEx)
+    },
+    stryker: effStryker,
+    policySource: 'base+head',
+    policyTriggers: [...triggerMap.values()],
+    pendingExemptions
+  };
 }

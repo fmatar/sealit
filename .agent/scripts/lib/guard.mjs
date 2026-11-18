@@ -19,7 +19,7 @@ import {
   resolveRange,
   verifyCleanThreeWayMergeTrees
 } from './git.mjs';
-import { DEFAULT_QUALITY_GATE_CHECK, loadConfig } from './config.mjs';
+import { DEFAULT_QUALITY_GATE_CHECK, loadConfig, loadEffectivePolicy } from './config.mjs';
 import {
   issueGateReceipt,
   readActiveSession,
@@ -736,12 +736,15 @@ export function buildReviewPlan(repoRoot = '.', { baseBranch = null } = {}) {
   }
   const boundedDiff = fullDiff.length > 32000 ? `${fullDiff.slice(0, 32000)}\n... [diff truncated at 32kB]` : fullDiff;
 
+  const policy = loadEffectivePolicy({ repoRoot, baseSha: mergeBase, headSha: null, changedPaths: modifiedFiles });
+  const pendingExemptions = policy.pendingExemptions;
   const touchesGovernanceOrSec = modifiedFiles.some(
     (f) =>
       /^(?:PRODUCT\.md|docs\/specs\/|docs\/adr\/|\.archlens\/|\.github\/workflows\/|\.agent\/sdlc-config\.json$|stryker\.config\.json$)/.test(f) ||
       /(?:receipt|guard|security|drift|auth|crypto)/i.test(f)
   );
-  const needsArchReviewer = mode === 'code' && (changedLines > 200 || touchesGovernanceOrSec);
+  const needsArchReviewer = mode === 'code' && (changedLines > 200 || touchesGovernanceOrSec || pendingExemptions.length > 0);
+  const pendNote = pendingExemptions.length > 0 ? `\nPending mutant exemptions (inactive until merged): ${pendingExemptions.map((e) => `${e.file}::${e.id}`).join(', ')}` : '';
 
   const reviewers =
     mode === 'docs-only'
@@ -757,11 +760,11 @@ export function buildReviewPlan(repoRoot = '.', { baseBranch = null } = {}) {
                 {
                   role: 'Architecture & Security Reviewer',
                   focus: 'Verify Concentric Clean Architecture ring boundaries, fail-closed error handling, shell-free execution (INV-04), and spec/ADR alignment.',
-                  prompt: `Audit security and architecture invariants on diff (${mergeBase?.slice(0, 7) || effectiveBase}..${headSha?.slice(0, 7) || 'HEAD'}) (advisory: includes uncommitted changes).\nModified files: ${modifiedFiles.join(', ')}\nReturn structured verdict: approve | request-changes, blockers: [], notes.\n\nDiff:\n${boundedDiff}`
+                  prompt: `Audit security and architecture invariants on diff (${mergeBase?.slice(0, 7) || effectiveBase}..${headSha?.slice(0, 7) || 'HEAD'}) (advisory: includes uncommitted changes).\nModified files: ${modifiedFiles.join(', ')}${pendNote}\nReturn structured verdict: approve | request-changes, blockers: [], notes.\n\nDiff:\n${boundedDiff}`
                 }
               ]
             : [])
         ];
 
-  return { advisory: true, source: 'worktree', mode, baseBranch: effectiveBase, mergeBase, headSha, changedLines, modifiedFiles, reviewers };
+  return { advisory: true, source: 'worktree', mode, baseBranch: effectiveBase, mergeBase, headSha, changedLines, modifiedFiles, pendingExemptions, reviewers };
 }

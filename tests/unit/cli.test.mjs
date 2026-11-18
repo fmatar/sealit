@@ -110,7 +110,7 @@ describe('Ring 3: sdlc-engine.mjs CLI registry', () => {
       const covRes = await runCLI(['coverage', '--no-cache'], null, dir);
       assert.equal(covRes.success, true);
 
-      const exAdd = await runCLI(['exemption', 'add', '--mutant', 'M-9', '--file', 'app.mjs', '--reason', 'Equivalent guard'], null, dir);
+      const exAdd = await runCLI(['exemption', 'add', '--mutant', 'ConditionalExpression@1:14#a1b2c3d4', '--file', 'app.mjs', '--reason', 'Equivalent guard'], null, dir);
       assert.equal(exAdd.success, true);
       git(dir, 'add', '.agent/sdlc-config.json');
       git(dir, 'commit', '-q', '-m', 'chore: record exemption');
@@ -123,7 +123,9 @@ describe('Ring 3: sdlc-engine.mjs CLI registry', () => {
       assert.equal(gateRes.success, true);
       assert.ok(cliProgress.some((m) => /coverage/i.test(m)));
       assert.ok(gateRes.warnings.length >= 1);
-      assert.match(formatCLIResult('gate', gateRes), /Gate PASSED/i);
+      const gateFmt = formatCLIResult('gate', gateRes);
+      assert.match(gateFmt, /Gate PASSED/i);
+      assert.match(gateFmt, /pendingExemptions \(1, inactive until merged\): app\.mjs::ConditionalExpression@1:14#a1b2c3d4/);
       const failedFmt = formatCLIResult('gate', {
         gate: {
           passed: false,
