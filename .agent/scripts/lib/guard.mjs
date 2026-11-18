@@ -6,6 +6,7 @@ import {
   fileExists,
   getCurrentGitBranch,
   getModifiedFiles,
+  getUnifiedDiffByFile,
   gitExec,
   gitOutput,
   hasBranch,
@@ -14,6 +15,7 @@ import {
   isDocsOnlyDiff,
   normalizeTicketId,
   resolveDefaultBaseBranch,
+  resolveDiffComparisonState,
   resolveGitCommonRepoRoot,
   resolveGitHooksDir,
   verifyCleanThreeWayMergeTrees
@@ -689,4 +691,47 @@ export function applyBranchProtection({
     protectedBranches,
     errors
   };
+}
+
+export function buildReviewPlan(repoRoot = '.', { baseBranch = null } = {}) {
+  const { effectiveBase, headSha, mergeBase } = resolveDiffComparisonState(baseBranch, repoRoot);
+  const modifiedFiles = getModifiedFiles(effectiveBase, repoRoot);
+  const mode = modifiedFiles.length > 0 && isDocsOnlyDiff(modifiedFiles) ? 'docs-only' : 'code';
+  const diffsByFile = getUnifiedDiffByFile(effectiveBase, repoRoot, modifiedFiles);
+  let fullDiff = '';
+  let changedLines = 0;
+  for (const chunk of diffsByFile.values()) {
+    fullDiff += `${chunk}\n`;
+    changedLines += chunk.split('\n').filter((l) => (l.startsWith('+') && !l.startsWith('+++')) || (l.startsWith('-') && !l.startsWith('---'))).length;
+  }
+  const boundedDiff = fullDiff.length > 32000 ? `${fullDiff.slice(0, 32000)}\n... [diff truncated at 32kB]` : fullDiff;
+
+  const touchesGovernanceOrSec = modifiedFiles.some(
+    (f) =>
+      /^(?:PRODUCT\.md|docs\/specs\/|docs\/adr\/|\.archlens\/|\.github\/workflows\/|\.agent\/sdlc-config\.json$|stryker\.config\.json$)/.test(f) ||
+      /(?:receipt|guard|security|drift|auth|crypto)/i.test(f)
+  );
+  const needsArchReviewer = mode === 'code' && (changedLines > 200 || touchesGovernanceOrSec);
+
+  const reviewers =
+    mode === 'docs-only'
+      ? [{ role: 'Docs Alignment Reviewer', focus: 'Verify clarity, link accuracy, and zero unintended spec drift.' }]
+      : [
+          {
+            role: 'PR Peer Reviewer',
+            focus: 'Verify behavioral correctness, edge cases, TDD test quality, and YAGNI simplicity.',
+            prompt: `Review branch diff (${mergeBase?.slice(0, 7) || effectiveBase}..${headSha?.slice(0, 7) || 'HEAD'}).\nModified files: ${modifiedFiles.join(', ')}\nReturn structured verdict: approve | request-changes, blockers: [], notes.\n\nDiff:\n${boundedDiff}`
+          },
+          ...(needsArchReviewer
+            ? [
+                {
+                  role: 'Architecture & Security Reviewer',
+                  focus: 'Verify Concentric Clean Architecture ring boundaries, fail-closed error handling, shell-free execution (INV-04), and spec/ADR alignment.',
+                  prompt: `Audit security and architecture invariants on diff (${mergeBase?.slice(0, 7) || effectiveBase}..${headSha?.slice(0, 7) || 'HEAD'}).\nModified files: ${modifiedFiles.join(', ')}\nReturn structured verdict: approve | request-changes, blockers: [], notes.\n\nDiff:\n${boundedDiff}`
+                }
+              ]
+            : [])
+        ];
+
+  return { mode, baseBranch: effectiveBase, mergeBase, headSha, changedLines, modifiedFiles, reviewers };
 }

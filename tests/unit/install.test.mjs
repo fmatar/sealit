@@ -639,4 +639,20 @@ describe('Ring 2: lib/install.mjs', () => {
     assert.ok(linkedRes.warnings.some((w) => /symlink/i.test(w) && /backup/i.test(w)), JSON.stringify(linkedRes.warnings));
     assert.ok(SDLC_GITIGNORE_ENTRIES.includes('.agent/sdlc-config.json.bak'));
   });
+
+  it('doctor enforces git >= 2.38 runtime floor', () => {
+    const { dir, cleanup } = createTempGitRepo();
+    cleanups.push(cleanup);
+    withoutReceiptEnv(() => {
+      runDoctor({ repoRoot: dir, fix: true });
+      const oldGit = runDoctor({ repoRoot: dir, gitVersionRaw: 'git version 2.37.3' });
+      assert.equal(oldGit.gitOk, false);
+      assert.equal(oldGit.passed, false);
+      assert.equal(oldGit.gitVersion, '2.37.3');
+
+      const minGit = runDoctor({ repoRoot: dir, gitVersionRaw: 'git version 2.38.0 (Apple Git-143)' });
+      assert.equal(minGit.gitOk, true);
+      assert.equal(minGit.gitVersion, '2.38.0');
+    });
+  });
 });

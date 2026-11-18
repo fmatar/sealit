@@ -7,7 +7,6 @@ import { addExemption, listExemptions, loadConfig, validateConfigFile } from './
 import { issueGateReceipt, verifyAuditChain, verifyGateReceipt } from './lib/receipt.mjs';
 import { checkArchRings, checkSpecDrift, createADR, decideADR, listADRs } from './lib/drift.mjs';
 import {
-  buildReviewPlan,
   measureModuleCoverage,
   measureModuleMutation,
   resolveAffectedTests,
@@ -16,6 +15,7 @@ import {
 import {
   applyBranchProtection,
   beginSession,
+  buildReviewPlan,
   endSession,
   getSessionStatus,
   installHooks,
@@ -607,6 +607,7 @@ export function formatCLIResult(cmd, res = {}) {
       return [
         `SDLC Doctor: ${d.passed ? 'HEALTHY' : 'ISSUES FOUND'}`,
         `  Node Runtime  : ${d.nodeVersion} (${d.nodeOk ? 'OK' : 'Requires >=22.0.0'})`,
+        `  Git Runtime   : ${d.gitVersion || 'missing'} (${d.gitOk ? 'OK' : 'Requires >=2.38'})`,
         `  Config        : ${d.config.valid ? 'Valid' : `Invalid (${d.config.errors.join('; ')})`}`,
         `  Archlens Rings: ${d.policyOk ? 'Present' : 'Missing'}`,
         `  Gitignore     : ${d.gitignore?.upToDate ? 'Up to date' : `Missing ${d.gitignore?.missing?.length || 0}: ${(d.gitignore?.missing || []).join(', ')}`}`,

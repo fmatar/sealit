@@ -10,6 +10,7 @@ import { readSessionStore, verifyAuditChain } from '../../.agent/scripts/lib/rec
 import { runGate } from '../../.agent/scripts/lib/measure.mjs';
 import {
   beginSession,
+  buildReviewPlan,
   getSessionStatus,
   recordReviewVerdict,
   endSession,
@@ -500,5 +501,19 @@ describe('Ring 2: lib/guard.mjs', () => {
     assert.equal(hijack.success, false);
     assert.match(hijack.error, /being created by another/);
     assert.equal(readSessionStore(dir).sessions['L-9'].reserved, true);
+  });
+
+  it('buildReviewPlan dispatches Architecture & Security Reviewer when .agent/sdlc-config.json or stryker.config.json changes', () => {
+    for (const govFile of ['.agent/sdlc-config.json', 'stryker.config.json']) {
+      const { dir, cleanup } = createTempGitRepo();
+      cleanups.push(cleanup);
+      git(dir, 'checkout', '-q', '-b', 'feat/cfg-rev', 'develop');
+      const full = path.join(dir, govFile);
+      fs.mkdirSync(path.dirname(full), { recursive: true });
+      fs.writeFileSync(full, '{"ok":true}\n', 'utf8');
+      const plan = buildReviewPlan(dir);
+      assert.equal(plan.mode, 'code', govFile);
+      assert.ok(plan.reviewers.some((r) => r.role === 'Architecture & Security Reviewer'), `${govFile} must trigger security reviewer`);
+    }
   });
 });

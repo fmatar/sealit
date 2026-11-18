@@ -14,9 +14,9 @@ import {
   measureModuleCoverage,
   measureModuleMutation,
   resolveAffectedTests,
-  runGate,
-  buildReviewPlan
+  runGate
 } from '../../.agent/scripts/lib/measure.mjs';
+import { buildReviewPlan } from '../../.agent/scripts/lib/guard.mjs';
 
 const cleanups = [];
 afterEach(() => {

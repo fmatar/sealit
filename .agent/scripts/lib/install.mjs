@@ -532,11 +532,14 @@ export function scaffoldArchlensPolicy(repoRoot = '.', { force = false } = {}) {
   return { created: true, path: policyPath };
 }
 
-export function runDoctor({ repoRoot = '.', fix = false } = {}) {
+export function runDoctor({ repoRoot = '.', fix = false, gitVersionRaw = null } = {}) {
   const absRoot = path.resolve(repoRoot);
   const nodeMajor = Number(process.versions.node.split('.')[0]) || 0;
   const nodeOk = nodeMajor >= 22;
-  const gitOk = gitOutput(['--version'], absRoot) !== null;
+  const rawGitVer = gitVersionRaw !== null ? String(gitVersionRaw) : gitOutput(['--version'], absRoot) || '';
+  const gitMatch = rawGitVer.match(/git version (\d+)\.(\d+)(?:\.(\d+))?/i);
+  const gitVersion = gitMatch ? `${gitMatch[1]}.${gitMatch[2]}${gitMatch[3] ? `.${gitMatch[3]}` : ''}` : null;
+  const gitOk = Boolean(gitMatch && (Number(gitMatch[1]) > 2 || (Number(gitMatch[1]) === 2 && Number(gitMatch[2]) >= 38)));
 
   const cfgPath = path.join(absRoot, '.agent/sdlc-config.json');
   let cfgCheck = validateConfigFile(absRoot);
@@ -593,37 +596,14 @@ export function runDoctor({ repoRoot = '.', fix = false } = {}) {
   const auditChain = verifyAuditChain(absRoot);
 
   const passed =
-    nodeOk &&
-    gitOk &&
-    cfgCheck.valid &&
-    policyOk &&
-    gitignore.criticalOk &&
-    hooks.upToDate &&
-    wfExists &&
-    !wfLegacy &&
-    !keyInfo.committed &&
-    !keyInfo.error &&
-    skills.passed &&
-    auditChain.valid;
+    nodeOk && gitOk && cfgCheck.valid && policyOk && gitignore.criticalOk &&
+    hooks.upToDate && wfExists && !wfLegacy && !keyInfo.committed && !keyInfo.error && skills.passed && auditChain.valid;
 
   return {
-    passed,
-    nodeVersion: process.version,
-    nodeOk,
-    gitOk,
-    config: cfgCheck,
-    policyOk,
-    gitignore,
-    hooks,
+    passed, nodeVersion: process.version, nodeOk, gitVersion, gitOk, config: cfgCheck, policyOk, gitignore, hooks,
     workflow: { exists: wfExists, legacyNeedsUpgrade: wfLegacy, path: '.github/workflows/sdlc-quality-gate.yml' },
-    receiptKey: { ...keyInfo, ciSecretHint },
-    skills,
-    auditChain: {
-      valid: auditChain.valid,
-      recordsCount: auditChain.recordsCount,
-      gateReceiptsCount: auditChain.gateReceiptsCount,
-      error: auditChain.error || null
-    }
+    receiptKey: { ...keyInfo, ciSecretHint }, skills,
+    auditChain: { valid: auditChain.valid, recordsCount: auditChain.recordsCount, gateReceiptsCount: auditChain.gateReceiptsCount, error: auditChain.error || null }
   };
 }
 
