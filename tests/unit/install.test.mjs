@@ -4,11 +4,15 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { PassThrough } from 'node:stream';
-import { createTempGitRepo, withoutReceiptEnv } from '../helpers/test-harness.mjs';
+import { createTempGitRepo, git, withoutReceiptEnv } from '../helpers/test-harness.mjs';
+import { hasDirtyNonGovernanceFiles } from '../../.agent/scripts/lib/git.mjs';
+import { beginSession } from '../../.agent/scripts/lib/guard.mjs';
 import {
   CANONICAL_SKILLS,
   RETIRED_SKILLS,
   SUPPORTED_AGENTS,
+  SDLC_GITIGNORE_ENTRIES,
+  upsertGitignore,
   auditSkills,
   installCIWorkflow,
   scaffoldArchlensPolicy,
@@ -266,5 +270,128 @@ describe('Ring 2: lib/install.mjs', () => {
     assert.equal(wfForce.upgraded, true);
     assert.equal(scaffoldArchlensPolicy(dir, { force: false }).created, false);
     assert.equal(scaffoldArchlensPolicy(dir, { force: true }).created, true);
+  });
+
+  it('installFramework updates the real file behind in-repo CLAUDE.md <-> AGENTS.md symlinks and global homeDir symlinks while replacing external symlinks with warning', async () => {
+    const src = createSourceBundleFixture();
+    cleanups.push(src.cleanup);
+
+    // 1. In-repo CLAUDE.md -> AGENTS.md
+    const r1 = createTempGitRepo();
+    cleanups.push(r1.cleanup);
+    fs.writeFileSync(path.join(r1.dir, 'AGENTS.md'), '# My rules\nAlways use tabs.\n', 'utf8');
+    fs.symlinkSync('AGENTS.md', path.join(r1.dir, 'CLAUDE.md'));
+    const res1 = await installFramework({ targetDir: r1.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+    assert.equal(res1.success, true);
+    assert.equal(fs.lstatSync(path.join(r1.dir, 'CLAUDE.md')).isSymbolicLink(), true);
+    const agentsText1 = fs.readFileSync(path.join(r1.dir, 'AGENTS.md'), 'utf8');
+    assert.match(agentsText1, /Always use tabs\./);
+    assert.equal((agentsText1.match(/AGENTIC-SDLC-RULES:START/g) || []).length, 1);
+
+    // 2. Reverse: AGENTS.md -> CLAUDE.md
+    const r2 = createTempGitRepo();
+    cleanups.push(r2.cleanup);
+    fs.writeFileSync(path.join(r2.dir, 'CLAUDE.md'), '# My claude rules\nAlways use spaces.\n', 'utf8');
+    fs.symlinkSync('CLAUDE.md', path.join(r2.dir, 'AGENTS.md'));
+    const res2 = await installFramework({ targetDir: r2.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+    assert.equal(res2.success, true);
+    assert.equal(fs.lstatSync(path.join(r2.dir, 'AGENTS.md')).isSymbolicLink(), true);
+    const claudeText2 = fs.readFileSync(path.join(r2.dir, 'CLAUDE.md'), 'utf8');
+    assert.match(claudeText2, /Always use spaces\./);
+    assert.equal((claudeText2.match(/AGENTIC-SDLC-RULES:START/g) || []).length, 1);
+
+    // 3. Global mode: homeDir/.claude/CLAUDE.md -> homeDir/dotfiles/CLAUDE.md
+    const r3 = createTempGitRepo();
+    cleanups.push(r3.cleanup);
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-sym-home-'));
+    cleanups.push(() => fs.rmSync(homeDir, { recursive: true, force: true }));
+    fs.mkdirSync(path.join(homeDir, 'dotfiles'), { recursive: true });
+    fs.mkdirSync(path.join(homeDir, '.claude'), { recursive: true });
+    fs.writeFileSync(path.join(homeDir, 'dotfiles/CLAUDE.md'), '# Dotfile rules\nKeep me.\n', 'utf8');
+    fs.symlinkSync(path.join(homeDir, 'dotfiles/CLAUDE.md'), path.join(homeDir, '.claude/CLAUDE.md'));
+    const res3 = await installFramework({ targetDir: r3.dir, sourceRoot: src.srcDir, agents: ['claude'], globalMode: true, homeDir, yes: true });
+    assert.equal(res3.success, true);
+    assert.equal(fs.lstatSync(path.join(homeDir, '.claude/CLAUDE.md')).isSymbolicLink(), true);
+    const dotText = fs.readFileSync(path.join(homeDir, 'dotfiles/CLAUDE.md'), 'utf8');
+    assert.match(dotText, /# Dotfile rules/);
+    assert.equal((dotText.match(/AGENTIC-SDLC-RULES:START/g) || []).length, 1);
+
+    // 4. Out-of-repo CLAUDE.md symlink is replaced with a regular file and warns
+    const r4 = createTempGitRepo();
+    cleanups.push(r4.cleanup);
+    const outsideVictim = path.join(homeDir, 'outside-claude.md');
+    fs.writeFileSync(outsideVictim, 'OUTSIDE_UNTOUCHED', 'utf8');
+    fs.symlinkSync(outsideVictim, path.join(r4.dir, 'CLAUDE.md'));
+    const res4 = await installFramework({ targetDir: r4.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+    assert.equal(res4.success, true);
+    assert.equal(fs.lstatSync(path.join(r4.dir, 'CLAUDE.md')).isSymbolicLink(), false);
+    assert.equal(fs.readFileSync(outsideVictim, 'utf8'), 'OUTSIDE_UNTOUCHED');
+    assert.ok(res4.warnings.some((w) => /Replaced symlink/.test(w)));
+  });
+
+  it('installFramework and runDoctor provision and audit managed .gitignore entries idempotently without dirtying fresh repos', async () => {
+    const src = createSourceBundleFixture();
+    cleanups.push(src.cleanup);
+
+    // 1. CRLF preservation & idempotency
+    const r1 = createTempGitRepo();
+    cleanups.push(r1.cleanup);
+    git(r1.dir, 'rm', '-q', '.gitignore');
+    git(r1.dir, 'commit', '-qm', 'chore: remove harness gitignore');
+    fs.writeFileSync(path.join(r1.dir, '.gitignore'), 'dist/\r\n', 'utf8');
+    await installFramework({ targetDir: r1.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+    await installFramework({ targetDir: r1.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+    const raw1 = fs.readFileSync(path.join(r1.dir, '.gitignore'), 'utf8');
+    assert.match(raw1, /\r\n/);
+    const lines1 = raw1.split(/\r?\n/).map((l) => l.trim());
+    assert.ok(lines1.includes('dist/'));
+    for (const entry of SDLC_GITIGNORE_ENTRIES) {
+      assert.equal(lines1.filter((l) => l === entry).length, 1, `Expected single entry ${entry}`);
+    }
+    assert.equal(git(r1.dir, 'check-ignore', '-q', '.agent/.receipt-key').status, 0);
+
+    // 2. Fresh repo without .gitignore stays clean after init -> begin -> commit code
+    const r2 = createTempGitRepo();
+    cleanups.push(r2.cleanup);
+    git(r2.dir, 'rm', '-q', '.gitignore');
+    git(r2.dir, 'commit', '-qm', 'chore: fresh repo without gitignore');
+    await installFramework({ targetDir: r2.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+    git(r2.dir, 'add', '-A');
+    git(r2.dir, 'commit', '--no-verify', '-qm', 'chore: initial sdlc scaffold');
+    const sess = beginSession({ checkout: true, title: 'clean tree', repoRoot: r2.dir });
+    assert.equal(sess.success, true);
+    fs.mkdirSync(path.join(r2.dir, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(r2.dir, 'src/a.js'), 'export const a = 1;\n', 'utf8');
+    git(r2.dir, 'add', 'src/a.js');
+    git(r2.dir, 'commit', '-qm', 'feat: add a');
+    assert.equal(hasDirtyNonGovernanceFiles(r2.dir), false);
+
+    // 3. In-repo .gitignore symlink -> config/gitignore writes through the link
+    const r3 = createTempGitRepo();
+    cleanups.push(r3.cleanup);
+    git(r3.dir, 'rm', '-q', '.gitignore');
+    git(r3.dir, 'commit', '-qm', 'chore: rm gitignore');
+    fs.mkdirSync(path.join(r3.dir, 'config'), { recursive: true });
+    fs.writeFileSync(path.join(r3.dir, 'config/gitignore'), 'custom/\n', 'utf8');
+    fs.symlinkSync('config/gitignore', path.join(r3.dir, '.gitignore'));
+    const igSymRes = upsertGitignore(r3.dir);
+    assert.equal(igSymRes.updated, true);
+    assert.equal(fs.lstatSync(path.join(r3.dir, '.gitignore')).isSymbolicLink(), true);
+    const linkedIg = fs.readFileSync(path.join(r3.dir, 'config/gitignore'), 'utf8');
+    assert.match(linkedIg, /^custom\/$/m);
+    assert.match(linkedIg, /^\.agent\/\.receipt-key$/m);
+
+    // 4. runDoctor flags missing critical gitignore entries and --fix repairs them
+    withoutReceiptEnv(() => {
+      fs.writeFileSync(path.join(r1.dir, '.agent/.receipt-key'), 'deadbeef\n', { mode: 0o600 });
+      fs.writeFileSync(path.join(r1.dir, '.gitignore'), 'dist/\n', 'utf8');
+      const docBad = runDoctor({ repoRoot: r1.dir, fix: false });
+      assert.equal(docBad.passed, false);
+      assert.equal(docBad.gitignore.upToDate, false);
+      assert.ok(docBad.gitignore.missing.includes('.agent/.receipt-key'));
+      const docFixed = runDoctor({ repoRoot: r1.dir, fix: true });
+      assert.equal(docFixed.passed, true);
+      assert.equal(docFixed.gitignore.upToDate, true);
+    });
   });
 });

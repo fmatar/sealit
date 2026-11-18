@@ -609,6 +609,7 @@ export function formatCLIResult(cmd, res = {}) {
         `  Node Runtime  : ${d.nodeVersion} (${d.nodeOk ? 'OK' : 'Requires >=22.0.0'})`,
         `  Config        : ${d.config.valid ? 'Valid' : `Invalid (${d.config.errors.join('; ')})`}`,
         `  Archlens Rings: ${d.policyOk ? 'Present' : 'Missing'}`,
+        `  Gitignore     : ${d.gitignore?.upToDate ? 'Up to date' : `Missing ${d.gitignore?.missing?.length || 0}: ${(d.gitignore?.missing || []).join(', ')}`}`,
         `  4-Layer Hooks : ${d.hooks.upToDate ? 'Up to date' : `Missing/Outdated [${[...d.hooks.missingHooks, ...d.hooks.outdatedHooks].join(', ')}]`}`,
         `  CI Workflow   : ${d.workflow.exists ? (d.workflow.legacyNeedsUpgrade ? 'Needs v0.1.0 upgrade (--fix)' : 'Up to date') : 'Missing'}`,
         `  Receipt Key   : ${d.receiptKey.source} (${d.receiptKey.usable ? `usable${d.receiptKey.mode !== null ? `, mode 0${d.receiptKey.mode.toString(8)}, untracked` : ''}` : d.receiptKey.error || 'not provisioned'})`,

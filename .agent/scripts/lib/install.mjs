@@ -44,6 +44,17 @@ export const RETIRED_SKILLS = Object.freeze([
 
 export const SUPPORTED_AGENTS = Object.freeze(['antigravity', 'claude', 'cursor', 'codex', 'copilot']);
 
+export const SDLC_GITIGNORE_ENTRIES = Object.freeze([
+  '.env',
+  '.agent/.cache/',
+  '.agent/.sdlc-session.json',
+  '.agent/.sdlc-session.lock',
+  '.agent/.sdlc-config.lock',
+  '.agent/.audit-chain.lock',
+  '.agent/.receipt-key',
+  '.stryker-tmp/'
+]);
+
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 
 function normalizeAgentList(rawAgents) {
@@ -142,20 +153,88 @@ export function buildRulesBlock() {
   ].join('\n');
 }
 
-function upsertMarkedRulesFile(filePath, rulesBlock, baseRoot = null) {
-  if (baseRoot) assertNoSymlinkAncestors(baseRoot, path.dirname(filePath));
-  unlinkIfSymlink(filePath);
-  if (fileExists(filePath)) {
-    const existing = fs.readFileSync(filePath, 'utf8');
+function resolveUserFileTarget(filePath, allowedRoot = null, warnings = []) {
+  if (allowedRoot) assertNoSymlinkAncestors(allowedRoot, path.dirname(filePath));
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const st = fs.lstatSync(filePath, { throwIfNoEntry: false });
+  if (!st || !st.isSymbolicLink()) return filePath;
+  try {
+    const realTarget = fs.realpathSync(filePath);
+    const realRoot = allowedRoot ? fs.realpathSync(path.resolve(allowedRoot)) : null;
+    if (realRoot) {
+      const rel = path.relative(realRoot, realTarget);
+      if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) {
+        assertNoSymlinkAncestors(realRoot, path.dirname(realTarget));
+        return realTarget;
+      }
+    }
+  } catch {}
+  fs.unlinkSync(filePath);
+  warnings.push(`Replaced symlink '${path.basename(filePath)}' (target outside allowed root) with a regular file.`);
+  return filePath;
+}
+
+export function upsertGitignore(targetDir = '.', { warnings = [] } = {}) {
+  const absTarget = path.resolve(targetDir);
+  const resolvedPath = resolveUserFileTarget(path.join(absTarget, '.gitignore'), absTarget, warnings);
+  const exists = fileExists(resolvedPath);
+  const raw = exists ? fs.readFileSync(resolvedPath, 'utf8') : '';
+  const eol = raw.includes('\r\n') ? '\r\n' : '\n';
+  const lineSet = new Set(raw.split(/\r?\n/).map((l) => l.trim()));
+  const missing = SDLC_GITIGNORE_ENTRIES.filter((entry) => !lineSet.has(entry));
+  if (missing.length === 0 && exists) {
+    return { updated: false, added: [], path: resolvedPath };
+  }
+  const block = `# Agentic SDLC local state & secrets (managed)${eol}${missing.join(eol)}${eol}`;
+  const trimmed = raw.trimEnd();
+  const next = trimmed ? `${trimmed}${eol}${eol}${block}` : block;
+  const effectiveRoot = resolvedPath !== path.join(absTarget, '.gitignore') ? fs.realpathSync(absTarget) : absTarget;
+  assertNoSymlinkAncestors(effectiveRoot, path.dirname(resolvedPath));
+  writeFileAtomic(resolvedPath, next);
+  return { updated: true, added: missing, path: resolvedPath };
+}
+
+export function inspectGitignore(repoRoot = '.') {
+  const absRoot = path.resolve(repoRoot);
+  const rawPath = path.join(absRoot, '.gitignore');
+  let content = null;
+  try {
+    const st = fs.lstatSync(rawPath, { throwIfNoEntry: false });
+    if (st?.isSymbolicLink()) {
+      const realTarget = fs.realpathSync(rawPath);
+      const realRoot = fs.realpathSync(absRoot);
+      const rel = path.relative(realRoot, realTarget);
+      if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) {
+        content = fs.readFileSync(realTarget, 'utf8');
+      }
+    } else if (st?.isFile()) {
+      content = fs.readFileSync(rawPath, 'utf8');
+    }
+  } catch {}
+  const lineSet = new Set(String(content || '').split(/\r?\n/).map((l) => l.trim()));
+  const missing = SDLC_GITIGNORE_ENTRIES.filter((entry) => !lineSet.has(entry));
+  return {
+    exists: content !== null,
+    upToDate: missing.length === 0,
+    criticalOk: !missing.includes('.agent/.receipt-key') && !missing.includes('.agent/.sdlc-session.json'),
+    missing
+  };
+}
+
+function upsertMarkedRulesFile(filePath, rulesBlock, baseRoot = null, warnings = []) {
+  const resolvedPath = resolveUserFileTarget(filePath, baseRoot, warnings);
+  const effectiveRoot = resolvedPath !== filePath && baseRoot ? fs.realpathSync(path.resolve(baseRoot)) : baseRoot;
+  if (fileExists(resolvedPath)) {
+    const existing = fs.readFileSync(resolvedPath, 'utf8');
     if (existing.includes('<!-- AGENTIC-SDLC-RULES:START -->') && existing.includes('<!-- AGENTIC-SDLC-RULES:END -->')) {
       const updated = existing.replace(/<!-- AGENTIC-SDLC-RULES:START -->[\s\S]*?<!-- AGENTIC-SDLC-RULES:END -->/, rulesBlock);
-      safeWriteFile(filePath, updated.endsWith('\n') ? updated : `${updated}\n`, undefined, baseRoot);
+      safeWriteFile(resolvedPath, updated.endsWith('\n') ? updated : `${updated}\n`, undefined, effectiveRoot);
       return;
     }
-    safeWriteFile(filePath, `${existing.trimEnd()}\n\n${rulesBlock}\n`, undefined, baseRoot);
+    safeWriteFile(resolvedPath, `${existing.trimEnd()}\n\n${rulesBlock}\n`, undefined, effectiveRoot);
     return;
   }
-  safeWriteFile(filePath, `${rulesBlock}\n`, undefined, baseRoot);
+  safeWriteFile(resolvedPath, `${rulesBlock}\n`, undefined, effectiveRoot);
 }
 
 function adaptSkillContent(rawMarkdown, agent, { globalEnginePath = null } = {}) {
@@ -417,6 +496,11 @@ export function runDoctor({ repoRoot = '.', fix = false } = {}) {
   }
   const policyOk = fileExists(policyPath);
 
+  if (fix) {
+    upsertGitignore(absRoot);
+  }
+  const gitignore = inspectGitignore(absRoot);
+
   if (fix && fileExists(path.join(absRoot, '.git'))) {
     installHooks({ repoRoot: absRoot });
   }
@@ -451,6 +535,7 @@ export function runDoctor({ repoRoot = '.', fix = false } = {}) {
     gitOk &&
     cfgCheck.valid &&
     policyOk &&
+    gitignore.criticalOk &&
     hooks.upToDate &&
     wfExists &&
     !wfLegacy &&
@@ -466,6 +551,7 @@ export function runDoctor({ repoRoot = '.', fix = false } = {}) {
     gitOk,
     config: cfgCheck,
     policyOk,
+    gitignore,
     hooks,
     workflow: { exists: wfExists, legacyNeedsUpgrade: wfLegacy, path: '.github/workflows/sdlc-quality-gate.yml' },
     receiptKey: { ...keyInfo, ciSecretHint },
@@ -579,7 +665,7 @@ export async function installFramework({
         );
       }
       if (agent === 'claude') {
-        upsertMarkedRulesFile(path.join(resolvedHome, '.claude/CLAUDE.md'), rulesBlock);
+        upsertMarkedRulesFile(path.join(resolvedHome, '.claude/CLAUDE.md'), rulesBlock, resolvedHome, warnings);
         updateClaudeSettingsJson(path.join(resolvedHome, '.claude/settings.json'), warnings);
       }
     }
@@ -616,6 +702,7 @@ export async function installFramework({
   if (force || !fileExists(cfgPath) || !validateConfigFile(absTarget).valid) {
     writeFileAtomic(cfgPath, JSON.stringify(generateConfig(absTarget), null, 2) + '\n');
   }
+  upsertGitignore(absTarget, { warnings });
 
   assertNoSymlinkAncestors(absTarget, path.join(absTarget, '.archlens'));
   scaffoldArchlensPolicy(absTarget, { force: false });
@@ -625,7 +712,7 @@ export async function installFramework({
   assertNoSymlinkAncestors(absTarget, path.join(absTarget, '.github/workflows'));
   installCIWorkflow({ repoRoot: absTarget, force, upgradeLegacy: true });
 
-  upsertMarkedRulesFile(path.join(absTarget, 'AGENTS.md'), rulesBlock, absTarget);
+  upsertMarkedRulesFile(path.join(absTarget, 'AGENTS.md'), rulesBlock, absTarget, warnings);
 
   for (const agent of selectedAgents) {
     if (agent === 'claude') {
@@ -634,7 +721,7 @@ export async function installFramework({
         const raw = readFileSafe(path.join(absTarget, '.agent/skills', skillId, 'SKILL.md'));
         if (raw) safeWriteFile(path.join(absTarget, '.claude/skills', skillId, 'SKILL.md'), adaptSkillContent(raw, 'claude'), undefined, absTarget);
       }
-      upsertMarkedRulesFile(path.join(absTarget, 'CLAUDE.md'), rulesBlock, absTarget);
+      upsertMarkedRulesFile(path.join(absTarget, 'CLAUDE.md'), rulesBlock, absTarget, warnings);
       updateClaudeSettingsJson(path.join(absTarget, '.claude/settings.json'), warnings, absTarget);
     } else if (agent === 'cursor') {
       pruneRetiredSkillsInDir(path.join(absTarget, '.cursor/skills'), absTarget);
@@ -663,7 +750,7 @@ export async function installFramework({
         if (raw) safeWriteFile(path.join(absTarget, '.codex/skills', skillId, 'SKILL.md'), adaptSkillContent(raw, 'codex'), undefined, absTarget);
       }
     } else if (agent === 'copilot') {
-      upsertMarkedRulesFile(path.join(absTarget, '.github/copilot-instructions.md'), rulesBlock, absTarget);
+      upsertMarkedRulesFile(path.join(absTarget, '.github/copilot-instructions.md'), rulesBlock, absTarget, warnings);
     }
   }
 

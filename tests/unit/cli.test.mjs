@@ -171,7 +171,9 @@ describe('Ring 3: sdlc-engine.mjs CLI registry', () => {
       assert.equal(wfRes.success, true);
 
       // Human formatters produce clear, non-empty output across commands
-      assert.match(formatCLIResult('doctor', await runCLI(['doctor'], null, dir)), /SDLC Doctor:/);
+      const docFmt = formatCLIResult('doctor', await runCLI(['doctor'], null, dir));
+      assert.match(docFmt, /SDLC Doctor:/);
+      assert.match(docFmt, /Gitignore\s*:\s*Missing \d+:/);
       assert.match(formatCLIResult('status', await runCLI(['status'], null, dir)), /Branch:/);
       assert.match(formatCLIResult('drift', driftPass), /Spec drift verified.*ADR-001/i);
       assert.match(formatCLIResult('adr', await runCLI(['adr', 'list'], null, dir)), /ADRs/);
@@ -211,6 +213,7 @@ describe('Ring 3: sdlc-engine.mjs CLI registry', () => {
       assert.equal(initRes.success, true);
       assert.match(formatCLIResult('init', initRes), /Initialized/);
       assert.equal((await runCLI(['config', 'check'], null, dir)).success, true);
+      assert.match(formatCLIResult('doctor', await runCLI(['doctor'], null, dir)), /Gitignore\s*:\s*Up to date/);
       fs.appendFileSync(path.join(dir, '.gitignore'), '.claude/\n.cursor/\n', 'utf8');
       git(dir, 'add', '-A');
       git(dir, 'commit', '--no-verify', '-q', '-m', 'chore: baseline init');
