@@ -307,9 +307,12 @@ export function appendAuditRecord({ event, metadata = {}, repoRoot = '.' } = {})
 
     let previousHash = GENESIS_HASH;
     let index = 0;
+    let separator = '';
 
     if (fileExists(auditPath)) {
-      const content = fs.readFileSync(auditPath, 'utf8').trim();
+      const rawContent = fs.readFileSync(auditPath, 'utf8');
+      const content = rawContent.trim();
+      if (rawContent.length > 0 && !rawContent.endsWith('\n')) separator = '\n';
       if (content) {
         const integrity = verifyAuditChain(repoRoot);
         if (!integrity.valid) {
@@ -326,7 +329,7 @@ export function appendAuditRecord({ event, metadata = {}, repoRoot = '.' } = {})
     const timestamp = new Date().toISOString();
     const currentHash = calculateRecordHash({ index, timestamp, event, metadata, previousHash });
     const record = { index, timestamp, event, metadata, previousHash, currentHash };
-    fs.appendFileSync(auditPath, JSON.stringify(record) + '\n', 'utf8');
+    fs.appendFileSync(auditPath, `${separator}${JSON.stringify(record)}\n`, 'utf8');
     return { success: true, record, auditPath };
   });
 }
