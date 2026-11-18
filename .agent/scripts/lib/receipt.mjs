@@ -548,8 +548,7 @@ export function issueGateReceipt({ repoRoot = '.', docsOnly = false, reviewerOve
   }
 
   const effectiveMode = lastGate.mode || (isDocsDiff ? 'docs-only' : 'code');
-  const effRange = resolveRange({ baseBranch: session.baseBranch || null, head: headSha, repoRoot });
-  const { config } = loadEffectivePolicy({ repoRoot, baseSha: effRange.baseSha, headSha });
+  const { config } = loadEffectivePolicy({ repoRoot, baseSha: range.baseSha, headSha, changedPaths: cs.paths });
   const mods = config?.modules || [];
 
   if (effectiveMode === 'code') {

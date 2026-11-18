@@ -616,5 +616,15 @@ describe('Ring 2: lib/guard.mjs', () => {
     assert.ok(twoRev.changedLines > 200);
     assert.match(twoRev.reviewers[0].prompt, /diff truncated at 32kB/);
     assert.match(twoRev.reviewers[1].prompt, /diff truncated at 32kB/);
+
+    // Small <=200-line edits to .agent/scripts/** or packages/api/stryker.config.json trigger Architecture & Security Reviewer
+    fs.unlinkSync(path.join(dir, 'huge.mjs'));
+    fs.mkdirSync(path.join(dir, '.agent/scripts/lib'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.agent/scripts/lib/config.mjs'), '// engine edit\n', 'utf8');
+    assert.equal(buildReviewPlan(dir).reviewers.length, 2);
+    fs.rmSync(path.join(dir, '.agent/scripts'), { recursive: true, force: true });
+    fs.mkdirSync(path.join(dir, 'packages/api'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'packages/api/stryker.config.json'), '{"mutate":["src/**/*.mjs"]}\n', 'utf8');
+    assert.equal(buildReviewPlan(dir).reviewers.length, 2);
   });
 });

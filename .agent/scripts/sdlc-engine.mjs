@@ -393,6 +393,7 @@ export async function runCLI(customArgs = null, customConfigPath = null, repoRoo
         })
       }));
       result.mutation = reports;
+      for (const r of reports) if (Array.isArray(r.warnings)) result.warnings.push(...r.warnings);
       result.success = reports.every((r) => r.passed);
       return result;
     }

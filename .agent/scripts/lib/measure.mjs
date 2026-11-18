@@ -771,7 +771,7 @@ export function runGate(repoRoot = '.', { noCache = false, online = false, verbo
           break;
         }
         try {
-          const mut = measureModuleMutation(repoRoot, mod, { noCache, verbose, baseBranch: range.effectiveBase, changeSet: cs, strykerConfig: policy.stryker, exemptions: config.exemptions, onProgress });
+          const mut = measureModuleMutation(repoRoot, mod, { noCache, verbose, baseBranch: range.effectiveBase, changeSet: cs, strykerConfig: policy.strykerByModule?.[mod.name] ?? null, exemptions: config.exemptions, onProgress });
           modMutPct = mut.score ?? null;
           modMutStatus = mut.status || 'measured';
           if (!mut.passed) {

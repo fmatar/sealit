@@ -15,7 +15,7 @@ afterEach(() => {
 });
 
 describe('Stryker in-process node:test runner parity & configuration', () => {
-  it('stryker.config.json omits Node-22-incompatible --test-isolation=none and passes full-suite parity under SdlcNodeTestRunner', async () => {
+  it('stryker.config.json omits Node-22-incompatible --test-isolation=none and passes full-suite parity under SdlcNodeTestRunner', { timeout: 240_000 }, async () => {
     const cfg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'stryker.config.json'), 'utf8'));
     assert.equal((cfg.tap?.nodeArgs || []).includes('--test-isolation=none'), false);
     assert.equal((cfg.tap?.testFiles || []).length, 9);

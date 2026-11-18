@@ -370,103 +370,30 @@ export function detectStack(repoRoot = '.') {
     };
   }
 
-  if (fileExists(path.join(abs, 'Cargo.toml'))) {
-    return {
-      name: 'root',
-      path: '.',
-      language: 'rust',
-      commands: {
-        lint: 'cargo clippy -- -D warnings',
-        build: 'cargo build',
-        test: 'cargo test',
-        coverage: 'cargo tarpaulin --out Lcov --output-dir coverage',
-        coverageFile: 'coverage/lcov.info',
-        mutation: null
-      },
-      thresholds: { diffCoverage: 85, mutationScore: null }
-    };
-  }
-
-  if (fileExists(path.join(abs, 'go.mod'))) {
-    return {
-      name: 'root',
-      path: '.',
-      language: 'go',
-      commands: {
-        lint: 'go vet ./...',
-        build: 'go build ./...',
-        test: 'go test ./...',
-        coverage: 'go test -coverprofile=coverage/cover.out ./...',
-        coverageFile: 'coverage/cover.out',
-        mutation: null
-      },
-      thresholds: { diffCoverage: 85, mutationScore: null }
-    };
-  }
-
-  if (fileExists(path.join(abs, 'pyproject.toml')) || fileExists(path.join(abs, 'requirements.txt'))) {
-    return {
-      name: 'root',
-      path: '.',
-      language: 'python',
-      commands: {
-        lint: null,
-        build: null,
-        test: 'pytest',
-        coverage: 'pytest --cov --cov-report=xml:coverage/coverage.xml',
-        coverageFile: 'coverage/coverage.xml',
-        mutation: null
-      },
-      thresholds: { diffCoverage: 85, mutationScore: null }
-    };
-  }
-
-  if (fileExists(path.join(abs, 'pom.xml'))) {
-    return {
-      name: 'root',
-      path: '.',
-      language: 'java',
-      commands: {
-        lint: null,
-        build: 'mvn test-compile',
-        test: 'mvn test',
-        coverage: 'mvn test jacoco:report',
-        coverageFile: 'target/site/jacoco/jacoco.xml',
-        mutation: null
-      },
-      thresholds: { diffCoverage: 85, mutationScore: null }
-    };
-  }
-
-  if (fileExists(path.join(abs, 'build.gradle')) || fileExists(path.join(abs, 'build.gradle.kts'))) {
-    return {
-      name: 'root',
-      path: '.',
-      language: 'java',
-      commands: {
-        lint: null,
-        build: './gradlew classes',
-        test: './gradlew test',
-        coverage: './gradlew test jacocoTestReport',
-        coverageFile: 'build/reports/jacoco/test/jacocoTestReport.xml',
-        mutation: null
-      },
-      thresholds: { diffCoverage: 85, mutationScore: null }
-    };
+  const presets = [
+    [['Cargo.toml'], 'rust', 'cargo clippy -- -D warnings', 'cargo build', 'cargo test', 'cargo tarpaulin --out Lcov --output-dir coverage', 'coverage/lcov.info'],
+    [['go.mod'], 'go', 'go vet ./...', 'go build ./...', 'go test ./...', 'go test -coverprofile=coverage/cover.out ./...', 'coverage/cover.out'],
+    [['pyproject.toml', 'requirements.txt'], 'python', null, null, 'pytest', 'pytest --cov --cov-report=xml:coverage/coverage.xml', 'coverage/coverage.xml'],
+    [['pom.xml'], 'java', null, 'mvn test-compile', 'mvn test', 'mvn test jacoco:report', 'target/site/jacoco/jacoco.xml'],
+    [['build.gradle', 'build.gradle.kts'], 'java', null, './gradlew classes', './gradlew test', './gradlew test jacocoTestReport', 'build/reports/jacoco/test/jacocoTestReport.xml']
+  ];
+  for (const [manifests, language, lint, build, test, coverage, coverageFile] of presets) {
+    if (manifests.some((m) => fileExists(path.join(abs, m)))) {
+      return {
+        name: 'root',
+        path: '.',
+        language,
+        commands: { lint, build, test, coverage, coverageFile, mutation: null },
+        thresholds: { diffCoverage: 85, mutationScore: null }
+      };
+    }
   }
 
   return {
     name: 'root',
     path: '.',
     language: 'generic',
-    commands: {
-      lint: null,
-      build: null,
-      test: null,
-      coverage: null,
-      coverageFile: null,
-      mutation: null
-    },
+    commands: { lint: null, build: null, test: null, coverage: null, coverageFile: null, mutation: null },
     thresholds: { diffCoverage: null, mutationScore: null }
   };
 }
@@ -505,8 +432,8 @@ export function upgradeConfigToV010(rawCfg) {
       mutation: mod.commands?.mutation ?? null
     },
     thresholds: {
-      diffCoverage: mod.thresholds?.diffCoverage ?? (mod.commands?.coverage ? DEFAULT_QUALITY_THRESHOLDS.diffCoverage : null),
-      mutationScore: mod.thresholds?.mutationScore ?? DEFAULT_QUALITY_THRESHOLDS.mutationScore
+      diffCoverage: mod.commands?.coverage ? (mod.thresholds?.diffCoverage ?? DEFAULT_QUALITY_THRESHOLDS.diffCoverage) : null,
+      mutationScore: mod.commands?.mutation ? (mod.thresholds?.mutationScore ?? 80) : null
     }
   }));
   return {
@@ -560,6 +487,7 @@ export function matchesMutatePatterns(relFile, patterns) {
       '^' +
         clean
           .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+          .replace(/\\\{([^{}\\]+)\\\}/g, (_, g) => `(?:${g.split(',').join('|')})`)
           .replace(/\*\*\//g, '\0D\0')
           .replace(/\*\*/g, '\0G\0')
           .replace(/\*/g, '[^/]*')
@@ -594,7 +522,7 @@ export function addExemption({ id, file, reason, repoRoot = '.' } = {}) {
         const rep = JSON.parse(fs.readFileSync(repPath, 'utf8'));
         for (const [rawFile, fileObj] of Object.entries(rep?.files || {})) {
           const normRep = rawFile.replace(/\\/g, '/').replace(/^\.\//, '');
-          if (normRep === cleanFile || normRep.endsWith(`/${cleanFile}`)) {
+          if (normRep === cleanFile || (path.isAbsolute(rawFile) && normRep.endsWith(`/${cleanFile}`))) {
             const hit = (fileObj?.mutants || []).find((m) => String(m.id) === cleanId);
             const derived = hit ? formatMutantIdentity(hit) : null;
             if (derived) { cleanId = derived; break; }
@@ -643,29 +571,89 @@ function parseJsonSafe(raw) {
   }
 }
 
+function normModDir(modPath) {
+  const clean = String(modPath || '.').trim().replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '');
+  return clean || '.';
+}
+
+function mergeStrykerPolicy(baseParsed, headParsed, relPath, addTrigger) {
+  if (!baseParsed.present && !headParsed.present) return null;
+  if (headParsed.present && !headParsed.ok) {
+    addTrigger(relPath);
+    return baseParsed.ok ? structuredClone(baseParsed.value) : null;
+  }
+  const normPos = (p) => String(p).replace(/\\/g, '/').replace(/^\.\//, '');
+  const normNeg = (p) => `!${String(p).slice(1).replace(/\\/g, '/').replace(/^\.\//, '')}`;
+  const stripMut = ({ mutate: _m, ...rest }) => rest;
+  if (!baseParsed.ok) {
+    const eff = structuredClone(headParsed.value);
+    if (Array.isArray(eff.mutate)) {
+      if (eff.mutate.some((p) => String(p).startsWith('!'))) addTrigger(relPath);
+      eff.mutate = [...new Set(eff.mutate.filter((p) => !String(p).startsWith('!')).map(normPos))];
+    }
+    if (stableJson(stripMut(eff)) !== '{}') addTrigger(relPath);
+    return eff;
+  }
+  if (!headParsed.present) {
+    addTrigger(relPath);
+    return structuredClone(baseParsed.value);
+  }
+  const eff = structuredClone(headParsed.value);
+  const bHasMut = Array.isArray(baseParsed.value.mutate);
+  const hHasMut = Array.isArray(headParsed.value.mutate);
+  if (!bHasMut && hHasMut) {
+    addTrigger(relPath);
+    delete eff.mutate;
+  } else if (bHasMut || hHasMut) {
+    const bMut = bHasMut ? baseParsed.value.mutate : [];
+    const hMut = hHasMut ? headParsed.value.mutate : [];
+    const bPos = [...new Set(bMut.filter((p) => !String(p).startsWith('!')).map(normPos))];
+    const hPos = [...new Set(hMut.filter((p) => !String(p).startsWith('!')).map(normPos))];
+    const bNegSet = new Set(bMut.filter((p) => String(p).startsWith('!')).map(normNeg));
+    const hNeg = [...new Set(hMut.filter((p) => String(p).startsWith('!')).map(normNeg))];
+    if (!hHasMut || bPos.some((p) => !hPos.includes(p)) || hNeg.some((n) => !bNegSet.has(n))) addTrigger(relPath);
+    eff.mutate = [...new Set([...bPos, ...hPos]), ...hNeg.filter((n) => bNegSet.has(n))];
+  }
+  if (stableJson(stripMut(baseParsed.value)) !== stableJson(stripMut(headParsed.value))) addTrigger(relPath);
+  return eff;
+}
+
 export function loadEffectivePolicy({ repoRoot = '.', baseSha = null, headSha = null, changedPaths = null } = {}) {
   const hasBase = Boolean(baseSha && baseSha !== EMPTY_TREE_SHA);
-  const relFiles = ['.agent/sdlc-config.json', 'stryker.config.json', 'package.json'];
   const specs = [
-    ...(hasBase ? relFiles.map((f) => `${baseSha}:${f}`) : []),
-    ...(headSha ? relFiles.map((f) => `${headSha}:${f}`) : [])
+    ...(hasBase ? ['.agent/sdlc-config.json', 'stryker.config.json', 'package.json'].map((f) => `${baseSha}:${f}`) : []),
+    ...(headSha ? ['.agent/sdlc-config.json', 'stryker.config.json'].map((f) => `${headSha}:${f}`) : [])
   ];
   const blobs = specs.length > 0 ? readBlobs(specs, repoRoot) : new Map();
+  const safeReadWorktree = (f) => {
+    try { return readFileSafe(resolveInsideRepo(repoRoot, f)); } catch { return null; }
+  };
   const getBaseRaw = (f) => (hasBase ? blobs.get(`${baseSha}:${f}`) ?? null : null);
-  const getHeadRaw = (f) => (headSha ? blobs.get(`${headSha}:${f}`) ?? null : readFileSafe(path.resolve(repoRoot, f)));
+  const getHeadRaw = (f) => (headSha ? blobs.get(`${headSha}:${f}`) ?? null : safeReadWorktree(f));
 
   const baseCfgParsed = parseJsonSafe(getBaseRaw('.agent/sdlc-config.json'));
   const headCfgParsed = parseJsonSafe(getHeadRaw('.agent/sdlc-config.json'));
-  const baseStrykerParsed = parseJsonSafe(getBaseRaw('stryker.config.json'));
-  const headStrykerParsed = parseJsonSafe(getHeadRaw('stryker.config.json'));
+  const baseRootStryker = parseJsonSafe(getBaseRaw('stryker.config.json'));
+  const headRootStryker = parseJsonSafe(getHeadRaw('stryker.config.json'));
   const basePkgParsed = parseJsonSafe(getBaseRaw('package.json'));
-  const headPkgParsed = parseJsonSafe(getHeadRaw('package.json'));
+  const validMods = (arr) =>
+    Array.isArray(arr) ? arr.filter((m) => m && typeof m === 'object' && !Array.isArray(m) && typeof m.name === 'string' && Boolean(m.name.trim())) : [];
 
   if (!hasBase || !baseCfgParsed.present || !baseCfgParsed.ok) {
     const headCfg = headCfgParsed.ok ? migrateConfigObject(headCfgParsed.value).config : generateConfig(repoRoot);
+    const bootMods = validMods(headCfg?.modules);
+    const subDirs = [...new Set(bootMods.map((m) => normModDir(m.path)).filter((d) => d !== '.'))];
+    const subBlobs = headSha && subDirs.length > 0 ? readBlobs(subDirs.map((d) => `${headSha}:${d}/stryker.config.json`), repoRoot) : new Map();
+    const strykerByModule = {};
+    for (const m of bootMods) {
+      const dir = normModDir(m.path);
+      const parsed = dir === '.' ? headRootStryker : parseJsonSafe(headSha ? subBlobs.get(`${headSha}:${dir}/stryker.config.json`) ?? null : safeReadWorktree(`${dir}/stryker.config.json`));
+      strykerByModule[m.name] = parsed.ok ? structuredClone(parsed.value) : null;
+    }
     return {
       config: headCfg,
-      stryker: headStrykerParsed.ok ? structuredClone(headStrykerParsed.value) : {},
+      stryker: headRootStryker.ok ? structuredClone(headRootStryker.value) : {},
+      strykerByModule,
       policySource: 'bootstrap',
       policyTriggers: [],
       pendingExemptions: []
@@ -691,8 +679,13 @@ export function loadEffectivePolicy({ repoRoot = '.', baseSha = null, headSha = 
   const headPolPath = headCfg.archlens?.policyPath || '.archlens/policy.json';
   if (baseArchEn && (!headArchEn || headPolPath !== basePolPath)) addTrigger('.agent/sdlc-config.json');
 
-  const baseByName = new Map((baseCfg.modules || []).map((m) => [m.name, m]));
-  const headByName = new Map((headCfg.modules || []).map((m) => [m.name, m]));
+  const baseModList = validMods(baseCfg.modules);
+  const headModList = validMods(headCfg.modules);
+  if (!Array.isArray(headCfg.modules) || headModList.length !== headCfg.modules.length || headModList.length === 0) {
+    addTrigger('.agent/sdlc-config.json');
+  }
+  const baseByName = new Map(baseModList.map((m) => [m.name, m]));
+  const headByName = new Map(headModList.map((m) => [m.name, m]));
   const mergeFloor = (bVal, hVal) => {
     const b = typeof bVal === 'number' ? bVal : null;
     const h = typeof hVal === 'number' ? hVal : null;
@@ -702,27 +695,29 @@ export function loadEffectivePolicy({ repoRoot = '.', baseSha = null, headSha = 
   };
 
   const effModules = [];
-  for (const hMod of headCfg.modules || []) {
+  for (const hMod of headModList) {
     const bMod = baseByName.get(hMod.name);
     if (!bMod) {
       effModules.push(structuredClone(hMod));
       continue;
     }
-    if ((hMod.path || '.') !== (bMod.path || '.')) addTrigger('.agent/sdlc-config.json');
+    if (normModDir(hMod.path) !== normModDir(bMod.path)) addTrigger('.agent/sdlc-config.json');
     for (const ck of CONFIG_SCHEMA_KEYS.commands) {
       if (stableJson(hMod.commands?.[ck] ?? null) !== stableJson(bMod.commands?.[ck] ?? null)) {
         addTrigger('.agent/sdlc-config.json');
       }
     }
-    const covM = mergeFloor(bMod.thresholds?.diffCoverage, hMod.thresholds?.diffCoverage);
-    const mutM = mergeFloor(bMod.thresholds?.mutationScore, hMod.thresholds?.mutationScore);
+    const bActiveCov = bMod.commands?.coverage ? bMod.thresholds?.diffCoverage : null;
+    const bActiveMut = bMod.commands?.mutation ? bMod.thresholds?.mutationScore : null;
+    const covM = mergeFloor(bActiveCov, hMod.thresholds?.diffCoverage);
+    const mutM = mergeFloor(bActiveMut, hMod.thresholds?.mutationScore);
     if (covM.loosened || mutM.loosened) addTrigger('.agent/sdlc-config.json');
     effModules.push({
       ...structuredClone(hMod),
       thresholds: { diffCoverage: covM.value, mutationScore: mutM.value }
     });
   }
-  for (const bMod of baseCfg.modules || []) {
+  for (const bMod of baseModList) {
     if (!headByName.has(bMod.name)) {
       addTrigger('.agent/sdlc-config.json');
       effModules.push(structuredClone(bMod));
@@ -736,33 +731,25 @@ export function loadEffectivePolicy({ repoRoot = '.', baseSha = null, headSha = 
     (ex) => ex && typeof ex === 'object' && !baseExSet.has(exKey(ex))
   );
 
-  let effStryker = headStrykerParsed.ok ? structuredClone(headStrykerParsed.value) : {};
-  if (headStrykerParsed.present && !headStrykerParsed.ok) addTrigger('stryker.config.json');
-  if (baseStrykerParsed.ok) {
-    if (!headStrykerParsed.present || !headStrykerParsed.ok) {
-      addTrigger('stryker.config.json');
-      effStryker = structuredClone(baseStrykerParsed.value);
-    } else {
-      const normPos = (p) => String(p).replace(/\\/g, '/').replace(/^\.\//, '');
-      const normNeg = (p) => `!${String(p).slice(1).replace(/\\/g, '/').replace(/^\.\//, '')}`;
-      const bMut = Array.isArray(baseStrykerParsed.value.mutate) ? baseStrykerParsed.value.mutate : [];
-      const hMut = Array.isArray(headStrykerParsed.value.mutate) ? headStrykerParsed.value.mutate : [];
-      const bPos = [...new Set(bMut.filter((p) => !String(p).startsWith('!')).map(normPos))];
-      const hPos = [...new Set(hMut.filter((p) => !String(p).startsWith('!')).map(normPos))];
-      const bNegSet = new Set(bMut.filter((p) => String(p).startsWith('!')).map(normNeg));
-      const hNeg = [...new Set(hMut.filter((p) => String(p).startsWith('!')).map(normNeg))];
-      if (bPos.some((p) => !hPos.includes(p)) || hNeg.some((n) => !bNegSet.has(n))) addTrigger('stryker.config.json');
-      if (Array.isArray(baseStrykerParsed.value.mutate) || Array.isArray(headStrykerParsed.value.mutate)) {
-        effStryker.mutate = [...new Set([...bPos, ...hPos]), ...hNeg.filter((n) => bNegSet.has(n))];
-      }
-      const stripMut = ({ mutate: _m, ...rest }) => rest;
-      if (stableJson(stripMut(baseStrykerParsed.value)) !== stableJson(stripMut(headStrykerParsed.value))) {
-        addTrigger('stryker.config.json');
-      }
-    }
+  const subDirs = [...new Set([...baseModList, ...headModList].map((m) => normModDir(m.path)).filter((d) => d !== '.'))];
+  const subSpecs = [
+    ...subDirs.map((d) => `${baseSha}:${d}/stryker.config.json`),
+    ...(headSha ? subDirs.map((d) => `${headSha}:${d}/stryker.config.json`) : [])
+  ];
+  const subBlobs = subSpecs.length > 0 ? readBlobs(subSpecs, repoRoot) : new Map();
+  const strykerByDir = new Map([['.', mergeStrykerPolicy(baseRootStryker, headRootStryker, 'stryker.config.json', addTrigger)]]);
+  for (const dir of subDirs) {
+    const rel = `${dir}/stryker.config.json`;
+    const bSub = parseJsonSafe(subBlobs.get(`${baseSha}:${rel}`) ?? null);
+    const hSub = parseJsonSafe(headSha ? subBlobs.get(`${headSha}:${rel}`) ?? null : safeReadWorktree(rel));
+    strykerByDir.set(dir, mergeStrykerPolicy(bSub, hSub, rel, addTrigger));
+  }
+  const strykerByModule = {};
+  for (const mod of effModules) {
+    strykerByModule[mod.name] = strykerByDir.get(normModDir(mod.path)) ?? null;
   }
 
-  const ownerPkgName = basePkgParsed.ok ? basePkgParsed.value.name : headPkgParsed.ok ? headPkgParsed.value.name : null;
+  const ownerPkgName = basePkgParsed.ok ? basePkgParsed.value.name : null;
   if (ownerPkgName !== '@fmatar/agentic-sdlc') {
     const diffPaths = Array.isArray(changedPaths)
       ? changedPaths
@@ -779,7 +766,8 @@ export function loadEffectivePolicy({ repoRoot = '.', baseSha = null, headSha = 
       modules: effModules,
       exemptions: structuredClone(baseEx)
     },
-    stryker: effStryker,
+    stryker: strykerByDir.get('.') ?? {},
+    strykerByModule,
     policySource: 'base+head',
     policyTriggers: [...triggerMap.values()],
     pendingExemptions

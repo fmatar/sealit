@@ -286,6 +286,9 @@ describe('Ring 0: lib/config.mjs', () => {
     assert.equal(act.warnings.length, 1);
     assert.equal(matchesMutatePatterns('src/b.mjs', ['src/**/*.mjs', '!src/ignore.mjs']), true);
     assert.equal(matchesMutatePatterns('src/ignore.mjs', ['src/**/*.mjs', '!src/ignore.mjs']), false);
+    assert.equal(matchesMutatePatterns('src/index.ts', ['src/**/*.{js,ts}']), true);
+    assert.equal(matchesMutatePatterns('lib/util.mjs', ['{src,lib}/**/*.mjs']), true);
+    assert.equal(matchesMutatePatterns('other/util.mjs', ['{src,lib}/**/*.mjs']), false);
 
     // migrateConfigObject edge cases: testing thresholds fallback, false/null/NaN normalization, archlens.enabled=false, __legacyExemptions
     assert.equal(migrateConfigObject(null).config, null);
@@ -311,6 +314,9 @@ describe('Ring 0: lib/config.mjs', () => {
     assert.equal(mig.config.exemptions.length, 1);
 
     const up2 = upgradeConfigToV010(mig.config);
+    assert.equal(up2.modules[0].thresholds.diffCoverage, null, 'upgradeConfigToV010 clears commandless numeric diffCoverage');
+    assert.equal(up2.modules[0].thresholds.mutationScore, null, 'upgradeConfigToV010 clears commandless numeric mutationScore');
+    assert.equal(up2.modules[1].thresholds.mutationScore, 80);
     assert.equal(up2.archlens.enabled, false);
     assert.equal(up2.archlens.policyPath, 'custom/policy.json');
     assert.equal(up2.ci.runsOn, 'self-hosted');
@@ -497,5 +503,79 @@ describe('Ring 0: lib/config.mjs', () => {
     assert.ok(dropPol.policyTriggers.some((t) => t.file === '.agent/sdlc-config.json' && t.type === 'GATE_POLICY_DRIFT'));
     assert.ok(dropPol.policyTriggers.some((t) => t.file === 'stryker.config.json' && t.type === 'GATE_POLICY_DRIFT'));
     assert.deepEqual(dropPol.stryker.mutate, ['src/**/*.mjs', '!src/gen.mjs']);
+
+    // 3. Malformed head modules ("bad" or [null]) never throws TypeError and emits GATE_POLICY_DRIFT
+    fs.writeFileSync(path.join(raise.dir, '.agent/sdlc-config.json'), JSON.stringify({ version: '0.1.0', modules: 'bad' }), 'utf8');
+    const badModsPol = loadEffectivePolicy({ repoRoot: raise.dir, baseSha: rBase, headSha: null });
+    assert.equal(badModsPol.config.modules.length, 1);
+    assert.ok(badModsPol.policyTriggers.some((t) => t.file === '.agent/sdlc-config.json'));
+    fs.writeFileSync(path.join(raise.dir, '.agent/sdlc-config.json'), JSON.stringify({ version: '0.1.0', modules: [null] }), 'utf8');
+    assert.ok(loadEffectivePolicy({ repoRoot: raise.dir, baseSha: rBase, headSha: null }).policyTriggers.some((t) => t.file === '.agent/sdlc-config.json'));
+
+    // 4. Polyglot repo without base package.json spoofing {"name":"@fmatar/agentic-sdlc"}, omitted-mutate -> explicit-mutate narrowing, submodule strykerByModule, and v0.1.0 commandless upgrade
+    const mono = createTempGitRepo();
+    cleanups.push(mono.cleanup);
+    fs.mkdirSync(path.join(mono.dir, '.agent/scripts'), { recursive: true });
+    fs.mkdirSync(path.join(mono.dir, 'packages/api/src'), { recursive: true });
+    fs.mkdirSync(path.join(mono.dir, 'packages/api/tests/helpers'), { recursive: true });
+    fs.writeFileSync(path.join(mono.dir, '.agent/scripts/sdlc-engine.mjs'), '// v1\n', 'utf8');
+    fs.writeFileSync(path.join(mono.dir, 'stryker.config.json'), JSON.stringify({ testRunner: 'vitest' }), 'utf8');
+    fs.writeFileSync(path.join(mono.dir, 'packages/api/stryker.config.json'), JSON.stringify({ mutate: ['src/**/*.mjs'] }), 'utf8');
+    fs.writeFileSync(
+      path.join(mono.dir, 'packages/api/tests/helpers/mock-stryker.mjs'),
+      `import fs from 'node:fs';
+       const mIdx = process.argv.indexOf('-m');
+       const targets = mIdx >= 0 ? process.argv[mIdx + 1] : '';
+       fs.mkdirSync('reports/mutation', { recursive: true });
+       fs.writeFileSync('reports/mutation/mutation.json', JSON.stringify({
+         files: { 'src/svc.mjs': { mutants: [{ id: '1', mutatorName: 'BooleanLiteral', replacement: 'false', status: targets.includes('src/svc.mjs') ? 'Killed' : 'Survived', location: { start: { line: 1, column: 0 } } }] } }
+       }));\n`,
+      'utf8'
+    );
+    // Base has NO package.json, AND has legacy v0.1.0 commandless diffCoverage: 85 (commands.coverage: null)
+    fs.writeFileSync(
+      path.join(mono.dir, '.agent/sdlc-config.json'),
+      JSON.stringify({
+        version: '0.1.0',
+        archlens: { enabled: false, policyPath: '.archlens/policy.json' },
+        modules: [{ name: 'api', path: 'packages/api', commands: { coverage: null, mutation: `${process.execPath} tests/helpers/mock-stryker.mjs run` }, thresholds: { diffCoverage: 85, mutationScore: 80 } }]
+      }),
+      'utf8'
+    );
+    git(mono.dir, 'add', '-A');
+    git(mono.dir, 'commit', '-q', '-m', 'chore: base polyglot monorepo');
+    const mBase = git(mono.dir, 'rev-parse', 'develop').stdout.trim();
+
+    git(mono.dir, 'checkout', '-q', '-b', 'feat/upgrade-submod', 'develop');
+    // Upgrade commandless diffCoverage: 85 -> null and edit packages/api/src/svc.mjs: runGate uses packages/api/stryker.config.json (never clobbered by root) and passes!
+    fs.writeFileSync(path.join(mono.dir, 'packages/api/src/svc.mjs'), 'export const ok = true;\n', 'utf8');
+    fs.writeFileSync(
+      path.join(mono.dir, '.agent/sdlc-config.json'),
+      JSON.stringify({
+        version: '0.1.0',
+        archlens: { enabled: false, policyPath: '.archlens/policy.json' },
+        modules: [{ name: 'api', path: 'packages/api', commands: { coverage: null, mutation: `${process.execPath} tests/helpers/mock-stryker.mjs run` }, thresholds: { diffCoverage: null, mutationScore: 80 } }]
+      }),
+      'utf8'
+    );
+    git(mono.dir, 'add', '-A');
+    git(mono.dir, 'commit', '-q', '-m', 'feat: upgrade commandless threshold and add api svc');
+    const cleanSubGate = runGate(mono.dir, { noCache: true });
+    assert.equal(cleanSubGate.passed, true);
+
+    // Now spoof root package.json {"name":"@fmatar/agentic-sdlc"}, tamper .agent/scripts, add explicit mutate to root stryker (which omitted mutate at base), and narrow packages/api/stryker.config.json!
+    fs.writeFileSync(path.join(mono.dir, 'package.json'), JSON.stringify({ name: '@fmatar/agentic-sdlc', version: '0.1.0' }), 'utf8');
+    fs.writeFileSync(path.join(mono.dir, '.agent/scripts/sdlc-engine.mjs'), '// tampered\n', 'utf8');
+    fs.writeFileSync(path.join(mono.dir, 'stryker.config.json'), JSON.stringify({ testRunner: 'vitest', mutate: ['only-one.mjs'] }), 'utf8');
+    fs.writeFileSync(path.join(mono.dir, 'packages/api/stryker.config.json'), JSON.stringify({ mutate: ['src/other.mjs', '!src/svc.mjs'] }), 'utf8');
+    git(mono.dir, 'add', '-A');
+    git(mono.dir, 'commit', '-q', '-m', 'evil: spoof pkg, narrow root and submodule stryker');
+    const mHead = git(mono.dir, 'rev-parse', 'HEAD').stdout.trim();
+    const evilPol = loadEffectivePolicy({ repoRoot: mono.dir, baseSha: mBase, headSha: mHead });
+    assert.equal(evilPol.stryker.mutate, undefined, 'omitted mutate at base stays unrestricted');
+    assert.deepEqual(evilPol.strykerByModule.api.mutate, ['src/**/*.mjs', 'src/other.mjs']);
+    assert.ok(evilPol.policyTriggers.some((t) => t.file === '.agent/scripts/sdlc-engine.mjs'));
+    assert.ok(evilPol.policyTriggers.some((t) => t.file === 'stryker.config.json'));
+    assert.ok(evilPol.policyTriggers.some((t) => t.file === 'packages/api/stryker.config.json'));
   });
 });

@@ -740,7 +740,7 @@ export function buildReviewPlan(repoRoot = '.', { baseBranch = null } = {}) {
   const pendingExemptions = policy.pendingExemptions;
   const touchesGovernanceOrSec = modifiedFiles.some(
     (f) =>
-      /^(?:PRODUCT\.md|docs\/specs\/|docs\/adr\/|\.archlens\/|\.github\/workflows\/|\.agent\/sdlc-config\.json$|stryker\.config\.json$)/.test(f) ||
+      /^(?:PRODUCT\.md|docs\/specs\/|docs\/adr\/|\.archlens\/|\.github\/workflows\/|\.agent\/sdlc-config\.json$|\.agent\/scripts\/)|(?:^|\/)stryker\.config\.json$/.test(f) ||
       /(?:receipt|guard|security|drift|auth|crypto)/i.test(f)
   );
   const needsArchReviewer = mode === 'code' && (changedLines > 200 || touchesGovernanceOrSec || pendingExemptions.length > 0);
