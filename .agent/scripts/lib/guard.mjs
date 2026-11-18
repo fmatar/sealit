@@ -22,7 +22,6 @@ import { DEFAULT_QUALITY_GATE_CHECK, loadConfig } from './config.mjs';
 import {
   issueGateReceipt,
   readActiveSession,
-  readSessionStore,
   verifyGateReceipt,
   writeActiveSession
 } from './receipt.mjs';
@@ -61,8 +60,26 @@ export function beginSession({
 } = {}) {
   const absRoot = path.resolve(repoRoot);
   const baseBranch = resolveDefaultBaseBranch(absRoot);
-  const storePreview = readSessionStore(absRoot);
-  const resolvedId = normalizeTicketId(issueId) || allocateNextLocalId(storePreview.sessions);
+  let resolvedId = normalizeTicketId(issueId);
+  let reservedId = null;
+  if (!resolvedId) {
+    // Allocate and reserve the local id inside the session lock so concurrent `begin` runs never collide.
+    writeActiveSession(absRoot, (store) => {
+      reservedId = allocateNextLocalId(store.sessions);
+      store.sessions[reservedId] = { active: false, reserved: true, issueId: reservedId, startedAt: new Date().toISOString() };
+      return store;
+    });
+    resolvedId = reservedId;
+  }
+  const fail = (error) => {
+    if (reservedId) {
+      writeActiveSession(absRoot, (store) => {
+        if (store.sessions[reservedId]?.reserved) delete store.sessions[reservedId];
+        return store;
+      });
+    }
+    return { success: false, error };
+  };
 
   const prefix = ['feat', 'fix', 'hotfix', 'chore', 'docs', 'refactor'].includes(String(type).toLowerCase())
     ? String(type).toLowerCase()
@@ -74,17 +91,14 @@ export function beginSession({
     (!checkout && !worktree && curBranch && !PROTECTED_BRANCHES.includes(curBranch) ? curBranch : defaultBranchName);
 
   if (PROTECTED_BRANCHES.includes(targetBranch)) {
-    return {
-      success: false,
-      error: `Cannot start session on protected branch '${targetBranch}'. Pass --checkout or switch to a feature branch.`
-    };
+    return fail(`Cannot start session on protected branch '${targetBranch}'. Pass --checkout or switch to a feature branch.`);
   }
   if (targetBranch === 'HEAD' || targetBranch.startsWith('-')) {
-    return { success: false, error: `Invalid branch name '${targetBranch}'.` };
+    return fail(`Invalid branch name '${targetBranch}'.`);
   }
   const refCheck = gitExec(['check-ref-format', '--branch', targetBranch], absRoot);
   if (refCheck.error || refCheck.status !== 0) {
-    return { success: false, error: `Invalid branch name '${targetBranch}'.` };
+    return fail(`Invalid branch name '${targetBranch}'.`);
   }
 
   let resolvedWorktree = null;
@@ -96,20 +110,20 @@ export function beginSession({
       : ['worktree', 'add', '-b', targetBranch, resolvedWorktree, baseBranch];
     const wtRes = gitExec(wtArgs, absRoot);
     if (wtRes.error || wtRes.status !== 0) {
-      return { success: false, error: `Failed to create git worktree: ${wtRes.stderr || wtRes.error?.message}` };
+      return fail(`Failed to create git worktree: ${wtRes.stderr || wtRes.error?.message}`);
     }
   } else if (checkout && curBranch !== targetBranch) {
     const coArgs = hasBranch(targetBranch, absRoot) ? ['checkout', '--end-of-options', targetBranch] : ['checkout', '-b', targetBranch];
     const coRes = gitExec(coArgs, absRoot);
     if (coRes.error || coRes.status !== 0) {
-      return { success: false, error: `Failed to checkout branch '${targetBranch}': ${coRes.stderr || coRes.error?.message}` };
+      return fail(`Failed to checkout branch '${targetBranch}': ${coRes.stderr || coRes.error?.message}`);
     }
   }
 
   const now = new Date().toISOString();
   let savedSession = null;
   writeActiveSession(absRoot, (store) => {
-    const prev = store.sessions[resolvedId] || {};
+    const prev = store.sessions[resolvedId]?.reserved ? {} : store.sessions[resolvedId] || {};
     savedSession = {
       active: true,
       issueId: resolvedId,
@@ -253,8 +267,7 @@ export function endSession({ issueId = null, repoRoot = '.' } = {}) {
   writeActiveSession(absRoot, (store) => {
     const targetId =
       normalizeTicketId(issueId) ||
-      Object.keys(store.sessions || {}).find((k) => store.sessions[k]?.branch === curBranch && store.sessions[k]?.active !== false) ||
-      store.activeSessionId;
+      Object.keys(store.sessions || {}).find((k) => store.sessions[k]?.branch === curBranch && store.sessions[k]?.active !== false);
     if (!targetId || !store.sessions[targetId]) return store;
 
     closedId = String(targetId);
@@ -271,7 +284,10 @@ export function endSession({ issueId = null, repoRoot = '.' } = {}) {
   });
 
   if (!closedId) {
-    return { success: false, error: 'No matching active session found to close.' };
+    return {
+      success: false,
+      error: issueId ? `No session '${issueId}' found to close.` : `No active session for branch '${curBranch || 'HEAD'}'. Pass --issue <id>.`
+    };
   }
 
   let worktreeRemoved = false;
@@ -484,12 +500,19 @@ export function verifyPushGuard({ remoteBranch = null, stdinText = '', repoRoot 
 export function postMergeCleanup({ repoRoot = '.' } = {}) {
   const curBranch = getCurrentGitBranch(repoRoot);
   if (!PROTECTED_BRANCHES.includes(curBranch)) return { cleaned: 0 };
+  // Only branches brought in by THIS merge: ancestor of HEAD but not of ORIG_HEAD (pre-merge tip).
+  const origHead = (gitOutput(['rev-parse', '--verify', '-q', 'ORIG_HEAD'], repoRoot) || '').trim();
+  if (!origHead) return { cleaned: 0 };
+  const isAncestor = (ref, of) => {
+    const r = gitExec(['merge-base', '--is-ancestor', ref, of], repoRoot);
+    return !r.error && r.status === 0;
+  };
   let cleaned = 0;
   writeActiveSession(repoRoot, (store) => {
     for (const sess of Object.values(store.sessions || {})) {
       if (!sess || sess.active === false || !sess.branch) continue;
-      const merged = gitExec(['merge-base', '--is-ancestor', `refs/heads/${sess.branch}`, 'HEAD'], repoRoot);
-      if (!merged.error && merged.status === 0) {
+      const branchRef = `refs/heads/${sess.branch}`;
+      if (isAncestor(branchRef, 'HEAD') && !isAncestor(branchRef, origHead)) {
         sess.active = false;
         sess.endedAt = new Date().toISOString();
         cleaned++;
