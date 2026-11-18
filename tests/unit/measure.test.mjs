@@ -37,6 +37,27 @@ describe('Ring 2: lib/measure.mjs', () => {
     assert.equal(sec.passed, false);
     assert.ok(sec.secretViolations.some((v) => v.file === 'nul-secret.mjs'));
 
+    // Staged NUL-padded secret whose working copy was unlinked is still caught via :file index fallback
+    fs.unlinkSync(path.join(dir, 'nul-secret.mjs'));
+    assert.equal(scanDiffSecrets(dir).passed, false);
+
+    // Replacing a 160000 gitlink at base with a regular file containing a secret (oldMode 160000 -> newMode 100644) is caught, while mode-only chmod passes
+    const tcSecRepo = createTempGitRepo();
+    cleanups.push(tcSecRepo.cleanup);
+    fs.writeFileSync(path.join(tcSecRepo.dir, 'clean.mjs'), 'export const c = 1;\n', 'utf8');
+    git(tcSecRepo.dir, 'add', 'clean.mjs');
+    git(tcSecRepo.dir, 'update-index', '--add', '--cacheinfo', `160000,${'deadbeef'.repeat(5)},sub-to-file.mjs`);
+    git(tcSecRepo.dir, 'commit', '-q', '-m', 'chore: base gitlink and clean file');
+    git(tcSecRepo.dir, 'checkout', '-q', '-b', 'feat/tc-sec', 'develop');
+    git(tcSecRepo.dir, 'update-index', '--chmod=+x', 'clean.mjs');
+    git(tcSecRepo.dir, 'rm', '--cached', '-q', 'sub-to-file.mjs');
+    fs.writeFileSync(path.join(tcSecRepo.dir, 'sub-to-file.mjs'), `export const k = "${fakeKey}";\n`, 'utf8');
+    git(tcSecRepo.dir, 'add', 'sub-to-file.mjs');
+    git(tcSecRepo.dir, 'commit', '-q', '-m', 'evil: replace gitlink with secret file');
+    const tcCs = { ...scanDiffSecrets(tcSecRepo.dir, { baseBranch: 'develop' }) };
+    assert.equal(tcCs.passed, false);
+    assert.ok(tcCs.secretViolations.some((v) => v.file === 'sub-to-file.mjs' && v.type === 'SECRET_LEAK'));
+
     // Forced scan error fails closed with SCAN_ERROR
     const errRes = scanDiffSecrets(dir, {
       changeSet: { source: 'commit', baseSha: '0'.repeat(40), headSha: 'f'.repeat(40), paths: ['src/a.js'], entries: [{ path: 'src/a.js', status: 'A', oldMode: '000000', newMode: '100644', oldOid: '0'.repeat(40), newOid: '1'.repeat(40) }], patches: new Map() }

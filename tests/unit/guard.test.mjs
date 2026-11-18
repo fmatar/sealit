@@ -116,6 +116,49 @@ describe('Ring 2: lib/guard.mjs', () => {
     assert.equal(refBlocked.allowed, false);
     assert.equal(refBlocked.layer, 'LAYER_4_UNDECLARED_SPEC_DRIFT');
     assert.equal(refBlocked.branch, 'feat/custom-push');
+
+    // Pushing a sessionless feature branch while HEAD is on develop (when develop has an accepted ADR ahead of main)
+    // MUST diff against develop (NOT main) and block undeclared drift!
+    git(dir, 'checkout', '-q', 'develop');
+    fs.mkdirSync(path.join(dir, 'docs/adr'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'docs/adr/ADR-001-dev.md'),
+      '---\nid: ADR-001\ntitle: Dev ADR\nstatus: accepted\nscope: product\nticket: "1"\n---\n',
+      'utf8'
+    );
+    git(dir, 'add', 'docs/adr/ADR-001-dev.md');
+    git(dir, 'commit', '--no-verify', '-q', '-m', 'chore: accepted ADR on develop ahead of main');
+    git(dir, 'checkout', '-q', '-b', 'feat/rogue-no-session', 'develop');
+    fs.writeFileSync(path.join(dir, 'PRODUCT.md'), '# Rogue unapproved drift\n', 'utf8');
+    git(dir, 'add', 'PRODUCT.md');
+    git(dir, 'commit', '--no-verify', '-q', '-m', 'evil: unapproved drift');
+    const rogueSha = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+    git(dir, 'checkout', '-q', 'develop');
+    const roguePush = verifyPushGuard({
+      stdinText: `refs/heads/feat/rogue-no-session ${rogueSha} refs/heads/feat/rogue-no-session ${'0'.repeat(40)}\n`,
+      repoRoot: dir
+    });
+    assert.equal(roguePush.allowed, false, 'sessionless feature push while HEAD is on develop must not piggyback on develop ADRs');
+    assert.equal(roguePush.layer, 'LAYER_4_UNDECLARED_SPEC_DRIFT');
+
+    // Edge cases: malformed stdin, unresolved SHA, protected delete blocked, non-protected delete allowed, custom ref scanned
+    assert.equal(verifyPushGuard({ stdinText: 'malformed-two-cols only\n', repoRoot: dir }).layer, 'LAYER_4_STDIN_UNREADABLE');
+    assert.equal(
+      verifyPushGuard({ stdinText: `refs/heads/feat/x ${'deadbeef'.repeat(5)} refs/heads/feat/x ${'0'.repeat(40)}\n`, repoRoot: dir }).layer,
+      'LAYER_4_UNRESOLVED_SHA'
+    );
+    assert.equal(
+      verifyPushGuard({ stdinText: `(delete) ${'0'.repeat(40)} refs/heads/develop ${rogueSha}\n`, repoRoot: dir }).layer,
+      'LAYER_4_PROTECTED_PUSH'
+    );
+    assert.equal(
+      verifyPushGuard({ stdinText: `(delete) ${'0'.repeat(40)} refs/heads/feat/old ${rogueSha}\n`, repoRoot: dir }).allowed,
+      true
+    );
+    assert.equal(
+      verifyPushGuard({ stdinText: `refs/heads/feat/rogue-no-session ${rogueSha} refs/for/review ${'0'.repeat(40)}\n`, repoRoot: dir }).allowed,
+      false
+    );
   });
 
   it('verifyMergeGuard extracts branch from GITHEAD_<sha> even when MERGE_HEAD exists, and recordReviewVerdict signs receipt', () => {

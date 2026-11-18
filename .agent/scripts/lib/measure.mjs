@@ -61,7 +61,7 @@ export function scanDiffSecrets(repoRoot = '.', { baseBranch = null, changeSet =
       const file = entry.path;
       try {
         if (entry.status === 'D' || (!/^0+$/.test(entry.oldOid) && entry.oldOid === entry.newOid && entry.oldMode !== entry.newMode)) continue;
-        if (entry.newMode === '160000' || entry.oldMode === '160000' || TRUE_BINARY_EXT_RE.test(file) || entry.newOid === 'e69de29bb2d1d6434b8b29ae775ad8c2e48c5391') continue;
+        if (entry.newMode === '160000' || TRUE_BINARY_EXT_RE.test(file) || entry.newOid === 'e69de29bb2d1d6434b8b29ae775ad8c2e48c5391') continue;
         const diffOutput = cs.patches.get(file) || '';
         if (!diffOutput) { secretViolations.push({ file, type: 'SCAN_ERROR', error: 'Modified file missing from ChangeSet patches.' }); continue; }
         let lines = diffOutput.replace(/\r\n/g, '\n').split('\n');

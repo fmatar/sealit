@@ -466,11 +466,17 @@ describe('Ring 0: lib/git.mjs', () => {
       else process.env.GITHUB_BASE_REF = prevBaseRef;
     }
 
-    // readBlobs handles UTF-8 multi-byte chars, missing blobs, and tree objects cleanly; listTree filters without pathspecs
-    const blobs = readBlobs([`${prMergeSha}:PRODUCT.md`, `${prMergeSha}:missing.md`, `${prMergeSha}:docs`], dir);
-    assert.equal(blobs.get(`${prMergeSha}:PRODUCT.md`), '# Product v1 — UTF-8 ≥ … 🎉\n');
-    assert.equal(blobs.get(`${prMergeSha}:missing.md`), null);
-    assert.equal(blobs.get(`${prMergeSha}:docs`), null);
+    // readBlobs handles UTF-8 multi-byte chars, missing blobs, tree objects, and external 160000 gitlink (<oid> submodule) cleanly
+    git(dir, 'checkout', '-q', '-b', 'feat/ext-sub', prMergeSha);
+    const externalSubOid = 'deadbeef'.repeat(5);
+    git(dir, 'update-index', '--add', '--cacheinfo', `160000,${externalSubOid},vendor/ext-sub`);
+    git(dir, 'commit', '-q', '-m', 'chore: add external submodule gitlink');
+    const subSha = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+    const blobs = readBlobs([`${subSha}:PRODUCT.md`, `${subSha}:missing.md`, `${subSha}:docs`, `${subSha}:vendor/ext-sub`], dir);
+    assert.equal(blobs.get(`${subSha}:PRODUCT.md`), '# Product v1 — UTF-8 ≥ … 🎉\n');
+    assert.equal(blobs.get(`${subSha}:missing.md`), null);
+    assert.equal(blobs.get(`${subSha}:docs`), null);
+    assert.equal(blobs.get(`${subSha}:vendor/ext-sub`), null);
     assert.deepEqual(listTree(prMergeSha, 'docs/specs', dir), ['docs/specs/cap-01.md']);
 
     // computeAlignmentHashes({ sha }) ignores uncommitted spec edits on disk

@@ -425,12 +425,12 @@ export function resolveDefaultBaseBranch(repoRoot = '.', refsMap = null) {
   return 'main';
 }
 
-export function resolveEffectiveDiffBase(baseBranch = null, repoRoot = '.', refsMap = null) {
+export function resolveEffectiveDiffBase(baseBranch = null, repoRoot = '.', refsMap = null, curBranchOverride = null) {
   if (baseBranch && String(baseBranch).trim()) return String(baseBranch).trim();
   if (process.env.GITHUB_BASE_REF && String(process.env.GITHUB_BASE_REF).trim()) {
     return String(process.env.GITHUB_BASE_REF).trim();
   }
-  let curBranch = getCurrentGitBranch(repoRoot);
+  let curBranch = curBranchOverride !== null ? String(curBranchOverride).trim() : getCurrentGitBranch(repoRoot);
   if (curBranch === 'HEAD') {
     const ghRef = String(process.env.GITHUB_REF_NAME || '').trim() || String(process.env.GITHUB_REF || '').replace(/^refs\/heads\//, '').trim();
     if (ghRef && !ghRef.startsWith('refs/')) curBranch = ghRef;
@@ -443,13 +443,13 @@ export function resolveEffectiveDiffBase(baseBranch = null, repoRoot = '.', refs
 
 export function resolveRange({ baseBranch = null, head = 'HEAD', branchHint = null, repoRoot = '.' } = {}) {
   const refs = readGitRefsMap(repoRoot);
-  const effectiveBase = resolveEffectiveDiffBase(baseBranch, repoRoot, refs);
+  const curBranch = branchHint !== null ? String(branchHint).trim() : head === 'HEAD' ? getCurrentGitBranch(repoRoot) : '';
+  const effectiveBase = resolveEffectiveDiffBase(baseBranch, repoRoot, refs, curBranch);
   const headSha =
     head === 'HEAD'
       ? refs.get('HEAD') || (gitOutput(['rev-parse', '--verify', '-q', 'HEAD^{commit}'], repoRoot) || '').trim() || null
       : (gitOutput(['rev-parse', '--verify', '-q', '--end-of-options', `${head}^{commit}`], repoRoot) || '').trim() || null;
   if (!headSha) return { effectiveBase, baseSha: EMPTY_TREE_SHA, headSha: null };
-  const curBranch = branchHint || (head === 'HEAD' ? getCurrentGitBranch(repoRoot) : '');
   for (const candidate of [`origin/${effectiveBase}`, effectiveBase]) {
     let refSha = refs.get(`refs/remotes/${candidate}`) || refs.get(`refs/heads/${candidate}`) || '';
     if (!refSha && !candidate.startsWith('origin/')) {
@@ -494,7 +494,7 @@ export function readBlobs(specs = [], repoRoot = '.') {
     if (nl === -1) break;
     const hdr = buf.subarray(pos, nl).toString('utf8');
     pos = nl + 1;
-    if (hdr.endsWith(' missing')) continue;
+    if (hdr.endsWith(' missing') || /^[0-9a-f]{40,64}\s+submodule$/i.test(hdr)) continue;
     const m = hdr.match(/^([0-9a-f]{40,64})\s+(\S+)\s+(\d+)$/i);
     if (!m) throw new Error(`Malformed cat-file --batch header: ${hdr}`);
     const size = Number(m[3]);
@@ -603,6 +603,25 @@ function buildChangeSetFromPlumbing(source, baseSha, headSha, rawText, patchText
       }
     });
     const seen = new Set(entries.map((e) => e.path));
+    const cachedRaw = gitExecBuffer(['diff-index', '--cached', '-z', '--raw', '--no-renames', '--end-of-options', baseSha], repoRoot);
+    if (!cachedRaw.error && cachedRaw.status === 0 && cachedRaw.stdout.length > 0) {
+      const cToks = cachedRaw.stdout.toString('utf8').split('\0');
+      const cachedMissing = [];
+      for (let i = 0; i + 1 < cToks.length; i += 2) {
+        if (!cToks[i] || seen.has(cToks[i + 1].replace(/\\/g, '/'))) continue;
+        const m = cToks[i].match(/^:(\d{6}) (\d{6}) ([0-9a-f]{40,64}) ([0-9a-f]{40,64}) ([A-Z])\d*$/i);
+        if (m) cachedMissing.push({ path: cToks[i + 1].replace(/\\/g, '/'), status: m[5].toUpperCase(), oldMode: m[1], newMode: m[2], oldOid: m[3], newOid: m[4] });
+      }
+      if (cachedMissing.length > 0) {
+        const cachedPatch = gitExecBuffer(['diff-index', '--cached', '-p', '-U0', '-M', '--no-ext-diff', '--no-textconv', '--end-of-options', baseSha], repoRoot);
+        const cPatches = parsePatchSections(cachedPatch.stdout.toString('utf8'), new Set(cachedMissing.map((e) => e.path)));
+        for (const ce of cachedMissing) {
+          seen.add(ce.path);
+          entries.push(ce);
+          if (cPatches.has(ce.path)) patches.set(ce.path, cPatches.get(ce.path));
+        }
+      }
+    }
     const untrackedRes = gitExecBuffer(['ls-files', '-z', '--others', '--exclude-standard'], repoRoot);
     for (const uf of (untrackedRes.error || untrackedRes.status !== 0 ? '' : untrackedRes.stdout.toString('utf8')).split('\0').filter(Boolean)) {
       const norm = uf.replace(/\\/g, '/');
@@ -617,7 +636,7 @@ function buildChangeSetFromPlumbing(source, baseSha, headSha, rawText, patchText
   }
   for (const e of entries) {
     if (e.status === 'D' || (!/^0+$/.test(e.oldOid) && e.oldOid === e.newOid && e.oldMode !== e.newMode)) continue;
-    if (e.newMode === '160000' || e.oldMode === '160000' || TRUE_BINARY_EXT_RE.test(e.path) || e.newOid === EMPTY_BLOB_SHA) continue;
+    if (e.newMode === '160000' || TRUE_BINARY_EXT_RE.test(e.path) || e.newOid === EMPTY_BLOB_SHA) continue;
     if (!patches.has(e.path)) throw new ChangeSetParseError(`Missing patch section for changed entry '${e.path}'.`);
   }
   entries.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));

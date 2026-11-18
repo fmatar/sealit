@@ -257,7 +257,7 @@ export function decideADR({ adrId, status, action, reviewer = '@reviewer', reaso
 }
 
 function hasPackageJsonStructuralDiff(curRaw, baseRaw) {
-  if (curRaw === null || curRaw === undefined) return false;
+  if (curRaw === null || curRaw === undefined) return true;
   let curPkg;
   try {
     curPkg = JSON.parse(curRaw);
@@ -353,22 +353,31 @@ export function checkSpecDrift({ ticketId = null, baseBranch = null, changeSet =
   const DELETED_GOVERNANCE_RE =
     /^(?:PRODUCT\.md|docs\/PRD\.md|docs\/SRS\.md|docs\/specs\/.+\.md|docs\/adr\/ADR-\d+.*\.md|docs\/AUDIT_CHAIN\.jsonl|\.archlens\/policy\.json)$|(?:^|\/)(?:package\.json|Cargo\.toml|pyproject\.toml|requirements[^/]*\.txt|go\.mod|pom\.xml|build\.gradle(?:\.kts)?|prisma\/schema\.prisma)$|\.(?:sql|graphql|proto)$|(?:openapi|swagger).*\.(?:json|ya?ml)$/i;
 
-  const nonDeletedEntries = cs.entries.filter((e) => e.status !== 'D');
-  const headSpecs = fromCommit ? nonDeletedEntries.map((e) => `${cs.headSha}:${e.path}`) : [];
+  const activeEntries = cs.entries.filter((e) => e.status !== 'D' && e.newMode !== '160000');
+  const needsCurBlob = (p) => p === 'PRODUCT.md' || /(?:^|\/)package\.json$/.test(p) || /(?:openapi|swagger).*\.(?:json|ya?ml)$/i.test(p);
+  const entryByPath = new Map(activeEntries.map((e) => [e.path, e]));
+  const headSpecs = fromCommit
+    ? activeEntries.filter((e) => needsCurBlob(e.path)).map((e) => (!/^0+$/.test(e.newOid) ? e.newOid : `${cs.headSha}:${e.path}`))
+    : [];
   const baseAdrPaths = mergeBase ? listTree(mergeBase, 'docs/adr', repoRoot).filter((f) => /^docs\/adr\/ADR-\d+.*\.md$/i.test(f)) : [];
   const baseSpecs = mergeBase
     ? [
-        ...nonDeletedEntries.filter((e) => e.path === 'PRODUCT.md' || /(?:^|\/)package\.json$/.test(e.path)).map((e) => `${mergeBase}:${e.path}`),
+        ...activeEntries.filter((e) => e.path === 'PRODUCT.md' || /(?:^|\/)package\.json$/.test(e.path)).map((e) => `${mergeBase}:${e.path}`),
         ...baseAdrPaths.map((f) => `${mergeBase}:${f}`)
       ]
     : [];
   const blobCache = readBlobs([...headSpecs, ...baseSpecs], repoRoot);
-  const readCur = (rel) => (fromCommit ? blobCache.get(`${cs.headSha}:${rel}`) ?? null : readFileSafe(path.resolve(repoRoot, rel)));
+  const readCur = (rel) => {
+    if (!fromCommit) return readFileSafe(path.resolve(repoRoot, rel));
+    const ent = entryByPath.get(rel);
+    const key = ent && !/^0+$/.test(ent.newOid) ? ent.newOid : `${cs.headSha}:${rel}`;
+    return blobCache.get(key) ?? null;
+  };
   const readBase = (rel) => (mergeBase ? blobCache.get(`${mergeBase}:${rel}`) ?? null : null);
 
   for (const entry of cs.entries) {
     const rel = entry.path;
-    if (entry.status === 'D') {
+    if (entry.status === 'D' || entry.newMode === '160000') {
       if (DELETED_GOVERNANCE_RE.test(rel)) {
         triggers.push({ file: rel, type: 'SPEC_DELETED', scope: 'architectural' });
         if (rel === 'docs/AUDIT_CHAIN.jsonl') contractErrors.push("Audit ledger 'docs/AUDIT_CHAIN.jsonl' cannot be deleted.");
@@ -379,9 +388,9 @@ export function checkSpecDrift({ ticketId = null, baseBranch = null, changeSet =
     if (rel === 'PRODUCT.md' || rel === 'docs/PRD.md' || rel === 'docs/SRS.md' || /^docs\/specs\/.+\.md$/.test(rel)) {
       if (rel === 'PRODUCT.md' && mergeBase) {
         const baseProd = readBase('PRODUCT.md');
-        const curProd = readCur('PRODUCT.md') || '';
+        const curProd = readCur('PRODUCT.md');
         const stripIndex = (s) => String(s || '').replace(/\r\n/g, '\n').replace(/<!-- ADR_INDEX_START -->[\s\S]*?<!-- ADR_INDEX_END -->/, '').trim();
-        if (baseProd !== null && stripIndex(baseProd) === stripIndex(curProd)) continue;
+        if (baseProd !== null && curProd !== null && stripIndex(baseProd) === stripIndex(curProd)) continue;
       }
       triggers.push({ file: rel, type: 'CONSTITUTION_OR_SPEC_DRIFT', scope: 'product' });
       continue;
@@ -423,7 +432,8 @@ export function checkSpecDrift({ ticketId = null, baseBranch = null, changeSet =
   const allAdrs = listADRs(repoRoot, { sha: fromCommit ? cs.headSha : null });
   const normTicket = normalizeTicketId(ticketId);
   const diffAdrFiles = new Set(cs.paths.filter((f) => /^docs\/adr\/ADR-\d+.*\.md$/i.test(f)));
-  const deletedPaths = new Set(cs.entries.filter((e) => e.status === 'D').map((e) => e.path));
+  const deletedPaths = new Set(cs.entries.filter((e) => e.status === 'D' || e.newMode === '160000').map((e) => e.path));
+  const gitlinkReplacedPaths = new Set(cs.entries.filter((e) => e.newMode === '160000').map((e) => e.path));
   const baseExactPaths = new Set(baseAdrPaths);
   const baseAdrFileById = new Map();
   const baseNonGovernablePaths = new Set();
@@ -439,6 +449,7 @@ export function checkSpecDrift({ ticketId = null, baseBranch = null, changeSet =
     if (baseStatus === 'accepted' || baseStatus === 'superseded') {
       baseNonGovernablePaths.add(relBase.toLowerCase());
       if (normId) baseNonGovernableIds.add(normId);
+      if (gitlinkReplacedPaths.has(relBase)) triggers.push({ file: relBase, type: 'ADR_MUTATION', scope: 'architectural' });
     }
   }
 
@@ -655,6 +666,9 @@ export function checkArchRings({ repoRoot = '.', policyPath = '.archlens/policy.
         return fileExists(absPolicy) ? fs.readFileSync(absPolicy, 'utf8') : null;
       })();
   if (policyRaw === null || policyRaw === undefined) {
+    if (sha && listTree(sha, normPolicyRel, absRoot).length > 0) {
+      return { passed: false, violations: [{ type: 'POLICY_PARSE_ERROR', message: `${policyPath} is not a regular JSON blob.` }], message: `Invalid ${policyPath}: not a regular file.` };
+    }
     return { passed: true, violations: [], message: 'No .archlens/policy.json configured; skipping ring check.' };
   }
 

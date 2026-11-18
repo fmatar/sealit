@@ -491,29 +491,29 @@ export function verifyMergeGuard({ targetBranch = null, sourceBranch = null, sou
   return { allowed: true, layer: 'PASSED', targetBranch: currentTarget, receipt: receiptCheck.receipt };
 }
 
-function evaluatePushCommitRange({ branch, localSha, repoRoot }) {
-  const session = readActiveSession(repoRoot, branch);
-  const range = resolveRange({ baseBranch: session?.baseBranch || null, head: localSha, branchHint: branch, repoRoot });
+function evaluatePushCommitRange({ destBranch, sessionBranch = null, localSha, repoRoot }) {
+  const session = (sessionBranch && readActiveSession(repoRoot, sessionBranch)) || readActiveSession(repoRoot, destBranch);
+  const range = resolveRange({ baseBranch: session?.baseBranch || null, head: localSha, branchHint: destBranch, repoRoot });
   if (!range.headSha) {
-    return { allowed: false, layer: 'LAYER_4_UNRESOLVED_SHA', branch, message: `Push blocked: cannot resolve commit '${localSha}' for '${branch}'.` };
+    return { allowed: false, layer: 'LAYER_4_UNRESOLVED_SHA', branch: destBranch, message: `Push blocked: cannot resolve commit '${localSha}' for '${destBranch}'.` };
   }
   const cs = readChangeSet({ baseSha: range.baseSha, headSha: range.headSha, source: 'commit', repoRoot });
   const secrets = scanDiffSecrets(repoRoot, { baseBranch: range.effectiveBase, changeSet: cs, runNpmAudit: false });
   if (!secrets.passed) {
     const details = secrets.secretViolations.map((v) => `${v.file} (${v.pattern || v.type})`).join(', ');
-    return { allowed: false, layer: 'LAYER_4_SECRET_LEAK', branch, secrets, message: `Push blocked: secret leak or scan error detected in diff: ${details}` };
+    return { allowed: false, layer: 'LAYER_4_SECRET_LEAK', branch: destBranch, secrets, message: `Push blocked: secret leak or scan error detected in diff: ${details}` };
   }
   const drift = checkSpecDrift({ ticketId: session?.issueId || null, baseBranch: range.effectiveBase, changeSet: cs, repoRoot });
   if (!drift.passed) {
     return {
       allowed: false,
       layer: 'LAYER_4_UNDECLARED_SPEC_DRIFT',
-      branch,
+      branch: destBranch,
       drift,
       message: `Push blocked: ${drift.message}${drift.remediationCommand ? `\nRun: ${drift.remediationCommand}` : ''}`
     };
   }
-  return { allowed: true, layer: 'PASSED', branch };
+  return { allowed: true, layer: 'PASSED', branch: destBranch };
 }
 
 export function verifyPushGuard({ remoteBranch = null, stdinText = '', stdinError = null, repoRoot = '.' } = {}) {
@@ -548,12 +548,16 @@ export function verifyPushGuard({ remoteBranch = null, stdinText = '', stdinErro
           return { allowed: false, layer: 'LAYER_4_PROTECTED_PUSH', branch: destBranch, message: `Direct pushes to '${destBranch}' via refspec are forbidden (INV-01).` };
         }
         if (isDelete) continue;
-        const localBranch = localRef.startsWith('refs/heads/') ? localRef.slice('refs/heads/'.length) : destBranch;
-        const checked = evaluatePushCommitRange({ branch: localBranch, localSha, repoRoot });
+        const sessionBranch = localRef.startsWith('refs/heads/')
+          ? localRef.slice('refs/heads/'.length)
+          : localRef === 'HEAD'
+            ? getCurrentGitBranch(repoRoot)
+            : destBranch;
+        const checked = evaluatePushCommitRange({ destBranch, sessionBranch, localSha, repoRoot });
         if (!checked.allowed) return { ...checked, branch: destBranch };
         lastCheckedBranch = destBranch;
       } else if (!isDelete) {
-        const checked = evaluatePushCommitRange({ branch: remoteRef, localSha, repoRoot });
+        const checked = evaluatePushCommitRange({ destBranch: remoteRef, sessionBranch: localRef === 'HEAD' ? getCurrentGitBranch(repoRoot) : null, localSha, repoRoot });
         if (!checked.allowed) return checked;
       }
     }
@@ -564,7 +568,7 @@ export function verifyPushGuard({ remoteBranch = null, stdinText = '', stdinErro
   if (PROTECTED_BRANCHES.includes(target)) {
     return { allowed: false, layer: 'LAYER_4_PROTECTED_PUSH', branch: target, message: `Direct pushes to '${target}' are forbidden (INV-01).` };
   }
-  return evaluatePushCommitRange({ branch: target, localSha: 'HEAD', repoRoot });
+  return evaluatePushCommitRange({ destBranch: target, sessionBranch: target, localSha: 'HEAD', repoRoot });
 }
 
 export function postMergeCleanup({ repoRoot = '.' } = {}) {

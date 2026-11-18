@@ -514,7 +514,7 @@ export function issueGateReceipt({ repoRoot = '.', docsOnly = false, reviewerOve
     };
   }
 
-  const range = resolveRange({ baseBranch: session.baseBranch || null, head: headSha, repoRoot });
+  const range = resolveRange({ baseBranch: session.baseBranch || null, head: headSha, branchHint: branch, repoRoot });
   const cs = readChangeSet({ ...range, source: 'commit', repoRoot });
   const isDocsDiff = isDocsOnlyDiff(cs);
   if (docsOnly && !isDocsDiff) {

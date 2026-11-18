@@ -562,5 +562,34 @@ describe('Ring 1: lib/drift.mjs', () => {
     git(dir, 'checkout', '-f', '-q', '-b', 'feat/behind-origin', baseSha);
     const nextAdr = createADR({ title: 'After Remote ADR', scope: 'technical', ticket: '10', repoRoot: dir });
     assert.equal(nextAdr.id, 'ADR-026');
+
+    // 5. 160000 gitlink typechanges (status 'T') on AUDIT_CHAIN.jsonl, base ADRs, package.json, and .archlens/policy.json fail closed
+    const tcRepo = createTempGitRepo();
+    cleanups.push(tcRepo.cleanup);
+    fs.mkdirSync(path.join(tcRepo.dir, 'docs/adr'), { recursive: true });
+    fs.mkdirSync(path.join(tcRepo.dir, '.archlens'), { recursive: true });
+    fs.writeFileSync(path.join(tcRepo.dir, 'docs/AUDIT_CHAIN.jsonl'), '{"index":0}\n', 'utf8');
+    fs.writeFileSync(path.join(tcRepo.dir, 'docs/adr/ADR-001-base.md'), '---\nid: ADR-001\nstatus: accepted\n---\n', 'utf8');
+    fs.writeFileSync(path.join(tcRepo.dir, 'package.json'), '{"name":"tc","dependencies":{}}\n', 'utf8');
+    fs.writeFileSync(path.join(tcRepo.dir, '.archlens/policy.json'), '{"src":"src","levels":[["src/**"]]}\n', 'utf8');
+    git(tcRepo.dir, 'add', '-A');
+    git(tcRepo.dir, 'commit', '-q', '-m', 'chore: base governance');
+    git(tcRepo.dir, 'checkout', '-q', '-b', 'feat/gitlink-tc', 'develop');
+    const extOid = 'cafebabe'.repeat(5);
+    for (const target of ['docs/AUDIT_CHAIN.jsonl', 'docs/adr/ADR-001-base.md', 'package.json', '.archlens/policy.json']) {
+      git(tcRepo.dir, 'rm', '--cached', '-q', target);
+      fs.rmSync(path.join(tcRepo.dir, target), { force: true });
+      git(tcRepo.dir, 'update-index', '--add', '--cacheinfo', `160000,${extOid},${target}`);
+    }
+    git(tcRepo.dir, 'commit', '-q', '-m', 'evil: replace governance files with 160000 gitlinks');
+    const tcSha = git(tcRepo.dir, 'rev-parse', 'HEAD').stdout.trim();
+    const tcCs = readChangeSet({ ...resolveRange({ baseBranch: 'develop', repoRoot: tcRepo.dir }), source: 'commit', repoRoot: tcRepo.dir });
+    const tcDrift = checkSpecDrift({ baseBranch: 'develop', changeSet: tcCs, repoRoot: tcRepo.dir });
+    assert.equal(tcDrift.passed, false);
+    assert.match(tcDrift.message, /cannot be deleted/i);
+    assert.ok(tcDrift.triggers.some((t) => t.type === 'ADR_MUTATION' && t.file === 'docs/adr/ADR-001-base.md'));
+    const tcArch = checkArchRings({ repoRoot: tcRepo.dir, sha: tcSha });
+    assert.equal(tcArch.passed, false);
+    assert.ok(tcArch.violations.some((v) => v.type === 'POLICY_PARSE_ERROR'));
   });
 });
