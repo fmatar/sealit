@@ -394,8 +394,22 @@ export function checkSpecDrift({ ticketId = null, baseBranch = null, repoRoot = 
   const allAdrs = listADRs(repoRoot);
   const normTicket = normalizeTicketId(ticketId);
   const diffAdrFiles = new Set(modifiedFiles.filter((f) => /^docs\/adr\/ADR-\d+.*\.md$/i.test(f)));
+  const isAcceptedAtBase = (relFile) => {
+    if (!mergeBase) return false;
+    const baseRaw = readFileAtMergeBase(relFile, mergeBase, repoRoot);
+    if (baseRaw === null) return false;
+    return String(parseFrontmatter(baseRaw).frontmatter?.status || '').toLowerCase() === 'accepted';
+  };
+  const mutatedAcceptedFiles = new Set();
+  for (const a of allAdrs) {
+    if (diffAdrFiles.has(a.file) && isAcceptedAtBase(a.file)) {
+      mutatedAcceptedFiles.add(a.file);
+      triggers.push({ file: a.file, type: 'ADR_MUTATION', scope: 'architectural' });
+    }
+  }
 
   const relevantAdrs = allAdrs.filter((a) => {
+    if (mutatedAcceptedFiles.has(a.file)) return a.status === 'pending_approval' || a.status === 'rejected';
     if (diffAdrFiles.has(a.file)) return true;
     if (triggers.length === 0 && normTicket && a.ticket === normTicket) return true;
     return false;

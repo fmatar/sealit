@@ -310,4 +310,96 @@ describe('Ring 1: lib/drift.mjs', () => {
       fs.unlinkSync(p);
     }
   });
+
+  it('checkSpecDrift flags git-mv of governance files as SPEC_DELETED (spec, PRODUCT.md, ring policy, ledger)', () => {
+    for (const [from, to, content] of [
+      ['docs/specs/cap-01.md', 'docs/archive/cap-01.md', '# Cap 1\n'],
+      ['PRODUCT.md', 'docs/PRODUCT-v1.md', '# Product\n'],
+      ['.archlens/policy.json', '.archlens/policy.old.json', '{"title":"t","order":["core"],"levels":[["src/**"]]}'],
+      ['docs/AUDIT_CHAIN.jsonl', 'docs/AUDIT_CHAIN.old.jsonl', '{"index":0}\n']
+    ]) {
+      const { dir, cleanup } = createTempGitRepo();
+      cleanups.push(cleanup);
+
+      fs.mkdirSync(path.dirname(path.join(dir, from)), { recursive: true });
+      fs.mkdirSync(path.dirname(path.join(dir, to)), { recursive: true });
+      fs.writeFileSync(path.join(dir, from), content, 'utf8');
+      git(dir, 'add', from);
+      git(dir, 'commit', '-q', '-m', `chore: add ${from}`);
+
+      git(dir, 'checkout', '-q', '-b', 'feat/rename-gov', 'develop');
+      git(dir, 'mv', from, to);
+      git(dir, 'commit', '-q', '-m', `refactor: rename ${from}`);
+
+      const d = checkSpecDrift({ baseBranch: 'develop', repoRoot: dir });
+      assert.equal(d.passed, false, `Expected failure for rename of ${from}`);
+      assert.ok(
+        d.triggers.some((t) => t.file === from && t.type === 'SPEC_DELETED'),
+        `Expected SPEC_DELETED trigger for ${from}, got ${JSON.stringify(d.triggers)}`
+      );
+      if (from === 'docs/AUDIT_CHAIN.jsonl') {
+        assert.match(d.message, /cannot be deleted/);
+      }
+    }
+  });
+
+  it('an edit to an ADR accepted at merge base does not govern drift and raises ADR_MUTATION', () => {
+    const { dir, cleanup } = createTempGitRepo();
+    cleanups.push(cleanup);
+
+    fs.mkdirSync(path.join(dir, 'docs/adr'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'docs/adr/ADR-001-base.md'),
+      '---\nid: ADR-001\ntitle: Base\nstatus: accepted\nscope: technical\nticket: "1"\n---\n\n# ADR-001\n',
+      'utf8'
+    );
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'x', dependencies: {} }, null, 2) + '\n', 'utf8');
+    git(dir, 'add', 'docs/adr/ADR-001-base.md', 'package.json');
+    git(dir, 'commit', '-q', '-m', 'chore: base accepted ADR and pkg');
+
+    git(dir, 'checkout', '-q', '-b', 'feat/edit-accepted-adr', 'develop');
+    fs.appendFileSync(path.join(dir, 'docs/adr/ADR-001-base.md'), 'typo fix\n', 'utf8');
+    git(dir, 'commit', '-qam', 'docs: typo in accepted ADR');
+
+    const adrOnly = checkSpecDrift({ baseBranch: 'develop', repoRoot: dir });
+    assert.equal(adrOnly.passed, false);
+    assert.deepEqual(adrOnly.triggers.map((t) => t.type), ['ADR_MUTATION']);
+    assert.deepEqual(adrOnly.linkedADRs, []);
+
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'x', dependencies: { lodash: '^4' } }, null, 2) + '\n', 'utf8');
+    git(dir, 'commit', '-qam', 'feat: add lodash');
+
+    const withDep = checkSpecDrift({ baseBranch: 'develop', repoRoot: dir });
+    assert.equal(withDep.passed, false);
+    assert.deepEqual(withDep.triggers.map((t) => t.type).sort(), ['ADR_MUTATION', 'DEPENDENCY_DRIFT']);
+    assert.deepEqual(withDep.linkedADRs, []);
+  });
+
+  it('a new accepted ADR still governs drift, including superseding an older accepted ADR', () => {
+    const { dir, cleanup } = createTempGitRepo();
+    cleanups.push(cleanup);
+
+    fs.mkdirSync(path.join(dir, 'docs/adr'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'docs/adr/ADR-001-old.md'),
+      '---\nid: ADR-001\ntitle: Old\nstatus: accepted\nscope: technical\nticket: "1"\n---\n\n# ADR-001\n',
+      'utf8'
+    );
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'x', dependencies: {} }, null, 2) + '\n', 'utf8');
+    git(dir, 'add', 'docs/adr/ADR-001-old.md', 'package.json');
+    git(dir, 'commit', '-q', '-m', 'chore: base');
+
+    git(dir, 'checkout', '-q', '-b', 'feat/supersede', 'develop');
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'x', dependencies: { lodash: '^4' } }, null, 2) + '\n', 'utf8');
+
+    const created = createADR({ title: 'New Choice', scope: 'technical', ticket: '2', supersedes: 'ADR-001', repoRoot: dir });
+    assert.equal(created.success, true);
+    assert.equal(decideADR({ adrId: created.id, status: 'approve', reviewer: '@r', reason: 'ok', repoRoot: dir }).success, true);
+    assert.equal(decideADR({ adrId: 'ADR-001', status: 'supersede', reviewer: '@r', reason: 'replaced', repoRoot: dir }).success, true);
+
+    const d = checkSpecDrift({ baseBranch: 'develop', repoRoot: dir });
+    assert.equal(d.passed, true);
+    assert.deepEqual(d.linkedADRs, [created.id]);
+    assert.ok(d.triggers.some((t) => t.type === 'ADR_MUTATION' && t.file.includes('ADR-001')));
+  });
 });
