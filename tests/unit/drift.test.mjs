@@ -591,5 +591,37 @@ describe('Ring 1: lib/drift.mjs', () => {
     const tcArch = checkArchRings({ repoRoot: tcRepo.dir, sha: tcSha });
     assert.equal(tcArch.passed, false);
     assert.ok(tcArch.violations.some((v) => v.type === 'POLICY_PARSE_ERROR'));
+
+    // 6. Commit-sourced ADR_ID_COLLISION, PRODUCT.md ADR_INDEX-only ignore, and OpenAPI CONTRACT_PARSE_ERROR
+    const colRepo = createTempGitRepo();
+    cleanups.push(colRepo.cleanup);
+    fs.mkdirSync(path.join(colRepo.dir, 'docs/adr'), { recursive: true });
+    fs.writeFileSync(path.join(colRepo.dir, 'PRODUCT.md'), '# Prod\n<!-- ADR_INDEX_START -->\nold\n<!-- ADR_INDEX_END -->\n', 'utf8');
+    fs.writeFileSync(path.join(colRepo.dir, 'docs/adr/ADR-001-orig.md'), '---\nid: ADR-001\nstatus: accepted\nscope: technical\n---\n', 'utf8');
+    git(colRepo.dir, 'add', '-A');
+    git(colRepo.dir, 'commit', '-q', '-m', 'chore: base');
+    git(colRepo.dir, 'checkout', '-q', '-b', 'feat/idx-only', 'develop');
+    fs.writeFileSync(path.join(colRepo.dir, 'PRODUCT.md'), '# Prod\n<!-- ADR_INDEX_START -->\nnew index\n<!-- ADR_INDEX_END -->\n', 'utf8');
+    git(colRepo.dir, 'add', 'PRODUCT.md');
+    git(colRepo.dir, 'commit', '-q', '-m', 'docs: index sync');
+    const idxCs = readChangeSet({ ...resolveRange({ baseBranch: 'develop', repoRoot: colRepo.dir }), source: 'commit', repoRoot: colRepo.dir });
+    assert.equal(checkSpecDrift({ baseBranch: 'develop', changeSet: idxCs, repoRoot: colRepo.dir }).passed, true);
+
+    fs.writeFileSync(path.join(colRepo.dir, 'docs/adr/ADR-001-dup.md'), '---\nid: ADR-001\nstatus: accepted\nscope: technical\n---\n', 'utf8');
+    git(colRepo.dir, 'add', 'docs/adr/ADR-001-dup.md');
+    git(colRepo.dir, 'commit', '-q', '-m', 'evil: duplicate ADR id');
+    const dupCs = readChangeSet({ ...resolveRange({ baseBranch: 'develop', repoRoot: colRepo.dir }), source: 'commit', repoRoot: colRepo.dir });
+    const dupDrift = checkSpecDrift({ baseBranch: 'develop', changeSet: dupCs, repoRoot: colRepo.dir });
+    assert.equal(dupDrift.passed, false);
+    assert.match(dupDrift.message, /ADR_ID_COLLISION: ADR-001 already exists on develop as docs\/adr\/ADR-001-orig\.md/);
+    assert.ok(dupDrift.triggers.some((t) => t.type === 'ADR_ID_COLLISION' && t.conflictsWith === 'docs/adr/ADR-001-orig.md'));
+
+    fs.writeFileSync(path.join(colRepo.dir, 'openapi.json'), '{bad', 'utf8');
+    git(colRepo.dir, 'add', 'openapi.json');
+    git(colRepo.dir, 'commit', '-q', '-m', 'bad: broken openapi');
+    const oaCs = readChangeSet({ ...resolveRange({ baseBranch: 'develop', repoRoot: colRepo.dir }), source: 'commit', repoRoot: colRepo.dir });
+    const oaDrift = checkSpecDrift({ baseBranch: 'develop', changeSet: oaCs, repoRoot: colRepo.dir });
+    assert.equal(oaDrift.passed, false);
+    assert.match(oaDrift.message, /CONTRACT_PARSE_ERROR/);
   });
 });

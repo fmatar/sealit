@@ -532,7 +532,7 @@ function parsePatchSections(rawDiff, knownPaths) {
     else if (renMatch) cleanPath = unquoteGitPath(renMatch[1]);
     else {
       for (const kp of knownPaths) {
-        if (hdr.endsWith(` b/${kp}`)) { cleanPath = kp; break; }
+        if (hdr === `diff --git a/${kp} b/${kp}`) { cleanPath = kp; break; }
       }
       if (!cleanPath) {
         const q = hdr.match(/ "b\/((?:\\.|[^"\\])+)"$/);

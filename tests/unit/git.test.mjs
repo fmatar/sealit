@@ -523,17 +523,28 @@ describe('Ring 0: lib/git.mjs', () => {
       (err) => err instanceof ChangeSetParseError && /Invalid ChangeSet source/.test(err.message)
     );
 
-    // Header-only binary patch fallback (knownPaths + quoted C-escaped path), empty/same-SHA ranges, and invalid readBlobs specs
+    // Header-only binary patch fallback (exact symmetric a/<kp> b/<kp> without suffix collision + quoted C-escaped path), empty/same-SHA ranges, and invalid readBlobs specs
+    fs.mkdirSync(path.join(dir, 'z b'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'a.mjs'), Buffer.from('\x00const rootA = 1;\n', 'latin1'));
+    fs.writeFileSync(path.join(dir, 'z b/a.mjs'), Buffer.from('\x00const nestedA = 2;\n', 'latin1'));
+    git(dir, 'add', 'a.mjs', 'z b/a.mjs');
+    git(dir, 'commit', '-q', '-m', 'feat: suffix collision binary paths');
+    const colHead = git(dir, 'rev-parse', 'HEAD').stdout.trim();
     const headerOnlyCs = readChangeSet({
-      ...moveRange,
+      baseSha: subSha,
+      headSha: colHead,
       source: 'commit',
       repoRoot: dir,
       _rawPatchOverride: [
-        'diff --git a/src/moved.mjs b/src/moved.mjs\nBinary files a/src/moved.mjs and b/src/moved.mjs differ',
+        'diff --git a/src/my b/nul.mjs b/src/my b/nul.mjs\nBinary files a/src/my b/nul.mjs and b/src/my b/nul.mjs differ',
+        'diff --git a/docs/specs/cap-01.md b/docs/specs/cap-01-renamed.md\nsimilarity index 100%\nrename from docs/specs/cap-01.md\nrename to docs/specs/cap-01-renamed.md',
+        'diff --git a/z b/a.mjs b/z b/a.mjs\nBinary files a/z b/a.mjs and b/z b/a.mjs differ',
+        'diff --git a/a.mjs b/a.mjs\nBinary files a/a.mjs and b/a.mjs differ',
         'diff --git "a/tab\\tname" "b/tab\\tname"\nBinary files differ'
       ].join('\n')
     });
-    assert.ok(headerOnlyCs.patches.get('src/moved.mjs').includes('Binary files'));
+    assert.match(headerOnlyCs.patches.get('a.mjs'), /a\/a\.mjs and b\/a\.mjs/);
+    assert.match(headerOnlyCs.patches.get('z b/a.mjs'), /a\/z b\/a\.mjs and b\/z b\/a\.mjs/);
     assert.ok(headerOnlyCs.patches.get('tab\tname').includes('Binary files'));
     assert.deepEqual(readChangeSet({ baseSha: moveRange.headSha, headSha: moveRange.headSha, source: 'commit', repoRoot: dir }).paths, []);
     assert.equal(readBlobs([], dir).size, 0);
