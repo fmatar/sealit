@@ -375,14 +375,36 @@ describe('Ring 0: lib/git.mjs', () => {
 
     const hadExtDiff = Object.prototype.hasOwnProperty.call(process.env, 'GIT_EXTERNAL_DIFF');
     const prevExtDiff = process.env.GIT_EXTERNAL_DIFF;
+    const hadLiteralPathspecs = Object.prototype.hasOwnProperty.call(process.env, 'GIT_LITERAL_PATHSPECS');
+    const prevLiteralPathspecs = process.env.GIT_LITERAL_PATHSPECS;
     process.env.GIT_EXTERNAL_DIFF = 'echo';
+    process.env.GIT_LITERAL_PATHSPECS = '1';
     try {
       const envMap = getUnifiedDiffByFile('develop', dir, ['src/a.js'], { strict: true });
-      assert.ok(envMap.has('src/a.js'), 'expected src/a.js with GIT_EXTERNAL_DIFF=echo');
+      assert.ok(envMap.has('src/a.js'), 'expected src/a.js with GIT_EXTERNAL_DIFF=echo & GIT_LITERAL_PATHSPECS=1');
       assert.match(envMap.get('src/a.js'), /^\+export const k = 1;$/m);
     } finally {
       if (hadExtDiff) process.env.GIT_EXTERNAL_DIFF = prevExtDiff;
       else delete process.env.GIT_EXTERNAL_DIFF;
+      if (hadLiteralPathspecs) process.env.GIT_LITERAL_PATHSPECS = prevLiteralPathspecs;
+      else delete process.env.GIT_LITERAL_PATHSPECS;
     }
+
+    const cleaned = cleanGitEnv({
+      PATH: '/usr/bin',
+      GIT_EXTERNAL_DIFF: 'echo',
+      GIT_DIFF_OPTS: '-u',
+      GIT_LITERAL_PATHSPECS: '1',
+      GIT_GLOB_PATHSPECS: '1',
+      GIT_NOGLOB_PATHSPECS: '1',
+      GIT_ICASE_PATHSPECS: '1'
+    });
+    assert.equal(cleaned.PATH, '/usr/bin');
+    assert.equal(cleaned.GIT_LITERAL_PATHSPECS, undefined);
+    assert.equal(cleaned.GIT_GLOB_PATHSPECS, undefined);
+    assert.equal(cleaned.GIT_NOGLOB_PATHSPECS, undefined);
+    assert.equal(cleaned.GIT_ICASE_PATHSPECS, undefined);
+    assert.equal(cleaned.GIT_EXTERNAL_DIFF, undefined);
+    assert.equal(cleaned.GIT_DIFF_OPTS, undefined);
   });
 });

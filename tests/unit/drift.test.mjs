@@ -373,6 +373,59 @@ describe('Ring 1: lib/drift.mjs', () => {
     assert.equal(withDep.passed, false);
     assert.deepEqual(withDep.triggers.map((t) => t.type).sort(), ['ADR_MUTATION', 'DEPENDENCY_DRIFT']);
     assert.deepEqual(withDep.linkedADRs, []);
+
+    // Renaming (or case-renaming) an accepted-at-base ADR still triggers ADR_MUTATION + SPEC_DELETED and never governs drift
+    git(dir, 'mv', 'docs/adr/ADR-001-base.md', 'docs/adr/ADR-001-renamed.md');
+    git(dir, 'commit', '-qm', 'refactor: rename base ADR alongside dep change');
+    const afterRename = checkSpecDrift({ baseBranch: 'develop', repoRoot: dir });
+    assert.equal(afterRename.passed, false);
+    assert.deepEqual(afterRename.linkedADRs, []);
+    assert.ok(afterRename.triggers.some((t) => t.type === 'ADR_MUTATION'));
+    assert.ok(afterRename.triggers.some((t) => t.type === 'SPEC_DELETED' && t.file === 'docs/adr/ADR-001-base.md'));
+
+    // Case-only rename of AUDIT_CHAIN.jsonl on case-insensitive FS still raises contract error
+    fs.writeFileSync(path.join(dir, 'docs/AUDIT_CHAIN.jsonl'), '{"index":0}\n', 'utf8');
+    git(dir, 'add', 'docs/AUDIT_CHAIN.jsonl');
+    git(dir, 'commit', '--amend', '--no-edit', '-q');
+    git(dir, 'checkout', '-q', 'develop');
+    fs.writeFileSync(path.join(dir, 'docs/AUDIT_CHAIN.jsonl'), '{"index":0}\n', 'utf8');
+    git(dir, 'add', 'docs/AUDIT_CHAIN.jsonl');
+    git(dir, 'commit', '-qm', 'chore: add base ledger');
+    git(dir, 'checkout', '-q', '-b', 'feat/case-ledger', 'develop');
+    git(dir, 'mv', 'docs/AUDIT_CHAIN.jsonl', 'docs/audit_chain.jsonl');
+    git(dir, 'commit', '-qm', 'refactor: lowercase ledger');
+    const caseLedgerDrift = checkSpecDrift({ baseBranch: 'develop', repoRoot: dir });
+    assert.equal(caseLedgerDrift.passed, false);
+    assert.match(caseLedgerDrift.message, /cannot be deleted/);
+  });
+
+  it('editing a superseded-at-base ADR back to accepted cannot govern new drift', () => {
+    const { dir, cleanup } = createTempGitRepo();
+    cleanups.push(cleanup);
+
+    fs.mkdirSync(path.join(dir, 'docs/adr'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'docs/adr/ADR-001-old.md'),
+      '---\nid: ADR-001\ntitle: Old\nstatus: superseded\nscope: technical\nticket: "1"\n---\n\n# ADR-001\n',
+      'utf8'
+    );
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'x', dependencies: {} }, null, 2) + '\n', 'utf8');
+    git(dir, 'add', 'docs/adr/ADR-001-old.md', 'package.json');
+    git(dir, 'commit', '-q', '-m', 'chore: base superseded ADR');
+
+    git(dir, 'checkout', '-q', '-b', 'feat/resurrect-adr', 'develop');
+    fs.writeFileSync(
+      path.join(dir, 'docs/adr/ADR-001-old.md'),
+      '---\nid: ADR-001\ntitle: Old\nstatus: accepted\nscope: technical\nticket: "1"\n---\n\n# ADR-001\n',
+      'utf8'
+    );
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'x', dependencies: { lodash: '^4' } }, null, 2) + '\n', 'utf8');
+    git(dir, 'commit', '-qam', 'chore: flip superseded ADR to accepted');
+
+    const d = checkSpecDrift({ baseBranch: 'develop', repoRoot: dir });
+    assert.equal(d.passed, false);
+    assert.deepEqual(d.linkedADRs, []);
+    assert.ok(d.triggers.some((t) => t.type === 'ADR_MUTATION'));
   });
 
   it('a new accepted ADR still governs drift, including superseding an older accepted ADR', () => {

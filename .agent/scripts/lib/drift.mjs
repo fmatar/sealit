@@ -332,12 +332,23 @@ export function checkSpecDrift({ ticketId = null, baseBranch = null, repoRoot = 
 
   const triggers = [];
   const contractErrors = [];
+  const absRepo = path.resolve(repoRoot);
+  const realRepo = fileExists(absRepo) ? fs.realpathSync.native(absRepo) : absRepo;
+  const exactFileExists = (relPath) => {
+    const absPath = path.resolve(absRepo, relPath);
+    if (!fileExists(absPath)) return false;
+    try {
+      return path.relative(realRepo, fs.realpathSync.native(absPath)).replace(/\\/g, '/') === relPath.replace(/\\/g, '/');
+    } catch {
+      return false;
+    }
+  };
   const DELETED_GOVERNANCE_RE =
     /^(?:PRODUCT\.md|docs\/PRD\.md|docs\/SRS\.md|docs\/specs\/.+\.md|docs\/adr\/ADR-\d+.*\.md|docs\/AUDIT_CHAIN\.jsonl|\.archlens\/policy\.json)$|(?:^|\/)(?:package\.json|Cargo\.toml|pyproject\.toml|requirements[^/]*\.txt|go\.mod|pom\.xml|build\.gradle(?:\.kts)?|prisma\/schema\.prisma)$|\.(?:sql|graphql|proto)$|(?:openapi|swagger).*\.(?:json|ya?ml)$/i;
 
   for (const rel of modifiedFiles) {
     const abs = path.resolve(repoRoot, rel);
-    if (!fileExists(abs)) {
+    if (!fileExists(abs) || (DELETED_GOVERNANCE_RE.test(rel) && !exactFileExists(rel))) {
       if (DELETED_GOVERNANCE_RE.test(rel)) {
         triggers.push({ file: rel, type: 'SPEC_DELETED', scope: 'architectural' });
         if (rel === 'docs/AUDIT_CHAIN.jsonl') contractErrors.push("Audit ledger 'docs/AUDIT_CHAIN.jsonl' cannot be deleted.");
@@ -394,22 +405,34 @@ export function checkSpecDrift({ ticketId = null, baseBranch = null, repoRoot = 
   const allAdrs = listADRs(repoRoot);
   const normTicket = normalizeTicketId(ticketId);
   const diffAdrFiles = new Set(modifiedFiles.filter((f) => /^docs\/adr\/ADR-\d+.*\.md$/i.test(f)));
-  const isAcceptedAtBase = (relFile) => {
-    if (!mergeBase) return false;
-    const baseRaw = readFileAtMergeBase(relFile, mergeBase, repoRoot);
-    if (baseRaw === null) return false;
-    return String(parseFrontmatter(baseRaw).frontmatter?.status || '').toLowerCase() === 'accepted';
-  };
-  const mutatedAcceptedFiles = new Set();
+  const baseNonGovernablePaths = new Set();
+  const baseNonGovernableIds = new Set();
+  if (mergeBase) {
+    const baseAdrTree = gitOutput(['ls-tree', '-r', '--name-only', '--end-of-options', mergeBase, '--', 'docs/adr'], repoRoot) || '';
+    for (const relBase of baseAdrTree.replace(/\r\n/g, '\n').split('\n').map((s) => s.trim()).filter(Boolean)) {
+      if (!/^docs\/adr\/ADR-\d+.*\.md$/i.test(relBase)) continue;
+      const baseRaw = readFileAtMergeBase(relBase, mergeBase, repoRoot);
+      if (baseRaw === null) continue;
+      const fm = parseFrontmatter(baseRaw).frontmatter || {};
+      const baseStatus = String(fm.status || '').toLowerCase();
+      if (baseStatus === 'accepted' || baseStatus === 'superseded') {
+        baseNonGovernablePaths.add(relBase.toLowerCase());
+        const idMatch = path.basename(relBase).match(/^(ADR-\d+)/i);
+        const normId = String(fm.id || (idMatch ? idMatch[1] : '')).trim().toUpperCase();
+        if (normId) baseNonGovernableIds.add(normId);
+      }
+    }
+  }
+  const mutatedBaseFiles = new Set();
   for (const a of allAdrs) {
-    if (diffAdrFiles.has(a.file) && isAcceptedAtBase(a.file)) {
-      mutatedAcceptedFiles.add(a.file);
+    if (diffAdrFiles.has(a.file) && (baseNonGovernablePaths.has(a.file.toLowerCase()) || baseNonGovernableIds.has(a.id))) {
+      mutatedBaseFiles.add(a.file);
       triggers.push({ file: a.file, type: 'ADR_MUTATION', scope: 'architectural' });
     }
   }
 
   const relevantAdrs = allAdrs.filter((a) => {
-    if (mutatedAcceptedFiles.has(a.file)) return a.status === 'pending_approval' || a.status === 'rejected';
+    if (mutatedBaseFiles.has(a.file)) return a.status === 'pending_approval' || a.status === 'rejected';
     if (diffAdrFiles.has(a.file)) return true;
     if (triggers.length === 0 && normTicket && a.ticket === normTicket) return true;
     return false;

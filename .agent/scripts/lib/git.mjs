@@ -342,6 +342,10 @@ export function cleanGitEnv(baseEnv = process.env) {
   delete env.GIT_ALTERNATE_OBJECT_DIRECTORIES;
   delete env.GIT_EXTERNAL_DIFF;
   delete env.GIT_DIFF_OPTS;
+  delete env.GIT_LITERAL_PATHSPECS;
+  delete env.GIT_GLOB_PATHSPECS;
+  delete env.GIT_NOGLOB_PATHSPECS;
+  delete env.GIT_ICASE_PATHSPECS;
   return env;
 }
 
