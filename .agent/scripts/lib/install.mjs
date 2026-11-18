@@ -318,12 +318,24 @@ export function auditSkills(repoRoot = '.') {
   };
 }
 
+function detectNodeCache(repoRoot = null) {
+  if (!repoRoot) return null;
+  const has = (f) => fileExists(path.resolve(repoRoot, f));
+  if (has('package-lock.json') || has('npm-shrinkwrap.json')) return 'npm';
+  if (has('pnpm-lock.yaml')) return 'pnpm';
+  if (has('yarn.lock')) return 'yarn';
+  return null;
+}
+
 export function buildQualityGateWorkflow({
   runsOn = "${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}",
-  checkName = DEFAULT_QUALITY_GATE_CHECK
+  checkName = DEFAULT_QUALITY_GATE_CHECK,
+  repoRoot = null
 } = {}) {
   const runsOnYaml = Array.isArray(runsOn) ? JSON.stringify(runsOn) : runsOn;
   const safeCheckName = String(checkName || DEFAULT_QUALITY_GATE_CHECK).replace(/[\r\n]+/g, ' ');
+  const nodeCache = detectNodeCache(repoRoot);
+  const cacheLine = nodeCache ? `\n          cache: '${nodeCache}'` : '';
   return `name: SDLC Quality Gate
 
 on:
@@ -380,8 +392,7 @@ jobs:
       - name: Setup Node.js Runtime
         uses: actions/setup-node@v7
         with:
-          node-version: "lts/*"
-          cache: 'npm'
+          node-version: "lts/*"${cacheLine}
 
       - name: Verify Signed Stage 7 Gate Receipt
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
@@ -454,19 +465,27 @@ function isLegacySdlcWorkflow(raw = '') {
   );
 }
 
+function workflowNeedsUpgrade(raw = '', repoRoot = null) {
+  if (isLegacySdlcWorkflow(raw)) return true;
+  if (!raw.includes('sdlc-engine.mjs')) return false;
+  const declaredCache = (/^\s+cache: '(\w+)'$/m.exec(raw) || [])[1] || null;
+  return declaredCache !== detectNodeCache(repoRoot);
+}
+
 export function installCIWorkflow({ repoRoot = '.', force = false, upgradeLegacy = false } = {}) {
   const wfPath = path.resolve(repoRoot, '.github/workflows/sdlc-quality-gate.yml');
   const exists = fileExists(wfPath);
   if (exists && !force) {
     const existingRaw = readFileSafe(wfPath) || '';
-    if (!upgradeLegacy || !isLegacySdlcWorkflow(existingRaw)) {
+    if (!upgradeLegacy || !workflowNeedsUpgrade(existingRaw, repoRoot)) {
       return { installed: false, upgraded: false, skipped: true, path: wfPath };
     }
   }
   const { config } = loadConfig(repoRoot);
   const content = buildQualityGateWorkflow({
     runsOn: config?.ci?.runsOn || "${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}",
-    checkName: config?.ci?.checkName || DEFAULT_QUALITY_GATE_CHECK
+    checkName: config?.ci?.checkName || DEFAULT_QUALITY_GATE_CHECK,
+    repoRoot
   });
   writeFileAtomic(wfPath, content);
   return { installed: !exists, upgraded: exists, skipped: false, path: wfPath };
@@ -530,7 +549,7 @@ export function runDoctor({ repoRoot = '.', fix = false } = {}) {
     installCIWorkflow({ repoRoot: absRoot, force: false, upgradeLegacy: true });
   }
   const wfExists = fileExists(wfPath);
-  const wfLegacy = wfExists && isLegacySdlcWorkflow(readFileSafe(wfPath) || '');
+  const wfLegacy = wfExists && workflowNeedsUpgrade(readFileSafe(wfPath) || '', absRoot);
 
   if (fix && process.platform !== 'win32') {
     const commonRoot = resolveGitCommonRepoRoot(absRoot);

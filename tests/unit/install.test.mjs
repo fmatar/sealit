@@ -499,4 +499,33 @@ describe('Ring 2: lib/install.mjs', () => {
     assert.ok(upgraded.indexOf('Verify Signed Stage 7') < upgraded.indexOf('Install Dependencies'));
     assert.equal(installCIWorkflow({ repoRoot: dir, force: false, upgradeLegacy: true }).skipped, true);
   });
+
+  it('setup-node cache follows the lockfile present at generation time and doctor flags a mismatch', () => {
+    const cacheOf = (yml) => (/^\s+cache: '(\w+)'$/m.exec(yml) || [])[1] || null;
+
+    const py = createTempGitRepo();
+    cleanups.push(py.cleanup);
+    fs.writeFileSync(path.join(py.dir, 'pyproject.toml'), '[project]\nname = "x"\n', 'utf8');
+    installCIWorkflow({ repoRoot: py.dir, force: true });
+    const pyWf = fs.readFileSync(path.join(py.dir, '.github/workflows/sdlc-quality-gate.yml'), 'utf8');
+    assert.equal(cacheOf(pyWf), null, 'no lockfile => no cache key (setup-node would fail)');
+
+    for (const [lock, expected] of [['package-lock.json', 'npm'], ['npm-shrinkwrap.json', 'npm'], ['yarn.lock', 'yarn'], ['pnpm-lock.yaml', 'pnpm']]) {
+      const r = createTempGitRepo();
+      cleanups.push(r.cleanup);
+      fs.writeFileSync(path.join(r.dir, 'package.json'), '{"name":"x"}\n', 'utf8');
+      fs.writeFileSync(path.join(r.dir, lock), '{}\n', 'utf8');
+      installCIWorkflow({ repoRoot: r.dir, force: true });
+      assert.equal(cacheOf(fs.readFileSync(path.join(r.dir, '.github/workflows/sdlc-quality-gate.yml'), 'utf8')), expected, lock);
+    }
+
+    // A workflow caching npm in a repo without a lockfile is reported and repaired by doctor --fix
+    withoutReceiptEnv(() => {
+      fs.writeFileSync(path.join(py.dir, '.github/workflows/sdlc-quality-gate.yml'), buildQualityGateWorkflow({ repoRoot: null }).replace("node-version: \"lts/*\"\n", "node-version: \"lts/*\"\n          cache: 'npm'\n"), 'utf8');
+      assert.equal(runDoctor({ repoRoot: py.dir, fix: false }).workflow.legacyNeedsUpgrade, true);
+      runDoctor({ repoRoot: py.dir, fix: true });
+      assert.equal(cacheOf(fs.readFileSync(path.join(py.dir, '.github/workflows/sdlc-quality-gate.yml'), 'utf8')), null);
+      assert.equal(runDoctor({ repoRoot: py.dir, fix: false }).workflow.legacyNeedsUpgrade, false);
+    });
+  });
 });
