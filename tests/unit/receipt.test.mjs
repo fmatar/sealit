@@ -485,4 +485,21 @@ describe('Ring 1: lib/receipt.mjs', () => {
       assert.equal(verifyGateReceipt({ repoRoot: docRepo.dir }).valid, true);
     });
   });
+
+  it('appending to a ledger without a final newline keeps the chain valid', () => {
+    const { dir, cleanup } = createTempGitRepo();
+    cleanups.push(cleanup);
+    appendAuditRecord({ event: 'TEST_ONE', metadata: { n: 1 }, repoRoot: dir });
+    appendAuditRecord({ event: 'TEST_TWO', metadata: { n: 2 }, repoRoot: dir });
+    const ledger = path.join(dir, 'docs/AUDIT_CHAIN.jsonl');
+    // Simulate an editor (or conflict resolution) stripping the trailing newline
+    fs.writeFileSync(ledger, fs.readFileSync(ledger, 'utf8').replace(/\n+$/, ''), 'utf8');
+    assert.equal(verifyAuditChain(dir).valid, true);
+
+    appendAuditRecord({ event: 'TEST_THREE', metadata: { n: 3 }, repoRoot: dir });
+    const after = verifyAuditChain(dir);
+    assert.equal(after.valid, true, after.error);
+    assert.equal(after.recordsCount, 3);
+    assert.equal(fs.readFileSync(ledger, 'utf8').split('\n').filter(Boolean).length, 3);
+  });
 });

@@ -30,13 +30,13 @@ node .agent/scripts/sdlc-engine.mjs gate --no-cache
 # (for docs-only changes: node .agent/scripts/sdlc-engine.mjs receipt --docs-only)
 # (for code changes: execute sdlc-gate review plan -> review record --verdict approve)
 
-# 4. Commit docs/AUDIT_CHAIN.jsonl, verify receipt, open PR -> merge -> close session
+# 4. Commit docs/AUDIT_CHAIN.jsonl, verify receipt, open PR -> merge -> close session (pass --issue: after merge you are on develop)
 node .agent/scripts/sdlc-engine.mjs verify
-node .agent/scripts/sdlc-engine.mjs end
+node .agent/scripts/sdlc-engine.mjs end --issue <id>
 ```
 
 ## Confirm with user before
-- Approving an ADR (`adr decide --status approve`), pushing to a remote repository, or merging a PR.
+- Approving an ADR (`adr decide --status approve`), recording an approving review or receipt, pushing to a remote repository, or merging a PR.
 
 ## Done when
-`sdlc gate --no-cache` and `sdlc verify` pass on clean `HEAD`, PR checks are green, and `sdlc end` has closed the session.
+`sdlc gate --no-cache` and `sdlc verify` pass on clean `HEAD`, PR checks are green, and `sdlc end --issue <id>` has closed the session.

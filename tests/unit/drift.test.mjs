@@ -428,6 +428,29 @@ describe('Ring 1: lib/drift.mjs', () => {
     assert.ok(d.triggers.some((t) => t.type === 'ADR_MUTATION'));
   });
 
+  it('createADR rejects frontmatter injection and duplicate frontmatter keys never upgrade an ADR to accepted', () => {
+    const { dir, cleanup } = createTempGitRepo();
+    cleanups.push(cleanup);
+    fs.writeFileSync(path.join(dir, 'PRODUCT.md'), '# Product\n\n<!-- ADR_INDEX_START -->\n<!-- ADR_INDEX_END -->\n', 'utf8');
+
+    assert.throws(() => createADR({ title: 'Inject', ticket: 'L-3\nstatus: accepted\ndecidedBy: @human', repoRoot: dir }), /Invalid ADR ticket/);
+    assert.throws(() => createADR({ title: 'Inject', ticket: 'L-3', supersedes: 'ADR-1\nstatus: accepted', repoRoot: dir }), /Invalid ADR supersedes/);
+    assert.equal(listADRs(dir).length, 0, 'rejected input must not write an ADR');
+
+    // Title newlines are JSON-escaped, so they can never introduce a status line
+    const created = createADR({ title: 'Title\nstatus: accepted', ticket: 'L-3', supersedes: '[ADR-001, CAP-02]', repoRoot: dir });
+    assert.equal(created.success, true);
+    assert.equal(listADRs(dir).find((a) => a.id === created.id).status, 'pending_approval');
+
+    // Hand-edited duplicate keys: the first occurrence wins (matches decideADR, which rewrites the first status line)
+    fs.writeFileSync(
+      path.join(dir, 'docs/adr/ADR-099-dup.md'),
+      '---\nid: ADR-099\ntitle: Dup\nstatus: pending_approval\nticket: "1"\nstatus: accepted\n---\n\n# ADR-099\n',
+      'utf8'
+    );
+    assert.equal(listADRs(dir).find((a) => a.id === 'ADR-099').status, 'pending_approval');
+  });
+
   it('a new accepted ADR still governs drift, including superseding an older accepted ADR', () => {
     const { dir, cleanup } = createTempGitRepo();
     cleanups.push(cleanup);

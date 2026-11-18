@@ -50,6 +50,29 @@ function allocateNextLocalId(sessions = {}) {
   return `L-${maxN + 1}`;
 }
 
+// A worktree must be a direct child of the repo's parent dir (`../<name>`) or of `<repo>/.worktrees`, must not exist
+// yet, and must not be a dot-name. Checked on the realpath so symlinked parents cannot escape (e.g. into ~/.claude,
+// ~/Library/LaunchAgents, or another project's test folder).
+function resolveSafeWorktreePath(absRoot, worktree) {
+  try {
+    const target = path.resolve(absRoot, worktree);
+    if (fs.existsSync(target) || path.basename(target).startsWith('.')) return null;
+    let probe = path.dirname(target);
+    const rest = [];
+    while (!fs.existsSync(probe)) {
+      const parent = path.dirname(probe);
+      if (parent === probe) return null;
+      rest.unshift(path.basename(probe));
+      probe = parent;
+    }
+    const realParent = path.join(fs.realpathSync(probe), ...rest);
+    const realRepo = fs.realpathSync(absRoot);
+    return realParent === path.dirname(realRepo) || realParent === path.join(realRepo, '.worktrees') ? target : null;
+  } catch {
+    return null;
+  }
+}
+
 export function beginSession({
   issueId = null,
   title = 'change',
@@ -61,8 +84,29 @@ export function beginSession({
 } = {}) {
   const absRoot = path.resolve(repoRoot);
   const baseBranch = resolveDefaultBaseBranch(absRoot);
-  const storePreview = readSessionStore(absRoot);
-  const resolvedId = normalizeTicketId(issueId) || allocateNextLocalId(storePreview.sessions);
+  let resolvedId = normalizeTicketId(issueId);
+  let reservedId = null;
+  if (resolvedId && readSessionStore(absRoot).sessions?.[resolvedId]?.reserved) {
+    return { success: false, error: `Session id '${resolvedId}' is being created by another begin; retry or pick another id.` };
+  }
+  if (!resolvedId) {
+    // Allocate and reserve the local id inside the session lock so concurrent `begin` runs never collide.
+    writeActiveSession(absRoot, (store) => {
+      reservedId = allocateNextLocalId(store.sessions);
+      store.sessions[reservedId] = { active: false, reserved: true, issueId: reservedId, startedAt: new Date().toISOString() };
+      return store;
+    });
+    resolvedId = reservedId;
+  }
+  const fail = (error) => {
+    if (reservedId) {
+      writeActiveSession(absRoot, (store) => {
+        if (store.sessions[reservedId]?.reserved) delete store.sessions[reservedId];
+        return store;
+      });
+    }
+    return { success: false, error };
+  };
 
   const prefix = ['feat', 'fix', 'hotfix', 'chore', 'docs', 'refactor'].includes(String(type).toLowerCase())
     ? String(type).toLowerCase()
@@ -74,42 +118,51 @@ export function beginSession({
     (!checkout && !worktree && curBranch && !PROTECTED_BRANCHES.includes(curBranch) ? curBranch : defaultBranchName);
 
   if (PROTECTED_BRANCHES.includes(targetBranch)) {
-    return {
-      success: false,
-      error: `Cannot start session on protected branch '${targetBranch}'. Pass --checkout or switch to a feature branch.`
-    };
+    return fail(`Cannot start session on protected branch '${targetBranch}'. Pass --checkout or switch to a feature branch.`);
   }
   if (targetBranch === 'HEAD' || targetBranch.startsWith('-')) {
-    return { success: false, error: `Invalid branch name '${targetBranch}'.` };
+    return fail(`Invalid branch name '${targetBranch}'.`);
   }
   const refCheck = gitExec(['check-ref-format', '--branch', targetBranch], absRoot);
   if (refCheck.error || refCheck.status !== 0) {
-    return { success: false, error: `Invalid branch name '${targetBranch}'.` };
+    return fail(`Invalid branch name '${targetBranch}'.`);
   }
 
   let resolvedWorktree = null;
   if (worktree) {
-    resolvedWorktree = path.resolve(absRoot, worktree);
-    fs.mkdirSync(path.dirname(resolvedWorktree), { recursive: true });
+    resolvedWorktree = resolveSafeWorktreePath(absRoot, worktree);
+    if (!resolvedWorktree) {
+      return fail(`Worktree path '${worktree}' must be a new directory directly next to the repository ('../<name>') or under '<repo>/.worktrees/', and not a dot-name.`);
+    }
+    try {
+      fs.mkdirSync(path.dirname(resolvedWorktree), { recursive: true });
+    } catch (err) {
+      return fail(`Failed to create worktree parent directory: ${err.message}`);
+    }
     const wtArgs = hasBranch(targetBranch, absRoot)
       ? ['worktree', 'add', resolvedWorktree, targetBranch]
       : ['worktree', 'add', '-b', targetBranch, resolvedWorktree, baseBranch];
     const wtRes = gitExec(wtArgs, absRoot);
     if (wtRes.error || wtRes.status !== 0) {
-      return { success: false, error: `Failed to create git worktree: ${wtRes.stderr || wtRes.error?.message}` };
+      return fail(`Failed to create git worktree: ${wtRes.stderr || wtRes.error?.message}`);
     }
   } else if (checkout && curBranch !== targetBranch) {
     const coArgs = hasBranch(targetBranch, absRoot) ? ['checkout', '--end-of-options', targetBranch] : ['checkout', '-b', targetBranch];
     const coRes = gitExec(coArgs, absRoot);
     if (coRes.error || coRes.status !== 0) {
-      return { success: false, error: `Failed to checkout branch '${targetBranch}': ${coRes.stderr || coRes.error?.message}` };
+      return fail(`Failed to checkout branch '${targetBranch}': ${coRes.stderr || coRes.error?.message}`);
     }
   }
 
   const now = new Date().toISOString();
   let savedSession = null;
+  let lostReservation = false;
   writeActiveSession(absRoot, (store) => {
-    const prev = store.sessions[resolvedId] || {};
+    if (reservedId && !store.sessions[reservedId]?.reserved) {
+      lostReservation = true; // another begin took this id explicitly; never inherit or overwrite its session
+      return store;
+    }
+    const prev = store.sessions[resolvedId]?.reserved ? {} : store.sessions[resolvedId] || {};
     savedSession = {
       active: true,
       issueId: resolvedId,
@@ -127,6 +180,9 @@ export function beginSession({
     store.activeSessionId = resolvedId;
     return store;
   });
+  if (lostReservation) {
+    return { success: false, error: `Session id '${resolvedId}' was claimed by another begin while this one ran; retry.` };
+  }
 
   return { success: true, session: savedSession, branch: targetBranch, worktree: resolvedWorktree };
 }
@@ -253,8 +309,7 @@ export function endSession({ issueId = null, repoRoot = '.' } = {}) {
   writeActiveSession(absRoot, (store) => {
     const targetId =
       normalizeTicketId(issueId) ||
-      Object.keys(store.sessions || {}).find((k) => store.sessions[k]?.branch === curBranch && store.sessions[k]?.active !== false) ||
-      store.activeSessionId;
+      Object.keys(store.sessions || {}).find((k) => store.sessions[k]?.branch === curBranch && store.sessions[k]?.active !== false);
     if (!targetId || !store.sessions[targetId]) return store;
 
     closedId = String(targetId);
@@ -271,7 +326,10 @@ export function endSession({ issueId = null, repoRoot = '.' } = {}) {
   });
 
   if (!closedId) {
-    return { success: false, error: 'No matching active session found to close.' };
+    return {
+      success: false,
+      error: issueId ? `No session '${issueId}' found to close.` : `No active session for branch '${curBranch || 'HEAD'}'. Pass --issue <id>.`
+    };
   }
 
   let worktreeRemoved = false;
@@ -484,12 +542,19 @@ export function verifyPushGuard({ remoteBranch = null, stdinText = '', repoRoot 
 export function postMergeCleanup({ repoRoot = '.' } = {}) {
   const curBranch = getCurrentGitBranch(repoRoot);
   if (!PROTECTED_BRANCHES.includes(curBranch)) return { cleaned: 0 };
+  // Only branches brought in by THIS merge: ancestor of HEAD but not of ORIG_HEAD (pre-merge tip).
+  const origHead = (gitOutput(['rev-parse', '--verify', '-q', 'ORIG_HEAD'], repoRoot) || '').trim();
+  if (!origHead) return { cleaned: 0 };
+  const isAncestor = (ref, of) => {
+    const r = gitExec(['merge-base', '--is-ancestor', ref, of], repoRoot);
+    return !r.error && r.status === 0;
+  };
   let cleaned = 0;
   writeActiveSession(repoRoot, (store) => {
     for (const sess of Object.values(store.sessions || {})) {
       if (!sess || sess.active === false || !sess.branch) continue;
-      const merged = gitExec(['merge-base', '--is-ancestor', `refs/heads/${sess.branch}`, 'HEAD'], repoRoot);
-      if (!merged.error && merged.status === 0) {
+      const branchRef = `refs/heads/${sess.branch}`;
+      if (isAncestor(branchRef, 'HEAD') && !isAncestor(branchRef, origHead)) {
         sess.active = false;
         sess.endedAt = new Date().toISOString();
         cleaned++;

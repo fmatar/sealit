@@ -52,7 +52,19 @@ export const SDLC_GITIGNORE_ENTRIES = Object.freeze([
   '.agent/.sdlc-config.lock',
   '.agent/.audit-chain.lock',
   '.agent/.receipt-key',
+  '.agent/sdlc-config.json.bak',
   '.stryker-tmp/'
+]);
+
+const SDLC_ENGINE_CMD = 'node .agent/scripts/sdlc-engine.mjs';
+const LEGACY_CLAUDE_WILDCARD = `Bash(${SDLC_ENGINE_CMD} *)`;
+// Read/measure commands only. Approve/sign/exempt/install commands (adr decide, review record, receipt,
+// guard receipt, exemption add, protect, init, hooks, ci-workflow, doctor --fix) always prompt a human.
+const CLAUDE_EXACT_ONLY = ['status', 'doctor', 'skill-audit', 'config check', 'session status'];
+const CLAUDE_WITH_FLAGS = ['drift', 'test', 'coverage', 'mutation', 'gate', 'verify', 'guard verify', 'audit verify', 'review plan', 'adr list', 'adr create', 'begin', 'end'];
+export const CLAUDE_SDLC_ALLOW_RULES = Object.freeze([
+  ...CLAUDE_EXACT_ONLY.map((c) => `Bash(${SDLC_ENGINE_CMD} ${c})`),
+  ...CLAUDE_WITH_FLAGS.flatMap((c) => [`Bash(${SDLC_ENGINE_CMD} ${c})`, `Bash(${SDLC_ENGINE_CMD} ${c} *)`])
 ]);
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -153,7 +165,7 @@ export function buildRulesBlock() {
   ].join('\n');
 }
 
-function resolveUserFileTarget(filePath, allowedRoot = null, warnings = []) {
+function resolveUserFileTarget(filePath, allowedRoot = null, warnings = [], { onOutside = 'replace' } = {}) {
   if (allowedRoot) assertNoSymlinkAncestors(allowedRoot, path.dirname(filePath));
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const st = fs.lstatSync(filePath, { throwIfNoEntry: false });
@@ -169,6 +181,10 @@ function resolveUserFileTarget(filePath, allowedRoot = null, warnings = []) {
       }
     }
   } catch {}
+  if (onOutside === 'skip') {
+    warnings.push(`Skipped updating '${path.basename(filePath)}': symlink target is outside the allowed root.`);
+    return null;
+  }
   fs.unlinkSync(filePath);
   warnings.push(`Replaced symlink '${path.basename(filePath)}' (target outside allowed root) with a regular file.`);
   return filePath;
@@ -307,12 +323,25 @@ export function auditSkills(repoRoot = '.') {
   };
 }
 
+// The generated workflow only installs with npm. A pnpm/yarn cache would need extra tooling, and yarn-berry's
+// `yarnPath` would execute repository JavaScript inside setup-node, before the receipt is verified.
+const NODE_CACHE_LOCKFILES = Object.freeze({ npm: ['package-lock.json', 'npm-shrinkwrap.json'], yarn: ['yarn.lock'], pnpm: ['pnpm-lock.yaml'] });
+
+function detectNodeCache(repoRoot = null) {
+  if (!repoRoot) return null;
+  return NODE_CACHE_LOCKFILES.npm.some((f) => fileExists(path.resolve(repoRoot, f))) ? 'npm' : null;
+}
+
 export function buildQualityGateWorkflow({
   runsOn = "${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}",
-  checkName = DEFAULT_QUALITY_GATE_CHECK
+  checkName = DEFAULT_QUALITY_GATE_CHECK,
+  repoRoot = null
 } = {}) {
   const runsOnYaml = Array.isArray(runsOn) ? JSON.stringify(runsOn) : runsOn;
   const safeCheckName = String(checkName || DEFAULT_QUALITY_GATE_CHECK).replace(/[\r\n]+/g, ' ');
+  const nodeCache = detectNodeCache(repoRoot);
+  // No npm lockfile: also disable setup-node's packageManager-driven auto caching (package.json is PR-controlled).
+  const cacheLine = nodeCache ? `\n          cache: '${nodeCache}'` : '\n          package-manager-cache: false';
   return `name: SDLC Quality Gate
 
 on:
@@ -352,6 +381,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Enforce Branch Flow Policy
         if: github.event_name == 'pull_request' && github.base_ref == 'main'
@@ -368,34 +398,7 @@ jobs:
       - name: Setup Node.js Runtime
         uses: actions/setup-node@v7
         with:
-          node-version: "lts/*"
-          cache: 'npm'
-
-      - name: Install Dependencies
-        run: |
-          if [ -f "package-lock.json" ]; then
-            npm ci --no-audit --no-fund
-          elif [ -f "package.json" ]; then
-            npm install --no-audit --no-fund
-          fi
-
-      - name: Verify Env-Isolated Test Suite
-        if: hashFiles('package.json') != ''
-        env:
-          SDLC_RECEIPT_KEY: ci-dummy-test-key
-        run: |
-          npm test
-
-      - name: Verify Universal Quality Gate & Hash-Chain Audit Ledger
-        run: |
-          if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
-            node .agent/scripts/sdlc-engine.mjs config check
-            node .agent/scripts/sdlc-engine.mjs verify --chain-only
-            node .agent/scripts/sdlc-engine.mjs skill-audit
-            node .agent/scripts/sdlc-engine.mjs gate --no-cache
-          else
-            npm test
-          fi
+          node-version: "lts/*"${cacheLine}
 
       - name: Verify Signed Stage 7 Gate Receipt
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
@@ -425,14 +428,67 @@ jobs:
           else
             node "$ENGINE_BIN" guard verify --sha "$PR_HEAD_SHA" --branch "$GITHUB_HEAD_REF"
           fi
+
+      - name: Install Dependencies
+        run: |
+          if [ -f "package-lock.json" ]; then
+            npm ci --no-audit --no-fund
+          elif [ -f "package.json" ]; then
+            npm install --no-audit --no-fund
+          fi
+
+      - name: Verify Env-Isolated Test Suite
+        if: hashFiles('package.json') != ''
+        env:
+          SDLC_RECEIPT_KEY: ci-dummy-test-key
+        run: |
+          npm test
+
+      - name: Verify Universal Quality Gate & Hash-Chain Audit Ledger
+        run: |
+          if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
+            node .agent/scripts/sdlc-engine.mjs config check
+            node .agent/scripts/sdlc-engine.mjs verify --chain-only
+            node .agent/scripts/sdlc-engine.mjs skill-audit
+            node .agent/scripts/sdlc-engine.mjs gate --no-cache
+          else
+            npm test
+          fi
 `;
 }
 
 function isLegacySdlcWorkflow(raw = '') {
+  if (!raw.includes('sdlc-engine.mjs')) return false;
+  const iVerify = raw.indexOf('Verify Signed Stage 7 Gate Receipt');
+  const iInstall = raw.indexOf('Install Dependencies');
   return (
-    raw.includes('sdlc-engine.mjs') &&
-    (!raw.includes('--branch "$GITHUB_HEAD_REF"') || raw.includes('gate --strict') || !raw.includes('git archive "origin/$BASE_REF"') || /\bnode "\$ENGINE_BIN" verify --sha\b/.test(raw))
+    !raw.includes('--branch "$GITHUB_HEAD_REF"') ||
+    raw.includes('gate --strict') ||
+    !raw.includes('git archive "origin/$BASE_REF"') ||
+    /\bnode "\$ENGINE_BIN" verify --sha\b/.test(raw) ||
+    !raw.includes('persist-credentials: false') ||
+    (iVerify !== -1 && iInstall !== -1 && iInstall < iVerify)
   );
+}
+
+// Only the setup-node step's own `cache:` matters, and only when that manager's lockfile is missing (setup-node fails).
+function setupNodeCacheIsBroken(raw = '', repoRoot = null) {
+  const lines = raw.split('\n');
+  const at = lines.findIndex((l) => l.includes('actions/setup-node@'));
+  if (at === -1 || !repoRoot) return false;
+  let start = at;
+  while (start > 0 && !/^\s*- /.test(lines[start])) start--;
+  const stepIndent = (/^(\s*)/.exec(lines[start]) || ['', ''])[1].length;
+  let end = start + 1;
+  while (end < lines.length && !(/^\s*- /.test(lines[end]) && (/^(\s*)/.exec(lines[end])[1].length <= stepIndent))) end++;
+  const declared = (/^\s+cache:\s*['"]?([\w-]+)['"]?\s*$/m.exec(lines.slice(start, end).join('\n')) || [])[1];
+  const locks = NODE_CACHE_LOCKFILES[declared];
+  return Boolean(locks) && !locks.some((f) => fileExists(path.resolve(repoRoot, f)));
+}
+
+function workflowNeedsUpgrade(raw = '', repoRoot = null) {
+  if (isLegacySdlcWorkflow(raw)) return true;
+  return raw.includes('sdlc-engine.mjs') && setupNodeCacheIsBroken(raw, repoRoot);
 }
 
 export function installCIWorkflow({ repoRoot = '.', force = false, upgradeLegacy = false } = {}) {
@@ -440,14 +496,20 @@ export function installCIWorkflow({ repoRoot = '.', force = false, upgradeLegacy
   const exists = fileExists(wfPath);
   if (exists && !force) {
     const existingRaw = readFileSafe(wfPath) || '';
-    if (!upgradeLegacy || !isLegacySdlcWorkflow(existingRaw)) {
+    if (!upgradeLegacy || !workflowNeedsUpgrade(existingRaw, repoRoot)) {
       return { installed: false, upgraded: false, skipped: true, path: wfPath };
     }
   }
-  const { config } = loadConfig(repoRoot);
+  let config = null;
+  try {
+    ({ config } = loadConfig(repoRoot));
+  } catch {
+    config = null; // malformed config: fall back to workflow defaults; `config check` reports the error
+  }
   const content = buildQualityGateWorkflow({
     runsOn: config?.ci?.runsOn || "${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}",
-    checkName: config?.ci?.checkName || DEFAULT_QUALITY_GATE_CHECK
+    checkName: config?.ci?.checkName || DEFAULT_QUALITY_GATE_CHECK,
+    repoRoot
   });
   writeFileAtomic(wfPath, content);
   return { installed: !exists, upgraded: exists, skipped: false, path: wfPath };
@@ -511,7 +573,7 @@ export function runDoctor({ repoRoot = '.', fix = false } = {}) {
     installCIWorkflow({ repoRoot: absRoot, force: false, upgradeLegacy: true });
   }
   const wfExists = fileExists(wfPath);
-  const wfLegacy = wfExists && isLegacySdlcWorkflow(readFileSafe(wfPath) || '');
+  const wfLegacy = wfExists && workflowNeedsUpgrade(readFileSafe(wfPath) || '', absRoot);
 
   if (fix && process.platform !== 'win32') {
     const commonRoot = resolveGitCommonRepoRoot(absRoot);
@@ -600,17 +662,26 @@ function pruneRetiredSkillsInDir(skillsParentDir, baseRoot = null) {
 
 function updateClaudeSettingsJson(settingsPath, warnings, baseRoot = null) {
   if (baseRoot) assertNoSymlinkAncestors(baseRoot, path.dirname(settingsPath));
-  if (fileExists(settingsPath)) {
-    const raw = readFileSafe(settingsPath);
-    try {
-      JSON.parse(raw || '{}');
-      return;
-    } catch {
-      warnings.push(`Malformed JSON in '${settingsPath}'; left untouched so user configuration is not lost.`);
-      return;
-    }
+  if (!fs.lstatSync(settingsPath, { throwIfNoEntry: false })) {
+    writeFileAtomic(settingsPath, JSON.stringify({ permissions: { allow: [...CLAUDE_SDLC_ALLOW_RULES] } }, null, 2) + '\n');
+    return;
   }
-  safeWriteFile(settingsPath, JSON.stringify({ permissions: { allow: ['Bash(node .agent/scripts/sdlc-engine.mjs *)'] } }, null, 2) + '\n', undefined, baseRoot);
+  // Read through the existing path first; only touch the file when the legacy wildcard actually needs migrating.
+  let parsed;
+  try {
+    parsed = JSON.parse(fs.readFileSync(settingsPath, 'utf8') || '{}');
+  } catch {
+    warnings.push(`Unreadable or malformed JSON in '${settingsPath}'; left untouched so user configuration is not lost.`);
+    return;
+  }
+  const allow = parsed?.permissions?.allow;
+  if (!Array.isArray(allow) || !allow.includes(LEGACY_CLAUDE_WILDCARD)) return;
+  const target = resolveUserFileTarget(settingsPath, baseRoot, warnings, { onOutside: 'skip' });
+  if (!target) return;
+  const kept = allow.filter((r) => r !== LEGACY_CLAUDE_WILDCARD);
+  parsed.permissions.allow = [...kept, ...CLAUDE_SDLC_ALLOW_RULES.filter((r) => !kept.includes(r))];
+  writeFileAtomic(target, JSON.stringify(parsed, null, 2) + '\n');
+  warnings.push(`Replaced legacy '${LEGACY_CLAUDE_WILDCARD}' in '${settingsPath}' with read/measure-only rules; approvals now prompt.`);
 }
 
 export async function installFramework({
@@ -666,7 +737,7 @@ export async function installFramework({
       }
       if (agent === 'claude') {
         upsertMarkedRulesFile(path.join(resolvedHome, '.claude/CLAUDE.md'), rulesBlock, resolvedHome, warnings);
-        updateClaudeSettingsJson(path.join(resolvedHome, '.claude/settings.json'), warnings);
+        updateClaudeSettingsJson(path.join(resolvedHome, '.claude/settings.json'), warnings, resolvedHome);
       }
     }
 
@@ -696,11 +767,22 @@ export async function installFramework({
     }
   }
 
-  // Preserve valid existing .agent/sdlc-config.json unless --force
+  // Never silently replace an existing config: invalid ones are left untouched unless --force (which backs up first).
   const cfgPath = path.join(absTarget, '.agent/sdlc-config.json');
   assertNoSymlinkAncestors(absTarget, path.dirname(cfgPath));
-  if (force || !fileExists(cfgPath) || !validateConfigFile(absTarget).valid) {
+  const cfgExists = fileExists(cfgPath);
+  const cfgCheck = cfgExists && !force ? validateConfigFile(absTarget) : null;
+  if (cfgExists && force) {
+    if (fs.lstatSync(cfgPath).isSymbolicLink()) {
+      warnings.push('Not writing a backup of the symlinked .agent/sdlc-config.json (its target is never copied into the repo); the symlink is replaced by a regular file.');
+    } else {
+      writeFileAtomic(`${cfgPath}.bak`, fs.readFileSync(cfgPath)); // replaces, never follows, a planted .bak symlink
+    }
+  }
+  if (!cfgExists || force) {
     writeFileAtomic(cfgPath, JSON.stringify(generateConfig(absTarget), null, 2) + '\n');
+  } else if (!cfgCheck.valid) {
+    warnings.push(`Invalid .agent/sdlc-config.json left untouched: ${cfgCheck.errors.join('; ')}; fix it or rerun with --force to regenerate (a .bak copy is kept).`);
   }
   upsertGitignore(absTarget, { warnings });
 

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **Human-in-the-loop approvals for Claude Code**: `init` no longer pre-approves `Bash(node .agent/scripts/sdlc-engine.mjs *)`. The generated allowlist covers read/measure commands only; `adr decide`, `review record`, `receipt`, `guard receipt`, `exemption add`, `protect`, `init`, `hooks`, `ci-workflow` and `doctor --fix` prompt. Existing settings containing the legacy wildcard are migrated in place (other rules preserved); symlinked settings that point outside the project/home are never rewritten. *Limit:* this only holds while file edits are also gated — an agent that can write code and tests freely can still reach signing code through `test`/`gate`, and can read the local receipt key. CI-held signing keys are planned for v0.2.
+- **ADR frontmatter injection**: `adr create` rejects `--ticket` / `--supersedes` values that could inject YAML lines (e.g. a second `status: accepted`), and duplicate frontmatter keys now resolve to the first occurrence, so an ADR can no longer be created pre-approved.
+- **Worktree containment**: `begin --worktree` only accepts a new non-dot directory directly under the repository's parent (`../<name>`) or `<repo>/.worktrees/<name>`, resolved via `realpath` so symlinked parents cannot escape (prevents checking agent-controlled files into `~/.claude/commands`, `~/Library/LaunchAgents`, or sibling repositories).
+- **Receipt verification before PR code runs**: the generated `sdlc-quality-gate.yml` verifies the Stage 7 receipt (with the base branch's engine) before `npm ci`, tests or the gate execute PR code, and checks out with `persist-credentials: false` (workflows that need a persisted token for a later push step must re-add it; `doctor --fix` treats its absence as an upgrade). `doctor --fix` upgrades workflows using the old step order.
+
+### Fixed
+- **Parallel worktree sessions**: local `L-N` session ids are reserved inside the session lock, so concurrent `begin` runs never collide; failed `begin` runs release their reservation, and an explicit `--issue` can never take over an in-flight reservation.
+- **`sdlc end` no longer closes another agent's session**: without `--issue` it only closes the session bound to the current branch (skills now use `end --issue <id>` after merge).
+- **`post-merge` cleanup**: only deactivates sessions whose branch was brought in by that merge (ancestor of `HEAD`, not of `ORIG_HEAD`), so pulling `develop` no longer deactivates fresh worktree sessions.
+- **setup-node cache**: the generated workflow sets `cache: 'npm'` only when `package-lock.json` / `npm-shrinkwrap.json` exists (the workflow installs with npm; pnpm/yarn caches would need extra tooling and yarn-berry would run repository code before receipt verification). `doctor` only flags a cache line that cannot work, so user customizations are not regenerated away.
+- **`init` never silently replaces an invalid config**: an invalid or malformed `.agent/sdlc-config.json` is left untouched with a warning; `--force` writes `.agent/sdlc-config.json.bak` (atomically, never through a planted symlink, and never copying a symlinked config's target) before regenerating.
+- **Audit ledger append**: appending to `docs/AUDIT_CHAIN.jsonl` without a trailing newline no longer corrupts the chain.
+
 ## [0.1.0] - 2026-11-17
 
 ### Added

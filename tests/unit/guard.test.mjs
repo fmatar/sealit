@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
-import { createTempGitRepo, git, withoutReceiptEnv } from '../helpers/test-harness.mjs';
+import { spawn, spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { createTempGitRepo, git, withoutReceiptEnv, cleanTestGitEnv } from '../helpers/test-harness.mjs';
 import { readSessionStore, verifyAuditChain } from '../../.agent/scripts/lib/receipt.mjs';
 import { runGate } from '../../.agent/scripts/lib/measure.mjs';
 import {
@@ -40,10 +41,10 @@ describe('Ring 2: lib/guard.mjs', () => {
     assert.equal(verifyCommitGuard({ repoRoot: dir }).allowed, true);
 
     // Start session 2 in a linked worktree with uncommitted file
-    const wtPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-guard-wt-')), 'wt-20');
+    const wtPath = path.join(path.dirname(dir), `${path.basename(dir)}-wt-20`);
     cleanups.push(() => {
       git(dir, 'worktree', 'remove', '--force', wtPath);
-      fs.rmSync(path.dirname(wtPath), { recursive: true, force: true });
+      fs.rmSync(wtPath, { recursive: true, force: true });
     });
     const s2 = beginSession({ issueId: '20', title: 'Worktree Feature', worktree: wtPath, repoRoot: dir });
     assert.equal(s2.success, true);
@@ -374,5 +375,130 @@ describe('Ring 2: lib/guard.mjs', () => {
       cleanups.push(() => fs.rmSync(nonGitDir, { recursive: true, force: true }));
       assert.throws(() => installHooks({ repoRoot: nonGitDir }), /Not a git repository/);
     });
+  });
+
+  it('two concurrent begin --worktree without --issue get distinct L ids and both sessions persist', async () => {
+    const { dir, cleanup } = createTempGitRepo();
+    cleanups.push(cleanup);
+    const engine = fileURLToPath(new URL('../../.agent/scripts/sdlc-engine.mjs', import.meta.url));
+    const wtRoot = path.dirname(dir);
+    const wtName = (name) => `${path.basename(dir)}-${name}`;
+    cleanups.push(() => {
+      for (const n of ['race-a', 'race-b']) fs.rmSync(path.join(wtRoot, wtName(n)), { recursive: true, force: true });
+    });
+    const runBegin = (name) =>
+      new Promise((resolve) => {
+        const child = spawn(process.execPath, [engine, 'begin', '--worktree', path.join(wtRoot, wtName(name)), '--title', name, '--json'], {
+          cwd: dir,
+          env: cleanTestGitEnv()
+        });
+        let out = '';
+        child.stdout.on('data', (d) => { out += d; });
+        child.on('close', (code) => resolve({ code, out }));
+      });
+    const results = await Promise.all([runBegin('race-a'), runBegin('race-b')]);
+    for (const r of results) assert.equal(r.code, 0, r.out);
+    const ids = results.map((r) => JSON.parse(r.out).begin.session.issueId);
+    assert.notEqual(ids[0], ids[1], `ids collided: ${ids}`);
+    const store = readSessionStore(dir);
+    for (const id of ids) {
+      assert.equal(store.sessions[id].active, true);
+      assert.match(store.sessions[id].branch, new RegExp(`^feat/${id}-race-[ab]$`));
+    }
+    assert.equal(Object.values(store.sessions).some((s) => s.reserved), false, 'no leftover reservations');
+
+    // A failed begin releases its reservation
+    assert.equal(beginSession({ branch: 'feat/bad..ref', repoRoot: dir }).success, false);
+    assert.equal(Object.values(readSessionStore(dir).sessions).some((s) => s.reserved), false);
+  });
+
+  it('end without --issue never falls back to another session; post-merge only deactivates branches brought in by this merge', () => {
+    const { dir, cleanup } = createTempGitRepo();
+    cleanups.push(cleanup);
+
+    // Session A on the main checkout, session B in a linked worktree (B becomes activeSessionId)
+    const a = beginSession({ issueId: '60', title: 'A', checkout: true, repoRoot: dir });
+    fs.writeFileSync(path.join(dir, 'a.txt'), 'a\n', 'utf8');
+    git(dir, 'add', 'a.txt');
+    git(dir, 'commit', '-q', '-m', 'feat: a');
+    const wtB = path.join(path.dirname(dir), `${path.basename(dir)}-wt-b`);
+    cleanups.push(() => {
+      git(dir, 'worktree', 'remove', '--force', wtB);
+      fs.rmSync(wtB, { recursive: true, force: true });
+    });
+    const b = beginSession({ issueId: '61', title: 'B', worktree: wtB, repoRoot: dir });
+    assert.equal(readSessionStore(dir).activeSessionId, '61');
+
+    // Merging A into develop (ff) deactivates A but not the fresh, commit-less B
+    git(dir, 'checkout', '-q', 'develop');
+    git(dir, 'merge', '-q', '--ff-only', a.session.branch);
+    const cleaned = postMergeCleanup({ repoRoot: dir });
+    assert.equal(cleaned.cleaned, 1);
+    assert.equal(readSessionStore(dir).sessions['60'].active, false);
+    assert.equal(readSessionStore(dir).sessions['61'].active, true, 'fresh worktree session at the old develop tip must stay active');
+
+    // A plain fast-forward pull of unrelated work also leaves B active
+    git(dir, 'checkout', '-q', '-b', 'tmp/other');
+    fs.writeFileSync(path.join(dir, 'o.txt'), 'o\n', 'utf8');
+    git(dir, 'add', 'o.txt');
+    git(dir, 'commit', '-q', '--no-verify', '-m', 'chore: other');
+    git(dir, 'checkout', '-q', 'develop');
+    git(dir, 'merge', '-q', '--ff-only', 'tmp/other');
+    assert.equal(postMergeCleanup({ repoRoot: dir }).cleaned, 0);
+    assert.equal(readSessionStore(dir).sessions['61'].active, true);
+
+    // `end` on develop with no matching session fails; B and its worktree survive
+    const ended = endSession({ repoRoot: dir });
+    assert.equal(ended.success, false);
+    assert.match(ended.error, /No active session for branch 'develop'\. Pass --issue <id>\./);
+    assert.equal(readSessionStore(dir).sessions['61'].active, true);
+    assert.equal(fs.existsSync(wtB), true);
+    assert.equal(b.success, true);
+  });
+
+  it('begin --worktree only allows new direct children of the repo parent or <repo>/.worktrees; explicit ids never take over a reservation', () => {
+    const { dir, cleanup } = createTempGitRepo();
+    cleanups.push(cleanup);
+    const parent = path.dirname(dir);
+    const scratch = fs.mkdtempSync(path.join(parent, `${path.basename(dir)}-scratch-`));
+    cleanups.push(() => fs.rmSync(scratch, { recursive: true, force: true }));
+
+    const homeDot = path.join(os.homedir(), '.claude', 'commands', `sdlc-pwn-${process.pid}`);
+    const outsideHome = path.join(os.homedir(), `sdlc-wt-outside-${process.pid}`);
+    fs.mkdirSync(path.join(scratch, 'tests'), { recursive: true });
+    const sibling = path.join(parent, `${path.basename(dir)}-sib`);
+    fs.symlinkSync(path.join(scratch, 'tests'), sibling);
+    cleanups.push(() => fs.rmSync(sibling, { force: true }));
+    for (const [label, wt] of [
+      ['home dot-dir', homeDot],
+      ['outside the repo parent', outsideHome],
+      ['nested inside a sibling project', path.join(scratch, 'tests', 'pwn')],
+      ['dot-name sibling', path.join(parent, `.${path.basename(dir)}-hidden`)],
+      ['existing directory', scratch],
+      ['symlinked sibling parent', path.join(sibling, 'wt')]
+    ]) {
+      const res = beginSession({ branch: `feat/wt-${label.replace(/\W+/g, '-')}`, worktree: wt, repoRoot: dir });
+      assert.equal(res.success, false, label);
+      assert.match(res.error, /Worktree path/, label);
+      if (label !== 'existing directory') assert.equal(fs.existsSync(wt), false, `${label}: nothing created`);
+    }
+
+    // Allowed: a new sibling of the repo ('../<name>') and <repo>/.worktrees/<name>
+    const okSibling = path.join(parent, `${path.basename(dir)}-wt-ok`);
+    const okSib = beginSession({ branch: 'feat/wt-ok-sibling', worktree: okSibling, repoRoot: dir });
+    assert.equal(okSib.success, true, okSib.error);
+    cleanups.push(() => { git(dir, 'worktree', 'remove', '--force', okSibling); fs.rmSync(okSibling, { recursive: true, force: true }); });
+    const okInRepo = beginSession({ branch: 'feat/wt-ok-repo', worktree: '.worktrees/ok', repoRoot: dir });
+    assert.equal(okInRepo.success, true, okInRepo.error);
+    cleanups.push(() => git(dir, 'worktree', 'remove', '--force', path.join(dir, '.worktrees/ok')));
+
+    // An explicit --issue that names an in-flight reservation is refused instead of hijacking it
+    const store = readSessionStore(dir);
+    store.sessions['L-9'] = { active: false, reserved: true, issueId: 'L-9', startedAt: new Date().toISOString() };
+    fs.writeFileSync(path.join(dir, '.agent/.sdlc-session.json'), JSON.stringify(store, null, 2), 'utf8');
+    const hijack = beginSession({ issueId: 'L-9', branch: 'feat/hijack', repoRoot: dir });
+    assert.equal(hijack.success, false);
+    assert.match(hijack.error, /being created by another/);
+    assert.equal(readSessionStore(dir).sessions['L-9'].reserved, true);
   });
 });

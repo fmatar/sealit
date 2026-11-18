@@ -28,7 +28,7 @@ tools: read_file, write_file, edit_file, run_command, invoke_subagent
 | `/sdlc review` | Run `sdlc-gate` (`review plan` -> read-only reviewer -> `review record`) |
 | `/sdlc receipt` | `node .agent/scripts/sdlc-engine.mjs receipt` |
 | `/sdlc verify` | `node .agent/scripts/sdlc-engine.mjs verify` |
-| `/sdlc end` | `node .agent/scripts/sdlc-engine.mjs end` |
+| `/sdlc end` | `node .agent/scripts/sdlc-engine.mjs end --issue <id>` (bare `end` only works on the session's own branch) |
 
 ## Confirm with user before
 - Running `doctor --fix` when the user only asked for a read-only check, or `init --global`.

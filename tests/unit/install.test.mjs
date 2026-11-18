@@ -12,6 +12,8 @@ import {
   RETIRED_SKILLS,
   SUPPORTED_AGENTS,
   SDLC_GITIGNORE_ENTRIES,
+  CLAUDE_SDLC_ALLOW_RULES,
+  buildQualityGateWorkflow,
   upsertGitignore,
   auditSkills,
   installCIWorkflow,
@@ -19,6 +21,21 @@ import {
   runDoctor,
   installFramework
 } from '../../.agent/scripts/lib/install.mjs';
+
+const ENGINE_CMD = 'node .agent/scripts/sdlc-engine.mjs';
+
+// Claude Code Bash rule semantics: "Bash(X *)" matches X or X followed by a space; "Bash(X)" matches X exactly.
+function claudeRuleAllows(rule, command) {
+  const m = /^Bash\((.*)\)$/.exec(rule);
+  if (!m) return false;
+  const body = m[1];
+  if (body.endsWith(' *')) {
+    const prefix = body.slice(0, -2);
+    return command === prefix || command.startsWith(`${prefix} `);
+  }
+  if (body.endsWith('*')) return command.startsWith(body.slice(0, -1));
+  return command === body;
+}
 
 const cleanups = [];
 afterEach(() => {
@@ -393,5 +410,233 @@ describe('Ring 2: lib/install.mjs', () => {
       assert.equal(docFixed.passed, true);
       assert.equal(docFixed.gitignore.upToDate, true);
     });
+  });
+
+  it('generated Claude allowlist never prefix-matches approve/sign/exempt commands and migrates the legacy wildcard', async () => {
+    const forbidden = [
+      'adr decide --id ADR-001 --status approve --by @me',
+      'review record --verdict approve',
+      'receipt',
+      'receipt --docs-only',
+      'guard receipt --docs-only',
+      'exemption add --mutant 3 --file a.mjs --reason equivalent',
+      'protect main develop',
+      'init --yes',
+      'hooks install',
+      'doctor --fix',
+      'ci-workflow install --force'
+    ];
+    for (const sub of forbidden) {
+      const cmd = `${ENGINE_CMD} ${sub}`;
+      assert.equal(CLAUDE_SDLC_ALLOW_RULES.some((r) => claudeRuleAllows(r, cmd)), false, `must prompt for: ${cmd}`);
+    }
+    for (const sub of ['status', 'doctor', 'drift', 'gate --no-cache', 'coverage', 'mutation --full', 'review plan', 'adr list', 'verify', 'guard verify --sha abc', 'begin --checkout --title x', 'end --issue 7']) {
+      const cmd = `${ENGINE_CMD} ${sub}`;
+      assert.equal(CLAUDE_SDLC_ALLOW_RULES.some((r) => claudeRuleAllows(r, cmd)), true, `should auto-allow: ${cmd}`);
+    }
+    assert.equal(CLAUDE_SDLC_ALLOW_RULES.includes(`Bash(${ENGINE_CMD} *)`), false);
+
+    const src = createSourceBundleFixture();
+    cleanups.push(src.cleanup);
+
+    // Fresh repo: narrow allowlist written
+    const fresh = createTempGitRepo();
+    cleanups.push(fresh.cleanup);
+    await installFramework({ targetDir: fresh.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+    const freshSettings = JSON.parse(fs.readFileSync(path.join(fresh.dir, '.claude/settings.json'), 'utf8'));
+    assert.deepEqual(freshSettings.permissions.allow, [...CLAUDE_SDLC_ALLOW_RULES]);
+
+    // Legacy wildcard is replaced; user entries and other keys preserved
+    const legacy = createTempGitRepo();
+    cleanups.push(legacy.cleanup);
+    fs.mkdirSync(path.join(legacy.dir, '.claude'), { recursive: true });
+    fs.writeFileSync(
+      path.join(legacy.dir, '.claude/settings.json'),
+      JSON.stringify({ $schema: 'x', model: 'opus', permissions: { allow: ['Bash(npm test)', `Bash(${ENGINE_CMD} *)`], deny: ['Bash(rm -rf *)'] } }, null, 2),
+      'utf8'
+    );
+    await installFramework({ targetDir: legacy.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+    const migrated = JSON.parse(fs.readFileSync(path.join(legacy.dir, '.claude/settings.json'), 'utf8'));
+    assert.equal(migrated.model, 'opus');
+    assert.deepEqual(migrated.permissions.deny, ['Bash(rm -rf *)']);
+    assert.ok(migrated.permissions.allow.includes('Bash(npm test)'));
+    assert.equal(migrated.permissions.allow.includes(`Bash(${ENGINE_CMD} *)`), false);
+    for (const rule of CLAUDE_SDLC_ALLOW_RULES) assert.ok(migrated.permissions.allow.includes(rule));
+
+    // User-managed settings without the legacy wildcard are left byte-identical
+    const custom = createTempGitRepo();
+    cleanups.push(custom.cleanup);
+    fs.mkdirSync(path.join(custom.dir, '.claude'), { recursive: true });
+    const customRaw = JSON.stringify({ permissions: { allow: ['Bash(npm test)'] } });
+    fs.writeFileSync(path.join(custom.dir, '.claude/settings.json'), customRaw, 'utf8');
+    await installFramework({ targetDir: custom.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+    assert.equal(fs.readFileSync(path.join(custom.dir, '.claude/settings.json'), 'utf8'), customRaw);
+
+    // Symlinked settings pointing OUTSIDE the root (home-manager / shared dotfiles) are never unlinked or rewritten
+    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-outside-settings-'));
+    cleanups.push(() => fs.rmSync(outsideDir, { recursive: true, force: true }));
+    for (const [label, body] of [
+      ['no-legacy', { model: 'opus', permissions: { allow: ['Bash(npm test)'] } }],
+      ['legacy', { model: 'opus', permissions: { allow: [`Bash(${ENGINE_CMD} *)`] } }]
+    ]) {
+      const r = createTempGitRepo();
+      cleanups.push(r.cleanup);
+      const outsideFile = path.join(outsideDir, `${label}.json`);
+      const outsideRaw = JSON.stringify(body);
+      fs.writeFileSync(outsideFile, outsideRaw, 'utf8');
+      fs.mkdirSync(path.join(r.dir, '.claude'), { recursive: true });
+      fs.symlinkSync(outsideFile, path.join(r.dir, '.claude/settings.json'));
+      const res = await installFramework({ targetDir: r.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+      assert.equal(fs.lstatSync(path.join(r.dir, '.claude/settings.json')).isSymbolicLink(), true, `${label}: symlink kept`);
+      assert.equal(fs.readFileSync(outsideFile, 'utf8'), outsideRaw, `${label}: outside file untouched`);
+      if (label === 'legacy') assert.ok(res.warnings.some((w) => /outside/.test(w) && /settings\.json/.test(w)), JSON.stringify(res.warnings));
+    }
+
+    // Symlinked settings INSIDE the root are migrated through the link
+    const inRoot = createTempGitRepo();
+    cleanups.push(inRoot.cleanup);
+    fs.mkdirSync(path.join(inRoot.dir, 'config'), { recursive: true });
+    fs.mkdirSync(path.join(inRoot.dir, '.claude'), { recursive: true });
+    fs.writeFileSync(path.join(inRoot.dir, 'config/claude.json'), JSON.stringify({ permissions: { allow: [`Bash(${ENGINE_CMD} *)`] } }), 'utf8');
+    fs.symlinkSync('../config/claude.json', path.join(inRoot.dir, '.claude/settings.json'));
+    await installFramework({ targetDir: inRoot.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+    assert.equal(fs.lstatSync(path.join(inRoot.dir, '.claude/settings.json')).isSymbolicLink(), true);
+    const linked = JSON.parse(fs.readFileSync(path.join(inRoot.dir, 'config/claude.json'), 'utf8'));
+    assert.equal(linked.permissions.allow.includes(`Bash(${ENGINE_CMD} *)`), false);
+    assert.ok(linked.permissions.allow.includes(`Bash(${ENGINE_CMD} status)`));
+  });
+
+  it('generated workflow verifies the receipt before installing or running PR code, drops persisted credentials, and doctor --fix upgrades the old order', () => {
+    const wf = buildQualityGateWorkflow();
+    const iVerify = wf.indexOf('- name: Verify Signed Stage 7 Gate Receipt');
+    const iSetupNode = wf.indexOf('- name: Setup Node.js Runtime');
+    assert.ok(iVerify > iSetupNode && iSetupNode > -1, 'verify needs node, so it runs after setup-node');
+    assert.ok(iVerify < wf.indexOf('- name: Install Dependencies'), 'verify must run before npm ci/install');
+    assert.ok(iVerify < wf.indexOf('npm test'), 'verify must run before PR tests');
+    assert.ok(iVerify < wf.indexOf('gate --no-cache'), 'verify must run before the PR engine gate');
+    assert.match(wf, /uses: actions\/checkout@v7\n\s+with:\n\s+fetch-depth: 0\n\s+persist-credentials: false/);
+
+    const { dir, cleanup } = createTempGitRepo();
+    cleanups.push(cleanup);
+    // Rebuild the v0.1.0 layout: verify step moved to the end, credentials persisted.
+    const blockStart = wf.lastIndexOf('\n', iVerify) + 1;
+    const nextStep = wf.indexOf('\n      - name:', iVerify);
+    const verifyBlock = wf.slice(blockStart, nextStep === -1 ? wf.length : nextStep + 1);
+    const oldOrder = `${wf.slice(0, blockStart)}${wf.slice(blockStart + verifyBlock.length)}`.replace('          persist-credentials: false\n', '').trimEnd() + `\n\n${verifyBlock.trimEnd()}\n`;
+    assert.ok(oldOrder.indexOf('Verify Signed Stage 7') > oldOrder.indexOf('Install Dependencies'));
+    fs.mkdirSync(path.join(dir, '.github/workflows'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.github/workflows/sdlc-quality-gate.yml'), oldOrder, 'utf8');
+    const res = installCIWorkflow({ repoRoot: dir, force: false, upgradeLegacy: true });
+    assert.equal(res.upgraded, true);
+    const upgraded = fs.readFileSync(path.join(dir, '.github/workflows/sdlc-quality-gate.yml'), 'utf8');
+    assert.ok(upgraded.indexOf('Verify Signed Stage 7') < upgraded.indexOf('Install Dependencies'));
+    assert.equal(installCIWorkflow({ repoRoot: dir, force: false, upgradeLegacy: true }).skipped, true);
+  });
+
+  it('setup-node cache follows the lockfile present at generation time and doctor flags a mismatch', () => {
+    const cacheOf = (yml) => (/^\s+cache: '(\w+)'$/m.exec(yml) || [])[1] || null;
+
+    const py = createTempGitRepo();
+    cleanups.push(py.cleanup);
+    fs.writeFileSync(path.join(py.dir, 'pyproject.toml'), '[project]\nname = "x"\n', 'utf8');
+    installCIWorkflow({ repoRoot: py.dir, force: true });
+    const pyWf = fs.readFileSync(path.join(py.dir, '.github/workflows/sdlc-quality-gate.yml'), 'utf8');
+    assert.equal(cacheOf(pyWf), null, 'no lockfile => no cache key (setup-node would fail)');
+
+    for (const [lock, expected] of [['package-lock.json', 'npm'], ['npm-shrinkwrap.json', 'npm'], ['yarn.lock', null], ['pnpm-lock.yaml', null]]) {
+      const r = createTempGitRepo();
+      cleanups.push(r.cleanup);
+      fs.writeFileSync(path.join(r.dir, 'package.json'), '{"name":"x"}\n', 'utf8');
+      fs.writeFileSync(path.join(r.dir, lock), '{}\n', 'utf8');
+      installCIWorkflow({ repoRoot: r.dir, force: true });
+      // The workflow only installs with npm; a pnpm/yarn cache needs extra tooling and yarn-berry would run repo JS before verify.
+      assert.equal(cacheOf(fs.readFileSync(path.join(r.dir, '.github/workflows/sdlc-quality-gate.yml'), 'utf8')), expected, lock);
+    }
+
+    // An npm repo whose user removed the cache line is NOT regenerated (missing cache is only an optimization)
+    const npmRepo = createTempGitRepo();
+    cleanups.push(npmRepo.cleanup);
+    fs.writeFileSync(path.join(npmRepo.dir, 'package-lock.json'), '{}\n', 'utf8');
+    fs.mkdirSync(path.join(npmRepo.dir, '.github/workflows'), { recursive: true });
+    const customNoCache = `${buildQualityGateWorkflow({ repoRoot: null })}      - name: My custom step\n        run: echo custom\n`;
+    fs.writeFileSync(path.join(npmRepo.dir, '.github/workflows/sdlc-quality-gate.yml'), customNoCache, 'utf8');
+    assert.equal(installCIWorkflow({ repoRoot: npmRepo.dir, force: false, upgradeLegacy: true }).skipped, true);
+    assert.match(fs.readFileSync(path.join(npmRepo.dir, '.github/workflows/sdlc-quality-gate.yml'), 'utf8'), /My custom step/);
+
+    // Other actions' `cache:` keys and correctly configured pnpm setups are never treated as broken
+    const pyCustom = createTempGitRepo();
+    cleanups.push(pyCustom.cleanup);
+    fs.mkdirSync(path.join(pyCustom.dir, '.github/workflows'), { recursive: true });
+    const withPip = `${buildQualityGateWorkflow({ repoRoot: null })}      - uses: actions/setup-python@v5\n        with:\n          python-version: '3.12'\n          cache: 'pip'\n`;
+    fs.writeFileSync(path.join(pyCustom.dir, '.github/workflows/sdlc-quality-gate.yml'), withPip, 'utf8');
+    assert.equal(installCIWorkflow({ repoRoot: pyCustom.dir, force: false, upgradeLegacy: true }).skipped, true);
+    const pnpmCustom = createTempGitRepo();
+    cleanups.push(pnpmCustom.cleanup);
+    fs.writeFileSync(path.join(pnpmCustom.dir, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n', 'utf8');
+    fs.mkdirSync(path.join(pnpmCustom.dir, '.github/workflows'), { recursive: true });
+    const withPnpm = buildQualityGateWorkflow({ repoRoot: null }).replace("node-version: \"lts/*\"\n", "node-version: \"lts/*\"\n          cache: 'pnpm'\n");
+    fs.writeFileSync(path.join(pnpmCustom.dir, '.github/workflows/sdlc-quality-gate.yml'), withPnpm, 'utf8');
+    assert.equal(installCIWorkflow({ repoRoot: pnpmCustom.dir, force: false, upgradeLegacy: true }).skipped, true);
+    assert.match(buildQualityGateWorkflow({ repoRoot: pyCustom.dir }), /package-manager-cache: false/, 'no npm lockfile => disable setup-node auto caching');
+    assert.doesNotMatch(buildQualityGateWorkflow({ repoRoot: npmRepo.dir }), /package-manager-cache/);
+
+    // A workflow caching npm in a repo without a lockfile (quoted or unquoted) is reported and repaired by doctor --fix
+    withoutReceiptEnv(() => {
+      fs.writeFileSync(path.join(py.dir, '.github/workflows/sdlc-quality-gate.yml'), buildQualityGateWorkflow({ repoRoot: null }).replace("node-version: \"lts/*\"\n", "node-version: \"lts/*\"\n          cache: npm\n"), 'utf8');
+      assert.equal(runDoctor({ repoRoot: py.dir, fix: false }).workflow.legacyNeedsUpgrade, true);
+      runDoctor({ repoRoot: py.dir, fix: true });
+      assert.equal(cacheOf(fs.readFileSync(path.join(py.dir, '.github/workflows/sdlc-quality-gate.yml'), 'utf8')), null);
+      assert.equal(runDoctor({ repoRoot: py.dir, fix: false }).workflow.legacyNeedsUpgrade, false);
+    });
+  });
+
+  it('init preserves an invalid or malformed existing config with a warning and --force backs it up before regenerating', async () => {
+    const src = createSourceBundleFixture();
+    cleanups.push(src.cleanup);
+    for (const badRaw of ['{"version":"0.1.0","modules":"nope","thresholdsCustom":93}\n', '{not-json\n']) {
+      const r = createTempGitRepo();
+      cleanups.push(r.cleanup);
+      fs.mkdirSync(path.join(r.dir, '.agent'), { recursive: true });
+      fs.writeFileSync(path.join(r.dir, '.agent/sdlc-config.json'), badRaw, 'utf8');
+      const res = await installFramework({ targetDir: r.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+      assert.equal(fs.readFileSync(path.join(r.dir, '.agent/sdlc-config.json'), 'utf8'), badRaw, 'invalid config must be left byte-identical');
+      assert.ok(res.warnings.some((w) => /left untouched/.test(w) && /--force/.test(w)), JSON.stringify(res.warnings));
+      assert.equal(fs.existsSync(path.join(r.dir, '.github/workflows/sdlc-quality-gate.yml')), true, 'init still completes');
+
+      const forced = await installFramework({ targetDir: r.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true, force: true });
+      assert.equal(forced.success, true);
+      assert.equal(fs.readFileSync(path.join(r.dir, '.agent/sdlc-config.json.bak'), 'utf8'), badRaw);
+      const regenerated = JSON.parse(fs.readFileSync(path.join(r.dir, '.agent/sdlc-config.json'), 'utf8'));
+      assert.ok(Array.isArray(regenerated.modules));
+    }
+
+    // A planted .bak symlink is never followed by --force
+    const planted = createTempGitRepo();
+    cleanups.push(planted.cleanup);
+    const victimDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-bak-victim-'));
+    cleanups.push(() => fs.rmSync(victimDir, { recursive: true, force: true }));
+    const victim = path.join(victimDir, 'bashrc');
+    fs.writeFileSync(victim, 'VICTIM_UNTOUCHED', 'utf8');
+    fs.mkdirSync(path.join(planted.dir, '.agent'), { recursive: true });
+    fs.writeFileSync(path.join(planted.dir, '.agent/sdlc-config.json'), '{"version":"0.1.0","modules":"nope"}\n', 'utf8');
+    fs.symlinkSync(victim, path.join(planted.dir, '.agent/sdlc-config.json.bak'));
+    await installFramework({ targetDir: planted.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true, force: true });
+    assert.equal(fs.readFileSync(victim, 'utf8'), 'VICTIM_UNTOUCHED');
+    assert.equal(fs.lstatSync(path.join(planted.dir, '.agent/sdlc-config.json.bak')).isSymbolicLink(), false);
+    assert.equal(fs.readFileSync(path.join(planted.dir, '.agent/sdlc-config.json.bak'), 'utf8'), '{"version":"0.1.0","modules":"nope"}\n');
+
+    // A symlinked config source is never copied into the repo as .bak (could exfiltrate e.g. credentials)
+    const srcLinked = createTempGitRepo();
+    cleanups.push(srcLinked.cleanup);
+    const secretFile = path.join(victimDir, 'credentials');
+    fs.writeFileSync(secretFile, 'TOP_SECRET', 'utf8');
+    fs.mkdirSync(path.join(srcLinked.dir, '.agent'), { recursive: true });
+    fs.symlinkSync(secretFile, path.join(srcLinked.dir, '.agent/sdlc-config.json'));
+    const linkedRes = await installFramework({ targetDir: srcLinked.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true, force: true });
+    assert.equal(fs.existsSync(path.join(srcLinked.dir, '.agent/sdlc-config.json.bak')), false);
+    assert.equal(fs.readFileSync(secretFile, 'utf8'), 'TOP_SECRET');
+    assert.equal(fs.lstatSync(path.join(srcLinked.dir, '.agent/sdlc-config.json')).isSymbolicLink(), false);
+    assert.ok(linkedRes.warnings.some((w) => /symlink/i.test(w) && /backup/i.test(w)), JSON.stringify(linkedRes.warnings));
+    assert.ok(SDLC_GITIGNORE_ENTRIES.includes('.agent/sdlc-config.json.bak'));
   });
 });

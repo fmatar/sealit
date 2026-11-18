@@ -776,7 +776,7 @@ export function parseFrontmatter(markdown = '') {
     if ((val.startsWith("'") && val.endsWith("'") && val.length >= 2) || (val.startsWith('"') && val.endsWith('"') && val.length >= 2)) {
       val = val.slice(1, -1);
     }
-    frontmatter[key] = val;
+    if (!Object.prototype.hasOwnProperty.call(frontmatter, key)) frontmatter[key] = val; // first key wins (as decideADR rewrites the first)
   }
   return { frontmatter, body };
 }
