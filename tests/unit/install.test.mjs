@@ -528,4 +528,25 @@ describe('Ring 2: lib/install.mjs', () => {
       assert.equal(runDoctor({ repoRoot: py.dir, fix: false }).workflow.legacyNeedsUpgrade, false);
     });
   });
+
+  it('init preserves an invalid or malformed existing config with a warning and --force backs it up before regenerating', async () => {
+    const src = createSourceBundleFixture();
+    cleanups.push(src.cleanup);
+    for (const badRaw of ['{"version":"0.1.0","modules":"nope","thresholdsCustom":93}\n', '{not-json\n']) {
+      const r = createTempGitRepo();
+      cleanups.push(r.cleanup);
+      fs.mkdirSync(path.join(r.dir, '.agent'), { recursive: true });
+      fs.writeFileSync(path.join(r.dir, '.agent/sdlc-config.json'), badRaw, 'utf8');
+      const res = await installFramework({ targetDir: r.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+      assert.equal(fs.readFileSync(path.join(r.dir, '.agent/sdlc-config.json'), 'utf8'), badRaw, 'invalid config must be left byte-identical');
+      assert.ok(res.warnings.some((w) => /left untouched/.test(w) && /--force/.test(w)), JSON.stringify(res.warnings));
+      assert.equal(fs.existsSync(path.join(r.dir, '.github/workflows/sdlc-quality-gate.yml')), true, 'init still completes');
+
+      const forced = await installFramework({ targetDir: r.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true, force: true });
+      assert.equal(forced.success, true);
+      assert.equal(fs.readFileSync(path.join(r.dir, '.agent/sdlc-config.json.bak'), 'utf8'), badRaw);
+      const regenerated = JSON.parse(fs.readFileSync(path.join(r.dir, '.agent/sdlc-config.json'), 'utf8'));
+      assert.ok(Array.isArray(regenerated.modules));
+    }
+  });
 });

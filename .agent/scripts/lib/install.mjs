@@ -481,7 +481,12 @@ export function installCIWorkflow({ repoRoot = '.', force = false, upgradeLegacy
       return { installed: false, upgraded: false, skipped: true, path: wfPath };
     }
   }
-  const { config } = loadConfig(repoRoot);
+  let config = null;
+  try {
+    ({ config } = loadConfig(repoRoot));
+  } catch {
+    config = null; // malformed config: fall back to workflow defaults; `config check` reports the error
+  }
   const content = buildQualityGateWorkflow({
     runsOn: config?.ci?.runsOn || "${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}",
     checkName: config?.ci?.checkName || DEFAULT_QUALITY_GATE_CHECK,
@@ -740,11 +745,16 @@ export async function installFramework({
     }
   }
 
-  // Preserve valid existing .agent/sdlc-config.json unless --force
+  // Never silently replace an existing config: invalid ones are left untouched unless --force (which backs up first).
   const cfgPath = path.join(absTarget, '.agent/sdlc-config.json');
   assertNoSymlinkAncestors(absTarget, path.dirname(cfgPath));
-  if (force || !fileExists(cfgPath) || !validateConfigFile(absTarget).valid) {
+  const cfgExists = fileExists(cfgPath);
+  const cfgCheck = cfgExists && !force ? validateConfigFile(absTarget) : null;
+  if (cfgExists && force) fs.copyFileSync(cfgPath, `${cfgPath}.bak`);
+  if (!cfgExists || force) {
     writeFileAtomic(cfgPath, JSON.stringify(generateConfig(absTarget), null, 2) + '\n');
+  } else if (!cfgCheck.valid) {
+    warnings.push(`Invalid .agent/sdlc-config.json left untouched: ${cfgCheck.errors.join('; ')}; fix it or rerun with --force to regenerate (a .bak copy is kept).`);
   }
   upsertGitignore(absTarget, { warnings });
 
