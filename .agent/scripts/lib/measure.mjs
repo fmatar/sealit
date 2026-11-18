@@ -6,7 +6,10 @@ import {
   hasDirtyNonGovernanceFiles, isDocsOnlyDiff, parseCommandArgv, readBlobs, readChangeSet,
   readFileSafe, resolveInsideRepo, resolveRange, runConfiguredCommand, writeFileAtomic
 } from './git.mjs';
-import { listExemptions, validateConfigFile } from './config.mjs';
+import {
+  formatMutantIdentity, listExemptions, loadEffectivePolicy,
+  matchesMutatePatterns, resolveActiveExemptions, validateConfigFile
+} from './config.mjs';
 import { computeTreeHash, readActiveSession, readGateCache, writeActiveSession, writeGateCache } from './receipt.mjs';
 import { checkArchRings, checkSpecDrift, computeAlignmentHashes } from './drift.mjs';
 
@@ -382,18 +385,7 @@ function mapUnitTestToSource(modRelTest, explicitMutateFiles) {
   return explicitMutateFiles.find((f) => path.basename(f).replace(/\.[cm]?[jt]sx?$/i, '') === m[1]) || null;
 }
 
-function matchesMutatePatterns(relFile, patterns) {
-  let matched = false;
-  for (const raw of patterns) {
-    const neg = raw.startsWith('!');
-    const clean = (neg ? raw.slice(1) : raw).replace(/\\/g, '/').replace(/^\.\//, '').replace(/:\d+(?:-\d+)?$/, '');
-    const re = new RegExp('^' + clean.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*\*\//g, '\0D\0').replace(/\*\*/g, '\0G\0').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]').replace(/\0D\0/g, '(?:.+/)?').replace(/\0G\0/g, '.*') + '$');
-    if (re.test(relFile)) matched = !neg;
-  }
-  return matched;
-}
-
-export function buildMutationPlan(repoRoot = '.', mod = {}, { full = false, noCache = false, baseBranch = null, changeSet = null } = {}) {
+export function buildMutationPlan(repoRoot = '.', mod = {}, { full = false, noCache = false, baseBranch = null, changeSet = null, strykerConfig = null } = {}) {
   const baseCmd = mod?.commands?.mutation;
   if (!baseCmd) return { skip: true, reason: 'not-configured', commandArgv: null, targets: [] };
   const parsed = parseCommandArgv(baseCmd);
@@ -406,14 +398,14 @@ export function buildMutationPlan(repoRoot = '.', mod = {}, { full = false, noCa
   const modCwd = mod?.path && mod.path !== '.' ? resolveInsideRepo(absRepo, mod.path) : absRepo;
   const modPrefix = path.relative(absRepo, modCwd).replace(/\\/g, '/');
   const strykerCfgPath = path.join(modCwd, 'stryker.config.json');
-  const strykerCfg = fileExists(strykerCfgPath) ? JSON.parse(readFileSafe(strykerCfgPath) || '{}') : {};
+  const strykerCfg = strykerConfig || (fileExists(strykerCfgPath) ? JSON.parse(readFileSafe(strykerCfgPath) || '{}') : {});
   const explicitMutate = Array.isArray(strykerCfg.mutate) ? strykerCfg.mutate.map((f) => f.replace(/^\.\//, '')) : [];
   const concreteMutate = explicitMutate.filter((f) => !f.startsWith('!') && !/[?*[\]{}]/.test(f) && matchesMutatePatterns(f, explicitMutate));
   const defaultIncFile = strykerCfg.incrementalFile || 'reports/stryker-incremental.json';
   const extraFlags = noCache ? ['--force'] : [];
   const runIdx = baseTokens.indexOf('run');
   const hasPositionalCfg = runIdx >= 0 && baseTokens.slice(runIdx + 1).some((t) => !t.startsWith('-'));
-  const canScopeTap = runIdx >= 0 && !hasPositionalCfg && fileExists(strykerCfgPath) && (!strykerCfg.testRunner || strykerCfg.testRunner === 'tap' || strykerCfg.testRunner === 'sdlc-node') && Array.isArray(strykerCfg?.tap?.testFiles);
+  const canScopeTap = runIdx >= 0 && !hasPositionalCfg && (fileExists(strykerCfgPath) || Boolean(strykerConfig)) && (!strykerCfg.testRunner || strykerCfg.testRunner === 'tap' || strykerCfg.testRunner === 'sdlc-node') && Array.isArray(strykerCfg?.tap?.testFiles);
   const modSlug = String(mod.name || 'root').replace(/[^a-zA-Z0-9_-]/g, '_');
   const scopedReporters = [...new Set([...(Array.isArray(strykerCfg.reporters) ? strykerCfg.reporters : ['clear-text', 'progress']), 'json'])];
   const jsonRepArgs = !Array.isArray(strykerCfg.reporters) || !strykerCfg.reporters.includes('json') ? ['--reporters', scopedReporters.join(',')] : [];
@@ -448,10 +440,19 @@ export function buildMutationPlan(repoRoot = '.', mod = {}, { full = false, noCa
 
   const cs = changeSet || readChangeSet({ ...resolveRange({ baseBranch, repoRoot: absRepo }), source: 'worktree', repoRoot: absRepo });
   const modified = cs.entries
-    .filter((e) => e.status !== 'D')
+    .filter((e) => e.status !== 'D' && e.newMode !== '160000')
     .map((e) => e.path)
     .filter((f) => (!modPrefix ? true : f === modPrefix || f.startsWith(`${modPrefix}/`)))
     .map((f) => (!modPrefix ? f : f.slice(modPrefix.length + 1)));
+  if (explicitMutate.length > 0) {
+    const negPatterns = explicitMutate.filter((p) => p.startsWith('!')).map((p) => p.slice(1));
+    const unmutatedSources = modified.filter(
+      (f) => isTrackableSourceFile(f) && !matchesMutatePatterns(f, explicitMutate) && (negPatterns.length === 0 || !matchesMutatePatterns(f, negPatterns))
+    );
+    if (unmutatedSources.length > 0) {
+      return { skip: false, diffScoped: true, status: 'diff-unmutated-sources', unmutatedSources, reason: `Changed source file(s) outside Stryker mutate scope: ${unmutatedSources.join(', ')}`, commandArgv: null, targets: [] };
+    }
+  }
   const directSources = modified.filter((f) => (explicitMutate.length > 0 ? matchesMutatePatterns(f, explicitMutate) : isTrackableSourceFile(f)));
   const directSet = new Set(directSources);
   const pairedSources = modified.filter((f) => isTestFilePath(f)).map((t) => mapUnitTestToSource(t, concreteMutate)).filter((s) => s && !directSet.has(s));
@@ -524,29 +525,26 @@ function findPitestReport(modCwd) {
   return null;
 }
 
-export function parseMutationReport(repoRoot = '.', mod = {}, { targets = null } = {}) {
+export function parseMutationReport(repoRoot = '.', mod = {}, { targets = null, exemptions = null } = {}) {
   const absRepo = path.resolve(repoRoot);
   const modCwd = mod?.path && mod.path !== '.' ? resolveInsideRepo(absRepo, mod.path) : absRepo;
   const threshold = mod?.thresholds?.mutationScore ?? 80;
-  const exemptions = listExemptions(absRepo);
-  const exemptSet = new Set(exemptions.map((e) => `${e.file.replace(/\\/g, '/')}::${e.id}`));
+  const { activeSet: exemptSet, warnings } = resolveActiveExemptions(exemptions ?? listExemptions(absRepo));
 
-  const strykerRel = 'reports/mutation/mutation.json';
-  const cargoRel = 'mutants.out/outcomes.json';
-  const mutmutJsonRel = '.mutmut-results.json';
-  const mutmutTxtRel = '.mutmut-results.txt';
-  const goMutRel = 'reports/mutation/go-mutesting.txt';
+  const [strykerRel, cargoRel, mutmutJsonRel, mutmutTxtRel, goMutRel] = [
+    'reports/mutation/mutation.json', 'mutants.out/outcomes.json', '.mutmut-results.json', '.mutmut-results.txt', 'reports/mutation/go-mutesting.txt'
+  ];
   const pitRel = findPitestReport(modCwd);
 
   const finalize = ({ relFile, killed, survived, exempted = 0 }) => {
     const denom = killed + survived;
     if (denom === 0 && exempted === 0) {
-      return { found: true, passed: false, zeroMutants: true, file: relFile, threshold, score: 0, formatted: '0.0%', reason: 'EMPTY_REPORT: 0 evaluable mutants found.' };
+      return { found: true, passed: false, zeroMutants: true, file: relFile, threshold, warnings, score: 0, formatted: '0.0%', reason: 'EMPTY_REPORT: 0 evaluable mutants found.' };
     }
     const score = denom === 0 ? 100 : Number(((killed / denom) * 100).toFixed(2));
     const passed = threshold === null ? true : score >= threshold;
     const reason = passed ? null : `Mutation score ${score.toFixed(1)}% is below threshold ${threshold}%.`;
-    return { found: true, passed, zeroMutants: false, file: relFile, threshold, killed, survived, exempted, total: denom + exempted, score, formatted: `${score.toFixed(1)}%`, reason };
+    return { found: true, passed, zeroMutants: false, file: relFile, threshold, warnings, killed, survived, exempted, total: denom + exempted, score, formatted: `${score.toFixed(1)}%`, reason };
   };
 
   if (fileExists(path.join(modCwd, strykerRel))) {
@@ -568,7 +566,8 @@ export function parseMutationReport(repoRoot = '.', mod = {}, { targets = null }
         }
         const status = String(mut.status || '');
         if (status === 'Ignored' || status === 'CompileError') continue;
-        if (exemptSet.has(`${relFile}::${mut.id}`)) {
+        const mutIdentity = formatMutantIdentity(mut);
+        if (mutIdentity && exemptSet.has(`${relFile}::${mutIdentity}`)) {
           exempted++;
           continue;
         }
@@ -632,8 +631,11 @@ export function measureModuleCoverage(repoRoot = '.', mod = {}, { verbose = fals
   return requireFreshReport(parseCoverageReport(repoRoot, mod, { baseBranch, changeSet }), mod, repoRoot, startedAt);
 }
 
-export function measureModuleMutation(repoRoot = '.', mod = {}, { full = false, noCache = false, verbose = false, baseBranch = null, changeSet = null, onProgress = null } = {}) {
-  const plan = buildMutationPlan(repoRoot, mod, { full, noCache, baseBranch, changeSet });
+export function measureModuleMutation(repoRoot = '.', mod = {}, { full = false, noCache = false, verbose = false, baseBranch = null, changeSet = null, strykerConfig = null, exemptions = null, onProgress = null } = {}) {
+  const plan = buildMutationPlan(repoRoot, mod, { full, noCache, baseBranch, changeSet, strykerConfig });
+  if (plan.status === 'diff-unmutated-sources') {
+    return { found: false, passed: false, skipped: false, score: null, status: plan.status, unmutatedSources: plan.unmutatedSources, formatted: '0.0% (diff-unmutated-sources)', reason: plan.reason };
+  }
   if (plan.skip) {
     const status = plan.reason || 'not-configured';
     return { found: false, passed: true, skipped: true, score: null, status, formatted: `skipped (${status})` };
@@ -669,7 +671,7 @@ export function measureModuleMutation(repoRoot = '.', mod = {}, { full = false, 
     if (onProgress) onProgress(`[gate] Running mutation check (${mod.name})...`);
     try { runConfiguredCommand(plan.commandArgv, { cwd: modCwd, stdio: verbose ? 'inherit' : 'pipe', encoding: 'utf8' }); } catch (err) { runnerErr = err; }
   }
-  const checked = requireFreshReport(parseMutationReport(repoRoot, mod, { targets: plan.diffScoped ? plan.targets : null }), mod, repoRoot, startedAt);
+  const checked = requireFreshReport(parseMutationReport(repoRoot, mod, { targets: plan.diffScoped ? plan.targets : null, exemptions }), mod, repoRoot, startedAt);
   if (checked.found && !checked.stale) {
     if (checked.zeroMutants && plan.diffScoped) {
       return { ...checked, passed: true, skipped: true, score: null, status: 'diff-zero-mutants', formatted: 'skipped (diff-zero-mutants)' };
@@ -688,16 +690,17 @@ export function runGate(repoRoot = '.', { noCache = false, online = false, verbo
   if (hasDirtyNonGovernanceFiles(repoRoot, { allowAuditChain: true })) {
     return { passed: false, stage: 'dirty', dirty: true, reason: 'DIRTY_WORKING_TREE: commit or stash before gating.' };
   }
-  const config = cfgCheck.config;
   const activeSession = readActiveSession(repoRoot);
   const effectiveBase = baseBranch || activeSession?.baseBranch || null;
   const range = resolveRange({ baseBranch: effectiveBase, head: 'HEAD', repoRoot });
   const cs = readChangeSet({ ...range, source: 'commit', repoRoot });
+  const policy = loadEffectivePolicy({ repoRoot, baseSha: range.baseSha, headSha: range.headSha, changedPaths: cs.paths });
+  const config = policy.config;
   const modifiedFiles = cs.paths;
   const mode = isDocsOnlyDiff(cs) ? 'docs-only' : 'code';
 
   if (onProgress) onProgress(`[gate] Checking spec/ADR drift, architecture rings & secrets (mode=${mode})...`);
-  const drift = checkSpecDrift({ ticketId: activeSession?.issueId || null, baseBranch: range.effectiveBase, changeSet: cs, repoRoot });
+  const drift = checkSpecDrift({ ticketId: activeSession?.issueId || null, baseBranch: range.effectiveBase, changeSet: cs, policyTriggers: policy.policyTriggers, repoRoot });
   const arch =
     config.archlens?.enabled !== false
       ? checkArchRings({ repoRoot, policyPath: config.archlens?.policyPath || '.archlens/policy.json', sha: range.headSha })
@@ -705,11 +708,7 @@ export function runGate(repoRoot = '.', { noCache = false, online = false, verbo
   const secrets = scanDiffSecrets(repoRoot, { baseBranch: range.effectiveBase, changeSet: cs, runNpmAudit: Boolean(online || process.env.CI === 'true') });
 
   const moduleResults = [];
-  let lintPassed = true;
-  let buildPassed = true;
-  let testsPassed = true;
-  let minDiffCov = null;
-  let minMutation = null;
+  let [lintPassed, buildPassed, testsPassed, minDiffCov, minMutation] = [true, true, true, null, null];
   let mutationStatus = mode === 'docs-only' ? 'docs-only' : 'not-configured';
 
   if (mode === 'code' && drift.passed && arch.passed && secrets.passed) {
@@ -728,9 +727,7 @@ export function runGate(repoRoot = '.', { noCache = false, online = false, verbo
 
       const stdioOpt = verbose ? 'inherit' : 'pipe';
       const runCmd = (spec) => runConfiguredCommand(spec, { cwd: modCwd, stdio: stdioOpt, encoding: 'utf8' });
-      let modCovPct = null;
-      let modMutPct = null;
-      let modMutStatus = 'not-configured';
+      let [modCovPct, modMutPct, modMutStatus] = [null, null, 'not-configured'];
 
       if (mod.commands?.lint) {
         if (onProgress) onProgress(`[gate] Running lint (${mod.name})...`);
@@ -749,7 +746,7 @@ export function runGate(repoRoot = '.', { noCache = false, online = false, verbo
         }
       }
       try {
-        if (mod.commands?.coverage && mod.thresholds?.diffCoverage !== null) {
+        if (mod.thresholds?.diffCoverage !== null && mod.thresholds?.diffCoverage !== undefined) {
           if (onProgress) onProgress(`[gate] Measuring diff coverage (${mod.name})...`);
           const cov = measureModuleCoverage(repoRoot, mod, { verbose, baseBranch: range.effectiveBase, changeSet: cs });
           modCovPct = cov.diffLineCoverage ?? null;
@@ -768,9 +765,13 @@ export function runGate(repoRoot = '.', { noCache = false, online = false, verbo
         break;
       }
 
-      if (mod.commands?.mutation && mod.thresholds?.mutationScore !== null) {
+      if (mod.thresholds?.mutationScore !== null && mod.thresholds?.mutationScore !== undefined) {
+        if (!mod.commands?.mutation) {
+          moduleResults.push({ module: mod.name, passed: false, failedStep: 'mutation', error: `Module '${mod.name}' has no mutation command configured.` });
+          break;
+        }
         try {
-          const mut = measureModuleMutation(repoRoot, mod, { noCache, verbose, baseBranch: range.effectiveBase, changeSet: cs, onProgress });
+          const mut = measureModuleMutation(repoRoot, mod, { noCache, verbose, baseBranch: range.effectiveBase, changeSet: cs, strykerConfig: policy.strykerByModule?.[mod.name] ?? null, exemptions: config.exemptions, onProgress });
           modMutPct = mut.score ?? null;
           modMutStatus = mut.status || 'measured';
           if (!mut.passed) {
@@ -801,6 +802,7 @@ export function runGate(repoRoot = '.', { noCache = false, online = false, verbo
 
   const lastGate = {
     passed, headSha: recordedHeadSha, treeSha, mode, specHash, adrHashes,
+    policySource: policy.policySource, pendingExemptions: policy.pendingExemptions,
     lintPassed, buildPassed, testsPassed, diffCoveragePct: minDiffCov,
     mutationPct: minMutation, mutationStatus, secretScanPassed: secrets.passed,
     archPassed: arch.passed, driftPassed: drift.passed,
@@ -818,7 +820,7 @@ export function runGate(repoRoot = '.', { noCache = false, online = false, verbo
     });
   }
 
-  return { passed, mode, dirty: false, headSha: recordedHeadSha, modifiedFiles, drift, arch, secrets, modules: moduleResults, lastGate };
+  return { passed, mode, dirty: false, headSha: recordedHeadSha, policySource: policy.policySource, pendingExemptions: policy.pendingExemptions, modifiedFiles, drift, arch, secrets, modules: moduleResults, lastGate };
 }
 
 export function resolveAffectedTests(repoRoot = '.', { baseBranch = null } = {}) {

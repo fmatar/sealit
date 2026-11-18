@@ -393,6 +393,7 @@ export async function runCLI(customArgs = null, customConfigPath = null, repoRoo
         })
       }));
       result.mutation = reports;
+      for (const r of reports) if (Array.isArray(r.warnings)) result.warnings.push(...r.warnings);
       result.success = reports.every((r) => r.passed);
       return result;
     }
@@ -639,7 +640,10 @@ export function formatCLIResult(cmd, res = {}) {
       return `ADR ${res.adr?.id}: ${res.adr?.status} (${res.adr?.file || ''})`;
     case 'gate': {
       const g = res.gate || {};
-      const header = `Gate ${g.passed ? 'PASSED' : 'FAILED'} [mode=${g.mode || 'unknown'}, head=${g.headSha?.slice(0, 8) || 'dirty'}]`;
+      const pend = Array.isArray(g.pendingExemptions) && g.pendingExemptions.length > 0
+        ? `\n  - pendingExemptions (${g.pendingExemptions.length}, inactive until merged): ${g.pendingExemptions.map((e) => `${e.file}::${e.id}`).join(', ')}`
+        : '';
+      const header = `Gate ${g.passed ? 'PASSED' : 'FAILED'} [mode=${g.mode || 'unknown'}, head=${g.headSha?.slice(0, 8) || 'dirty'}]${pend}`;
       if (g.passed) return header;
       const details = [];
       if (g.reason) details.push(`  - ${g.reason}`);

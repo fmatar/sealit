@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createTempGitRepo, git } from '../helpers/test-harness.mjs';
 import { readChangeSet, resolveRange } from '../../.agent/scripts/lib/git.mjs';
+import { formatMutantIdentity } from '../../.agent/scripts/lib/config.mjs';
 import { readActiveSession, writeActiveSession } from '../../.agent/scripts/lib/receipt.mjs';
 import {
   scanDiffSecrets,
@@ -228,33 +229,46 @@ describe('Ring 2: lib/measure.mjs', () => {
     assert.equal(goRes.repoLineCoverage, 80);
   });
 
-  it('evaluates fresh mutation reports and exemptions even when runner exits non-zero, and parses Gradle PIT + mutmut 2.x', () => {
+  it('exemption from run A does not waive a different survivor reusing the id in run B, and legacy ids are ignored with a warning', () => {
     const { dir, cleanup } = createTempGitRepo();
     cleanups.push(cleanup);
+
+    const survivorRunA = {
+      id: '42',
+      mutatorName: 'ConditionalExpression',
+      replacement: 'false',
+      status: 'Survived',
+      location: { start: { line: 2, column: 6 }, end: { line: 2, column: 18 } }
+    };
+    const stableIdA = formatMutantIdentity(survivorRunA);
+    assert.match(stableIdA, /^ConditionalExpression@2:6#[0-9a-f]{8}$/);
 
     fs.mkdirSync(path.join(dir, '.agent'), { recursive: true });
     fs.writeFileSync(
       path.join(dir, '.agent/sdlc-config.json'),
       JSON.stringify({
         version: '0.1.0',
-        modules: [{ name: 'root', path: '.', commands: {}, thresholds: { diffCoverage: 85, mutationScore: 80 } }],
-        exemptions: [{ id: 'm-survived', file: 'src/a.mjs', reason: 'Equivalent logging guard', addedAt: '2026-11-16T00:00:00Z' }]
+        modules: [{ name: 'root', path: '.', commands: { mutation: 'stryker run' }, thresholds: { diffCoverage: null, mutationScore: 80 } }],
+        exemptions: [
+          { id: stableIdA, file: 'src/a.mjs', reason: 'Equivalent logging guard', addedAt: '2026-11-16T00:00:00Z' },
+          { id: '42', file: 'src/a.mjs', reason: 'Legacy numeric id must be ignored', addedAt: '2026-11-16T00:00:00Z' }
+        ]
       }),
       'utf8'
     );
 
-    // Runner script writes fresh Stryker JSON (1 killed, 1 survived exempted => 100% effective) AND exits 1!
-    fs.mkdirSync(path.join(dir, 'scripts'), { recursive: true });
+    // Run A: survivor matches stableIdA (1 killed, 1 survived exempted => 100% effective) even when runner exits 1
+    fs.mkdirSync(path.join(dir, 'tests/helpers'), { recursive: true });
     fs.writeFileSync(
-      path.join(dir, 'scripts/fake-stryker.mjs'),
+      path.join(dir, 'tests/helpers/fake-stryker.mjs'),
       `import fs from 'node:fs';
        fs.mkdirSync('reports/mutation', { recursive: true });
        fs.writeFileSync('reports/mutation/mutation.json', JSON.stringify({
          files: {
            'src/a.mjs': {
              mutants: [
-               { id: 'm-killed', status: 'Killed', location: { start: { line: 1 }, end: { line: 1 } } },
-               { id: 'm-survived', status: 'Survived', location: { start: { line: 2 }, end: { line: 2 } } }
+               { id: '1', mutatorName: 'BooleanLiteral', replacement: 'true', status: 'Killed', location: { start: { line: 1, column: 2 }, end: { line: 1, column: 7 } } },
+               ${JSON.stringify(survivorRunA)}
              ]
            }
          }
@@ -266,13 +280,37 @@ describe('Ring 2: lib/measure.mjs', () => {
     const mod = {
       name: 'root',
       path: '.',
-      commands: { mutation: `${process.execPath} scripts/fake-stryker.mjs` },
-      thresholds: { diffCoverage: 85, mutationScore: 80 }
+      commands: { mutation: `${process.execPath} tests/helpers/fake-stryker.mjs` },
+      thresholds: { diffCoverage: null, mutationScore: 80 }
     };
-    const mutRes = measureModuleMutation(dir, mod, { full: true });
-    assert.equal(mutRes.passed, true);
-    assert.equal(mutRes.score, 100);
+    const mutResA = measureModuleMutation(dir, mod, { full: true });
+    assert.equal(mutResA.passed, true);
+    assert.equal(mutResA.score, 100);
+    assert.equal(mutResA.exempted, 1);
+    assert.ok(mutResA.warnings.some((w) => /Legacy mutant exemption id '42'/.test(w)));
 
+    // Run B: a DIFFERENT survivor reuses numeric id '42' (different line/mutator/replacement) -> NOT waived by Run A's exemption or legacy '42'!
+    fs.writeFileSync(
+      path.join(dir, 'tests/helpers/fake-stryker.mjs'),
+      `import fs from 'node:fs';
+       fs.mkdirSync('reports/mutation', { recursive: true });
+       fs.writeFileSync('reports/mutation/mutation.json', JSON.stringify({
+         files: {
+           'src/a.mjs': {
+             mutants: [
+               { id: '1', mutatorName: 'BooleanLiteral', replacement: 'true', status: 'Killed', location: { start: { line: 1, column: 2 }, end: { line: 1, column: 7 } } },
+               { id: '42', mutatorName: 'EqualityOperator', replacement: '!==', status: 'Survived', location: { start: { line: 9, column: 4 }, end: { line: 9, column: 7 } } }
+             ]
+           }
+         }
+       }));`,
+      'utf8'
+    );
+    const mutResB = measureModuleMutation(dir, mod, { full: true });
+    assert.equal(mutResB.passed, false);
+    assert.equal(mutResB.exempted, 0);
+    assert.equal(mutResB.survived, 1);
+    assert.equal(mutResB.score, 50);
   });
 
   it('parses PIT, mutmut, cargo-mutants, go-mutesting, and buildReviewPlan without child spawns', () => {
@@ -385,8 +423,9 @@ describe('Ring 2: lib/measure.mjs', () => {
     const fullPlan = buildMutationPlan(dir, { name: 'root', path: '.', commands: { mutation: './node_modules/.bin/stryker run' } }, { full: true });
     assert.equal(Array.isArray(fullPlan.shards) && fullPlan.shards.length === 3, true);
 
+    fs.mkdirSync(path.join(dir, 'tests/helpers'), { recursive: true });
     fs.writeFileSync(
-      path.join(dir, 'scripts/fake-stryker-shard.mjs'),
+      path.join(dir, 'tests/helpers/fake-stryker-shard.mjs'),
       `import fs from 'node:fs'; import path from 'node:path';
        const cfg = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
        if (!Array.isArray(cfg.reporters) || !cfg.reporters.includes('json')) process.exit(3);
@@ -396,31 +435,31 @@ describe('Ring 2: lib/measure.mjs', () => {
        fs.writeFileSync(out, JSON.stringify({ files: { [src]: { mutants: [{ id: '1', status: 'Killed', location: { start: { line: 1 }, end: { line: 1 } } }] } } }));`,
       'utf8'
     );
-    const shardedRes = measureModuleMutation(dir, { name: 'root', path: '.', commands: { mutation: `${process.execPath} scripts/fake-stryker-shard.mjs run` }, thresholds: { mutationScore: 80 } });
+    const shardedRes = measureModuleMutation(dir, { name: 'root', path: '.', commands: { mutation: `${process.execPath} tests/helpers/fake-stryker-shard.mjs run` }, thresholds: { mutationScore: 80 } });
     assert.equal(shardedRes.passed, true);
     assert.equal(shardedRes.killed, 2);
 
     // Crashing shard (missing/stale shard report) MUST fail closed instead of bypassing via diff-zero-mutants
-    fs.writeFileSync(path.join(dir, 'scripts/crash-stryker-shard.mjs'), 'process.exit(2);\n', 'utf8');
+    fs.writeFileSync(path.join(dir, 'tests/helpers/crash-stryker-shard.mjs'), 'process.exit(2);\n', 'utf8');
     assert.throws(() =>
-      measureModuleMutation(dir, { name: 'root', path: '.', commands: { mutation: `${process.execPath} scripts/crash-stryker-shard.mjs run` }, thresholds: { mutationScore: 80 } })
+      measureModuleMutation(dir, { name: 'root', path: '.', commands: { mutation: `${process.execPath} tests/helpers/crash-stryker-shard.mjs run` }, thresholds: { mutationScore: 80 } })
     );
 
     // Malformed shard JSON missing 'files' object fails closed even if runner exits 0
     fs.writeFileSync(
-      path.join(dir, 'scripts/malformed-stryker-shard.mjs'),
+      path.join(dir, 'tests/helpers/malformed-stryker-shard.mjs'),
       `import fs from 'node:fs'; import path from 'node:path';
        const cfg = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
        fs.mkdirSync(path.dirname(cfg.jsonReporter.fileName), { recursive: true });
        fs.writeFileSync(cfg.jsonReporter.fileName, '{}');`,
       'utf8'
     );
-    const malformedRes = measureModuleMutation(dir, { name: 'root', path: '.', commands: { mutation: `${process.execPath} scripts/malformed-stryker-shard.mjs run` }, thresholds: { mutationScore: 80 } });
+    const malformedRes = measureModuleMutation(dir, { name: 'root', path: '.', commands: { mutation: `${process.execPath} tests/helpers/malformed-stryker-shard.mjs run` }, thresholds: { mutationScore: 80 } });
     assert.equal(malformedRes.passed, false);
 
     // Partial/crashing shard exiting non-zero MUST fail closed even if it wrote a partial report file
     fs.writeFileSync(
-      path.join(dir, 'scripts/partial-crash-shard.mjs'),
+      path.join(dir, 'tests/helpers/partial-crash-shard.mjs'),
       `import fs from 'node:fs'; import path from 'node:path';
        const cfg = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
        fs.mkdirSync(path.dirname(cfg.jsonReporter.fileName), { recursive: true });
@@ -430,8 +469,20 @@ describe('Ring 2: lib/measure.mjs', () => {
       'utf8'
     );
     assert.throws(() =>
-      measureModuleMutation(dir, { name: 'root', path: '.', commands: { mutation: `${process.execPath} scripts/partial-crash-shard.mjs run` }, thresholds: { mutationScore: 80 } })
+      measureModuleMutation(dir, { name: 'root', path: '.', commands: { mutation: `${process.execPath} tests/helpers/partial-crash-shard.mjs run` }, thresholds: { mutationScore: 80 } })
     );
+
+    // C2c: new lib/foo.mjs outside mutate fails with diff-unmutated-sources
+    fs.mkdirSync(path.join(dir, 'lib'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'lib/foo.mjs'), 'export const unmutated = 42;\n', 'utf8');
+    const unmutPlan = buildMutationPlan(dir, { name: 'root', path: '.', commands: { mutation: './node_modules/.bin/stryker run' } });
+    assert.equal(unmutPlan.status, 'diff-unmutated-sources');
+    assert.deepEqual(unmutPlan.unmutatedSources, ['lib/foo.mjs']);
+    const unmutRes = measureModuleMutation(dir, { name: 'root', path: '.', commands: { mutation: `${process.execPath} tests/helpers/fake-stryker-shard.mjs run` }, thresholds: { mutationScore: 80 } });
+    assert.equal(unmutRes.passed, false);
+    assert.equal(unmutRes.status, 'diff-unmutated-sources');
+    assert.match(unmutRes.reason, /lib\/foo\.mjs/);
+    fs.rmSync(path.join(dir, 'lib'), { recursive: true, force: true });
 
     // Glob mutate patterns (positive + !-negated) in stryker.config.json match diff files and guarantee 'json' reporter on non-tap runners
     const globRepo = createTempGitRepo();

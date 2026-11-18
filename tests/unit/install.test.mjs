@@ -108,7 +108,7 @@ describe('Ring 2: lib/install.mjs', () => {
         JSON.stringify({
           version: '0.1.0',
           archlens: { enabled: true, policyPath: '.archlens/policy.json' },
-          modules: [{ name: 'custom', path: '.', commands: { test: 'node --test "tests/**/*.test.mjs"' }, thresholds: { diffCoverage: 93, mutationScore: null } }]
+          modules: [{ name: 'custom', path: '.', commands: { test: 'node --test "tests/**/*.test.mjs"', coverage: 'npm run test:coverage' }, thresholds: { diffCoverage: 93, mutationScore: null } }]
         }),
         'utf8'
       );

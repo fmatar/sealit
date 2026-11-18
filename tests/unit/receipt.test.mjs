@@ -379,7 +379,7 @@ describe('Ring 1: lib/receipt.mjs', () => {
       assert.equal(truncVer.valid, false);
       assert.match(truncVer.reason, /truncat|continuity|historical/i);
 
-      // 5. Generic module with commands.coverage: null and default diffCoverage: 85 does NOT deadlock issueGateReceipt
+      // 5. Generic module with commands.coverage: null and diffCoverage: null issues receipt; lowering floor in PR is rejected by loadEffectivePolicy
       const genRepo = createTempGitRepo();
       cleanups.push(genRepo.cleanup);
       git(genRepo.dir, 'checkout', '-q', '-b', 'feat/gen', 'develop');
@@ -388,7 +388,7 @@ describe('Ring 1: lib/receipt.mjs', () => {
         path.join(genRepo.dir, '.agent/sdlc-config.json'),
         JSON.stringify({
           version: '0.1.0',
-          modules: [{ name: 'root', path: '.', commands: { coverage: null, mutation: null }, thresholds: { diffCoverage: 85, mutationScore: null } }]
+          modules: [{ name: 'root', path: '.', commands: { coverage: null, mutation: null }, thresholds: { diffCoverage: null, mutationScore: null } }]
         }),
         'utf8'
       );
@@ -402,6 +402,41 @@ describe('Ring 1: lib/receipt.mjs', () => {
         return s;
       });
       assert.equal(issueGateReceipt({ repoRoot: genRepo.dir }).success, true);
+
+      // PR lowering diffCoverage from 85 on base to null/10 at head still enforces base floor 85 in issueGateReceipt
+      const monoRecRepo = createTempGitRepo();
+      cleanups.push(monoRecRepo.cleanup);
+      fs.mkdirSync(path.join(monoRecRepo.dir, '.agent'), { recursive: true });
+      fs.writeFileSync(
+        path.join(monoRecRepo.dir, '.agent/sdlc-config.json'),
+        JSON.stringify({
+          version: '0.1.0',
+          modules: [{ name: 'root', path: '.', commands: { coverage: 'npm run cov', mutation: null }, thresholds: { diffCoverage: 85, mutationScore: null } }]
+        }),
+        'utf8'
+      );
+      git(monoRecRepo.dir, 'add', '.agent/sdlc-config.json');
+      git(monoRecRepo.dir, 'commit', '-q', '-m', 'chore: base cov 85');
+      git(monoRecRepo.dir, 'checkout', '-q', '-b', 'feat/lower-floor', 'develop');
+      fs.writeFileSync(
+        path.join(monoRecRepo.dir, '.agent/sdlc-config.json'),
+        JSON.stringify({
+          version: '0.1.0',
+          modules: [{ name: 'root', path: '.', commands: { coverage: null, mutation: null }, thresholds: { diffCoverage: null, mutationScore: null } }]
+        }),
+        'utf8'
+      );
+      git(monoRecRepo.dir, 'add', '.agent/sdlc-config.json');
+      git(monoRecRepo.dir, 'commit', '-q', '-m', 'evil: drop coverage floor');
+      const lowerSha = git(monoRecRepo.dir, 'rev-parse', 'HEAD').stdout.trim();
+      seedPassingSession(monoRecRepo.dir, 'feat/lower-floor', lowerSha, 'code');
+      writeActiveSession(monoRecRepo.dir, (s) => {
+        s.sessions['42'].lastGate.diffCoveragePct = 50;
+        return s;
+      });
+      const floorRefused = issueGateReceipt({ repoRoot: monoRecRepo.dir });
+      assert.equal(floorRefused.success, false);
+      assert.match(floorRefused.reason, /below threshold 85%/);
 
       // 6. computeTreeHash honors explicit baseBranch and marks dirty working trees cacheable: false
       const hDev = computeTreeHash({ repoRoot: genRepo.dir, modulePath: '.', baseBranch: 'develop' });

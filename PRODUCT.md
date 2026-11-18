@@ -44,4 +44,5 @@ Open-source Alignment and Proof Kernel for AI coding agents (`Antigravity`, `Cla
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | ADR-019 | v0.1.0 Alignment and Proof Kernel Simplification | `technical` | `accepted` | 190 | CAP-01, CAP-02, CAP-03, CAP-04, CAP-05, CAP-06, CAP-07, CAP-08, CAP-09, CAP-10, CAP-11 |
 | ADR-020 | Commit-Object Gate Engine via Git Plumbing | `architectural` | `accepted` | L-4 | CAP-01, CAP-03, CAP-04 |
+| ADR-021 | Monotonic Effective Gate Policy & Stable Mutant-Identity Exemptions | `architectural` | `accepted` | L-5 | CAP-02, CAP-03, CAP-04 |
 <!-- ADR_INDEX_END -->
