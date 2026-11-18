@@ -323,4 +323,66 @@ describe('Ring 0: lib/git.mjs', () => {
     fs.writeFileSync(path.join(dir, 'dirty.mjs'), 'export const x = 1;\n', 'utf8');
     assert.equal(hasDirtyNonGovernanceFiles(dir), true);
   });
+
+  it('getModifiedFiles reports both sides of committed renames so code->docs moves stay code mode', () => {
+    const { dir, cleanup } = createTempGitRepo();
+    cleanups.push(cleanup);
+
+    fs.mkdirSync(path.join(dir, 'docs/specs'), { recursive: true });
+    fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'docs/specs/cap-01.md'), '# Cap\n', 'utf8');
+    fs.writeFileSync(path.join(dir, 'src/core.js'), 'export const a = 1;\n', 'utf8');
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'chore: base files');
+
+    git(dir, 'checkout', '-q', '-b', 'feat/mv', 'develop');
+    git(dir, 'mv', 'docs/specs/cap-01.md', 'docs/archive-cap-01.md');
+    git(dir, 'mv', 'src/core.js', 'docs/core.md');
+    git(dir, 'commit', '-q', '-m', 'refactor: move files');
+
+    const files = getModifiedFiles('develop', dir);
+    assert.ok(files.includes('docs/specs/cap-01.md'));
+    assert.ok(files.includes('docs/archive-cap-01.md'));
+    assert.ok(files.includes('src/core.js'));
+    assert.ok(files.includes('docs/core.md'));
+    assert.equal(isDocsOnlyDiff(files), false);
+  });
+
+  it('getUnifiedDiffByFile ignores diff.noprefix, diff.mnemonicPrefix, diff.external and GIT_EXTERNAL_DIFF', () => {
+    const { dir, cleanup } = createTempGitRepo();
+    cleanups.push(cleanup);
+
+    fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'src/a.js'), 'export const a = 1;\n', 'utf8');
+    git(dir, 'add', 'src/a.js');
+    git(dir, 'commit', '-q', '-m', 'chore: base src');
+
+    git(dir, 'checkout', '-q', '-b', 'feat/diff-cfg', 'develop');
+    fs.writeFileSync(path.join(dir, 'src/a.js'), 'export const a = 1;\nexport const k = 1;\n', 'utf8');
+    git(dir, 'commit', '-qam', 'feat: add k');
+
+    for (const [k, v] of [
+      ['diff.noprefix', 'true'],
+      ['diff.mnemonicPrefix', 'true'],
+      ['diff.external', 'echo']
+    ]) {
+      git(dir, 'config', k, v);
+      const map = getUnifiedDiffByFile('develop', dir, ['src/a.js'], { strict: true });
+      assert.ok(map.has('src/a.js'), `expected src/a.js under ${k}=${v}`);
+      assert.match(map.get('src/a.js'), /^\+export const k = 1;$/m, `expected added line under ${k}=${v}`);
+      git(dir, 'config', '--unset', k);
+    }
+
+    const hadExtDiff = Object.prototype.hasOwnProperty.call(process.env, 'GIT_EXTERNAL_DIFF');
+    const prevExtDiff = process.env.GIT_EXTERNAL_DIFF;
+    process.env.GIT_EXTERNAL_DIFF = 'echo';
+    try {
+      const envMap = getUnifiedDiffByFile('develop', dir, ['src/a.js'], { strict: true });
+      assert.ok(envMap.has('src/a.js'), 'expected src/a.js with GIT_EXTERNAL_DIFF=echo');
+      assert.match(envMap.get('src/a.js'), /^\+export const k = 1;$/m);
+    } finally {
+      if (hadExtDiff) process.env.GIT_EXTERNAL_DIFF = prevExtDiff;
+      else delete process.env.GIT_EXTERNAL_DIFF;
+    }
+  });
 });

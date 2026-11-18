@@ -340,6 +340,8 @@ export function cleanGitEnv(baseEnv = process.env) {
   delete env.GIT_COMMON_DIR;
   delete env.GIT_OBJECT_DIRECTORY;
   delete env.GIT_ALTERNATE_OBJECT_DIRECTORIES;
+  delete env.GIT_EXTERNAL_DIFF;
+  delete env.GIT_DIFF_OPTS;
   return env;
 }
 
@@ -551,6 +553,8 @@ function expandBinaryTextDiffSection(section, file, repoRoot, { strict = false, 
   return synth ? `${section}\n${synth}` : section;
 }
 
+export const SAFE_DIFF_FLAGS = Object.freeze(['--no-color', '--no-ext-diff', '--no-textconv', '--no-renames', '--src-prefix=a/', '--dst-prefix=b/']);
+
 export function getModifiedFiles(baseBranch = null, repoRoot = '.') {
   const { headSha, mergeBase } = resolveDiffComparisonState(baseBranch, repoRoot);
   const files = new Set();
@@ -563,14 +567,14 @@ export function getModifiedFiles(baseBranch = null, repoRoot = '.') {
   };
 
   if (mergeBase) {
-    collect(gitOutput(['diff', '--name-only', '--diff-filter=ACMRTUXBD', '--end-of-options', mergeBase], repoRoot));
-    collect(gitOutput(['diff', '--cached', '--name-only', '--diff-filter=ACMRTUXBD', '--end-of-options', mergeBase], repoRoot));
+    collect(gitOutput(['diff', '--name-only', '--no-renames', '--diff-filter=ACMRTUXBD', '--end-of-options', mergeBase], repoRoot));
+    collect(gitOutput(['diff', '--cached', '--name-only', '--no-renames', '--diff-filter=ACMRTUXBD', '--end-of-options', mergeBase], repoRoot));
   } else if (headSha) {
-    collect(gitOutput(['diff', '--name-only', '--diff-filter=ACMRTUXBD', 'HEAD'], repoRoot));
-    collect(gitOutput(['diff', '--cached', '--name-only', '--diff-filter=ACMRTUXBD'], repoRoot));
+    collect(gitOutput(['diff', '--name-only', '--no-renames', '--diff-filter=ACMRTUXBD', 'HEAD'], repoRoot));
+    collect(gitOutput(['diff', '--cached', '--name-only', '--no-renames', '--diff-filter=ACMRTUXBD'], repoRoot));
   } else {
-    collect(gitOutput(['diff', '--cached', '--name-only', '--diff-filter=ACMRTUXBD'], repoRoot));
-    collect(gitOutput(['diff', '--name-only', '--diff-filter=ACMRTUXBD'], repoRoot));
+    collect(gitOutput(['diff', '--cached', '--name-only', '--no-renames', '--diff-filter=ACMRTUXBD'], repoRoot));
+    collect(gitOutput(['diff', '--name-only', '--no-renames', '--diff-filter=ACMRTUXBD'], repoRoot));
   }
   collect(gitOutput(['ls-files', '--others', '--exclude-standard'], repoRoot));
   return [...files].sort();
@@ -614,19 +618,19 @@ export function getUnifiedDiffByFile(baseBranch = null, repoRoot = '.', files = 
   };
 
   if (mergeBase) {
-    const unified = gitDiffStrict(['diff', '--no-color', mergeBase, ...pathArgs]);
+    const unified = gitDiffStrict(['diff', ...SAFE_DIFF_FLAGS, mergeBase, ...pathArgs]);
     if (unified !== null) {
       appendUnifiedDiffChunks(unified, diffMap, repoRoot, false, { strict, preferIndex: false });
     }
-    const cachedOnly = gitDiffStrict(['diff', '--no-color', '--cached', mergeBase, ...pathArgs]);
+    const cachedOnly = gitDiffStrict(['diff', ...SAFE_DIFF_FLAGS, '--cached', mergeBase, ...pathArgs]);
     if (cachedOnly) {
       appendUnifiedDiffChunks(cachedOnly, diffMap, repoRoot, true, { strict, preferIndex: true });
     }
   } else {
     const workingDiff =
-      (headSha ? gitDiffStrict(['diff', '--no-color', 'HEAD', ...pathArgs]) : null) ??
-      gitDiffStrict(['diff', '--no-color', '--cached', ...pathArgs]) ??
-      gitDiffStrict(['diff', '--no-color', ...pathArgs]) ??
+      (headSha ? gitDiffStrict(['diff', ...SAFE_DIFF_FLAGS, 'HEAD', ...pathArgs]) : null) ??
+      gitDiffStrict(['diff', ...SAFE_DIFF_FLAGS, '--cached', ...pathArgs]) ??
+      gitDiffStrict(['diff', ...SAFE_DIFF_FLAGS, ...pathArgs]) ??
       '';
     appendUnifiedDiffChunks(workingDiff, diffMap, repoRoot, false, { strict, preferIndex: false });
   }

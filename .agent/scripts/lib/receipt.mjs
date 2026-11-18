@@ -433,7 +433,7 @@ export function computeTreeHash({ repoRoot = '.', modulePath = '.', checkType = 
     });
 
   const excludeSpecs = [...CACHE_EXCLUDED_PATHS].map((p) => `:(exclude)${p}`);
-  const diffRes = gitExec(['diff', 'HEAD', '--', modulePath, ...excludeSpecs], absRoot);
+  const diffRes = gitExec(['diff', '--no-ext-diff', '--no-textconv', 'HEAD', '--', modulePath, ...excludeSpecs], absRoot);
   if (diffRes.error || diffRes.status !== 0) {
     return { hash: hash.digest('hex'), cacheable: false };
   }
@@ -500,7 +500,7 @@ function isAuditOnlyCommitRange(fromSha, toSha, repoRoot) {
   if (anc.error || anc.status !== 0) return false;
   const merges = gitOutput(['rev-list', '--merges', '--end-of-options', `${fromSha}..${toSha}`], repoRoot);
   if (merges === null || merges.trim() !== '') return false;
-  const diffRes = gitExec(['diff', '--name-only', '--end-of-options', `${fromSha}..${toSha}`], repoRoot);
+  const diffRes = gitExec(['diff', '--name-only', '--no-renames', '--end-of-options', `${fromSha}..${toSha}`], repoRoot);
   if (diffRes.error || diffRes.status !== 0) return false;
   const changed = diffRes.stdout
     .replace(/\r\n/g, '\n')
