@@ -1,24 +1,20 @@
 ## Description
-Provide a brief description of the changes in this PR.
+Provide a concise summary of the changes in this pull request.
 
-## Related Issue
-Fixes # (issue number)
+## Related Ticket / Session
+Session or Issue ID:
 
 ## Quality Gate Checklist (`sdlc-gate`)
-Before this PR can be merged, the following must be verified either manually or via CI:
+Verify each item locally or in CI before merging:
 
-- [ ] **Formatting & Syntax**: Repository syntax/lint checks pass cleanly.
-- [ ] **Static Syntax & Type Checking**: Project syntax/type checks pass with zero errors.
-- [ ] **Checks & Build**: All test, coverage, mutation, and strict gate checks (`node .agent/scripts/sdlc-engine.mjs gate --strict`) pass cleanly.
-- [ ] **Test Coverage & Mutation (`sdlc-tdd`)**: Diff coverage and mutation thresholds in `.agent/sdlc-config.json` pass.
-- [ ] **Subagent Peer Review (`sdlc-gate`)**: Risk-tiered PR diff reviewed and Stage 7 HMAC-SHA256 Hash-Chain receipt recorded.
-- [ ] **Security**: No high/critical vulnerabilities introduced (`npm audit`, dependency check).
-- [ ] **Accessibility (a11y)**: Interactive controls are keyboard navigable and contrast ratios meet WCAG 2.1 AA.
+- [ ] **Alignment (`sdlc-spec` / `sdlc-adr`)**: `node .agent/scripts/sdlc-engine.mjs drift` exits `0` (spec or contract changes have an `accepted` ADR).
+- [ ] **Architecture Rings**: Zero inward dependency or cycle violations against `.archlens/policy.json`.
+- [ ] **Measured Coverage & Mutation (`sdlc-tdd`)**: Diff coverage and diff mutation thresholds in `.agent/sdlc-config.json` pass (`node .agent/scripts/sdlc-engine.mjs gate --no-cache`).
+- [ ] **Independent Review & Stage 7 Receipt (`sdlc-gate`)**: Read-only reviewer findings addressed, `review record --verdict approve` signed into `docs/AUDIT_CHAIN.jsonl`, and `node .agent/scripts/sdlc-engine.mjs verify` exits `0`.
 
-## 🤖 Agentic Handoff
-If you used the Agentic SDLC Framework or Antigravity agents to generate this code, please note which skills were used:
-- [ ] `sdlc-flow` (autonomous 8-stage lifecycle)
-- [ ] `sdlc-tdd` (Red-Green-Refactor TDD implementation)
-- [ ] `sdlc-gate` (subagent review & strict gate receipt)
-- [ ] `sdlc-status` (session, spec drift, and `docs/KANBAN.md` tracking)
+## Agent Skills Used
+- [ ] `sdlc-flow` (end-to-end delivery)
+- [ ] `sdlc-spec` / `sdlc-adr` (specification & ADR alignment)
+- [ ] `sdlc-tdd` (Red-Green-Refactor TDD & measured proof)
+- [ ] `sdlc-gate` (independent review & signed receipt)
 - [ ] Manual contribution

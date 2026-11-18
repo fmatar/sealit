@@ -1,62 +1,38 @@
 ---
 name: sdlc
-description: "Use when running an explicit /sdlc {{args}} command in chat. Not for multi-stage autonomous delivery (use sdlc-flow). Routes 1:1 to sdlc-engine.mjs."
+description: "Use when running an explicit /sdlc command in chat (`doctor`, `begin`, `status`, `drift`, `gate`, `verify`). Not for full feature implementation (use sdlc-flow)."
 tools: read_file, write_file, edit_file, run_command, invoke_subagent
 ---
 
-# Universal Command Router (`/sdlc {{args}}`)
+# Universal Command Router (`sdlc`)
 
 ## When to use / When NOT to use
-- **Use when** the user invokes `/sdlc <subcommand> [args]` for a direct CLI operation.
-- **Not for** full autonomous feature/bug implementation from intake to merge — delegate that to `sdlc-flow`.
+- **Use when** the user invokes `/sdlc <command> [args]` for a direct CLI operation.
+- **Not for** multi-step feature or bug delivery across a branch and PR (use `sdlc-flow`).
 
-## Lane behavior
-| Lane | Entry shortcut | Verification scope |
-| :--- | :--- | :--- |
-| `trivial` | `/sdlc quick "<desc>"` | Local `L-*` session, `test --affected-only`, auto-signed `trivial` receipt in `stage pre-pr`. |
-| `standard` | `/sdlc begin <#id-or-title>` | Ticket session, `coverage`, 1 reviewer via `sdlc-gate`, `gate`, Stage 7 receipt. |
-| `full` | `/sdlc begin <#id> --lane full` | Ticket + ADR (if drift), `coverage` + `mutation`, 2-3 reviewers, `gate --strict`, Stage 7 receipt. |
+## Command Mapping (`1:1` to `sdlc-engine.mjs`)
 
-## Steps (`1:1` mapping to `sdlc-engine.mjs`)
-
-| Chat Command | Executed CLI Command / Action |
+| Chat Command | CLI Execution |
 | :--- | :--- |
-| `/sdlc triage` | `node .agent/scripts/sdlc-engine.mjs triage` |
-| `/sdlc quick "<desc>"` | `node .agent/scripts/sdlc-engine.mjs stage begin --lane trivial --title "<desc>" --checkout` |
-| `/sdlc begin <#id>` | `node .agent/scripts/sdlc-engine.mjs stage begin --issue <id> --checkout` |
-| `/sdlc begin "<title>"` | `node .agent/scripts/sdlc-engine.mjs stage begin --local --title "<title>" --checkout` (pass `--create-issue` instead of `--local` only after user confirmation) |
-| `/sdlc pre-pr [#id]` | `node .agent/scripts/sdlc-engine.mjs stage pre-pr --issue <id> --summary "<from-git-log-base..HEAD>"` |
-| `/sdlc review` | Run `sdlc-gate` (`review plan` -> read-only subagent review -> blocker-derived `review record`) |
-| `/sdlc complete [#id]` | `node .agent/scripts/sdlc-engine.mjs stage complete --issue <id> --pr <prNumber>` |
-| `/sdlc status [--full]` | `node .agent/scripts/sdlc-engine.mjs session dashboard` (`--full` adds `drift check`, `arch diff`, `stats`, `audit verify`) |
+| `/sdlc init [flags]` | `node .agent/scripts/sdlc-engine.mjs init [flags]` |
 | `/sdlc doctor` | `node .agent/scripts/sdlc-engine.mjs doctor` |
 | `/sdlc doctor fix` | `node .agent/scripts/sdlc-engine.mjs doctor --fix` |
-| `/sdlc detect` | `node .agent/scripts/sdlc-engine.mjs detect` |
-| `/sdlc install [flags]` | `node .agent/scripts/sdlc-engine.mjs install [flags]` |
-| `/sdlc skill-audit` | `node .agent/scripts/sdlc-engine.mjs skill-audit` |
+| `/sdlc begin <#id-or-title>` | `node .agent/scripts/sdlc-engine.mjs begin --issue <id> --checkout` (or `--title "<desc>" --checkout`) |
+| `/sdlc status` | `node .agent/scripts/sdlc-engine.mjs status` |
+| `/sdlc drift` | `node .agent/scripts/sdlc-engine.mjs drift` |
+| `/sdlc adr <create\|list\|decide>` | `node .agent/scripts/sdlc-engine.mjs adr <subcommand> [flags]` |
 | `/sdlc test` | `node .agent/scripts/sdlc-engine.mjs test --affected-only` |
-| `/sdlc coverage` / `/sdlc mutation` | `node .agent/scripts/sdlc-engine.mjs coverage [--no-cache]` / `node .agent/scripts/sdlc-engine.mjs mutation [--full] [--no-cache]` |
-| `/sdlc reproduce "<trace>"` | `node .agent/scripts/sdlc-engine.mjs reproduce --error "<trace>"` |
-| `/sdlc drift` | `node .agent/scripts/sdlc-engine.mjs drift check` |
-| `/sdlc adr <create\|list\|decide\|compact>` | `node .agent/scripts/sdlc-engine.mjs adr <subcommand> [flags]` |
-| `/sdlc spec --cap CAP-XX --title "<title>"` | `node .agent/scripts/sdlc-engine.mjs product spec --cap CAP-XX --title "<title>"` |
-| `/sdlc gate` | `node .agent/scripts/sdlc-engine.mjs gate --strict` |
-| `/sdlc ticket <create\|transition\|comment\|sync\|templates>` | `node .agent/scripts/sdlc-engine.mjs ticket <subcommand> [args]` |
-| `/sdlc kanban` | `node .agent/scripts/sdlc-engine.mjs ticket sync` |
-| `/sdlc ui` | `node .agent/scripts/sdlc-engine.mjs ui-snapshot` (embed snapshot only when requested) |
-| `/sdlc serve` | `node .agent/scripts/sdlc-engine.mjs serve` |
-| `/sdlc readme <init\|audit>` | `node .agent/scripts/sdlc-engine.mjs readme <subcommand> [--strict]` |
-| `/sdlc wiki <sync\|audit\|map>` | `node .agent/scripts/sdlc-engine.mjs wiki <subcommand>` |
-| `/sdlc release <patch\|minor\|major>` | `node .agent/scripts/sdlc-engine.mjs release <bump> --dry-run` (confirm before live cut) |
-| Unknown subcommand | `node .agent/scripts/sdlc-engine.mjs help` |
+| `/sdlc coverage` | `node .agent/scripts/sdlc-engine.mjs coverage` |
+| `/sdlc mutation` | `node .agent/scripts/sdlc-engine.mjs mutation` |
+| `/sdlc gate` | `node .agent/scripts/sdlc-engine.mjs gate` |
+| `/sdlc review` | Run `sdlc-gate` (`review plan` -> read-only reviewer -> `review record`) |
+| `/sdlc receipt` | `node .agent/scripts/sdlc-engine.mjs receipt` |
+| `/sdlc verify` | `node .agent/scripts/sdlc-engine.mjs verify` |
+| `/sdlc end` | `node .agent/scripts/sdlc-engine.mjs end` |
 
-## ⚠️ Confirm with user before
-- Running `doctor --fix`, `install --global`, `release <bump>` without `--dry-run`, or `stage begin --create-issue` to create a new remote issue.
-
-## If it fails
-- **Spec-drift failure** -> run `sdlc-adr` to mint or link an ADR.
-- **Coverage/mutation failure** -> run `sdlc-tdd` to add behavioral assertions.
-- **`gh` authentication/network error** -> re-run outside sandbox if permitted, or stop and report to the user.
+## Confirm with user before
+- Running `doctor --fix` when the user only asked for a read-only check, or `init --global`.
+- Approving an ADR (`adr decide --status approve`).
 
 ## Done when
-The mapped `sdlc-engine.mjs` subcommand exits `0` and its output is summarized concisely for the user.
+The mapped `sdlc-engine.mjs` command exits `0` and its result is reported concisely.

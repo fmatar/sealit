@@ -1,6 +1,6 @@
 {
   "name": "agentic-sdlc",
-  "version": "0.0.2",
-  "description": "Agentic SDLC Framework — Universal /sdlc router and 9 lifecycle skills for Claude Code & Cowork",
-  "skills": "./.claude/skills"
+  "version": "0.1.0",
+  "description": "Agentic SDLC v0.1.0 Alignment + Proof Kernel: 6 canonical skills for spec/ADR alignment, TDD coverage/mutation gates, and signed merge receipts",
+  "skills": "./.agent/skills"
 }

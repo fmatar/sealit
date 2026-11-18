@@ -1,51 +1,35 @@
 ---
 name: sdlc-tdd
-description: "Use when writing tests, reproducing bugs, or checking coverage and mutation gates. Not for pure prose edits. Enforces Red-Green-Refactor TDD using sdlc-config.json bars."
+description: "Use when writing tests, fixing bugs, or verifying diff coverage and mutation thresholds against sdlc-config.json. Not for pure documentation edits."
 tools: read_file, write_file, edit_file, run_command
 ---
 
-# Test-Driven Development & Dual-Gate Runner (`sdlc-tdd`)
+# Test-Driven Development & Measured Verification (`sdlc-tdd`)
 
 ## When to use / When NOT to use
-- **Use when** adding behavioral tests, reproducing defects from stack traces, or measuring test coverage and mutation kill scores.
-- **Not for** pure documentation, copy, or CSS-only changes with no executable behavior (`trivial` lane).
+- **Use when** implementing features or bug fixes via Red-Green-Refactor TDD, or measuring diff line coverage and diff mutation scores.
+- **Not for** pure Markdown documentation edits (`docs-only` mode).
 
-## TDD Discipline & Anti-Patterns
-1. **Red -> Green -> Refactor**: Write a minimal failing behavioral test first, write the smallest production change to pass, then remove duplication (`CRAP < 10`) and respect Concentric Clean Architecture boundaries (`.archlens/policy.json`).
-2. **Zero Test Smells**: No assertion-free "smoke" tests, no trivial getter/setter tests, no deep mock wiring when domain fakes/values work, and strict **F.I.R.S.T.** isolation (temp dirs, ephemeral ports, zero network reliance).
-3. **Config-Driven Thresholds & Style Independence**: Coverage (`thresholds.diffCoverage`) and mutation (`thresholds.mutationScore`) bars come strictly from `.agent/sdlc-config.json` — never assume hardcoded numbers. `sdlc-tdd` enforces verification mechanics only and composes cleanly with any standalone coding-style skill or team convention without requiring one.
-
-## Lane behavior
-| Lane | Required test & gate commands |
-| :--- | :--- |
-| `trivial` | No new test required for pure docs/CSS; run `node .agent/scripts/sdlc-engine.mjs test --affected-only` to confirm zero regressions. |
-| `standard` | Red-Green-Refactor unit/integration tests + `node .agent/scripts/sdlc-engine.mjs coverage` (SHA-256 cached when tree unchanged). |
-| `full` | Red-Green-Refactor + `coverage --no-cache` + `mutation [--full]` (when `thresholds.mutationScore !== null`) + `flake-check --runs 3`. |
+## TDD Rules
+1. **Red -> Green -> Refactor**: Write a minimal failing behavioral test first, watch it fail for the expected reason, write the smallest implementation that passes, then clean up while respecting `.archlens/policy.json` concentric rings.
+2. **Real Behavior Over Mocks**: Test real inputs, outputs, and isolated temp repos/files; avoid tautological assertions or unasserted smoke calls.
+3. **Config-Driven Bars**: Read `thresholds.diffCoverage` and `thresholds.mutationScore` from `.agent/sdlc-config.json`.
 
 ## Steps
 
 ```bash
-# 1. (Bug/Hotfix) Scaffold a failing reproduction harness from an error/stack trace
-node .agent/scripts/sdlc-engine.mjs reproduce --error "<stack_trace>" --target "<file>"
-
-# 2. Fast inner loop on affected tests during Red-Green-Refactor
+# 1. Fast inner loop on diff-affected unit suites
 node .agent/scripts/sdlc-engine.mjs test --affected-only
 
-# 3. Gate 1: Measure real coverage and record in .agent/.sdlc-session.json
+# 2. Measure fresh diff line coverage
 node .agent/scripts/sdlc-engine.mjs coverage
 
-# 4. Gate 2 (full lane): Run diff-scoped (or `--full`) mutation testing & inspect surviving mutants
-node .agent/scripts/sdlc-engine.mjs mutation [--full] [--no-cache]
-node .agent/scripts/sdlc-engine.mjs strengthen --type <ConditionalsBoundary|NegateCondition|Math|VoidMethodCall|EmptyReturn> --file <path>
+# 3. Measure diff-scoped (or --full) mutation score when configured
+node .agent/scripts/sdlc-engine.mjs mutation
 ```
 
-## ⚠️ Confirm with user before
-- Recording a mutant exemption (`node .agent/scripts/sdlc-engine.mjs exemption add --mutant "<id>" --file "<path>" --reason "<why>"`) for anything other than a verified logging/compiler artifact.
-
-## If it fails
-- **Coverage below `thresholds.diffCoverage`** -> add behavioral edge-case tests on uncovered branches; never add assertionless calls.
-- **Mutation score below `thresholds.mutationScore`** -> run `strengthen` on surviving mutants and tighten boundary/return assertions.
-- **No test runner configured in repo** -> run `sdlc-doctor` (`detect`) to configure `.agent/sdlc-config.json`.
+## Confirm with user before
+- Adding a mutant exemption (`node .agent/scripts/sdlc-engine.mjs exemption add --mutant "<id>" --file "<path>" --reason "<why>"`).
 
 ## Done when
-All tests pass deterministically and the lane's configured coverage (and mutation, in `full` lane) thresholds are recorded in `.agent/.sdlc-session.json`.
+All tests pass deterministically and configured `coverage` and `mutation` thresholds in `.agent/sdlc-config.json` pass cleanly.

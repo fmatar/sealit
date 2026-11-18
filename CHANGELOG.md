@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-17
+
+### Added
+- **8-Module Alignment + Proof Kernel (`ADR-019`)**: Consolidated runtime architecture into 8 concentric Clean Architecture modules (`git.mjs`, `config.mjs`, `receipt.mjs`, `drift.mjs`, `measure.mjs`, `guard.mjs`, `install.mjs`, `sdlc-engine.mjs`), each `<= 850` LOC with zero runtime dependencies and Node.js `>= 22.0.0` support.
+- **Cryptographic Alignment Binding in Stage 7 Receipts**: `issueGateReceipt` and `verifyGateReceipt` now bind `headSha`, `treeSha`, `specHash`, and `adrHashes` alongside measured `diffCoverage` and `mutationScore`, supporting exact `HEAD`, post-receipt `AUDIT_CHAIN.jsonl` commits, Squash `treeSha` equivalence, and 2-parent clean `--no-ff` merges while blocking evil merges.
+- **Canonical `sdlc-spec` Skill & 6-Skill Single-Source Suite**: Added pure-Markdown `sdlc-spec` alignment skill and consolidated `.agent/skills/` onto 6 canonical skills (`sdlc`, `sdlc-spec`, `sdlc-adr`, `sdlc-tdd`, `sdlc-gate`, `sdlc-flow`), pointing `.claude-plugin/plugin.json` directly at `./.agent/skills` and generating agent-specific copies at install time.
+
+### Changed
+- **Single-Path Measured Gate (`docs-only` vs `code`)**: Replaced multi-lane session state machines with one `HEAD`-bound `session.lastGate` measurement object, enforcing report `mtimeMs` freshness, `0%` unimported changed source file detection, diff-scoped mutation execution, and diff secret scanning.
+- **Linked-Worktree & Symlink-Safe Operations**: `guard.mjs` resolves hooks via `git rev-parse --git-common-dir` for linked `git worktree` support, `git.mjs` strips `NODE_TEST_CONTEXT` and `NODE_V8_COVERAGE` during nested runner execution, and `install.mjs` replaces external symlinks safely while preserving valid `.agent/sdlc-config.json` files.
+
+### Security
+- **Rename-Blind Drift & `docs-only` Classification**: Added `--no-renames` to `getModifiedFiles` and `isAuditOnlyCommitRange` diff queries so `git mv` of governance files (`PRODUCT.md`, `docs/specs/*`, `.archlens/policy.json`, `docs/AUDIT_CHAIN.jsonl`) or source files cannot bypass `SPEC_DELETED` drift checks or misclassify code deletions as `docs-only`.
+- **Accepted-at-Base ADR Governance Rule (`INV-03`)**: `checkSpecDrift` now excludes ADRs that already carried `status: accepted` at `mergeBase` from governing new drift and emits `ADR_MUTATION`, ensuring new/changed specs, dependencies, schemas, or contracts require a new accepted ADR.
+- **Diff-Config Immunity & Secret-Scan Backstop**: `getUnifiedDiffByFile` applies `SAFE_DIFF_FLAGS` (`--no-ext-diff`, `--no-textconv`, `--no-renames`, `--src-prefix=a/`, `--dst-prefix=b/`) and literal `:(literal)` pathspecs while `cleanGitEnv` strips `GIT_EXTERNAL_DIFF`/`GIT_DIFF_OPTS`, preventing user diff settings (`diff.noprefix`, `diff.mnemonicPrefix`, `diff.external`) or `:!` filenames from blinding secret scanning or diff coverage; `scanDiffSecrets` also fails closed (`SCAN_ERROR`) when a modified on-disk text file lacks a unified diff entry.
+- **Restored Managed `.gitignore` & `doctor` Audit**: Restored `upsertGitignore` (`SDLC_GITIGNORE_ENTRIES` including `.agent/.sdlc-session.json`, `.agent/.receipt-key`, lockfiles, `.agent/.cache/`, and `.stryker-tmp/`) in `installFramework` and `runDoctor --fix`, with `inspectGitignore` flagging missing critical ignore entries in `sdlc doctor`.
+- **Symlink-Preserving User-File Updates**: `upsertMarkedRulesFile` and `upsertGitignore` resolve and write through in-repo / in-home instruction and `.gitignore` symlinks (e.g., `CLAUDE.md -> AGENTS.md`) rather than unlinking them, while continuing to unlink and warn on symlinks pointing outside the allowed root.
+
+### Removed
+- **Peripheral & Vendored Bloat (`~80,000+` lines removed)**: Removed embedded loopback HTTP `workbench-server.mjs` and `workbench-assets/`, `pm-provider.mjs` and `docs/KANBAN.md`, `readme-sync.mjs`, `wiki-sync.mjs` and `wiki/*`, `product-dag.mjs`, `arch-trace.mjs` and `docs/ARCH_TRACE.md`, `decision-graph.mjs` and `docs/DECISION_MAP.md`, `dossier.mjs`, synthetic `watchdog`/`proof`/`release` CLI subcommands, duplicate `enforce-branch-flow.yml` and `publish-wiki.yml` workflows, tracked `.claude`/`.cursor` skill mirrors and `.zip` archives, and vendored `impeccable` copies.
+
+### Migration (`v0.0.2` -> `v0.1.0`)
+- **CLI Commands**: Use `sdlc begin` / `sdlc end` (or compatibility aliases `stage begin` / `stage complete`), `sdlc status` (`session status`), `sdlc drift`, `sdlc gate`, `sdlc review <plan|record>`, `sdlc receipt`, and `sdlc verify` (`guard verify` / `audit verify`). Removed peripheral commands (`pm`, `ticket`, `serve`, `ui-snapshot`, `wiki`, `readme`, `triage`, `decision-graph`, `dossier`, `watchdog`, `proof`, `release`) exit `2`.
+- **Configuration Schema (`.agent/sdlc-config.json`)**: Legacy top-level keys (`lanes`, `gates`, `testing`, `projectManagement`, `profile`, `generatedAt`) are migrated in memory with deprecation warnings; run `node .agent/scripts/sdlc-engine.mjs doctor --fix` to rewrite `.agent/sdlc-config.json` to the `0.1.0` schema while preserving custom module commands and thresholds.
+- **Git Hooks & CI Workflows**: Run `node .agent/scripts/sdlc-engine.mjs doctor --fix` (or `sdlc init --yes`) to upgrade all 4 fail-closed Git hooks (`pre-commit`, `pre-merge-commit`, `pre-push`, `post-merge`) and `.github/workflows/sdlc-quality-gate.yml` (which consolidates branch-flow checks from the retired `enforce-branch-flow.yml`).
+
 ## [0.0.2] - 2026-11-15
 
 ### Added

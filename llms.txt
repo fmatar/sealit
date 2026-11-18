@@ -1,25 +1,25 @@
-# Agentic SDLC Framework
+# @fmatar/agentic-sdlc (v0.1.0)
 
-> Risk-proportional engineering governance for AI coding agents (Gemini / Antigravity, Claude Code, Cursor, Grok, Windsurf, GitHub Copilot) enforcing Red-Green-Refactor TDD, [Archlens](https://github.com/fmatar/archlens) Concentric Clean Architecture rings, Spec-Drift ADRs, and cryptographic PR merge gates.
+> Zero-dependency Alignment and Proof Kernel for AI coding agents (Antigravity, Claude Code, Cursor, Codex, GitHub Copilot) enforcing Git Flow session guards, Spec/ADR alignment, [Archlens](https://github.com/fmatar/archlens) Concentric Clean Architecture rings, measured diff coverage & mutation gates, and HMAC-SHA256 merge receipts.
 
 ## Core Documentation
 
-- [README.md](./README.md): 10-30-90 developer landing page, proportional workflows (`trivial` / `standard` / `full`), and 90-second Quickstart
-- [wiki/Home.md](./wiki/Home.md): Project Wiki overview, proportional execution lanes, 8-stage lifecycle summary, and sitemap
-- [wiki/Skills-Reference.md](./wiki/Skills-Reference.md): Complete reference for the 10 canonical `sdlc*` skills (`/sdlc` router and 9 verb skills, decoupled from standalone coding-persona skills per `ADR-011`) and all `sdlc-engine.mjs` CLI subcommands
-- [wiki/Architecture.md](./wiki/Architecture.md): Concentric Clean Architecture rings (`.archlens/policy.json`), SHA-256 Gate Cache, 4-Layer Git Guard, and Clearinghouse Ledger UI (`workbench-server.mjs`)
-- [wiki/Codebase-Map.md](./wiki/Codebase-Map.md): Deterministic AST module inventory, coupling metrics ($Ca$, $Ce$, $I$), and capability mapping
-- [wiki/Traceability.md](./wiki/Traceability.md): Multi-provider PM sync, HMAC-SHA256 gate receipts, and hash-chained audit ledger (`docs/AUDIT_CHAIN.jsonl`)
+- [README.md](./README.md): Quickstart, 8-module Concentric Kernel architecture, and 6-skill suite overview
+- [PRODUCT.md](./PRODUCT.md): Constitutional invariants (`INV-01`..`INV-04`), capability matrix (`CAP-01`..`CAP-06`), and ADR index
+- [docs/PRD.md](./docs/PRD.md): Product Requirements Document (`v0.1.0`)
+- [docs/SRS.md](./docs/SRS.md): IEEE 29148 Software Requirements Specification & compacted ADR lineage
+- [CONTRIBUTING.md](./CONTRIBUTING.md): Local setup, TDD workflow, and pull request verification checklist
+- [CHANGELOG.md](./CHANGELOG.md): Semantic Versioning release history
+
+## Capability Specifications (`docs/specs/`)
+
+- [docs/specs/cap-01-git-and-worktree-guard.md](./docs/specs/cap-01-git-and-worktree-guard.md): Git Flow, linked-worktree hygiene & 4-Layer Git Guard
+- [docs/specs/cap-02-config-and-shell-free-execution.md](./docs/specs/cap-02-config-and-shell-free-execution.md): Schema-validated `.agent/sdlc-config.json` & shell-free `execFileSync` execution
+- [docs/specs/cap-03-spec-adr-and-ring-alignment.md](./docs/specs/cap-03-spec-adr-and-ring-alignment.md): Spec/manifest/OpenAPI drift, human-approved ADRs & Concentric Ring checker
+- [docs/specs/cap-04-single-path-measured-gate.md](./docs/specs/cap-04-single-path-measured-gate.md): Single-path (`docs-only` vs `code`) coverage, mutation & secret-scan gate
+- [docs/specs/cap-05-cryptographic-merge-receipts.md](./docs/specs/cap-05-cryptographic-merge-receipts.md): Append-only SHA-256 hash chain & multi-topology HMAC-SHA256 Stage 7 receipts
+- [docs/specs/cap-06-canonical-skills-and-installer.md](./docs/specs/cap-06-canonical-skills-and-installer.md): Canonical 6-skill suite, symlink-safe multi-agent installer & `doctor`
 
 ## Companion Ecosystem
 
-- [Archlens (`https://github.com/fmatar/archlens`)](https://github.com/fmatar/archlens): Dynamic Clean Architecture Workbench, `.archlens/policy.json` concentric ring policy engine, mailbox refactoring companion, and MCP server (`@fmatar/archlens-skill`)
-
-## Product Governance & Templates
-
-- [PRODUCT.md](./PRODUCT.md): Constitutional capabilities (`CAP-01`–`CAP-11`), hard invariants (`INV-01`–`INV-04`), and ADR index
-- [docs/PRD.md](./docs/PRD.md): Macro Product Requirements Document
-- [docs/SRS.md](./docs/SRS.md): IEEE 29148 Software Requirements Specification & compacted release ADRs
-- [docs/templates/README_TEMPLATE.md](./docs/templates/README_TEMPLATE.md): Canonical 10–30–90 Developer Landing Page template (`cli`, `sdk`, `platform`)
-- [CONTRIBUTING.md](./CONTRIBUTING.md): Source build, TDD test suite execution, and pull request workflow
-- [CHANGELOG.md](./CHANGELOG.md): Semantic Versioning release history
+- [Archlens (`https://github.com/fmatar/archlens`)](https://github.com/fmatar/archlens): Dynamic Clean Architecture Workbench, `.archlens/policy.json` concentric ring policy engine, and MCP server (`@fmatar/archlens-skill`)

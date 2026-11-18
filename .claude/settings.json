@@ -2,13 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
     "allow": [
-      "Bash(node .agent/scripts/sdlc-engine.mjs *)",
-      "Bash(.agent/scripts/kanban-sync.sh *)",
-      "Bash(node .agent/scripts/sdlc-engine.mjs:*)",
-      "Bash(.agent/scripts/kanban-sync.sh:*)"
+      "Bash(node .agent/scripts/sdlc-engine.mjs *)"
     ]
-  },
-  "env": {
-    "SDLC_FRAMEWORK": "1"
   }
 }
