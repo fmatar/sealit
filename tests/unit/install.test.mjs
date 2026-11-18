@@ -13,6 +13,7 @@ import {
   SUPPORTED_AGENTS,
   SDLC_GITIGNORE_ENTRIES,
   CLAUDE_SDLC_ALLOW_RULES,
+  buildQualityGateWorkflow,
   upsertGitignore,
   auditSkills,
   installCIWorkflow,
@@ -470,5 +471,32 @@ describe('Ring 2: lib/install.mjs', () => {
     fs.writeFileSync(path.join(custom.dir, '.claude/settings.json'), customRaw, 'utf8');
     await installFramework({ targetDir: custom.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
     assert.equal(fs.readFileSync(path.join(custom.dir, '.claude/settings.json'), 'utf8'), customRaw);
+  });
+
+  it('generated workflow verifies the receipt before installing or running PR code, drops persisted credentials, and doctor --fix upgrades the old order', () => {
+    const wf = buildQualityGateWorkflow();
+    const iVerify = wf.indexOf('- name: Verify Signed Stage 7 Gate Receipt');
+    const iSetupNode = wf.indexOf('- name: Setup Node.js Runtime');
+    assert.ok(iVerify > iSetupNode && iSetupNode > -1, 'verify needs node, so it runs after setup-node');
+    assert.ok(iVerify < wf.indexOf('- name: Install Dependencies'), 'verify must run before npm ci/install');
+    assert.ok(iVerify < wf.indexOf('npm test'), 'verify must run before PR tests');
+    assert.ok(iVerify < wf.indexOf('gate --no-cache'), 'verify must run before the PR engine gate');
+    assert.match(wf, /uses: actions\/checkout@v7\n\s+with:\n\s+fetch-depth: 0\n\s+persist-credentials: false/);
+
+    const { dir, cleanup } = createTempGitRepo();
+    cleanups.push(cleanup);
+    // Rebuild the v0.1.0 layout: verify step moved to the end, credentials persisted.
+    const blockStart = wf.lastIndexOf('\n', iVerify) + 1;
+    const nextStep = wf.indexOf('\n      - name:', iVerify);
+    const verifyBlock = wf.slice(blockStart, nextStep === -1 ? wf.length : nextStep + 1);
+    const oldOrder = `${wf.slice(0, blockStart)}${wf.slice(blockStart + verifyBlock.length)}`.replace('          persist-credentials: false\n', '').trimEnd() + `\n\n${verifyBlock.trimEnd()}\n`;
+    assert.ok(oldOrder.indexOf('Verify Signed Stage 7') > oldOrder.indexOf('Install Dependencies'));
+    fs.mkdirSync(path.join(dir, '.github/workflows'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.github/workflows/sdlc-quality-gate.yml'), oldOrder, 'utf8');
+    const res = installCIWorkflow({ repoRoot: dir, force: false, upgradeLegacy: true });
+    assert.equal(res.upgraded, true);
+    const upgraded = fs.readFileSync(path.join(dir, '.github/workflows/sdlc-quality-gate.yml'), 'utf8');
+    assert.ok(upgraded.indexOf('Verify Signed Stage 7') < upgraded.indexOf('Install Dependencies'));
+    assert.equal(installCIWorkflow({ repoRoot: dir, force: false, upgradeLegacy: true }).skipped, true);
   });
 });

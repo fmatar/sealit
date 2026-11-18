@@ -108,7 +108,7 @@ describe('v0.1.0 Structural & Governance Invariants', () => {
     }
   });
 
-  it('Invariant 4: Workflows enforce self-hosted runner policy, main-branch release receipt guard, and env-isolated tests', () => {
+  it('Invariant 4: Workflows enforce self-hosted runner policy, main-branch release receipt guard, and env-isolated tests', async () => {
     const qg = fs.readFileSync(path.join(REPO_ROOT, '.github/workflows/sdlc-quality-gate.yml'), 'utf8');
     const cfg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, '.agent/sdlc-config.json'), 'utf8'));
     assert.equal(qg.includes(`runs-on: ${cfg.ci.runsOn}`), true);
@@ -116,6 +116,8 @@ describe('v0.1.0 Structural & Governance Invariants', () => {
     assert.match(qg, /--branch "\$GITHUB_HEAD_REF"/);
     assert.match(qg, /SDLC_RECEIPT_KEY: ci-dummy-test-key/);
     assert.match(qg, /git archive "origin\/\$BASE_REF"/);
+    const { buildQualityGateWorkflow } = await import('../../.agent/scripts/lib/install.mjs');
+    assert.equal(qg, buildQualityGateWorkflow({ runsOn: cfg.ci.runsOn, checkName: cfg.ci.checkName, repoRoot: REPO_ROOT }), 'repo workflow must equal the generator output');
 
     const rel = fs.readFileSync(path.join(REPO_ROOT, '.github/workflows/release.yml'), 'utf8');
     assert.equal(rel.includes(`runs-on: ${cfg.ci.runsOn}`), true);

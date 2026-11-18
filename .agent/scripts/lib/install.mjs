@@ -363,6 +363,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Enforce Branch Flow Policy
         if: github.event_name == 'pull_request' && github.base_ref == 'main'
@@ -381,32 +382,6 @@ jobs:
         with:
           node-version: "lts/*"
           cache: 'npm'
-
-      - name: Install Dependencies
-        run: |
-          if [ -f "package-lock.json" ]; then
-            npm ci --no-audit --no-fund
-          elif [ -f "package.json" ]; then
-            npm install --no-audit --no-fund
-          fi
-
-      - name: Verify Env-Isolated Test Suite
-        if: hashFiles('package.json') != ''
-        env:
-          SDLC_RECEIPT_KEY: ci-dummy-test-key
-        run: |
-          npm test
-
-      - name: Verify Universal Quality Gate & Hash-Chain Audit Ledger
-        run: |
-          if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
-            node .agent/scripts/sdlc-engine.mjs config check
-            node .agent/scripts/sdlc-engine.mjs verify --chain-only
-            node .agent/scripts/sdlc-engine.mjs skill-audit
-            node .agent/scripts/sdlc-engine.mjs gate --no-cache
-          else
-            npm test
-          fi
 
       - name: Verify Signed Stage 7 Gate Receipt
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
@@ -436,13 +411,46 @@ jobs:
           else
             node "$ENGINE_BIN" guard verify --sha "$PR_HEAD_SHA" --branch "$GITHUB_HEAD_REF"
           fi
+
+      - name: Install Dependencies
+        run: |
+          if [ -f "package-lock.json" ]; then
+            npm ci --no-audit --no-fund
+          elif [ -f "package.json" ]; then
+            npm install --no-audit --no-fund
+          fi
+
+      - name: Verify Env-Isolated Test Suite
+        if: hashFiles('package.json') != ''
+        env:
+          SDLC_RECEIPT_KEY: ci-dummy-test-key
+        run: |
+          npm test
+
+      - name: Verify Universal Quality Gate & Hash-Chain Audit Ledger
+        run: |
+          if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
+            node .agent/scripts/sdlc-engine.mjs config check
+            node .agent/scripts/sdlc-engine.mjs verify --chain-only
+            node .agent/scripts/sdlc-engine.mjs skill-audit
+            node .agent/scripts/sdlc-engine.mjs gate --no-cache
+          else
+            npm test
+          fi
 `;
 }
 
 function isLegacySdlcWorkflow(raw = '') {
+  if (!raw.includes('sdlc-engine.mjs')) return false;
+  const iVerify = raw.indexOf('Verify Signed Stage 7 Gate Receipt');
+  const iInstall = raw.indexOf('Install Dependencies');
   return (
-    raw.includes('sdlc-engine.mjs') &&
-    (!raw.includes('--branch "$GITHUB_HEAD_REF"') || raw.includes('gate --strict') || !raw.includes('git archive "origin/$BASE_REF"') || /\bnode "\$ENGINE_BIN" verify --sha\b/.test(raw))
+    !raw.includes('--branch "$GITHUB_HEAD_REF"') ||
+    raw.includes('gate --strict') ||
+    !raw.includes('git archive "origin/$BASE_REF"') ||
+    /\bnode "\$ENGINE_BIN" verify --sha\b/.test(raw) ||
+    !raw.includes('persist-credentials: false') ||
+    (iVerify !== -1 && iInstall !== -1 && iInstall < iVerify)
   );
 }
 
