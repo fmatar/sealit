@@ -53,10 +53,11 @@ export function scanDiffSecrets(repoRoot = '.', { baseBranch = null, runNpmAudit
     for (const file of diffFiles) {
       try {
         const diffOutput = diffsByFile.get(file) || '';
-        if (!diffOutput) continue;
+        const isBinExt = /\.(?:png|jpe?g|gif|webp|ico|bmp|tiff?|avif|mp[34]|mov|avi|mkv|wav|ogg|flac|woff2?|ttf|otf|eot|pdf|zip|tar|gz|tgz|bz2|xz|7z|rar|wasm|pyc|class|jar|so|dylib|dll|exe|bin|sqlite3?|db)$/i.test(file);
+        if (!diffOutput) { if (!isBinExt && fs.statSync(path.resolve(repoRoot, file), { throwIfNoEntry: false })?.isFile()) secretViolations.push({ file, type: 'SCAN_ERROR', error: 'Modified file missing from unified diff.' }); continue; }
         const lines = diffOutput.replace(/\r\n/g, '\n').split('\n');
         const hasPlus = lines.some((l) => l.startsWith('+') && !l.startsWith('+++'));
-        if (/^Binary files .* differ$/m.test(diffOutput) && !hasPlus && !/\.(?:png|jpe?g|gif|webp|ico|bmp|tiff?|avif|mp[34]|mov|avi|mkv|wav|ogg|flac|woff2?|ttf|otf|eot|pdf|zip|tar|gz|tgz|bz2|xz|7z|rar|wasm|pyc|class|jar|so|dylib|dll|exe|bin|sqlite3?|db)$/i.test(file)) {
+        if (/^Binary files .* differ$/m.test(diffOutput) && !hasPlus && !isBinExt) {
           secretViolations.push({ file, type: 'SCAN_ERROR', error: 'Unexpanded binary text diff.' });
           continue;
         }

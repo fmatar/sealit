@@ -61,6 +61,48 @@ describe('Ring 2: lib/measure.mjs', () => {
     }
   });
 
+  it('scanDiffSecrets fails closed when a modified on-disk text file has no diff entry (while allowing binary extensions and deleted files)', () => {
+    const { dir, cleanup } = createTempGitRepo();
+    cleanups.push(cleanup);
+
+    fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'src/deleted.js'), 'export const d = 1;\n', 'utf8');
+    git(dir, 'add', 'src/deleted.js');
+    git(dir, 'commit', '-q', '-m', 'chore: base file');
+
+    git(dir, 'checkout', '-q', '-b', 'feat/missing-diff', 'develop');
+    fs.mkdirSync(path.join(dir, 'assets'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'src/a.js'), 'export const a = 1;\n', 'utf8');
+    fs.writeFileSync(path.join(dir, 'assets/logo.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    git(dir, 'rm', '-q', 'src/deleted.js');
+    git(dir, 'add', 'src/a.js', 'assets/logo.png');
+    git(dir, 'commit', '-q', '-m', 'feat: commit a, png, and remove deleted');
+
+    const res = scanDiffSecrets(dir, { baseBranch: 'develop', diffGetter: () => new Map() });
+    assert.equal(res.passed, false);
+    assert.ok(res.secretViolations.some((v) => v.file === 'src/a.js' && v.type === 'SCAN_ERROR'));
+    assert.equal(res.secretViolations.some((v) => v.file === 'assets/logo.png'), false);
+    assert.equal(res.secretViolations.some((v) => v.file === 'src/deleted.js'), false);
+  });
+
+  it('literal pathspecs stop ":!" filenames from excluding secret files', () => {
+    const { dir, cleanup } = createTempGitRepo();
+    cleanups.push(cleanup);
+
+    git(dir, 'checkout', '-q', '-b', 'feat/magic-path', 'develop');
+    fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+    const fakeKey = ['AKIA', 'QQQQ', 'ABCDEFGHIJKL'].join('');
+    fs.mkdirSync(path.join(dir, ':!src'), { recursive: true });
+    fs.writeFileSync(path.join(dir, ':!src/leak.mjs'), '', 'utf8');
+    fs.writeFileSync(path.join(dir, 'src/leak.mjs'), `export const k = "${fakeKey}";\n`, 'utf8');
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'feat: commit excluded pathspec trick');
+
+    const res = scanDiffSecrets(dir, { baseBranch: 'develop' });
+    assert.equal(res.passed, false);
+    assert.ok(res.secretViolations.some((v) => v.file === 'src/leak.mjs' && v.type === 'SECRET_LEAK'));
+  });
+
   it('requireFreshReport fails closed when statSync throws or when report mtime is stale', () => {
     const { dir, cleanup } = createTempGitRepo();
     cleanups.push(cleanup);

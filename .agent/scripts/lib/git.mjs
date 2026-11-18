@@ -610,7 +610,7 @@ export function getUnifiedDiffByFile(baseBranch = null, repoRoot = '.', files = 
   const diffMap = new Map();
   if (Array.isArray(files) && files.length === 0) return diffMap;
   const { headSha, mergeBase } = resolveDiffComparisonState(baseBranch, repoRoot);
-  const pathArgs = Array.isArray(files) && files.length > 0 && files.length <= 200 ? ['--', ...files] : ['--'];
+  const pathArgs = Array.isArray(files) && files.length > 0 && files.length <= 200 ? ['--', ...files.map((f) => `:(literal)${f}`)] : ['--'];
   const gitDiffStrict = (args) => {
     const out = gitOutput(args, repoRoot);
     if (out === null && strict) throw new Error(`git ${args.slice(0, 2).join(' ')} failed.`);
