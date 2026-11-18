@@ -5,8 +5,6 @@ import { execFileSync } from 'node:child_process';
 import {
   fileExists,
   getCurrentGitBranch,
-  getModifiedFiles,
-  getUnifiedDiffByFile,
   gitExec,
   gitOutput,
   hasBranch,
@@ -14,10 +12,11 @@ import {
   hasDirtyNonGovernanceFiles,
   isDocsOnlyDiff,
   normalizeTicketId,
+  readChangeSet,
   resolveDefaultBaseBranch,
-  resolveDiffComparisonState,
   resolveGitCommonRepoRoot,
   resolveGitHooksDir,
+  resolveRange,
   verifyCleanThreeWayMergeTrees
 } from './git.mjs';
 import { DEFAULT_QUALITY_GATE_CHECK, loadConfig } from './config.mjs';
@@ -193,10 +192,12 @@ export function getSessionStatus(repoRoot = '.') {
   const branch = getCurrentGitBranch(repoRoot);
   const session = readActiveSession(repoRoot, branch);
   const baseBranch = session?.baseBranch || null;
-  const modifiedFiles = getModifiedFiles(baseBranch, repoRoot);
-  const mode = modifiedFiles.length > 0 && isDocsOnlyDiff(modifiedFiles) ? 'docs-only' : 'code';
-  const drift = checkSpecDrift({ ticketId: session?.issueId || null, baseBranch, repoRoot });
-  const headSha = (gitOutput(['rev-parse', '--verify', 'HEAD'], repoRoot) || '').trim() || null;
+  const range = resolveRange({ baseBranch, head: 'HEAD', repoRoot });
+  const cs = readChangeSet({ ...range, source: 'worktree', repoRoot });
+  const modifiedFiles = cs.paths;
+  const mode = isDocsOnlyDiff(cs) ? 'docs-only' : 'code';
+  const drift = checkSpecDrift({ ticketId: session?.issueId || null, baseBranch: range.effectiveBase, changeSet: cs, repoRoot });
+  const headSha = range.headSha;
   const dirty = hasDirtyNonGovernanceFiles(repoRoot, { allowAuditChain: true });
 
   const gateFresh = Boolean(session?.lastGate?.passed && !dirty && headSha && session.lastGate.headSha === headSha);
@@ -204,6 +205,8 @@ export function getSessionStatus(repoRoot = '.') {
 
   return {
     active: Boolean(session),
+    advisory: true,
+    source: 'worktree',
     branch,
     headSha,
     dirty,
@@ -488,57 +491,80 @@ export function verifyMergeGuard({ targetBranch = null, sourceBranch = null, sou
   return { allowed: true, layer: 'PASSED', targetBranch: currentTarget, receipt: receiptCheck.receipt };
 }
 
-export function verifyPushGuard({ remoteBranch = null, stdinText = '', repoRoot = '.' } = {}) {
-  for (const line of String(stdinText || '').replace(/\r\n/g, '\n').split('\n')) {
-    const parts = line.trim().split(/\s+/);
-    if (parts.length >= 3 && parts[2].startsWith('refs/heads/')) {
-      const destBranch = parts[2].slice('refs/heads/'.length);
-      if (PROTECTED_BRANCHES.includes(destBranch)) {
-        return {
-          allowed: false,
-          layer: 'LAYER_4_PROTECTED_PUSH',
-          branch: destBranch,
-          message: `Direct pushes to '${destBranch}' via refspec are forbidden (INV-01).`
-        };
-      }
-    }
+function evaluatePushCommitRange({ branch, localSha, repoRoot }) {
+  const session = readActiveSession(repoRoot, branch);
+  const range = resolveRange({ baseBranch: session?.baseBranch || null, head: localSha, branchHint: branch, repoRoot });
+  if (!range.headSha) {
+    return { allowed: false, layer: 'LAYER_4_UNRESOLVED_SHA', branch, message: `Push blocked: cannot resolve commit '${localSha}' for '${branch}'.` };
   }
-  const target = remoteBranch || getCurrentGitBranch(repoRoot) || '';
-  if (PROTECTED_BRANCHES.includes(target)) {
-    return {
-      allowed: false,
-      layer: 'LAYER_4_PROTECTED_PUSH',
-      branch: target,
-      message: `Direct pushes to '${target}' are forbidden (INV-01).`
-    };
-  }
-
-  const session = readActiveSession(repoRoot, target);
-  const baseBranch = session?.baseBranch || null;
-  const secrets = scanDiffSecrets(repoRoot, { baseBranch, runNpmAudit: false });
+  const cs = readChangeSet({ baseSha: range.baseSha, headSha: range.headSha, source: 'commit', repoRoot });
+  const secrets = scanDiffSecrets(repoRoot, { baseBranch: range.effectiveBase, changeSet: cs, runNpmAudit: false });
   if (!secrets.passed) {
     const details = secrets.secretViolations.map((v) => `${v.file} (${v.pattern || v.type})`).join(', ');
-    return {
-      allowed: false,
-      layer: 'LAYER_4_SECRET_LEAK',
-      branch: target,
-      secrets,
-      message: `Push blocked: secret leak or scan error detected in diff: ${details}`
-    };
+    return { allowed: false, layer: 'LAYER_4_SECRET_LEAK', branch, secrets, message: `Push blocked: secret leak or scan error detected in diff: ${details}` };
   }
-
-  const drift = checkSpecDrift({ ticketId: session?.issueId || null, baseBranch, repoRoot });
+  const drift = checkSpecDrift({ ticketId: session?.issueId || null, baseBranch: range.effectiveBase, changeSet: cs, repoRoot });
   if (!drift.passed) {
     return {
       allowed: false,
       layer: 'LAYER_4_UNDECLARED_SPEC_DRIFT',
-      branch: target,
+      branch,
       drift,
       message: `Push blocked: ${drift.message}${drift.remediationCommand ? `\nRun: ${drift.remediationCommand}` : ''}`
     };
   }
+  return { allowed: true, layer: 'PASSED', branch };
+}
 
-  return { allowed: true, layer: 'PASSED', branch: target };
+export function verifyPushGuard({ remoteBranch = null, stdinText = '', stdinError = null, repoRoot = '.' } = {}) {
+  if (stdinError) {
+    return {
+      allowed: false,
+      layer: 'LAYER_4_STDIN_UNREADABLE',
+      message: `Push blocked: unable to read pre-push ref updates from stdin (${stdinError.message || stdinError}).`
+    };
+  }
+  const lines = String(stdinText || '')
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  if (lines.length > 0) {
+    let lastCheckedBranch = null;
+    for (const line of lines) {
+      const parts = line.split(/\s+/);
+      if (parts.length < 4) {
+        return { allowed: false, layer: 'LAYER_4_STDIN_UNREADABLE', message: `Push blocked: malformed pre-push stdin line '${line}'.` };
+      }
+      const [localRef, localSha, remoteRef] = parts;
+      const isDelete = /^0+$/.test(localSha) || localRef === '(delete)';
+      if (remoteRef.startsWith('refs/tags/') || (localRef.startsWith('refs/tags/') && !remoteRef.startsWith('refs/heads/'))) {
+        continue;
+      }
+      if (remoteRef.startsWith('refs/heads/')) {
+        const destBranch = remoteRef.slice('refs/heads/'.length);
+        if (PROTECTED_BRANCHES.includes(destBranch)) {
+          return { allowed: false, layer: 'LAYER_4_PROTECTED_PUSH', branch: destBranch, message: `Direct pushes to '${destBranch}' via refspec are forbidden (INV-01).` };
+        }
+        if (isDelete) continue;
+        const localBranch = localRef.startsWith('refs/heads/') ? localRef.slice('refs/heads/'.length) : destBranch;
+        const checked = evaluatePushCommitRange({ branch: localBranch, localSha, repoRoot });
+        if (!checked.allowed) return { ...checked, branch: destBranch };
+        lastCheckedBranch = destBranch;
+      } else if (!isDelete) {
+        const checked = evaluatePushCommitRange({ branch: remoteRef, localSha, repoRoot });
+        if (!checked.allowed) return checked;
+      }
+    }
+    return { allowed: true, layer: 'PASSED', branch: lastCheckedBranch };
+  }
+
+  const target = remoteBranch || getCurrentGitBranch(repoRoot) || '';
+  if (PROTECTED_BRANCHES.includes(target)) {
+    return { allowed: false, layer: 'LAYER_4_PROTECTED_PUSH', branch: target, message: `Direct pushes to '${target}' are forbidden (INV-01).` };
+  }
+  return evaluatePushCommitRange({ branch: target, localSha: 'HEAD', repoRoot });
 }
 
 export function postMergeCleanup({ repoRoot = '.' } = {}) {
@@ -694,13 +720,13 @@ export function applyBranchProtection({
 }
 
 export function buildReviewPlan(repoRoot = '.', { baseBranch = null } = {}) {
-  const { effectiveBase, headSha, mergeBase } = resolveDiffComparisonState(baseBranch, repoRoot);
-  const modifiedFiles = getModifiedFiles(effectiveBase, repoRoot);
-  const mode = modifiedFiles.length > 0 && isDocsOnlyDiff(modifiedFiles) ? 'docs-only' : 'code';
-  const diffsByFile = getUnifiedDiffByFile(effectiveBase, repoRoot, modifiedFiles);
+  const { effectiveBase, baseSha: mergeBase, headSha } = resolveRange({ baseBranch, head: 'HEAD', repoRoot });
+  const cs = readChangeSet({ baseSha: mergeBase, headSha, source: 'worktree', repoRoot });
+  const modifiedFiles = cs.paths;
+  const mode = isDocsOnlyDiff(cs) ? 'docs-only' : 'code';
   let fullDiff = '';
   let changedLines = 0;
-  for (const chunk of diffsByFile.values()) {
+  for (const chunk of cs.patches.values()) {
     fullDiff += `${chunk}\n`;
     changedLines += chunk.split('\n').filter((l) => (l.startsWith('+') && !l.startsWith('+++')) || (l.startsWith('-') && !l.startsWith('---'))).length;
   }
@@ -720,18 +746,18 @@ export function buildReviewPlan(repoRoot = '.', { baseBranch = null } = {}) {
           {
             role: 'PR Peer Reviewer',
             focus: 'Verify behavioral correctness, edge cases, TDD test quality, and YAGNI simplicity.',
-            prompt: `Review branch diff (${mergeBase?.slice(0, 7) || effectiveBase}..${headSha?.slice(0, 7) || 'HEAD'}).\nModified files: ${modifiedFiles.join(', ')}\nReturn structured verdict: approve | request-changes, blockers: [], notes.\n\nDiff:\n${boundedDiff}`
+            prompt: `Review branch diff (${mergeBase?.slice(0, 7) || effectiveBase}..${headSha?.slice(0, 7) || 'HEAD'}) (advisory: includes uncommitted changes).\nModified files: ${modifiedFiles.join(', ')}\nReturn structured verdict: approve | request-changes, blockers: [], notes.\n\nDiff:\n${boundedDiff}`
           },
           ...(needsArchReviewer
             ? [
                 {
                   role: 'Architecture & Security Reviewer',
                   focus: 'Verify Concentric Clean Architecture ring boundaries, fail-closed error handling, shell-free execution (INV-04), and spec/ADR alignment.',
-                  prompt: `Audit security and architecture invariants on diff (${mergeBase?.slice(0, 7) || effectiveBase}..${headSha?.slice(0, 7) || 'HEAD'}).\nModified files: ${modifiedFiles.join(', ')}\nReturn structured verdict: approve | request-changes, blockers: [], notes.\n\nDiff:\n${boundedDiff}`
+                  prompt: `Audit security and architecture invariants on diff (${mergeBase?.slice(0, 7) || effectiveBase}..${headSha?.slice(0, 7) || 'HEAD'}) (advisory: includes uncommitted changes).\nModified files: ${modifiedFiles.join(', ')}\nReturn structured verdict: approve | request-changes, blockers: [], notes.\n\nDiff:\n${boundedDiff}`
                 }
               ]
             : [])
         ];
 
-  return { mode, baseBranch: effectiveBase, mergeBase, headSha, changedLines, modifiedFiles, reviewers };
+  return { advisory: true, source: 'worktree', mode, baseBranch: effectiveBase, mergeBase, headSha, changedLines, modifiedFiles, reviewers };
 }

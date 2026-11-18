@@ -62,31 +62,60 @@ describe('Ring 2: lib/guard.mjs', () => {
     assert.equal(fs.existsSync(path.join(wtPath, 'unsaved.txt')), true);
   });
 
-  it('verifyPushGuard blocks protected branches, leaked secrets, and undeclared spec drift before remote push', () => {
+  it('verifyPushGuard evaluates each pushed ref commit range, ignores working-tree masking, allows tags, and fails closed on unreadable stdin', () => {
     const { dir, cleanup } = createTempGitRepo();
     cleanups.push(cleanup);
 
     assert.equal(verifyPushGuard({ repoRoot: dir }).allowed, false);
+    assert.equal(verifyPushGuard({ stdinError: new Error('EIO'), repoRoot: dir }).layer, 'LAYER_4_STDIN_UNREADABLE');
+
+    // Pushing a tag while HEAD is on main is allowed
+    git(dir, 'checkout', '-q', 'main');
+    const mainSha = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+    const tagPush = verifyPushGuard({
+      stdinText: `refs/tags/v0.1.1 ${mainSha} refs/tags/v0.1.1 ${'0'.repeat(40)}\n`,
+      repoRoot: dir
+    });
+    assert.equal(tagPush.allowed, true);
+    git(dir, 'checkout', '-q', 'develop');
 
     beginSession({ issueId: '31', title: 'Push Check', checkout: true, repoRoot: dir });
     assert.equal(verifyPushGuard({ repoRoot: dir }).allowed, true);
 
-    // Secret in staged diff blocks push immediately!
+    // 1 & 2. Secret committed then edited OR deleted only in working tree is STILL blocked!
     const fakeSecret = ['AKIA', '1234567890ABCDEF'].join('');
     fs.writeFileSync(path.join(dir, 'leak.mjs'), `export const k = "${fakeSecret}";\n`, 'utf8');
     git(dir, 'add', 'leak.mjs');
-    const secBlocked = verifyPushGuard({ repoRoot: dir });
-    assert.equal(secBlocked.allowed, false);
-    assert.match(secBlocked.message, /secret/i);
+    git(dir, 'commit', '-q', '-m', 'bad: commit secret');
+    fs.writeFileSync(path.join(dir, 'leak.mjs'), 'export const k = "redacted-in-worktree-only";\n', 'utf8');
+    assert.equal(verifyPushGuard({ repoRoot: dir }).allowed, false, 'worktree edit must not mask committed secret');
+    fs.unlinkSync(path.join(dir, 'leak.mjs'));
+    assert.equal(verifyPushGuard({ repoRoot: dir }).allowed, false, 'uncommitted deletion must not mask committed secret');
 
-    git(dir, 'rm', '-f', '-q', 'leak.mjs');
+    git(dir, 'reset', '--hard', 'HEAD~1');
     assert.equal(verifyPushGuard({ repoRoot: dir }).allowed, true);
 
-    // Undeclared PRODUCT.md drift blocks push
-    fs.writeFileSync(path.join(dir, 'PRODUCT.md'), '# Changed spec\n', 'utf8');
-    const driftBlocked = verifyPushGuard({ repoRoot: dir });
-    assert.equal(driftBlocked.allowed, false);
-    assert.match(driftBlocked.message, /drift|ADR/i);
+    // 4 & 5. While HEAD is on develop, pushing feat/x with remoteSha 000... judges feat/x against its session baseBranch (including drift)
+    git(dir, 'checkout', '-q', 'develop');
+    git(dir, 'branch', 'custom-base', 'HEAD');
+    git(dir, 'checkout', '-q', '-b', 'feat/custom-push', 'custom-base');
+    beginSession({ issueId: '32', title: 'Custom Push', branch: 'feat/custom-push', repoRoot: dir });
+    const store = readSessionStore(dir);
+    store.sessions['32'].baseBranch = 'custom-base';
+    fs.writeFileSync(path.join(dir, '.agent/.sdlc-session.json'), JSON.stringify(store, null, 2), 'utf8');
+    fs.writeFileSync(path.join(dir, 'PRODUCT.md'), '# Undeclared drift on feat/custom-push\n', 'utf8');
+    git(dir, 'add', 'PRODUCT.md');
+    git(dir, 'commit', '-q', '-m', 'docs: drift on feat/custom-push');
+    const featSha = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+    git(dir, 'checkout', '-q', 'develop');
+
+    const refBlocked = verifyPushGuard({
+      stdinText: `refs/heads/feat/custom-push ${featSha} refs/heads/feat/custom-push ${'0'.repeat(40)}\n`,
+      repoRoot: dir
+    });
+    assert.equal(refBlocked.allowed, false);
+    assert.equal(refBlocked.layer, 'LAYER_4_UNDECLARED_SPEC_DRIFT');
+    assert.equal(refBlocked.branch, 'feat/custom-push');
   });
 
   it('verifyMergeGuard extracts branch from GITHEAD_<sha> even when MERGE_HEAD exists, and recordReviewVerdict signs receipt', () => {

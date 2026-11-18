@@ -2,16 +2,18 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+  EMPTY_TREE_SHA,
   computeAlignmentHashes,
   fileExists,
-  getModifiedFiles,
-  gitOutput,
+  listTree,
   normalizeTicketId,
   parseFrontmatter,
+  readBlobs,
+  readChangeSet,
   readFileSafe,
-  resolveDiffComparisonState,
   resolveEffectiveDiffBase,
   resolveInsideRepo,
+  resolveRange,
   writeFileAtomic
 } from './git.mjs';
 import { appendAuditRecord } from './receipt.mjs';
@@ -52,34 +54,43 @@ function slugifyTitle(title) {
   );
 }
 
-export function listADRs(repoRoot = '.') {
+function parseAdrRecord(relFile, raw) {
+  const { frontmatter } = parseFrontmatter(raw);
+  const name = path.posix.basename(relFile);
+  const idMatch = name.match(/^(ADR-\d+)/i);
+  const id = (frontmatter.id || (idMatch ? idMatch[1] : name.replace(/\.md$/i, ''))).toUpperCase();
+  return {
+    id,
+    title: frontmatter.title || id,
+    scope: (frontmatter.scope || 'technical').toLowerCase(),
+    status: (frontmatter.status || 'pending_approval').toLowerCase(),
+    ticket: normalizeTicketId(frontmatter.ticket ?? frontmatter.ticketId),
+    supersedes: parseListField(frontmatter.supersedes ?? frontmatter.affects),
+    decidedBy: frontmatter.decidedBy || null,
+    decidedAt: frontmatter.decidedAt || null,
+    file: relFile,
+    sha256: crypto.createHash('sha256').update(raw.replace(/\r\n/g, '\n')).digest('hex')
+  };
+}
+
+export function listADRs(repoRoot = '.', { sha = null } = {}) {
+  if (sha) {
+    const files = listTree(sha, 'docs/adr', repoRoot).filter((f) => /^docs\/adr\/ADR-\d+[^/]*\.md$/i.test(f));
+    const blobs = readBlobs(files.map((f) => `${sha}:${f}`), repoRoot);
+    const out = [];
+    for (const f of files) {
+      const raw = blobs.get(`${sha}:${f}`);
+      if (raw !== null && raw !== undefined) out.push(parseAdrRecord(f, raw));
+    }
+    return out;
+  }
   const adrDir = path.resolve(repoRoot, 'docs/adr');
   if (!fileExists(adrDir)) return [];
-  const entries = fs
-    .readdirSync(adrDir)
-    .filter((name) => /^ADR-\d+.*\.md$/i.test(name))
-    .sort();
-
+  const entries = fs.readdirSync(adrDir).filter((name) => /^ADR-\d+.*\.md$/i.test(name)).sort();
   const out = [];
   for (const name of entries) {
-    const abs = path.join(adrDir, name);
-    const raw = readFileSafe(abs);
-    if (raw === null) continue;
-    const { frontmatter } = parseFrontmatter(raw);
-    const idMatch = name.match(/^(ADR-\d+)/i);
-    const id = (frontmatter.id || (idMatch ? idMatch[1] : name.replace(/\.md$/i, ''))).toUpperCase();
-    out.push({
-      id,
-      title: frontmatter.title || id,
-      scope: (frontmatter.scope || 'technical').toLowerCase(),
-      status: (frontmatter.status || 'pending_approval').toLowerCase(),
-      ticket: normalizeTicketId(frontmatter.ticket ?? frontmatter.ticketId),
-      supersedes: parseListField(frontmatter.supersedes ?? frontmatter.affects),
-      decidedBy: frontmatter.decidedBy || null,
-      decidedAt: frontmatter.decidedAt || null,
-      file: `docs/adr/${name}`,
-      sha256: crypto.createHash('sha256').update(raw.replace(/\r\n/g, '\n')).digest('hex')
-    });
+    const raw = readFileSafe(path.join(adrDir, name));
+    if (raw !== null) out.push(parseAdrRecord(`docs/adr/${name}`, raw));
   }
   return out;
 }
@@ -88,12 +99,21 @@ function resolveNextAdrId(repoRoot = '.') {
   let maxNum = 0;
   const bump = (text) => {
     if (!text) return;
-    for (const m of text.matchAll(/\bADR-(\d+)\b/gi)) {
+    for (const m of String(text).matchAll(/\bADR-(\d+)\b/gi)) {
       const n = Number(m[1]);
       if (Number.isInteger(n) && n > maxNum) maxNum = n;
     }
   };
   for (const adr of listADRs(repoRoot)) bump(adr.id);
+  const effBase = resolveEffectiveDiffBase(null, repoRoot);
+  for (const ref of [`origin/${effBase}`, effBase]) {
+    const treeFiles = listTree(ref, 'docs/adr', repoRoot).filter((f) => /^docs\/adr\/ADR-\d+[^/]*\.md$/i.test(f));
+    for (const f of treeFiles) bump(f);
+    if (treeFiles.length > 0) {
+      const blobs = readBlobs(treeFiles.map((f) => `${ref}:${f}`), repoRoot);
+      for (const raw of blobs.values()) if (raw) bump(parseFrontmatter(raw).frontmatter?.id);
+    }
+  }
   bump(readFileSafe(path.resolve(repoRoot, 'docs/SRS.md')));
   bump(readFileSafe(path.resolve(repoRoot, 'PRODUCT.md')));
   return `ADR-${String(maxNum + 1).padStart(3, '0')}`;
@@ -236,22 +256,15 @@ export function decideADR({ adrId, status, action, reviewer = '@reviewer', reaso
   return { success: true, adr: refreshed };
 }
 
-function readFileAtMergeBase(relFile, mergeBase, repoRoot) {
-  if (!mergeBase) return null;
-  return gitOutput(['show', `${mergeBase}:${relFile}`], repoRoot);
-}
-
-function hasPackageJsonStructuralDiff(relFile, mergeBase, repoRoot) {
-  const absCur = path.resolve(repoRoot, relFile);
-  if (!fileExists(absCur)) return false;
+function hasPackageJsonStructuralDiff(curRaw, baseRaw) {
+  if (curRaw === null || curRaw === undefined) return false;
   let curPkg;
   try {
-    curPkg = JSON.parse(fs.readFileSync(absCur, 'utf8'));
+    curPkg = JSON.parse(curRaw);
   } catch {
     return true;
   }
-  const baseRaw = readFileAtMergeBase(relFile, mergeBase, repoRoot);
-  if (baseRaw === null) {
+  if (baseRaw === null || baseRaw === undefined) {
     return STRUCTURAL_PKG_KEYS.some((k) => {
       const val = curPkg[k];
       if (!val) return false;
@@ -269,9 +282,8 @@ function hasPackageJsonStructuralDiff(relFile, mergeBase, repoRoot) {
   return STRUCTURAL_PKG_KEYS.some((k) => JSON.stringify(curPkg[k] ?? null) !== JSON.stringify(basePkg[k] ?? null));
 }
 
-function validateOpenApiContract(absPath, relFile) {
-  const raw = readFileSafe(absPath);
-  if (raw === null) return `Unable to read contract file '${relFile}'.`;
+function validateOpenApiContract(raw, relFile) {
+  if (raw === null || raw === undefined) return `Unable to read contract file '${relFile}'.`;
   if (/\.json$/i.test(relFile)) {
     let parsed;
     try {
@@ -329,30 +341,34 @@ function validateOpenApiContract(absPath, relFile) {
   return null;
 }
 
-export function checkSpecDrift({ ticketId = null, baseBranch = null, repoRoot = '.' } = {}) {
+export function checkSpecDrift({ ticketId = null, baseBranch = null, changeSet = null, repoRoot = '.' } = {}) {
   const resolvedBase = resolveEffectiveDiffBase(baseBranch, repoRoot);
-  const { mergeBase } = resolveDiffComparisonState(resolvedBase, repoRoot);
-  const modifiedFiles = getModifiedFiles(resolvedBase, repoRoot);
+  const range = changeSet ? null : resolveRange({ baseBranch: resolvedBase, head: 'HEAD', repoRoot });
+  const cs = changeSet || readChangeSet({ ...range, source: 'worktree', repoRoot });
+  const mergeBase = cs.baseSha && cs.baseSha !== EMPTY_TREE_SHA ? cs.baseSha : null;
+  const fromCommit = cs.source === 'commit' && Boolean(cs.headSha);
 
   const triggers = [];
   const contractErrors = [];
-  const absRepo = path.resolve(repoRoot);
-  const realRepo = fileExists(absRepo) ? fs.realpathSync.native(absRepo) : absRepo;
-  const exactFileExists = (relPath) => {
-    const absPath = path.resolve(absRepo, relPath);
-    if (!fileExists(absPath)) return false;
-    try {
-      return path.relative(realRepo, fs.realpathSync.native(absPath)).replace(/\\/g, '/') === relPath.replace(/\\/g, '/');
-    } catch {
-      return false;
-    }
-  };
   const DELETED_GOVERNANCE_RE =
     /^(?:PRODUCT\.md|docs\/PRD\.md|docs\/SRS\.md|docs\/specs\/.+\.md|docs\/adr\/ADR-\d+.*\.md|docs\/AUDIT_CHAIN\.jsonl|\.archlens\/policy\.json)$|(?:^|\/)(?:package\.json|Cargo\.toml|pyproject\.toml|requirements[^/]*\.txt|go\.mod|pom\.xml|build\.gradle(?:\.kts)?|prisma\/schema\.prisma)$|\.(?:sql|graphql|proto)$|(?:openapi|swagger).*\.(?:json|ya?ml)$/i;
 
-  for (const rel of modifiedFiles) {
-    const abs = path.resolve(repoRoot, rel);
-    if (!fileExists(abs) || (DELETED_GOVERNANCE_RE.test(rel) && !exactFileExists(rel))) {
+  const nonDeletedEntries = cs.entries.filter((e) => e.status !== 'D');
+  const headSpecs = fromCommit ? nonDeletedEntries.map((e) => `${cs.headSha}:${e.path}`) : [];
+  const baseAdrPaths = mergeBase ? listTree(mergeBase, 'docs/adr', repoRoot).filter((f) => /^docs\/adr\/ADR-\d+.*\.md$/i.test(f)) : [];
+  const baseSpecs = mergeBase
+    ? [
+        ...nonDeletedEntries.filter((e) => e.path === 'PRODUCT.md' || /(?:^|\/)package\.json$/.test(e.path)).map((e) => `${mergeBase}:${e.path}`),
+        ...baseAdrPaths.map((f) => `${mergeBase}:${f}`)
+      ]
+    : [];
+  const blobCache = readBlobs([...headSpecs, ...baseSpecs], repoRoot);
+  const readCur = (rel) => (fromCommit ? blobCache.get(`${cs.headSha}:${rel}`) ?? null : readFileSafe(path.resolve(repoRoot, rel)));
+  const readBase = (rel) => (mergeBase ? blobCache.get(`${mergeBase}:${rel}`) ?? null : null);
+
+  for (const entry of cs.entries) {
+    const rel = entry.path;
+    if (entry.status === 'D') {
       if (DELETED_GOVERNANCE_RE.test(rel)) {
         triggers.push({ file: rel, type: 'SPEC_DELETED', scope: 'architectural' });
         if (rel === 'docs/AUDIT_CHAIN.jsonl') contractErrors.push("Audit ledger 'docs/AUDIT_CHAIN.jsonl' cannot be deleted.");
@@ -362,12 +378,10 @@ export function checkSpecDrift({ ticketId = null, baseBranch = null, repoRoot = 
 
     if (rel === 'PRODUCT.md' || rel === 'docs/PRD.md' || rel === 'docs/SRS.md' || /^docs\/specs\/.+\.md$/.test(rel)) {
       if (rel === 'PRODUCT.md' && mergeBase) {
-        const baseProd = readFileAtMergeBase('PRODUCT.md', mergeBase, repoRoot);
-        const curProd = readFileSafe(abs) || '';
+        const baseProd = readBase('PRODUCT.md');
+        const curProd = readCur('PRODUCT.md') || '';
         const stripIndex = (s) => String(s || '').replace(/\r\n/g, '\n').replace(/<!-- ADR_INDEX_START -->[\s\S]*?<!-- ADR_INDEX_END -->/, '').trim();
-        if (baseProd !== null && stripIndex(baseProd) === stripIndex(curProd)) {
-          continue;
-        }
+        if (baseProd !== null && stripIndex(baseProd) === stripIndex(curProd)) continue;
       }
       triggers.push({ file: rel, type: 'CONSTITUTION_OR_SPEC_DRIFT', scope: 'product' });
       continue;
@@ -379,7 +393,7 @@ export function checkSpecDrift({ ticketId = null, baseBranch = null, repoRoot = 
     }
 
     if (/(?:^|\/)package\.json$/.test(rel)) {
-      if (hasPackageJsonStructuralDiff(rel, mergeBase, repoRoot)) {
+      if (hasPackageJsonStructuralDiff(readCur(rel), readBase(rel))) {
         triggers.push({ file: rel, type: 'DEPENDENCY_DRIFT', scope: 'technical' });
       }
       continue;
@@ -396,7 +410,7 @@ export function checkSpecDrift({ ticketId = null, baseBranch = null, repoRoot = 
     }
 
     if (/(?:openapi|swagger).*\.(?:json|ya?ml)$/i.test(rel)) {
-      const parseErr = validateOpenApiContract(abs, rel);
+      const parseErr = validateOpenApiContract(readCur(rel), rel);
       if (parseErr) {
         contractErrors.push(parseErr);
         triggers.push({ file: rel, type: 'CONTRACT_PARSE_ERROR', scope: 'contract', error: parseErr });
@@ -406,37 +420,45 @@ export function checkSpecDrift({ ticketId = null, baseBranch = null, repoRoot = 
     }
   }
 
-  const allAdrs = listADRs(repoRoot);
+  const allAdrs = listADRs(repoRoot, { sha: fromCommit ? cs.headSha : null });
   const normTicket = normalizeTicketId(ticketId);
-  const diffAdrFiles = new Set(modifiedFiles.filter((f) => /^docs\/adr\/ADR-\d+.*\.md$/i.test(f)));
+  const diffAdrFiles = new Set(cs.paths.filter((f) => /^docs\/adr\/ADR-\d+.*\.md$/i.test(f)));
+  const deletedPaths = new Set(cs.entries.filter((e) => e.status === 'D').map((e) => e.path));
+  const baseExactPaths = new Set(baseAdrPaths);
+  const baseAdrFileById = new Map();
   const baseNonGovernablePaths = new Set();
   const baseNonGovernableIds = new Set();
-  if (mergeBase) {
-    const baseAdrTree = gitOutput(['ls-tree', '-r', '--name-only', '--end-of-options', mergeBase, '--', 'docs/adr'], repoRoot) || '';
-    for (const relBase of baseAdrTree.replace(/\r\n/g, '\n').split('\n').map((s) => s.trim()).filter(Boolean)) {
-      if (!/^docs\/adr\/ADR-\d+.*\.md$/i.test(relBase)) continue;
-      const baseRaw = readFileAtMergeBase(relBase, mergeBase, repoRoot);
-      if (baseRaw === null) continue;
-      const fm = parseFrontmatter(baseRaw).frontmatter || {};
-      const baseStatus = String(fm.status || '').toLowerCase();
-      if (baseStatus === 'accepted' || baseStatus === 'superseded') {
-        baseNonGovernablePaths.add(relBase.toLowerCase());
-        const idMatch = path.basename(relBase).match(/^(ADR-\d+)/i);
-        const normId = String(fm.id || (idMatch ? idMatch[1] : '')).trim().toUpperCase();
-        if (normId) baseNonGovernableIds.add(normId);
-      }
+  for (const relBase of baseAdrPaths) {
+    const baseRaw = readBase(relBase);
+    if (baseRaw === null) continue;
+    const fm = parseFrontmatter(baseRaw).frontmatter || {};
+    const idMatch = path.posix.basename(relBase).match(/^(ADR-\d+)/i);
+    const normId = String(fm.id || (idMatch ? idMatch[1] : '')).trim().toUpperCase();
+    if (normId && !baseAdrFileById.has(normId)) baseAdrFileById.set(normId, relBase);
+    const baseStatus = String(fm.status || '').toLowerCase();
+    if (baseStatus === 'accepted' || baseStatus === 'superseded') {
+      baseNonGovernablePaths.add(relBase.toLowerCase());
+      if (normId) baseNonGovernableIds.add(normId);
     }
   }
-  const mutatedBaseFiles = new Set();
+
+  const invalidAdrFiles = new Set();
+  const collisionMessages = [];
   for (const a of allAdrs) {
-    if (diffAdrFiles.has(a.file) && (baseNonGovernablePaths.has(a.file.toLowerCase()) || baseNonGovernableIds.has(a.id))) {
-      mutatedBaseFiles.add(a.file);
+    if (!diffAdrFiles.has(a.file)) continue;
+    if (!baseExactPaths.has(a.file) && baseAdrFileById.has(a.id) && !deletedPaths.has(baseAdrFileById.get(a.id))) {
+      const conflictsWith = baseAdrFileById.get(a.id);
+      invalidAdrFiles.add(a.file);
+      triggers.push({ file: a.file, type: 'ADR_ID_COLLISION', scope: 'architectural', conflictsWith });
+      collisionMessages.push(`ADR_ID_COLLISION: ${a.id} already exists on ${resolvedBase} as ${conflictsWith}; renumber this ADR`);
+    } else if (baseNonGovernablePaths.has(a.file.toLowerCase()) || baseNonGovernableIds.has(a.id)) {
+      invalidAdrFiles.add(a.file);
       triggers.push({ file: a.file, type: 'ADR_MUTATION', scope: 'architectural' });
     }
   }
 
   const relevantAdrs = allAdrs.filter((a) => {
-    if (mutatedBaseFiles.has(a.file)) return a.status === 'pending_approval' || a.status === 'rejected';
+    if (invalidAdrFiles.has(a.file)) return a.status === 'pending_approval' || a.status === 'rejected';
     if (diffAdrFiles.has(a.file)) return true;
     if (triggers.length === 0 && normTicket && a.ticket === normTicket) return true;
     return false;
@@ -453,6 +475,17 @@ export function checkSpecDrift({ ticketId = null, baseBranch = null, repoRoot = 
       blockingADRs: blockingAdrs.map((a) => a.id),
       remediationCommand: 'Fix malformed API contract syntax before running sdlc drift.',
       message: `CONTRACT_PARSE_ERROR: ${contractErrors.join('; ')}`
+    };
+  }
+
+  if (collisionMessages.length > 0) {
+    return {
+      passed: false,
+      triggers,
+      linkedADRs: acceptedAdrs.map((a) => a.id),
+      blockingADRs: blockingAdrs.map((a) => a.id),
+      remediationCommand: 'Renumber colliding ADR files using sdlc adr create.',
+      message: collisionMessages.join('; ')
     };
   }
 
@@ -599,16 +632,35 @@ function resolveImportTarget(fromAbs, specifier, repoRoot) {
   return null;
 }
 
-export function checkArchRings({ repoRoot = '.', policyPath = '.archlens/policy.json' } = {}) {
+function resolveImportTargetInSet(fromRel, specifier, knownSet) {
+  const baseTarget = path.posix.normalize(path.posix.join(path.posix.dirname(fromRel), specifier));
+  const candidates = [baseTarget];
+  if (/\.[cm]?js$/i.test(baseTarget)) {
+    const stem = baseTarget.replace(/\.[cm]?js$/i, '');
+    candidates.push(`${stem}.ts`, `${stem}.tsx`, `${stem}.mts`, `${stem}.cts`);
+  } else if (!path.posix.extname(baseTarget)) {
+    for (const ext of SOURCE_EXTS) candidates.push(`${baseTarget}${ext}`);
+    for (const ext of SOURCE_EXTS) candidates.push(`${baseTarget}/index${ext}`);
+  }
+  return candidates.find((c) => knownSet.has(c)) || null;
+}
+
+export function checkArchRings({ repoRoot = '.', policyPath = '.archlens/policy.json', sha = null } = {}) {
   const absRoot = path.resolve(repoRoot);
-  const absPolicy = resolveInsideRepo(absRoot, policyPath);
-  if (!fileExists(absPolicy)) {
+  const normPolicyRel = String(policyPath || '.archlens/policy.json').replace(/\\/g, '/').replace(/^\.\//, '');
+  const policyRaw = sha
+    ? readBlobs([`${sha}:${normPolicyRel}`], absRoot).get(`${sha}:${normPolicyRel}`)
+    : (() => {
+        const absPolicy = resolveInsideRepo(absRoot, policyPath);
+        return fileExists(absPolicy) ? fs.readFileSync(absPolicy, 'utf8') : null;
+      })();
+  if (policyRaw === null || policyRaw === undefined) {
     return { passed: true, violations: [], message: 'No .archlens/policy.json configured; skipping ring check.' };
   }
 
   let policy;
   try {
-    policy = JSON.parse(fs.readFileSync(absPolicy, 'utf8'));
+    policy = JSON.parse(policyRaw);
   } catch (err) {
     return {
       passed: false,
@@ -620,10 +672,38 @@ export function checkArchRings({ repoRoot = '.', policyPath = '.archlens/policy.
   const levels = Array.isArray(policy.levels) ? policy.levels : [];
   const order = Array.isArray(policy.order) ? policy.order : levels.map((_, i) => `ring-${i}`);
   const omitSet = new Set(Array.isArray(policy.omit) ? policy.omit : ['node_modules', '.git', 'coverage', 'reports']);
-  const srcRel = policy.src || '.';
-  const absSrc = resolveInsideRepo(absRoot, srcRel);
-  if (!fileExists(absSrc)) {
-    return { passed: true, violations: [], message: `Source root '${srcRel}' not present.` };
+  const srcRel = String(policy.src || '.').replace(/\\/g, '/').replace(/^\.\//, '');
+  const isOmitted = (rel) =>
+    rel.split('/').some((seg) => omitSet.has(seg)) || [...omitSet].some((o) => rel === o || rel.startsWith(`${o}/`));
+
+  const sourceFiles = [];
+  let sourceBlobs = null;
+  if (sha) {
+    const allTree = listTree(sha, srcRel === '.' ? '' : srcRel, absRoot);
+    if (srcRel !== '.' && allTree.length === 0) {
+      return { passed: true, violations: [], message: `Source root '${srcRel}' not present.` };
+    }
+    for (const rel of allTree) {
+      if (!isOmitted(rel) && SOURCE_EXTS.includes(path.posix.extname(rel).toLowerCase())) sourceFiles.push(rel);
+    }
+    sourceBlobs = readBlobs(sourceFiles.map((f) => `${sha}:${f}`), absRoot);
+  } else {
+    const absSrc = resolveInsideRepo(absRoot, srcRel);
+    if (!fileExists(absSrc)) {
+      return { passed: true, violations: [], message: `Source root '${srcRel}' not present.` };
+    }
+    const walk = (dir) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (omitSet.has(entry.name)) continue;
+        const full = path.join(dir, entry.name);
+        const rel = path.relative(absRoot, full).replace(/\\/g, '/');
+        if (isOmitted(rel)) continue;
+        if (entry.isDirectory()) walk(full);
+        else if (entry.isFile() && SOURCE_EXTS.includes(path.extname(entry.name).toLowerCase())) sourceFiles.push(rel);
+      }
+    };
+    walk(absSrc);
+    sourceFiles.sort();
   }
 
   const resolveRing = (relFile) => {
@@ -634,22 +714,7 @@ export function checkArchRings({ repoRoot = '.', policyPath = '.archlens/policy.
     return -1;
   };
 
-  const sourceFiles = [];
-  const walk = (dir) => {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (omitSet.has(entry.name)) continue;
-      const full = path.join(dir, entry.name);
-      const rel = path.relative(absRoot, full).replace(/\\/g, '/');
-      if ([...omitSet].some((o) => rel === o || rel.startsWith(`${o}/`))) continue;
-      if (entry.isDirectory()) walk(full);
-      else if (entry.isFile() && SOURCE_EXTS.includes(path.extname(entry.name).toLowerCase())) {
-        sourceFiles.push(rel);
-      }
-    }
-  };
-  walk(absSrc);
-  sourceFiles.sort();
-
+  const knownSourceSet = new Set(sourceFiles);
   const violations = [];
   const graph = new Map();
   const ringByFile = new Map();
@@ -664,10 +729,12 @@ export function checkArchRings({ repoRoot = '.', policyPath = '.archlens/policy.
         message: `Module '${rel}' is not assigned to any ring in ${policyPath}.`
       });
     }
-    const raw = readFileSafe(path.join(absRoot, rel)) || '';
+    const raw = sha ? sourceBlobs.get(`${sha}:${rel}`) || '' : readFileSafe(path.join(absRoot, rel)) || '';
     const edges = [];
     for (const spec of extractRelativeSpecifiers(raw)) {
-      const targetRel = resolveImportTarget(path.join(absRoot, rel), spec, absRoot);
+      const targetRel = sha
+        ? resolveImportTargetInSet(rel, spec, knownSourceSet)
+        : resolveImportTarget(path.join(absRoot, rel), spec, absRoot);
       if (targetRel) edges.push(targetRel);
     }
     graph.set(rel, edges);

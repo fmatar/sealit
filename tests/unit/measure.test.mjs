@@ -39,9 +39,7 @@ describe('Ring 2: lib/measure.mjs', () => {
 
     // Forced scan error fails closed with SCAN_ERROR
     const errRes = scanDiffSecrets(dir, {
-      diffGetter: () => {
-        throw new Error('simulated diff read failure');
-      }
+      changeSet: { source: 'commit', baseSha: '0'.repeat(40), headSha: 'f'.repeat(40), paths: ['src/a.js'], entries: [{ path: 'src/a.js', status: 'A', oldMode: '000000', newMode: '100644', oldOid: '0'.repeat(40), newOid: '1'.repeat(40) }], patches: new Map() }
     });
     assert.equal(errRes.passed, false);
     assert.ok(errRes.secretViolations.some((v) => v.type === 'SCAN_ERROR'));
@@ -78,7 +76,21 @@ describe('Ring 2: lib/measure.mjs', () => {
     git(dir, 'add', 'src/a.js', 'assets/logo.png');
     git(dir, 'commit', '-q', '-m', 'feat: commit a, png, and remove deleted');
 
-    const res = scanDiffSecrets(dir, { baseBranch: 'develop', diffGetter: () => new Map() });
+    const res = scanDiffSecrets(dir, {
+      baseBranch: 'develop',
+      changeSet: {
+        source: 'commit',
+        baseSha: '0'.repeat(40),
+        headSha: 'f'.repeat(40),
+        paths: ['assets/logo.png', 'src/a.js', 'src/deleted.js'],
+        entries: [
+          { path: 'assets/logo.png', status: 'A', oldMode: '000000', newMode: '100644', oldOid: '0'.repeat(40), newOid: '1'.repeat(40) },
+          { path: 'src/a.js', status: 'A', oldMode: '000000', newMode: '100644', oldOid: '0'.repeat(40), newOid: '2'.repeat(40) },
+          { path: 'src/deleted.js', status: 'D', oldMode: '100644', newMode: '000000', oldOid: '3'.repeat(40), newOid: '0'.repeat(40) }
+        ],
+        patches: new Map()
+      }
+    });
     assert.equal(res.passed, false);
     assert.ok(res.secretViolations.some((v) => v.file === 'src/a.js' && v.type === 'SCAN_ERROR'));
     assert.equal(res.secretViolations.some((v) => v.file === 'assets/logo.png'), false);
@@ -565,11 +577,40 @@ describe('Ring 2: lib/measure.mjs', () => {
     assert.equal(sessAfterClean.lastGate.passed, true);
     assert.notEqual(sessAfterClean.lastGate.headSha, 'DIRTY_WORKING_TREE');
 
-    // Dirty edit stamps DIRTY_WORKING_TREE
-    fs.writeFileSync(path.join(dir, 'README.md'), '# Dirty edit\n', 'utf8');
+    // Dirty edit is refused upfront by runGate before running any configured command (ADR-020)
+    fs.writeFileSync(
+      path.join(dir, '.agent/sdlc-config.json'),
+      JSON.stringify({
+        version: '0.1.0',
+        archlens: { enabled: false },
+        modules: [{ name: 'root', path: '.', commands: { lint: `${process.execPath} -e "import('node:fs').then(f=>f.writeFileSync('ran-on-dirty.txt','1'))"` }, thresholds: { diffCoverage: null, mutationScore: null } }]
+      }),
+      'utf8'
+    );
     const dirtyGate = runGate(dir, { noCache: true });
-    assert.equal(dirtyGate.passed, true);
-    assert.equal(readActiveSession(dir).lastGate.headSha, 'DIRTY_WORKING_TREE');
+    assert.equal(dirtyGate.passed, false);
+    assert.equal(dirtyGate.stage, 'dirty');
+    assert.match(dirtyGate.reason, /DIRTY_WORKING_TREE/);
+    assert.equal(fs.existsSync(path.join(dir, 'ran-on-dirty.txt')), false, 'dirty gate must refuse before running any command');
+    git(dir, 'checkout', '--', '.agent/sdlc-config.json');
+
+    // Advisory sdlc coverage on uncommitted work still measures the uncommitted lines
+    fs.writeFileSync(path.join(dir, 'uncommitted-mod.mjs'), 'export const u = 1;\nexport const u2 = 2;\n', 'utf8');
+    fs.writeFileSync(
+      path.join(dir, 'tests/emit-cov.mjs'),
+      "import fs from 'node:fs';\nfs.mkdirSync('coverage', { recursive: true });\nfs.writeFileSync('coverage/lcov.info', 'SF:uncommitted-mod.mjs\\nDA:1,1\\nDA:2,1\\nLF:2\\nLH:2\\nend_of_record\\n', 'utf8');\n",
+      'utf8'
+    );
+    const advCov = measureModuleCoverage(dir, {
+      name: 'root',
+      path: '.',
+      commands: { coverage: `${process.execPath} tests/emit-cov.mjs`, coverageFile: 'coverage/lcov.info' },
+      thresholds: { diffCoverage: 90 }
+    });
+    assert.equal(advCov.passed, true);
+    assert.equal(advCov.diffLineCoverage, 100);
+    fs.unlinkSync(path.join(dir, 'uncommitted-mod.mjs'));
+    git(dir, 'checkout', '--', 'tests/emit-cov.mjs');
 
     // Throwing session writer fails closed instead of swallowing
     assert.throws(() =>
@@ -635,28 +676,28 @@ describe('Ring 2: lib/measure.mjs', () => {
     fs.writeFileSync(path.join(dir, 'tests/unit/cli.test.mjs'), '// cli test\n', 'utf8');
     assert.deepEqual(resolveAffectedTests(dir), ['tests/unit/cli.test.mjs']);
 
-    const writeCfg = (commands, thresholds = { diffCoverage: null, mutationScore: null }) => {
+    const writeAndCommitCfg = (commands, thresholds = { diffCoverage: null, mutationScore: null }) => {
       fs.writeFileSync(
         path.join(dir, '.agent/sdlc-config.json'),
         JSON.stringify({ version: '0.1.0', archlens: { enabled: false }, modules: [{ name: 'root', path: '.', commands, thresholds }] }),
         'utf8'
       );
+      git(dir, 'add', '.agent/sdlc-config.json', '.agent/scripts/sdlc-engine.mjs', 'tests/unit/cli.test.mjs');
+      git(dir, 'commit', '-q', '-m', 'chore: update cfg');
     };
 
     // Failing lint, build, test, and mutation steps record exact failedStep
-    writeCfg({ lint: `${process.execPath} -e "process.exit(1)"` });
+    writeAndCommitCfg({ lint: `${process.execPath} -e "process.exit(1)"` });
     assert.equal(runGate(dir, { noCache: true }).modules[0].failedStep, 'lint');
 
-    writeCfg({ build: `${process.execPath} -e "process.exit(1)"` });
+    writeAndCommitCfg({ build: `${process.execPath} -e "process.exit(1)"` });
     assert.equal(runGate(dir, { noCache: true }).modules[0].failedStep, 'build');
 
-    writeCfg({ test: `${process.execPath} -e "process.exit(1)"` });
+    writeAndCommitCfg({ test: `${process.execPath} -e "process.exit(1)"` });
     assert.equal(runGate(dir, { noCache: true }).modules[0].failedStep, 'test');
 
     // Warm gate cache hit on clean committed tree
-    writeCfg({ test: `${process.execPath} -e "process.exit(0)"` });
-    git(dir, 'add', '.agent/sdlc-config.json', '.agent/scripts/sdlc-engine.mjs', 'tests/unit/cli.test.mjs');
-    git(dir, 'commit', '-q', '-m', 'feat: clean passing module');
+    writeAndCommitCfg({ test: `${process.execPath} -e "process.exit(0)"` });
     const cold = runGate(dir, { noCache: false });
     assert.equal(cold.passed, true);
     assert.equal(cold.modules[0].cached, false);

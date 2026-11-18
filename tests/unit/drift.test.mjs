@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createTempGitRepo, git } from '../helpers/test-harness.mjs';
+import { readChangeSet, resolveRange } from '../../.agent/scripts/lib/git.mjs';
 import {
   listADRs,
   createADR,
@@ -480,5 +481,86 @@ describe('Ring 1: lib/drift.mjs', () => {
     assert.equal(d.passed, true);
     assert.deepEqual(d.linkedADRs, [created.id]);
     assert.ok(d.triggers.some((t) => t.type === 'ADR_MUTATION' && t.file.includes('ADR-001')));
+  });
+
+  it('commit-sourced drift and checkArchRings read committed blobs only, detect ADR_ID_COLLISION, and createADR skips ids on origin/<base>', () => {
+    const { dir, cleanup } = createTempGitRepo();
+    cleanups.push(cleanup);
+
+    fs.mkdirSync(path.join(dir, 'docs/adr'), { recursive: true });
+    fs.mkdirSync(path.join(dir, '.archlens'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'docs/adr/ADR-020-base-accepted.md'),
+      '---\nid: ADR-020\ntitle: Base\nstatus: accepted\nscope: architectural\nticket: "1"\n---\n\n# ADR-020\n',
+      'utf8'
+    );
+    fs.writeFileSync(
+      path.join(dir, '.archlens/policy.json'),
+      JSON.stringify({ src: 'src', order: ['domain', 'outer'], levels: [['src/domain/**'], ['src/outer/**']] }, null, 2) + '\n',
+      'utf8'
+    );
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'chore: base ADR-020 and archlens policy');
+    const baseSha = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+
+    // 1. New ADR at a different path reusing ADR-020 fails with ADR_ID_COLLISION (not ADR_MUTATION)
+    git(dir, 'checkout', '-q', '-b', 'feat/collision', 'develop');
+    fs.writeFileSync(path.join(dir, 'PRODUCT.md'), '# New product spec\n', 'utf8');
+    fs.writeFileSync(
+      path.join(dir, 'docs/adr/ADR-020-colliding-slug.md'),
+      '---\nid: ADR-020\ntitle: Colliding\nstatus: accepted\nscope: product\nticket: "2"\n---\n\n# ADR-020\n',
+      'utf8'
+    );
+    git(dir, 'add', 'PRODUCT.md', 'docs/adr/ADR-020-colliding-slug.md');
+    git(dir, 'commit', '-q', '-m', 'feat: colliding ADR-020');
+    const colRange = resolveRange({ baseBranch: 'develop', repoRoot: dir });
+    const colCs = readChangeSet({ ...colRange, source: 'commit', repoRoot: dir });
+    const colDrift = checkSpecDrift({ baseBranch: 'develop', changeSet: colCs, repoRoot: dir });
+    assert.equal(colDrift.passed, false);
+    assert.ok(colDrift.triggers.some((t) => t.type === 'ADR_ID_COLLISION' && t.conflictsWith === 'docs/adr/ADR-020-base-accepted.md'));
+    assert.equal(colDrift.triggers.some((t) => t.type === 'ADR_MUTATION'), false);
+    assert.match(colDrift.message, /ADR_ID_COLLISION: ADR-020 already exists on develop as docs\/adr\/ADR-020-base-accepted\.md; renumber this ADR/);
+
+    // 2. Commit-sourced drift reads ADR status from commit, NOT uncommitted disk edit
+    git(dir, 'checkout', '-q', '-b', 'feat/uncommitted-adr', 'develop');
+    fs.writeFileSync(path.join(dir, 'PRODUCT.md'), '# Spec change\n', 'utf8');
+    const pendingAdr = createADR({ title: 'Pending Spec Change', scope: 'product', ticket: '3', repoRoot: dir });
+    git(dir, 'add', 'PRODUCT.md', pendingAdr.file, 'docs/AUDIT_CHAIN.jsonl');
+    git(dir, 'commit', '-q', '-m', 'feat: commit pending ADR');
+    const adrAbs = path.join(dir, pendingAdr.file);
+    fs.writeFileSync(adrAbs, fs.readFileSync(adrAbs, 'utf8').replace('status: pending_approval', 'status: accepted'), 'utf8');
+    const cRange = resolveRange({ baseBranch: 'develop', repoRoot: dir });
+    const cSet = readChangeSet({ ...cRange, source: 'commit', repoRoot: dir });
+    assert.equal(checkSpecDrift({ baseBranch: 'develop', changeSet: cSet, repoRoot: dir }).passed, false, 'commit-sourced drift must ignore uncommitted status: accepted');
+    assert.equal(checkSpecDrift({ baseBranch: 'develop', repoRoot: dir }).passed, true, 'worktree advisory drift sees uncommitted status: accepted');
+
+    // 3. checkArchRings({ sha }) reads committed ring inversion even if reverted on disk
+    fs.mkdirSync(path.join(dir, 'src/domain'), { recursive: true });
+    fs.mkdirSync(path.join(dir, 'src/outer'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'src/outer/adapter.mjs'), 'export const out = 1;\n', 'utf8');
+    fs.writeFileSync(path.join(dir, 'src/domain/entity.mjs'), "import { out } from '../outer/adapter.mjs';\nexport const e = out;\n", 'utf8');
+    git(dir, 'add', 'src');
+    git(dir, 'commit', '-q', '-m', 'bad: commit inward ring violation');
+    const badRingSha = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+    fs.writeFileSync(path.join(dir, 'src/domain/entity.mjs'), 'export const e = 1;\n', 'utf8');
+    assert.equal(checkArchRings({ repoRoot: dir, sha: badRingSha }).passed, false, 'commit-sourced checkArchRings must catch committed violation');
+    assert.equal(checkArchRings({ repoRoot: dir }).passed, true, 'advisory checkArchRings reads clean disk');
+
+    // 4. createADR skips ids already present on origin/develop even when branch branched earlier
+    git(dir, 'checkout', '-q', 'develop');
+    fs.writeFileSync(path.join(dir, 'PRODUCT.md'), '# Clean\n', 'utf8');
+    fs.writeFileSync(
+      path.join(dir, 'docs/adr/ADR-025-on-origin.md'),
+      '---\nid: ADR-025\ntitle: Remote\nstatus: accepted\nscope: technical\nticket: "9"\n---\n\n# ADR-025\n',
+      'utf8'
+    );
+    git(dir, 'add', 'docs/adr/ADR-025-on-origin.md', 'PRODUCT.md');
+    git(dir, 'commit', '-q', '-m', 'chore: ADR-025 on develop');
+    const originDevSha = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+    git(dir, 'update-ref', 'refs/remotes/origin/develop', originDevSha);
+    git(dir, 'branch', '-f', 'develop', baseSha);
+    git(dir, 'checkout', '-f', '-q', '-b', 'feat/behind-origin', baseSha);
+    const nextAdr = createADR({ title: 'After Remote ADR', scope: 'technical', ticket: '10', repoRoot: dir });
+    assert.equal(nextAdr.id, 'ADR-026');
   });
 });

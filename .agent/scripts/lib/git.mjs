@@ -469,11 +469,6 @@ export function resolveRange({ baseBranch = null, head = 'HEAD', branchHint = nu
   return { effectiveBase, baseSha: parentSha || EMPTY_TREE_SHA, headSha };
 }
 
-export function resolveDiffComparisonState(baseBranch = null, repoRoot = '.') {
-  const { effectiveBase, baseSha, headSha } = resolveRange({ baseBranch, head: 'HEAD', repoRoot });
-  return { effectiveBase, headSha, mergeBase: headSha ? baseSha : null, committedRange: headSha ? `${baseSha}..${headSha}` : null };
-}
-
 export function unquoteGitPath(raw) {
   const trimmed = String(raw || '').trim();
   if (trimmed.startsWith('"') && trimmed.endsWith('"') && trimmed.length >= 2) {
@@ -621,26 +616,13 @@ function buildChangeSetFromPlumbing(source, baseSha, headSha, rawText, patchText
     }
   }
   for (const e of entries) {
-    if (e.status === 'D' || (e.oldOid === e.newOid && e.oldMode !== e.newMode)) continue;
+    if (e.status === 'D' || (!/^0+$/.test(e.oldOid) && e.oldOid === e.newOid && e.oldMode !== e.newMode)) continue;
     if (e.newMode === '160000' || e.oldMode === '160000' || TRUE_BINARY_EXT_RE.test(e.path) || e.newOid === EMPTY_BLOB_SHA) continue;
     if (!patches.has(e.path)) throw new ChangeSetParseError(`Missing patch section for changed entry '${e.path}'.`);
   }
   entries.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   const paths = [...new Set(entries.map((e) => e.path))].sort();
   return { source, baseSha, headSha, paths, entries, patches };
-}
-
-export function getModifiedFiles(baseBranch = null, repoRoot = '.') {
-  const range = resolveRange({ baseBranch, repoRoot });
-  return readChangeSet({ ...range, source: 'worktree', repoRoot }).paths;
-}
-
-export function getUnifiedDiffByFile(baseBranch = null, repoRoot = '.', files = null) {
-  const range = resolveRange({ baseBranch, repoRoot });
-  const cs = readChangeSet({ ...range, source: 'worktree', repoRoot });
-  if (!Array.isArray(files)) return cs.patches;
-  const allow = new Set(files.map((f) => f.replace(/\\/g, '/').replace(/^\.\//, '')));
-  return new Map([...cs.patches.entries()].filter(([k]) => allow.has(k)));
 }
 
 export function computeContentTreeSha(commitRef = 'HEAD', repoRoot = '.') {
