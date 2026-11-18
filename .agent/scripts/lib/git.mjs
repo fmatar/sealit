@@ -5,10 +5,19 @@ import { execFileSync, spawnSync } from 'node:child_process';
 
 export const GIT_MAX_BUFFER = 64 * 1024 * 1024;
 export const EMPTY_TREE_SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+const EMPTY_BLOB_SHA = 'e69de29bb2d1d6434b8b29ae775ad8c2e48c5391';
 const MAX_SYNTHETIC_DIFF_BYTES = 16 * 1024 * 1024;
 
-const TRUE_BINARY_EXT_RE =
+export const TRUE_BINARY_EXT_RE =
   /\.(?:png|jpe?g|gif|webp|ico|bmp|tiff?|avif|mp[34]|mov|avi|mkv|wav|ogg|flac|woff2?|ttf|otf|eot|pdf|zip|tar|gz|tgz|bz2|xz|7z|rar|wasm|pyc|class|jar|so|dylib|dll|exe|bin|sqlite3?|db)$/i;
+
+export class ChangeSetParseError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'ChangeSetParseError';
+    this.code = 'CHANGESET_PARSE_ERROR';
+  }
+}
 
 export function fileExists(filePath) {
   try {
@@ -269,100 +278,59 @@ export function parseCommandArgv(cmdSpec) {
       continue;
     }
 
-    if (ch === "'") {
-      inSingle = true;
-      hasToken = true;
-      continue;
+    if (ch === "'") { inSingle = true; hasToken = true; continue; }
+    if (ch === '"') { inDouble = true; hasToken = true; continue; }
+    if (';|&<>`\n\r'.includes(ch) || (ch === '$' && next === '(')) {
+      throw new Error(`Refusing shell compound command in configuration ('${cmdSpec}'): specify a single executable command or argv array without shell operators.`);
     }
-
-    if (ch === '"') {
-      inDouble = true;
-      hasToken = true;
-      continue;
-    }
-
-    if (
-      ch === ';' ||
-      ch === '|' ||
-      ch === '&' ||
-      ch === '<' ||
-      ch === '>' ||
-      ch === '`' ||
-      ch === '\n' ||
-      ch === '\r' ||
-      (ch === '$' && next === '(')
-    ) {
-      throw new Error(
-        `Refusing shell compound command in configuration ('${cmdSpec}'): specify a single executable command or argv array without shell operators.`
-      );
-    }
-
     if (ch === ' ' || ch === '\t') {
-      if (hasToken) {
-        tokens.push(current);
-        current = '';
-        hasToken = false;
-      }
+      if (hasToken) { tokens.push(current); current = ''; hasToken = false; }
       continue;
     }
-
     current += ch;
     hasToken = true;
   }
-
-  if (inSingle || inDouble) {
-    throw new Error(`Unterminated quote in configured command ('${cmdSpec}').`);
-  }
-
+  if (inSingle || inDouble) throw new Error(`Unterminated quote in configured command ('${cmdSpec}').`);
   if (hasToken) tokens.push(current);
-  if (tokens.length === 0 || !tokens[0]) {
-    throw new Error('Configured command resolved to empty executable.');
-  }
-
+  if (tokens.length === 0 || !tokens[0]) throw new Error('Configured command resolved to empty executable.');
   return { file: tokens[0], args: tokens.slice(1) };
 }
 
 export function runConfiguredCommand(cmdSpec, options = {}) {
   const { file, args } = parseCommandArgv(cmdSpec);
   const childEnv = { ...(options.env || process.env) };
-  if (!options.env) {
-    delete childEnv.NODE_TEST_CONTEXT;
-    delete childEnv.NODE_V8_COVERAGE;
-  }
+  if (!options.env) { delete childEnv.NODE_TEST_CONTEXT; delete childEnv.NODE_V8_COVERAGE; }
   return execFileSync(file, args, { maxBuffer: GIT_MAX_BUFFER, ...options, env: childEnv });
 }
 
+const STRIPPED_GIT_ENV_KEYS = [
+  'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY',
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_EXTERNAL_DIFF', 'GIT_DIFF_OPTS',
+  'GIT_LITERAL_PATHSPECS', 'GIT_GLOB_PATHSPECS', 'GIT_NOGLOB_PATHSPECS', 'GIT_ICASE_PATHSPECS'
+];
+
 export function cleanGitEnv(baseEnv = process.env) {
   const env = { ...baseEnv };
-  delete env.GIT_DIR;
-  delete env.GIT_WORK_TREE;
-  delete env.GIT_INDEX_FILE;
-  delete env.GIT_COMMON_DIR;
-  delete env.GIT_OBJECT_DIRECTORY;
-  delete env.GIT_ALTERNATE_OBJECT_DIRECTORIES;
-  delete env.GIT_EXTERNAL_DIFF;
-  delete env.GIT_DIFF_OPTS;
-  delete env.GIT_LITERAL_PATHSPECS;
-  delete env.GIT_GLOB_PATHSPECS;
-  delete env.GIT_NOGLOB_PATHSPECS;
-  delete env.GIT_ICASE_PATHSPECS;
+  for (const k of STRIPPED_GIT_ENV_KEYS) delete env[k];
   return env;
 }
 
-export function gitExec(args, repoRoot = '.') {
+export function gitExecBuffer(args, repoRoot = '.', input = undefined) {
   const absRoot = path.resolve(repoRoot);
   const res = spawnSync('git', ['-C', absRoot, '-c', 'core.quotepath=false', ...args], {
-    cwd: absRoot,
-    env: cleanGitEnv(),
-    encoding: 'utf8',
-    maxBuffer: GIT_MAX_BUFFER
+    cwd: absRoot, env: cleanGitEnv(), input, maxBuffer: GIT_MAX_BUFFER
   });
   return {
     status: res.status,
-    stdout: res.stdout || '',
-    stderr: res.stderr || '',
+    stdout: Buffer.isBuffer(res.stdout) ? res.stdout : Buffer.from(res.stdout || '', 'utf8'),
+    stderr: Buffer.isBuffer(res.stderr) ? res.stderr.toString('utf8') : res.stderr || '',
     error: res.error || null
   };
+}
+
+export function gitExec(args, repoRoot = '.') {
+  const res = gitExecBuffer(args, repoRoot);
+  return { status: res.status, stdout: res.stdout.toString('utf8'), stderr: res.stderr, error: res.error };
 }
 
 export function gitOutput(args, repoRoot = '.') {
@@ -473,32 +441,37 @@ export function resolveEffectiveDiffBase(baseBranch = null, repoRoot = '.', refs
   return resolveDefaultBaseBranch(repoRoot, refs);
 }
 
-export function resolveDiffComparisonState(baseBranch = null, repoRoot = '.', { includePushFallback = true } = {}) {
+export function resolveRange({ baseBranch = null, head = 'HEAD', branchHint = null, repoRoot = '.' } = {}) {
   const refs = readGitRefsMap(repoRoot);
   const effectiveBase = resolveEffectiveDiffBase(baseBranch, repoRoot, refs);
-  const headSha = refs.get('HEAD') || '';
-  if (!headSha) return { effectiveBase, headSha: null, mergeBase: null, committedRange: null };
-  const curBranch = getCurrentGitBranch(repoRoot);
+  const headSha =
+    head === 'HEAD'
+      ? refs.get('HEAD') || (gitOutput(['rev-parse', '--verify', '-q', 'HEAD^{commit}'], repoRoot) || '').trim() || null
+      : (gitOutput(['rev-parse', '--verify', '-q', '--end-of-options', `${head}^{commit}`], repoRoot) || '').trim() || null;
+  if (!headSha) return { effectiveBase, baseSha: EMPTY_TREE_SHA, headSha: null };
+  const curBranch = branchHint || (head === 'HEAD' ? getCurrentGitBranch(repoRoot) : '');
   for (const candidate of [`origin/${effectiveBase}`, effectiveBase]) {
     let refSha = refs.get(`refs/remotes/${candidate}`) || refs.get(`refs/heads/${candidate}`) || '';
     if (!refSha && !candidate.startsWith('origin/')) {
-      refSha = (gitOutput(['rev-parse', '--verify', '--end-of-options', `${candidate}^{commit}`], repoRoot) || '').trim();
+      refSha = (gitOutput(['rev-parse', '--verify', '-q', '--end-of-options', `${candidate}^{commit}`], repoRoot) || '').trim();
     }
     if (!refSha) continue;
-    const isPushOnBase = refSha === headSha && (curBranch === effectiveBase || (curBranch === 'HEAD' && !process.env.GITHUB_BASE_REF));
+    const isPushOnBase = refSha === headSha && head === 'HEAD' && (curBranch === effectiveBase || (curBranch === 'HEAD' && !process.env.GITHUB_BASE_REF));
     if (isPushOnBase) {
-      if (!includePushFallback) return { effectiveBase, headSha, mergeBase: headSha, committedRange: null };
-      const parentSha = (gitOutput(['rev-parse', '--verify', 'HEAD~1^{commit}'], repoRoot) || '').trim();
-      if (parentSha) return { effectiveBase, headSha, mergeBase: parentSha, committedRange: 'HEAD~1..HEAD' };
-      return { effectiveBase, headSha, mergeBase: EMPTY_TREE_SHA, committedRange: `${EMPTY_TREE_SHA}..HEAD` };
+      const parentSha = (gitOutput(['rev-parse', '--verify', '-q', `${headSha}~1^{commit}`], repoRoot) || '').trim();
+      return { effectiveBase, baseSha: parentSha || EMPTY_TREE_SHA, headSha };
     }
-    const mb = refSha === headSha ? headSha : (gitOutput(['merge-base', '--end-of-options', candidate, 'HEAD'], repoRoot) || '').trim() || refSha;
-    return { effectiveBase, headSha, mergeBase: mb, committedRange: `${candidate}...HEAD` };
+    if (refSha === headSha) return { effectiveBase, baseSha: headSha, headSha };
+    const mb = (gitOutput(['merge-base', '--end-of-options', refSha, headSha], repoRoot) || '').trim();
+    return { effectiveBase, baseSha: mb || EMPTY_TREE_SHA, headSha };
   }
-  if (!includePushFallback) return { effectiveBase, headSha, mergeBase: headSha, committedRange: null };
-  const parentSha = (gitOutput(['rev-parse', '--verify', 'HEAD~1^{commit}'], repoRoot) || '').trim();
-  if (parentSha) return { effectiveBase, headSha, mergeBase: parentSha, committedRange: 'HEAD~1..HEAD' };
-  return { effectiveBase, headSha, mergeBase: EMPTY_TREE_SHA, committedRange: `${EMPTY_TREE_SHA}..HEAD` };
+  const parentSha = (gitOutput(['rev-parse', '--verify', '-q', `${headSha}~1^{commit}`], repoRoot) || '').trim();
+  return { effectiveBase, baseSha: parentSha || EMPTY_TREE_SHA, headSha };
+}
+
+export function resolveDiffComparisonState(baseBranch = null, repoRoot = '.') {
+  const { effectiveBase, baseSha, headSha } = resolveRange({ baseBranch, head: 'HEAD', repoRoot });
+  return { effectiveBase, headSha, mergeBase: headSha ? baseSha : null, committedRange: headSha ? `${baseSha}..${headSha}` : null };
 }
 
 export function unquoteGitPath(raw) {
@@ -506,155 +479,168 @@ export function unquoteGitPath(raw) {
   if (trimmed.startsWith('"') && trimmed.endsWith('"') && trimmed.length >= 2) {
     return trimmed
       .slice(1, -1)
-      .replace(/\\(["\\tnr])/g, (_, ch) => {
-        if (ch === 't') return '\t';
-        if (ch === 'n') return '\n';
-        if (ch === 'r') return '\r';
-        return ch;
-      });
+      .replace(/\\(["\\tnr])/g, (_, ch) => (ch === 't' ? '\t' : ch === 'n' ? '\n' : ch === 'r' ? '\r' : ch));
   }
   return trimmed;
 }
 
-function readBoundedSyntheticDiff(file, repoRoot, withHunkHeader = false, { strict = false, preferIndex = false } = {}) {
-  if (!file || TRUE_BINARY_EXT_RE.test(file)) return '';
-  try {
-    let rawBuf = null;
-    if (preferIndex) {
-      const idxRes = gitExec(['show', `:${file}`], repoRoot);
-      if (!idxRes.error && idxRes.status === 0 && idxRes.stdout !== undefined) {
-        rawBuf = Buffer.from(idxRes.stdout, 'utf8');
-      }
-    }
-    if (!rawBuf) {
-      const abs = resolveInsideRepo(repoRoot, file);
-      const stat = fs.statSync(abs);
-      if (!stat.isFile()) return '';
-      if (stat.size > MAX_SYNTHETIC_DIFF_BYTES) {
-        if (strict) throw new Error(`File '${file}' exceeds ${MAX_SYNTHETIC_DIFF_BYTES} bytes for secret scan.`);
-        return '';
-      }
-      rawBuf = fs.readFileSync(abs);
-    }
-    const raw = rawBuf.toString('utf8').replace(/\0/g, '').replace(/\r\n/g, '\n');
-    const lines = raw.split('\n');
-    const plusBody = lines.map((l) => `+${l}`).join('\n');
-    if (withHunkHeader) {
-      return `--- a/${file}\n+++ b/${file}\n@@ -0,0 +1,${lines.length} @@\n${plusBody}`;
-    }
-    return `+++ b/${file}\n${plusBody}`;
-  } catch (err) {
-    if (strict && err?.code !== 'ENOENT') throw err;
-    return '';
+export function readBlobs(specs = [], repoRoot = '.') {
+  const out = new Map();
+  if (!Array.isArray(specs) || specs.length === 0) return out;
+  const uniqueValid = [...new Set(specs.filter((s) => typeof s === 'string' && s && !s.includes('\n') && !s.includes('\0')))];
+  for (const s of specs) out.set(s, null);
+  if (uniqueValid.length === 0) return out;
+  const res = gitExecBuffer(['cat-file', '--batch'], repoRoot, Buffer.from(`${uniqueValid.join('\n')}\n`, 'utf8'));
+  if (res.error || res.status !== 0) throw new Error(`git cat-file --batch failed: ${res.stderr || res.error?.message}`);
+  const buf = res.stdout;
+  let pos = 0;
+  for (const spec of uniqueValid) {
+    const nl = buf.indexOf(0x0a, pos);
+    if (nl === -1) break;
+    const hdr = buf.subarray(pos, nl).toString('utf8');
+    pos = nl + 1;
+    if (hdr.endsWith(' missing')) continue;
+    const m = hdr.match(/^([0-9a-f]{40,64})\s+(\S+)\s+(\d+)$/i);
+    if (!m) throw new Error(`Malformed cat-file --batch header: ${hdr}`);
+    const size = Number(m[3]);
+    const body = buf.subarray(pos, pos + size);
+    pos += size + 1;
+    if (m[2] === 'blob') out.set(spec, body.toString('utf8'));
   }
+  return out;
 }
 
-function expandBinaryTextDiffSection(section, file, repoRoot, { strict = false, preferIndex = false } = {}) {
-  if (!section || !/^Binary files .* differ$/m.test(section) || TRUE_BINARY_EXT_RE.test(file)) {
-    return section;
-  }
-  const synth = readBoundedSyntheticDiff(file, repoRoot, true, { strict, preferIndex });
-  return synth ? `${section}\n${synth}` : section;
+export function listTree(sha, prefix = '', repoRoot = '.') {
+  const cleanSha = String(sha || '').trim();
+  if (!cleanSha) return [];
+  const res = gitExecBuffer(['ls-tree', '-r', '-z', '--name-only', '--full-tree', '--end-of-options', cleanSha], repoRoot);
+  if (res.error || res.status !== 0) return [];
+  const normPrefix = String(prefix || '').replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '');
+  return res.stdout
+    .toString('utf8')
+    .split('\0')
+    .filter((p) => p && (!normPrefix || p === normPrefix || p.startsWith(`${normPrefix}/`)))
+    .sort();
 }
 
-export const SAFE_DIFF_FLAGS = Object.freeze(['--no-color', '--no-ext-diff', '--no-textconv', '--no-renames', '--src-prefix=a/', '--dst-prefix=b/']);
-
-export function getModifiedFiles(baseBranch = null, repoRoot = '.') {
-  const { headSha, mergeBase } = resolveDiffComparisonState(baseBranch, repoRoot);
-  const files = new Set();
-  const collect = (out) => {
-    if (!out) return;
-    for (const rawLine of out.replace(/\r\n/g, '\n').split('\n')) {
-      const clean = unquoteGitPath(rawLine).replace(/\\/g, '/').replace(/^\.\//, '');
-      if (clean) files.add(clean);
-    }
-  };
-
-  if (mergeBase) {
-    collect(gitOutput(['diff', '--name-only', '--no-renames', '--diff-filter=ACMRTUXBD', '--end-of-options', mergeBase], repoRoot));
-    collect(gitOutput(['diff', '--cached', '--name-only', '--no-renames', '--diff-filter=ACMRTUXBD', '--end-of-options', mergeBase], repoRoot));
-  } else if (headSha) {
-    collect(gitOutput(['diff', '--name-only', '--no-renames', '--diff-filter=ACMRTUXBD', 'HEAD'], repoRoot));
-    collect(gitOutput(['diff', '--cached', '--name-only', '--no-renames', '--diff-filter=ACMRTUXBD'], repoRoot));
-  } else {
-    collect(gitOutput(['diff', '--cached', '--name-only', '--no-renames', '--diff-filter=ACMRTUXBD'], repoRoot));
-    collect(gitOutput(['diff', '--name-only', '--no-renames', '--diff-filter=ACMRTUXBD'], repoRoot));
-  }
-  collect(gitOutput(['ls-files', '--others', '--exclude-standard'], repoRoot));
-  return [...files].sort();
-}
-
-function appendUnifiedDiffChunks(rawDiff, map, repoRoot = '.', onlyIfMissing = false, opts = {}) {
-  if (!rawDiff) return;
-  const normalized = String(rawDiff).replace(/\r\n/g, '\n');
-  const sections = normalized.split(/(?=^diff --git )/m);
-  for (const section of sections) {
+function parsePatchSections(rawDiff, knownPaths) {
+  const patches = new Map();
+  if (!rawDiff) return patches;
+  for (const section of String(rawDiff).replace(/\r\n/g, '\n').split(/(?=^diff --git )/m)) {
     if (!section.startsWith('diff --git ')) continue;
-    const headerEnd = section.indexOf('\n');
-    const header = headerEnd === -1 ? section : section.slice(0, headerEnd);
+    const nl = section.indexOf('\n');
+    const hdr = nl === -1 ? section : section.slice(0, nl);
     const plusMatch = section.match(/^\+\+\+ (?:"b\/(.+?)"|b\/(.+))$/m);
-    const pairMatch = header.match(/^diff --git (?:"a\/(.+?)"|a\/(.+?)) (?:"b\/(.+?)"|b\/(.+))$/);
+    const renMatch = !plusMatch ? section.match(/^rename to (.+)$/m) : null;
     let cleanPath = null;
-    if (plusMatch) {
-      cleanPath = plusMatch[1] ? unquoteGitPath(`"${plusMatch[1]}"`) : plusMatch[2].trim();
-    } else if (pairMatch) {
-      const rawB = pairMatch[3] ? `"${pairMatch[3]}"` : pairMatch[4] || (pairMatch[1] ? `"${pairMatch[1]}"` : pairMatch[2]);
-      cleanPath = unquoteGitPath(rawB);
+    if (plusMatch) cleanPath = plusMatch[1] ? unquoteGitPath(`"${plusMatch[1]}"`) : plusMatch[2].trim();
+    else if (renMatch) cleanPath = unquoteGitPath(renMatch[1]);
+    else {
+      const rest = hdr.slice('diff --git '.length);
+      const mid = (rest.length - 1) / 2;
+      if (Number.isInteger(mid) && mid > 2 && rest.startsWith('a/') && rest[mid] === ' ' && rest.slice(mid + 1) === `b/${rest.slice(2, mid)}`) {
+        cleanPath = rest.slice(2, mid);
+      } else {
+        const pairMatch = hdr.match(/^diff --git (?:"a\/(.+?)"|a\/(.+?)) (?:"b\/(.+?)"|b\/(.+))$/);
+        if (pairMatch) cleanPath = unquoteGitPath(pairMatch[3] ? `"${pairMatch[3]}"` : pairMatch[4] || (pairMatch[1] ? `"${pairMatch[1]}"` : pairMatch[2]));
+        if ((!cleanPath || !knownPaths.has(cleanPath)) && knownPaths.size > 0) {
+          for (const kp of knownPaths) if (hdr.endsWith(` b/${kp}`)) { cleanPath = kp; break; }
+        }
+      }
     }
     if (!cleanPath) continue;
     cleanPath = cleanPath.replace(/\\/g, '/').replace(/^\.\//, '');
-    if (onlyIfMissing && map.has(cleanPath)) continue;
-    const expanded = expandBinaryTextDiffSection(section, cleanPath, repoRoot, opts);
-    const prev = map.get(cleanPath);
-    map.set(cleanPath, prev ? `${prev}\n${expanded}` : expanded);
+    const prev = patches.get(cleanPath);
+    patches.set(cleanPath, prev ? `${prev}\n${section}` : section);
   }
+  return patches;
 }
 
-export function getUnifiedDiffByFile(baseBranch = null, repoRoot = '.', files = null, { strict = false } = {}) {
-  const diffMap = new Map();
-  if (Array.isArray(files) && files.length === 0) return diffMap;
-  const { headSha, mergeBase } = resolveDiffComparisonState(baseBranch, repoRoot);
-  const pathArgs = Array.isArray(files) && files.length > 0 && files.length <= 200 ? ['--', ...files.map((f) => `:(literal)${f}`)] : ['--'];
-  const gitDiffStrict = (args) => {
-    const out = gitOutput(args, repoRoot);
-    if (out === null && strict) throw new Error(`git ${args.slice(0, 2).join(' ')} failed.`);
-    return out;
-  };
+function synthesizeUntrackedPatch(relFile, absFile) {
+  if (TRUE_BINARY_EXT_RE.test(relFile)) return `diff --git a/${relFile} b/${relFile}\nBinary files /dev/null and b/${relFile} differ`;
+  const st = fs.lstatSync(absFile);
+  if (st.isSymbolicLink()) return `diff --git a/${relFile} b/${relFile}\nnew file mode 120000\n--- /dev/null\n+++ b/${relFile}\n@@ -0,0 +1 @@\n+${fs.readlinkSync(absFile)}`;
+  if (!st.isFile() || st.size === 0) return `diff --git a/${relFile} b/${relFile}\nnew file mode 100644`;
+  if (st.size > MAX_SYNTHETIC_DIFF_BYTES) throw new ChangeSetParseError(`File '${relFile}' exceeds ${MAX_SYNTHETIC_DIFF_BYTES} bytes.`);
+  const rawBuf = fs.readFileSync(absFile);
+  if (rawBuf.includes(0)) return `diff --git a/${relFile} b/${relFile}\nBinary files /dev/null and b/${relFile} differ`;
+  const lines = rawBuf.toString('utf8').replace(/\r\n/g, '\n').replace(/\n$/, '').split('\n');
+  return `diff --git a/${relFile} b/${relFile}\n--- /dev/null\n+++ b/${relFile}\n@@ -0,0 +1,${lines.length} @@\n${lines.map((l) => `+${l}`).join('\n')}`;
+}
 
-  if (mergeBase) {
-    const unified = gitDiffStrict(['diff', ...SAFE_DIFF_FLAGS, mergeBase, ...pathArgs]);
-    if (unified !== null) {
-      appendUnifiedDiffChunks(unified, diffMap, repoRoot, false, { strict, preferIndex: false });
-    }
-    const cachedOnly = gitDiffStrict(['diff', ...SAFE_DIFF_FLAGS, '--cached', mergeBase, ...pathArgs]);
-    if (cachedOnly) {
-      appendUnifiedDiffChunks(cachedOnly, diffMap, repoRoot, true, { strict, preferIndex: true });
-    }
-  } else {
-    const workingDiff =
-      (headSha ? gitDiffStrict(['diff', ...SAFE_DIFF_FLAGS, 'HEAD', ...pathArgs]) : null) ??
-      gitDiffStrict(['diff', ...SAFE_DIFF_FLAGS, '--cached', ...pathArgs]) ??
-      gitDiffStrict(['diff', ...SAFE_DIFF_FLAGS, ...pathArgs]) ??
-      '';
-    appendUnifiedDiffChunks(workingDiff, diffMap, repoRoot, false, { strict, preferIndex: false });
+export function readChangeSet({ baseSha, headSha = null, source = 'commit', repoRoot = '.', _rawPatchOverride = undefined } = {}) {
+  const effBase = String(baseSha || EMPTY_TREE_SHA).trim();
+  if (source !== 'commit' && source !== 'worktree') throw new ChangeSetParseError(`Invalid ChangeSet source '${source}'.`);
+  if (source === 'commit') {
+    const effHead = String(headSha || '').trim();
+    if (!effHead || effBase === effHead) return { source, baseSha: effBase, headSha: effHead || null, paths: [], entries: [], patches: new Map() };
+    const rawRes = gitExecBuffer(['diff-tree', '-r', '-z', '--raw', '--no-renames', '--end-of-options', effBase, effHead], repoRoot);
+    if (rawRes.error || rawRes.status !== 0) throw new ChangeSetParseError(`diff-tree --raw failed: ${rawRes.stderr}`);
+    const patchRes = _rawPatchOverride !== undefined ? { status: 0, stdout: Buffer.from(_rawPatchOverride, 'utf8'), stderr: '', error: null } : gitExecBuffer(['diff-tree', '-r', '-p', '-U0', '-M', '--no-ext-diff', '--no-textconv', '--end-of-options', effBase, effHead], repoRoot);
+    if (patchRes.error || patchRes.status !== 0) throw new ChangeSetParseError(`diff-tree -p failed: ${patchRes.stderr}`);
+    return buildChangeSetFromPlumbing(source, effBase, effHead, rawRes.stdout.toString('utf8'), patchRes.stdout.toString('utf8'), repoRoot);
   }
+  const rawRes = gitExecBuffer(['diff-index', '-z', '--raw', '--no-renames', '--end-of-options', effBase], repoRoot);
+  if (rawRes.error || rawRes.status !== 0) throw new ChangeSetParseError(`diff-index --raw failed: ${rawRes.stderr}`);
+  const patchRes = _rawPatchOverride !== undefined ? { status: 0, stdout: Buffer.from(_rawPatchOverride, 'utf8'), stderr: '', error: null } : gitExecBuffer(['diff-index', '-p', '-U0', '-M', '--no-ext-diff', '--no-textconv', '--end-of-options', effBase], repoRoot);
+  if (patchRes.error || patchRes.status !== 0) throw new ChangeSetParseError(`diff-index -p failed: ${patchRes.stderr}`);
+  return buildChangeSetFromPlumbing(source, effBase, headSha, rawRes.stdout.toString('utf8'), patchRes.stdout.toString('utf8'), repoRoot);
+}
 
-  const untrackedOut = gitDiffStrict(['ls-files', '--others', '--exclude-standard']) || '';
-  const untrackedList = untrackedOut
-    .replace(/\r\n/g, '\n')
-    .split('\n')
-    .map((f) => unquoteGitPath(f).replace(/\\/g, '/').replace(/^\.\//, ''))
-    .filter(Boolean);
-  const targetFilter = Array.isArray(files) ? new Set(files.map((f) => f.replace(/\\/g, '/').replace(/^\.\//, ''))) : null;
-
-  for (const uf of untrackedList) {
-    if (targetFilter && !targetFilter.has(uf)) continue;
-    if (!diffMap.has(uf)) {
-      const synth = readBoundedSyntheticDiff(uf, repoRoot, true, { strict });
-      if (synth) diffMap.set(uf, synth);
+function buildChangeSetFromPlumbing(source, baseSha, headSha, rawText, patchText, repoRoot) {
+  const tokens = rawText ? rawText.split('\0') : [];
+  let entries = [];
+  for (let i = 0; i + 1 < tokens.length; i += 2) {
+    if (!tokens[i]) continue;
+    const m = tokens[i].match(/^:(\d{6}) (\d{6}) ([0-9a-f]{40,64}) ([0-9a-f]{40,64}) ([A-Z])\d*$/i);
+    if (!m) throw new ChangeSetParseError(`Malformed raw diff header: ${tokens[i]}`);
+    entries.push({ path: tokens[i + 1].replace(/\\/g, '/'), status: m[5].toUpperCase(), oldMode: m[1], newMode: m[2], oldOid: m[3], newOid: m[4] });
+  }
+  const patches = parsePatchSections(patchText, new Set(entries.map((e) => e.path)));
+  if (source === 'worktree') {
+    entries = entries.filter((e) => {
+      if (e.status !== 'M' || !/^0+$/.test(e.newOid) || e.oldMode !== e.newMode || patches.has(e.path)) return true;
+      try {
+        const buf = fs.readFileSync(path.resolve(repoRoot, e.path));
+        return crypto.createHash('sha1').update(`blob ${buf.length}\0`).update(buf).digest('hex') !== e.oldOid;
+      } catch {
+        return true;
+      }
+    });
+    const seen = new Set(entries.map((e) => e.path));
+    const untrackedRes = gitExecBuffer(['ls-files', '-z', '--others', '--exclude-standard'], repoRoot);
+    for (const uf of (untrackedRes.error || untrackedRes.status !== 0 ? '' : untrackedRes.stdout.toString('utf8')).split('\0').filter(Boolean)) {
+      const norm = uf.replace(/\\/g, '/');
+      if (seen.has(norm)) continue;
+      const abs = path.resolve(repoRoot, norm);
+      if (!fileExists(abs)) continue;
+      const st = fs.lstatSync(abs);
+      const newMode = st.isSymbolicLink() ? '120000' : st.mode & 0o111 ? '100755' : '100644';
+      entries.push({ path: norm, status: 'A', oldMode: '000000', newMode, oldOid: '0'.repeat(40), newOid: '0'.repeat(40) });
+      patches.set(norm, synthesizeUntrackedPatch(norm, abs));
     }
   }
-  return diffMap;
+  for (const e of entries) {
+    if (e.status === 'D' || (e.oldOid === e.newOid && e.oldMode !== e.newMode)) continue;
+    if (e.newMode === '160000' || e.oldMode === '160000' || TRUE_BINARY_EXT_RE.test(e.path) || e.newOid === EMPTY_BLOB_SHA) continue;
+    if (!patches.has(e.path)) throw new ChangeSetParseError(`Missing patch section for changed entry '${e.path}'.`);
+  }
+  entries.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  const paths = [...new Set(entries.map((e) => e.path))].sort();
+  return { source, baseSha, headSha, paths, entries, patches };
+}
+
+export function getModifiedFiles(baseBranch = null, repoRoot = '.') {
+  const range = resolveRange({ baseBranch, repoRoot });
+  return readChangeSet({ ...range, source: 'worktree', repoRoot }).paths;
+}
+
+export function getUnifiedDiffByFile(baseBranch = null, repoRoot = '.', files = null) {
+  const range = resolveRange({ baseBranch, repoRoot });
+  const cs = readChangeSet({ ...range, source: 'worktree', repoRoot });
+  if (!Array.isArray(files)) return cs.patches;
+  const allow = new Set(files.map((f) => f.replace(/\\/g, '/').replace(/^\.\//, '')));
+  return new Map([...cs.patches.entries()].filter(([k]) => allow.has(k)));
 }
 
 export function computeContentTreeSha(commitRef = 'HEAD', repoRoot = '.') {
@@ -693,9 +679,19 @@ export function isDocsOnlyFile(relPath = '') {
   return PURE_DOC_ALLOW_RE.test(norm);
 }
 
-export function isDocsOnlyDiff(files = []) {
-  if (!Array.isArray(files) || files.length === 0) return false;
-  return files.every((f) => isDocsOnlyFile(f));
+export function isDocsOnlyDiff(filesOrChangeSet = []) {
+  if (filesOrChangeSet && !Array.isArray(filesOrChangeSet) && Array.isArray(filesOrChangeSet.entries)) {
+    const entries = filesOrChangeSet.entries;
+    if (entries.length === 0) return false;
+    return entries.every(
+      (e) =>
+        (e.oldMode === '000000' || e.oldMode === '100644') &&
+        (e.newMode === '000000' || e.newMode === '100644') &&
+        isDocsOnlyFile(e.path)
+    );
+  }
+  if (!Array.isArray(filesOrChangeSet) || filesOrChangeSet.length === 0) return false;
+  return filesOrChangeSet.every((f) => isDocsOnlyFile(f));
 }
 
 export function readTreeBlobMap(treeOrCommitRef, repoRoot = '.') {
@@ -781,35 +777,37 @@ export function parseFrontmatter(markdown = '') {
   return { frontmatter, body };
 }
 
-export function computeAlignmentHashes(repoRoot = '.') {
+export function computeAlignmentHashes(arg = '.') {
+  const { sha = 'HEAD', repoRoot = '.' } = typeof arg === 'string' ? { repoRoot: arg } : arg || {};
   const specHasher = crypto.createHash('sha256');
-  const specFiles = ['PRODUCT.md', 'docs/PRD.md', 'docs/SRS.md', '.archlens/policy.json'];
-  const specsDir = path.resolve(repoRoot, 'docs/specs');
-  if (fileExists(specsDir)) {
-    for (const e of fs.readdirSync(specsDir).filter((f) => f.endsWith('.md')).sort()) {
-      specFiles.push(`docs/specs/${e}`);
-    }
-  }
-  for (const rel of specFiles) {
-    const abs = path.resolve(repoRoot, rel);
-    if (fileExists(abs)) {
-      specHasher.update(`file:${rel}:${(readFileSafe(abs) || '').replace(/\r\n/g, '\n')}\n`);
-    }
-  }
-
   const adrHasher = crypto.createHash('sha256');
-  const adrDir = path.resolve(repoRoot, 'docs/adr');
-  if (fileExists(adrDir)) {
-    for (const name of fs.readdirSync(adrDir).filter((n) => /^ADR-\d+.*\.md$/i.test(n)).sort()) {
-      const raw = readFileSafe(path.join(adrDir, name));
-      if (!raw) continue;
-      const { frontmatter } = parseFrontmatter(raw);
-      if (String(frontmatter.status || '').toLowerCase() !== 'accepted') continue;
-      const idMatch = name.match(/^(ADR-\d+)/i);
-      const id = (frontmatter.id || (idMatch ? idMatch[1] : name.replace(/\.md$/i, ''))).toUpperCase();
-      const sha = crypto.createHash('sha256').update(raw.replace(/\r\n/g, '\n')).digest('hex');
-      adrHasher.update(`${id}:${sha}\n`);
-    }
+  const commitSha = (gitOutput(['rev-parse', '--verify', '-q', '--end-of-options', `${sha}^{commit}`], repoRoot) || '').trim();
+  if (!commitSha) return { specHash: specHasher.digest('hex'), adrHashes: adrHasher.digest('hex') };
+
+  const specFiles = [
+    'PRODUCT.md',
+    'docs/PRD.md',
+    'docs/SRS.md',
+    '.archlens/policy.json',
+    ...listTree(commitSha, 'docs/specs', repoRoot).filter((f) => /^docs\/specs\/[^/]+\.md$/.test(f))
+  ];
+  const adrFiles = listTree(commitSha, 'docs/adr', repoRoot).filter((f) => /^docs\/adr\/ADR-\d+[^/]*\.md$/i.test(f));
+  const blobs = readBlobs([...specFiles, ...adrFiles].map((f) => `${commitSha}:${f}`), repoRoot);
+
+  for (const rel of specFiles) {
+    const raw = blobs.get(`${commitSha}:${rel}`);
+    if (raw !== null && raw !== undefined) specHasher.update(`file:${rel}:${raw.replace(/\r\n/g, '\n')}\n`);
+  }
+  for (const rel of adrFiles) {
+    const raw = blobs.get(`${commitSha}:${rel}`);
+    if (!raw) continue;
+    const { frontmatter } = parseFrontmatter(raw);
+    if (String(frontmatter.status || '').toLowerCase() !== 'accepted') continue;
+    const baseName = path.posix.basename(rel);
+    const idMatch = baseName.match(/^(ADR-\d+)/i);
+    const id = (frontmatter.id || (idMatch ? idMatch[1] : baseName.replace(/\.md$/i, ''))).toUpperCase();
+    const digest = crypto.createHash('sha256').update(raw.replace(/\r\n/g, '\n')).digest('hex');
+    adrHasher.update(`${id}:${digest}\n`);
   }
   return { specHash: specHasher.digest('hex'), adrHashes: adrHasher.digest('hex') };
 }

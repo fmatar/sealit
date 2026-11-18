@@ -21,9 +21,12 @@ import {
   hasDevelopBranch,
   resolveDefaultBaseBranch,
   resolveEffectiveDiffBase,
-  resolveDiffComparisonState,
-  getModifiedFiles,
-  getUnifiedDiffByFile,
+  resolveRange,
+  readChangeSet,
+  readBlobs,
+  listTree,
+  ChangeSetParseError,
+  computeAlignmentHashes,
   computeContentTreeSha,
   isDocsOnlyFile,
   isDocsOnlyDiff,
@@ -188,9 +191,9 @@ describe('Ring 0: lib/git.mjs', () => {
       git(dir, 'add', 'second.txt');
       git(dir, 'commit', '-q', '-m', 'chore: second on main');
       assert.equal(resolveEffectiveDiffBase(null, dir), 'main');
-      const mainPushState = resolveDiffComparisonState(null, dir);
-      assert.equal(mainPushState.committedRange, 'HEAD~1..HEAD');
-      assert.deepEqual(getModifiedFiles(null, dir), ['second.txt']);
+      const mainRange = resolveRange({ repoRoot: dir });
+      const mainCs = readChangeSet({ ...mainRange, source: 'commit', repoRoot: dir });
+      assert.deepEqual(mainCs.paths, ['second.txt']);
 
       // Single-commit newborn repo without develop or main returns committed files via empty-tree diff
       const newborn = createTempGitRepo({ withDevelop: false, initialBranch: 'feat/init' });
@@ -198,8 +201,10 @@ describe('Ring 0: lib/git.mjs', () => {
       fs.writeFileSync(path.join(newborn.dir, 'committed-on-root.mjs'), 'export const rootVal = 99;\n', 'utf8');
       git(newborn.dir, 'add', 'committed-on-root.mjs');
       git(newborn.dir, 'commit', '--amend', '-q', '--no-edit');
-      assert.equal(getModifiedFiles(null, newborn.dir).includes('committed-on-root.mjs'), true);
-      assert.match(getUnifiedDiffByFile(null, newborn.dir).get('committed-on-root.mjs') || '', /\+export const rootVal = 99;/);
+      const nbRange = resolveRange({ repoRoot: newborn.dir });
+      const nbCs = readChangeSet({ ...nbRange, source: 'commit', repoRoot: newborn.dir });
+      assert.equal(nbCs.paths.includes('committed-on-root.mjs'), true);
+      assert.match(nbCs.patches.get('committed-on-root.mjs') || '', /\+export const rootVal = 99;/);
     } finally {
       if (prevBaseRef === undefined) delete process.env.GITHUB_BASE_REF;
       else process.env.GITHUB_BASE_REF = prevBaseRef;
@@ -231,15 +236,14 @@ describe('Ring 0: lib/git.mjs', () => {
     fs.writeFileSync(path.join(dir, 'src/nul.mjs'), Buffer.from('\x00export const n = 3;\x00\n', 'latin1'));
     git(dir, 'add', 'src/nul.mjs');
 
-    const modFiles = getModifiedFiles(null, dir);
-    assert.equal(modFiles.includes('src/secret.mjs'), true);
-    assert.equal(modFiles.includes(quotedRel), true);
-    assert.equal(modFiles.includes('src/nul.mjs'), true);
-
-    const diffs = getUnifiedDiffByFile(null, dir, modFiles);
-    assert.equal((diffs.get('src/secret.mjs') || '').includes(`+export const key = "${fakeAwsId}";`), true);
-    assert.match(diffs.get(quotedRel) || '', /\+export const q = 2;/);
-    assert.match(diffs.get('src/nul.mjs') || '', /\+export const n = 3;/);
+    const wtRange = resolveRange({ repoRoot: dir });
+    const wtCs = readChangeSet({ ...wtRange, source: 'worktree', repoRoot: dir });
+    assert.equal(wtCs.paths.includes('src/secret.mjs'), true);
+    assert.equal(wtCs.paths.includes(quotedRel), true);
+    assert.equal(wtCs.paths.includes('src/nul.mjs'), true);
+    assert.equal((wtCs.patches.get('src/secret.mjs') || '').includes(`+export const key = "${fakeAwsId}";`), true);
+    assert.match(wtCs.patches.get(quotedRel) || '', /\+export const q = 2;/);
+    assert.match(wtCs.patches.get('src/nul.mjs') || '', /Binary files .* differ/);
   });
 
   it('computeContentTreeSha is invariant across docs/AUDIT_CHAIN.jsonl commits and changes on code edits', () => {
@@ -324,70 +328,74 @@ describe('Ring 0: lib/git.mjs', () => {
     assert.equal(hasDirtyNonGovernanceFiles(dir), true);
   });
 
-  it('getModifiedFiles reports both sides of committed renames so code->docs moves stay code mode', () => {
+  it('readChangeSet lists both sides of renames, exact-case paths, and ignores the 9-setting hostile config/env matrix', () => {
     const { dir, cleanup } = createTempGitRepo();
     cleanups.push(cleanup);
 
     fs.mkdirSync(path.join(dir, 'docs/specs'), { recursive: true });
     fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
     fs.writeFileSync(path.join(dir, 'docs/specs/cap-01.md'), '# Cap\n', 'utf8');
-    fs.writeFileSync(path.join(dir, 'src/core.js'), 'export const a = 1;\n', 'utf8');
+    fs.writeFileSync(path.join(dir, 'src/core.js'), 'export const a = 1;\nexport const b = 2;\nexport const c = 3;\nexport const d = 4;\n', 'utf8');
+    fs.writeFileSync(path.join(dir, 'src/a.js'), 'export const a0 = 0;\nexport const a1 = 1;\nexport const a2 = 2;\n', 'utf8');
+    fs.writeFileSync(path.join(dir, 'src/CaseFile.js'), 'export const cf = 1;\n', 'utf8');
     git(dir, 'add', '-A');
     git(dir, 'commit', '-q', '-m', 'chore: base files');
 
     git(dir, 'checkout', '-q', '-b', 'feat/mv', 'develop');
     git(dir, 'mv', 'docs/specs/cap-01.md', 'docs/archive-cap-01.md');
     git(dir, 'mv', 'src/core.js', 'docs/core.md');
-    git(dir, 'commit', '-q', '-m', 'refactor: move files');
+    git(dir, 'mv', '-f', 'src/CaseFile.js', 'src/casefile.tmp.js');
+    git(dir, 'mv', '-f', 'src/casefile.tmp.js', 'src/casefile.js');
+    fs.writeFileSync(path.join(dir, 'src/a.js'), 'export const a0 = 0;\nexport const a1 = 1;\nexport const k = 1;\nexport const a2 = 2;\n', 'utf8');
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'refactor: move files and edit src/a.js');
 
-    const files = getModifiedFiles('develop', dir);
-    assert.ok(files.includes('docs/specs/cap-01.md'));
-    assert.ok(files.includes('docs/archive-cap-01.md'));
-    assert.ok(files.includes('src/core.js'));
-    assert.ok(files.includes('docs/core.md'));
-    assert.equal(isDocsOnlyDiff(files), false);
-  });
+    const expectedPaths = [
+      'docs/archive-cap-01.md',
+      'docs/core.md',
+      'docs/specs/cap-01.md',
+      'src/CaseFile.js',
+      'src/a.js',
+      'src/casefile.js',
+      'src/core.js'
+    ].sort();
 
-  it('getUnifiedDiffByFile ignores diff.noprefix, diff.mnemonicPrefix, diff.external and GIT_EXTERNAL_DIFF', () => {
-    const { dir, cleanup } = createTempGitRepo();
-    cleanups.push(cleanup);
+    const matrix = [
+      { label: 'default', cfg: null, env: null },
+      { label: 'diff.noprefix', cfg: ['diff.noprefix', 'true'], env: null },
+      { label: 'diff.mnemonicPrefix', cfg: ['diff.mnemonicPrefix', 'true'], env: null },
+      { label: 'diff.external=echo', cfg: ['diff.external', 'echo'], env: null },
+      { label: 'diff.renames=copies', cfg: ['diff.renames', 'copies'], env: null },
+      { label: 'diff.srcPrefix=X/', cfg: ['diff.srcPrefix', 'X/'], env: null },
+      { label: 'diff.context=10', cfg: ['diff.context', '10'], env: null },
+      { label: 'GIT_EXTERNAL_DIFF=echo', cfg: null, env: ['GIT_EXTERNAL_DIFF', 'echo'] },
+      { label: 'GIT_LITERAL_PATHSPECS=1', cfg: null, env: ['GIT_LITERAL_PATHSPECS', '1'] }
+    ];
 
-    fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
-    fs.writeFileSync(path.join(dir, 'src/a.js'), 'export const a = 1;\n', 'utf8');
-    git(dir, 'add', 'src/a.js');
-    git(dir, 'commit', '-q', '-m', 'chore: base src');
-
-    git(dir, 'checkout', '-q', '-b', 'feat/diff-cfg', 'develop');
-    fs.writeFileSync(path.join(dir, 'src/a.js'), 'export const a = 1;\nexport const k = 1;\n', 'utf8');
-    git(dir, 'commit', '-qam', 'feat: add k');
-
-    for (const [k, v] of [
-      ['diff.noprefix', 'true'],
-      ['diff.mnemonicPrefix', 'true'],
-      ['diff.external', 'echo']
-    ]) {
-      git(dir, 'config', k, v);
-      const map = getUnifiedDiffByFile('develop', dir, ['src/a.js'], { strict: true });
-      assert.ok(map.has('src/a.js'), `expected src/a.js under ${k}=${v}`);
-      assert.match(map.get('src/a.js'), /^\+export const k = 1;$/m, `expected added line under ${k}=${v}`);
-      git(dir, 'config', '--unset', k);
-    }
-
-    const hadExtDiff = Object.prototype.hasOwnProperty.call(process.env, 'GIT_EXTERNAL_DIFF');
-    const prevExtDiff = process.env.GIT_EXTERNAL_DIFF;
-    const hadLiteralPathspecs = Object.prototype.hasOwnProperty.call(process.env, 'GIT_LITERAL_PATHSPECS');
-    const prevLiteralPathspecs = process.env.GIT_LITERAL_PATHSPECS;
-    process.env.GIT_EXTERNAL_DIFF = 'echo';
-    process.env.GIT_LITERAL_PATHSPECS = '1';
-    try {
-      const envMap = getUnifiedDiffByFile('develop', dir, ['src/a.js'], { strict: true });
-      assert.ok(envMap.has('src/a.js'), 'expected src/a.js with GIT_EXTERNAL_DIFF=echo & GIT_LITERAL_PATHSPECS=1');
-      assert.match(envMap.get('src/a.js'), /^\+export const k = 1;$/m);
-    } finally {
-      if (hadExtDiff) process.env.GIT_EXTERNAL_DIFF = prevExtDiff;
-      else delete process.env.GIT_EXTERNAL_DIFF;
-      if (hadLiteralPathspecs) process.env.GIT_LITERAL_PATHSPECS = prevLiteralPathspecs;
-      else delete process.env.GIT_LITERAL_PATHSPECS;
+    const range = resolveRange({ baseBranch: 'develop', repoRoot: dir });
+    for (const item of matrix) {
+      if (item.cfg) git(dir, 'config', item.cfg[0], item.cfg[1]);
+      const hadEnv = item.env ? Object.prototype.hasOwnProperty.call(process.env, item.env[0]) : false;
+      const prevEnv = item.env ? process.env[item.env[0]] : undefined;
+      if (item.env) process.env[item.env[0]] = item.env[1];
+      try {
+        const cs = readChangeSet({ ...range, source: 'commit', repoRoot: dir });
+        assert.deepEqual(cs.paths, expectedPaths, `paths mismatch under ${item.label}`);
+        assert.equal(isDocsOnlyDiff(cs), false, `docsOnly must be false under ${item.label}`);
+        const patchA = cs.patches.get('src/a.js') || '';
+        assert.match(patchA, /^\+export const k = 1;$/m, `added line missing under ${item.label}`);
+        for (const hMatch of patchA.matchAll(/^@@ -\d+(?:,\d+)? \+\d+(?:,(\d+))? @@\n([\s\S]*?)(?=^@@ |(?![\s\S]))/gm)) {
+          const expectedPlus = hMatch[1] === undefined ? 1 : Number(hMatch[1]);
+          const actualPlus = hMatch[2].split('\n').filter((l) => l.startsWith('+') && !l.startsWith('+++')).length;
+          assert.equal(actualPlus, expectedPlus, `-U0 hunk count must equal + lines under ${item.label}`);
+        }
+      } finally {
+        if (item.cfg) git(dir, 'config', '--unset', item.cfg[0]);
+        if (item.env) {
+          if (hadEnv) process.env[item.env[0]] = prevEnv;
+          else delete process.env[item.env[0]];
+        }
+      }
     }
 
     const cleaned = cleanGitEnv({
@@ -401,10 +409,83 @@ describe('Ring 0: lib/git.mjs', () => {
     });
     assert.equal(cleaned.PATH, '/usr/bin');
     assert.equal(cleaned.GIT_LITERAL_PATHSPECS, undefined);
-    assert.equal(cleaned.GIT_GLOB_PATHSPECS, undefined);
-    assert.equal(cleaned.GIT_NOGLOB_PATHSPECS, undefined);
-    assert.equal(cleaned.GIT_ICASE_PATHSPECS, undefined);
     assert.equal(cleaned.GIT_EXTERNAL_DIFF, undefined);
-    assert.equal(cleaned.GIT_DIFF_OPTS, undefined);
+  });
+
+  it('readChangeSet on a pull/N/merge style merge commit only reports PR changes, -M reports only edited lines on moved files, and computeAlignmentHashes({ sha }) ignores uncommitted edits', () => {
+    const { dir, cleanup } = createTempGitRepo();
+    cleanups.push(cleanup);
+
+    // Seed multi-line file on develop
+    fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+    fs.mkdirSync(path.join(dir, 'docs/specs'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'PRODUCT.md'), '# Product v1 — UTF-8 ≥ … 🎉\n', 'utf8');
+    fs.writeFileSync(path.join(dir, 'docs/specs/cap-01.md'), '# Cap 01\n', 'utf8');
+    const twentyLines = Array.from({ length: 20 }, (_, i) => `export const v${i} = ${i};`).join('\n') + '\n';
+    fs.writeFileSync(path.join(dir, 'src/orig.mjs'), twentyLines, 'utf8');
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'chore: seed develop');
+
+    // Create PR branch: move src/orig.mjs -> src/moved.mjs and edit ONE line
+    git(dir, 'checkout', '-q', '-b', 'feat/pr-move', 'develop');
+    git(dir, 'mv', 'src/orig.mjs', 'src/moved.mjs');
+    fs.writeFileSync(path.join(dir, 'src/moved.mjs'), twentyLines.replace('export const v10 = 10;', 'export const v10 = 999;'), 'utf8');
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'feat: move and edit 1 line');
+    const prHead = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+
+    const moveRange = resolveRange({ baseBranch: 'develop', head: prHead, repoRoot: dir });
+    const moveCs = readChangeSet({ ...moveRange, source: 'commit', repoRoot: dir });
+    assert.deepEqual(moveCs.paths, ['src/moved.mjs', 'src/orig.mjs']);
+    const movedPatch = moveCs.patches.get('src/moved.mjs') || '';
+    const plusLines = movedPatch.split('\n').filter((l) => l.startsWith('+') && !l.startsWith('+++'));
+    assert.equal(plusLines.length, 1, 'moved file with 1 edited line must contribute exactly 1 added line');
+    assert.equal(plusLines[0], '+export const v10 = 999;');
+
+    // Advance develop independently, then create a pull/N/merge synthetic merge commit (parent 1 = develop, parent 2 = prHead)
+    git(dir, 'checkout', '-q', 'develop');
+    fs.writeFileSync(path.join(dir, 'src/already-on-develop.mjs'), 'export const devOnly = true;\n', 'utf8');
+    git(dir, 'add', 'src/already-on-develop.mjs');
+    git(dir, 'commit', '-q', '-m', 'feat: unrelated commit on develop');
+    const devTip = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+
+    git(dir, 'checkout', '-q', '--detach', devTip);
+    assert.equal(git(dir, 'merge', '--no-ff', '-q', '-m', 'Merge pull request #99', prHead).status, 0);
+    const prMergeSha = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+
+    const prevBaseRef = process.env.GITHUB_BASE_REF;
+    process.env.GITHUB_BASE_REF = 'develop';
+    try {
+      const ciRange = resolveRange({ repoRoot: dir });
+      assert.equal(ciRange.baseSha, devTip);
+      assert.equal(ciRange.headSha, prMergeSha);
+      const ciCs = readChangeSet({ ...ciRange, source: 'commit', repoRoot: dir });
+      assert.deepEqual(ciCs.paths, ['src/moved.mjs', 'src/orig.mjs'], 'pull/N/merge ChangeSet must exclude commits already on develop');
+    } finally {
+      if (prevBaseRef === undefined) delete process.env.GITHUB_BASE_REF;
+      else process.env.GITHUB_BASE_REF = prevBaseRef;
+    }
+
+    // readBlobs handles UTF-8 multi-byte chars, missing blobs, and tree objects cleanly; listTree filters without pathspecs
+    const blobs = readBlobs([`${prMergeSha}:PRODUCT.md`, `${prMergeSha}:missing.md`, `${prMergeSha}:docs`], dir);
+    assert.equal(blobs.get(`${prMergeSha}:PRODUCT.md`), '# Product v1 — UTF-8 ≥ … 🎉\n');
+    assert.equal(blobs.get(`${prMergeSha}:missing.md`), null);
+    assert.equal(blobs.get(`${prMergeSha}:docs`), null);
+    assert.deepEqual(listTree(prMergeSha, 'docs/specs', dir), ['docs/specs/cap-01.md']);
+
+    // computeAlignmentHashes({ sha }) ignores uncommitted spec edits on disk
+    const committedHashes = computeAlignmentHashes({ sha: prMergeSha, repoRoot: dir });
+    fs.writeFileSync(path.join(dir, 'PRODUCT.md'), '# Uncommitted tamper on disk!\n', 'utf8');
+    assert.deepEqual(computeAlignmentHashes({ sha: prMergeSha, repoRoot: dir }), committedHashes);
+
+    // isDocsOnlyDiff(changeSet) rejects symlinks (120000), gitlinks (160000), and executables (100755) under docs/
+    assert.equal(isDocsOnlyDiff({ entries: [{ path: 'docs/guide.md', status: 'A', oldMode: '000000', newMode: '100644' }] }), true);
+    assert.equal(isDocsOnlyDiff({ entries: [{ path: 'docs/link.md', status: 'A', oldMode: '000000', newMode: '120000' }] }), false);
+    assert.equal(isDocsOnlyDiff({ entries: [{ path: 'docs/sub.md', status: 'A', oldMode: '000000', newMode: '160000' }] }), false);
+    assert.equal(isDocsOnlyDiff({ entries: [{ path: 'docs/exec.md', status: 'M', oldMode: '100644', newMode: '100755' }] }), false);
+    assert.throws(
+      () => readChangeSet({ ...moveRange, source: 'commit', repoRoot: dir, _rawPatchOverride: '' }),
+      (err) => err instanceof ChangeSetParseError && err.code === 'CHANGESET_PARSE_ERROR'
+    );
   });
 });

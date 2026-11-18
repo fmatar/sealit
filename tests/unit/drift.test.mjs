@@ -185,6 +185,9 @@ describe('Ring 1: lib/drift.mjs', () => {
 
     const h1 = computeAlignmentHashes(dir);
     fs.writeFileSync(path.join(dir, 'PRODUCT.md'), '# Constitution v1\n', 'utf8');
+    assert.deepEqual(computeAlignmentHashes(dir), h1, 'uncommitted PRODUCT.md must not affect commit-sourced alignment hash');
+    git(dir, 'add', 'PRODUCT.md');
+    git(dir, 'commit', '-q', '-m', 'docs: commit constitution');
     const h2 = computeAlignmentHashes(dir);
     assert.notEqual(h1.specHash, h2.specHash);
 
