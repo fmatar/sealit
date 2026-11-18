@@ -2,16 +2,19 @@
 id: ADR-020
 title: "Commit-Object Gate Engine via Git Plumbing"
 scope: architectural
-status: pending_approval
+status: accepted
 ticket: L-4
 supersedes: [CAP-01, CAP-03, CAP-04]
 createdAt: 2026-11-18T08:34:53.765Z
+decidedBy: "@fmatar"
+decidedAt: 2026-11-18T13:26:30.175Z
+decisionReason: "Approve commit-object gate engine via git plumbing"
 ---
 
 # ADR-020: Commit-Object Gate Engine via Git Plumbing
 
 - **Scope**: `architectural`
-- **Status**: `pending_approval`
+- **Status**: `accepted`
 - **Linked Ticket**: `L-4`
 - **Supersedes / Modifies**: `CAP-01, CAP-03, CAP-04`
 
