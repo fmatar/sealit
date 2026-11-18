@@ -13,6 +13,7 @@ coverage/
 .agent/.sdlc-config.lock
 .agent/.receipt-key
 .agent/.audit-chain.lock
+.agent/sdlc-config.json.bak
 .archlens/to-agent.json
 .archlens/to-viewer.json
 *.lcov

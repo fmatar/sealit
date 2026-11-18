@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
@@ -22,6 +23,7 @@ import { DEFAULT_QUALITY_GATE_CHECK, loadConfig } from './config.mjs';
 import {
   issueGateReceipt,
   readActiveSession,
+  readSessionStore,
   verifyGateReceipt,
   writeActiveSession
 } from './receipt.mjs';
@@ -49,6 +51,27 @@ function allocateNextLocalId(sessions = {}) {
   return `L-${maxN + 1}`;
 }
 
+// Worktrees may live next to the repo (its parent dir, incl. <repo>/.worktrees) or under the system temp dir,
+// never inside dot-directories (e.g. ~/.claude/commands) and never through a symlink that escapes those roots.
+function resolveSafeWorktreePath(absRoot, worktree) {
+  const target = path.resolve(absRoot, worktree);
+  let probe = target;
+  const rest = [];
+  while (!fs.existsSync(probe)) {
+    const parent = path.dirname(probe);
+    if (parent === probe) break;
+    rest.unshift(path.basename(probe));
+    probe = parent;
+  }
+  const realTarget = path.join(fs.realpathSync(probe), ...rest);
+  const roots = [path.dirname(fs.realpathSync(absRoot)), fs.realpathSync(os.tmpdir())];
+  const ok = roots.some((root) => {
+    const rel = path.relative(root, realTarget);
+    return rel && !rel.startsWith('..') && !path.isAbsolute(rel) && rel.split(path.sep).every((seg) => !seg.startsWith('.') || seg === '.worktrees');
+  });
+  return ok ? target : null;
+}
+
 export function beginSession({
   issueId = null,
   title = 'change',
@@ -62,6 +85,9 @@ export function beginSession({
   const baseBranch = resolveDefaultBaseBranch(absRoot);
   let resolvedId = normalizeTicketId(issueId);
   let reservedId = null;
+  if (resolvedId && readSessionStore(absRoot).sessions?.[resolvedId]?.reserved) {
+    return { success: false, error: `Session id '${resolvedId}' is being created by another begin; retry or pick another id.` };
+  }
   if (!resolvedId) {
     // Allocate and reserve the local id inside the session lock so concurrent `begin` runs never collide.
     writeActiveSession(absRoot, (store) => {
@@ -103,8 +129,15 @@ export function beginSession({
 
   let resolvedWorktree = null;
   if (worktree) {
-    resolvedWorktree = path.resolve(absRoot, worktree);
-    fs.mkdirSync(path.dirname(resolvedWorktree), { recursive: true });
+    resolvedWorktree = resolveSafeWorktreePath(absRoot, worktree);
+    if (!resolvedWorktree) {
+      return fail(`Worktree path '${worktree}' must be next to the repository (its parent dir or <repo>/.worktrees) or under the system temp dir, outside dot-directories.`);
+    }
+    try {
+      fs.mkdirSync(path.dirname(resolvedWorktree), { recursive: true });
+    } catch (err) {
+      return fail(`Failed to create worktree parent directory: ${err.message}`);
+    }
     const wtArgs = hasBranch(targetBranch, absRoot)
       ? ['worktree', 'add', resolvedWorktree, targetBranch]
       : ['worktree', 'add', '-b', targetBranch, resolvedWorktree, baseBranch];
@@ -122,7 +155,12 @@ export function beginSession({
 
   const now = new Date().toISOString();
   let savedSession = null;
+  let lostReservation = false;
   writeActiveSession(absRoot, (store) => {
+    if (reservedId && !store.sessions[reservedId]?.reserved) {
+      lostReservation = true; // another begin took this id explicitly; never inherit or overwrite its session
+      return store;
+    }
     const prev = store.sessions[resolvedId]?.reserved ? {} : store.sessions[resolvedId] || {};
     savedSession = {
       active: true,
@@ -141,6 +179,9 @@ export function beginSession({
     store.activeSessionId = resolvedId;
     return store;
   });
+  if (lostReservation) {
+    return { success: false, error: `Session id '${resolvedId}' was claimed by another begin while this one ran; retry.` };
+  }
 
   return { success: true, session: savedSession, branch: targetBranch, worktree: resolvedWorktree };
 }

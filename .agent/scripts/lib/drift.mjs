@@ -140,9 +140,13 @@ export function createADR({
     throw new Error(`Invalid ADR scope '${scope}'. Expected one of: technical, architectural, product, contract.`);
   }
 
-  const id = resolveNextAdrId(repoRoot);
   const normTicket = normalizeTicketId(ticket) || 'N/A';
   const supList = parseListField(supersedes);
+  // Raw frontmatter values: reject anything that could inject extra YAML lines (e.g. a second `status:`).
+  if (normTicket !== 'N/A' && !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(normTicket)) throw new Error(`Invalid ADR ticket '${ticket}'.`);
+  const badSup = supList.find((s) => !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(s));
+  if (badSup !== undefined) throw new Error(`Invalid ADR supersedes entry '${badSup}'.`);
+  const id = resolveNextAdrId(repoRoot);
   const slug = slugifyTitle(cleanTitle);
   const relFile = `docs/adr/${id}-${slug}.md`;
   const absFile = resolveInsideRepo(repoRoot, relFile);

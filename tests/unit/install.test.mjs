@@ -471,6 +471,39 @@ describe('Ring 2: lib/install.mjs', () => {
     fs.writeFileSync(path.join(custom.dir, '.claude/settings.json'), customRaw, 'utf8');
     await installFramework({ targetDir: custom.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
     assert.equal(fs.readFileSync(path.join(custom.dir, '.claude/settings.json'), 'utf8'), customRaw);
+
+    // Symlinked settings pointing OUTSIDE the root (home-manager / shared dotfiles) are never unlinked or rewritten
+    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-outside-settings-'));
+    cleanups.push(() => fs.rmSync(outsideDir, { recursive: true, force: true }));
+    for (const [label, body] of [
+      ['no-legacy', { model: 'opus', permissions: { allow: ['Bash(npm test)'] } }],
+      ['legacy', { model: 'opus', permissions: { allow: [`Bash(${ENGINE_CMD} *)`] } }]
+    ]) {
+      const r = createTempGitRepo();
+      cleanups.push(r.cleanup);
+      const outsideFile = path.join(outsideDir, `${label}.json`);
+      const outsideRaw = JSON.stringify(body);
+      fs.writeFileSync(outsideFile, outsideRaw, 'utf8');
+      fs.mkdirSync(path.join(r.dir, '.claude'), { recursive: true });
+      fs.symlinkSync(outsideFile, path.join(r.dir, '.claude/settings.json'));
+      const res = await installFramework({ targetDir: r.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+      assert.equal(fs.lstatSync(path.join(r.dir, '.claude/settings.json')).isSymbolicLink(), true, `${label}: symlink kept`);
+      assert.equal(fs.readFileSync(outsideFile, 'utf8'), outsideRaw, `${label}: outside file untouched`);
+      if (label === 'legacy') assert.ok(res.warnings.some((w) => /outside/.test(w) && /settings\.json/.test(w)), JSON.stringify(res.warnings));
+    }
+
+    // Symlinked settings INSIDE the root are migrated through the link
+    const inRoot = createTempGitRepo();
+    cleanups.push(inRoot.cleanup);
+    fs.mkdirSync(path.join(inRoot.dir, 'config'), { recursive: true });
+    fs.mkdirSync(path.join(inRoot.dir, '.claude'), { recursive: true });
+    fs.writeFileSync(path.join(inRoot.dir, 'config/claude.json'), JSON.stringify({ permissions: { allow: [`Bash(${ENGINE_CMD} *)`] } }), 'utf8');
+    fs.symlinkSync('../config/claude.json', path.join(inRoot.dir, '.claude/settings.json'));
+    await installFramework({ targetDir: inRoot.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+    assert.equal(fs.lstatSync(path.join(inRoot.dir, '.claude/settings.json')).isSymbolicLink(), true);
+    const linked = JSON.parse(fs.readFileSync(path.join(inRoot.dir, 'config/claude.json'), 'utf8'));
+    assert.equal(linked.permissions.allow.includes(`Bash(${ENGINE_CMD} *)`), false);
+    assert.ok(linked.permissions.allow.includes(`Bash(${ENGINE_CMD} status)`));
   });
 
   it('generated workflow verifies the receipt before installing or running PR code, drops persisted credentials, and doctor --fix upgrades the old order', () => {
@@ -510,18 +543,29 @@ describe('Ring 2: lib/install.mjs', () => {
     const pyWf = fs.readFileSync(path.join(py.dir, '.github/workflows/sdlc-quality-gate.yml'), 'utf8');
     assert.equal(cacheOf(pyWf), null, 'no lockfile => no cache key (setup-node would fail)');
 
-    for (const [lock, expected] of [['package-lock.json', 'npm'], ['npm-shrinkwrap.json', 'npm'], ['yarn.lock', 'yarn'], ['pnpm-lock.yaml', 'pnpm']]) {
+    for (const [lock, expected] of [['package-lock.json', 'npm'], ['npm-shrinkwrap.json', 'npm'], ['yarn.lock', null], ['pnpm-lock.yaml', null]]) {
       const r = createTempGitRepo();
       cleanups.push(r.cleanup);
       fs.writeFileSync(path.join(r.dir, 'package.json'), '{"name":"x"}\n', 'utf8');
       fs.writeFileSync(path.join(r.dir, lock), '{}\n', 'utf8');
       installCIWorkflow({ repoRoot: r.dir, force: true });
+      // The workflow only installs with npm; a pnpm/yarn cache needs extra tooling and yarn-berry would run repo JS before verify.
       assert.equal(cacheOf(fs.readFileSync(path.join(r.dir, '.github/workflows/sdlc-quality-gate.yml'), 'utf8')), expected, lock);
     }
 
-    // A workflow caching npm in a repo without a lockfile is reported and repaired by doctor --fix
+    // An npm repo whose user removed the cache line is NOT regenerated (missing cache is only an optimization)
+    const npmRepo = createTempGitRepo();
+    cleanups.push(npmRepo.cleanup);
+    fs.writeFileSync(path.join(npmRepo.dir, 'package-lock.json'), '{}\n', 'utf8');
+    fs.mkdirSync(path.join(npmRepo.dir, '.github/workflows'), { recursive: true });
+    const customNoCache = `${buildQualityGateWorkflow({ repoRoot: null })}      - name: My custom step\n        run: echo custom\n`;
+    fs.writeFileSync(path.join(npmRepo.dir, '.github/workflows/sdlc-quality-gate.yml'), customNoCache, 'utf8');
+    assert.equal(installCIWorkflow({ repoRoot: npmRepo.dir, force: false, upgradeLegacy: true }).skipped, true);
+    assert.match(fs.readFileSync(path.join(npmRepo.dir, '.github/workflows/sdlc-quality-gate.yml'), 'utf8'), /My custom step/);
+
+    // A workflow caching npm in a repo without a lockfile (quoted or unquoted) is reported and repaired by doctor --fix
     withoutReceiptEnv(() => {
-      fs.writeFileSync(path.join(py.dir, '.github/workflows/sdlc-quality-gate.yml'), buildQualityGateWorkflow({ repoRoot: null }).replace("node-version: \"lts/*\"\n", "node-version: \"lts/*\"\n          cache: 'npm'\n"), 'utf8');
+      fs.writeFileSync(path.join(py.dir, '.github/workflows/sdlc-quality-gate.yml'), buildQualityGateWorkflow({ repoRoot: null }).replace("node-version: \"lts/*\"\n", "node-version: \"lts/*\"\n          cache: npm\n"), 'utf8');
       assert.equal(runDoctor({ repoRoot: py.dir, fix: false }).workflow.legacyNeedsUpgrade, true);
       runDoctor({ repoRoot: py.dir, fix: true });
       assert.equal(cacheOf(fs.readFileSync(path.join(py.dir, '.github/workflows/sdlc-quality-gate.yml'), 'utf8')), null);
@@ -548,5 +592,34 @@ describe('Ring 2: lib/install.mjs', () => {
       const regenerated = JSON.parse(fs.readFileSync(path.join(r.dir, '.agent/sdlc-config.json'), 'utf8'));
       assert.ok(Array.isArray(regenerated.modules));
     }
+
+    // A planted .bak symlink is never followed by --force
+    const planted = createTempGitRepo();
+    cleanups.push(planted.cleanup);
+    const victimDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-bak-victim-'));
+    cleanups.push(() => fs.rmSync(victimDir, { recursive: true, force: true }));
+    const victim = path.join(victimDir, 'bashrc');
+    fs.writeFileSync(victim, 'VICTIM_UNTOUCHED', 'utf8');
+    fs.mkdirSync(path.join(planted.dir, '.agent'), { recursive: true });
+    fs.writeFileSync(path.join(planted.dir, '.agent/sdlc-config.json'), '{"version":"0.1.0","modules":"nope"}\n', 'utf8');
+    fs.symlinkSync(victim, path.join(planted.dir, '.agent/sdlc-config.json.bak'));
+    await installFramework({ targetDir: planted.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true, force: true });
+    assert.equal(fs.readFileSync(victim, 'utf8'), 'VICTIM_UNTOUCHED');
+    assert.equal(fs.lstatSync(path.join(planted.dir, '.agent/sdlc-config.json.bak')).isSymbolicLink(), false);
+    assert.equal(fs.readFileSync(path.join(planted.dir, '.agent/sdlc-config.json.bak'), 'utf8'), '{"version":"0.1.0","modules":"nope"}\n');
+
+    // A symlinked config source is never copied into the repo as .bak (could exfiltrate e.g. credentials)
+    const srcLinked = createTempGitRepo();
+    cleanups.push(srcLinked.cleanup);
+    const secretFile = path.join(victimDir, 'credentials');
+    fs.writeFileSync(secretFile, 'TOP_SECRET', 'utf8');
+    fs.mkdirSync(path.join(srcLinked.dir, '.agent'), { recursive: true });
+    fs.symlinkSync(secretFile, path.join(srcLinked.dir, '.agent/sdlc-config.json'));
+    const linkedRes = await installFramework({ targetDir: srcLinked.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true, force: true });
+    assert.equal(fs.existsSync(path.join(srcLinked.dir, '.agent/sdlc-config.json.bak')), false);
+    assert.equal(fs.readFileSync(secretFile, 'utf8'), 'TOP_SECRET');
+    assert.equal(fs.lstatSync(path.join(srcLinked.dir, '.agent/sdlc-config.json')).isSymbolicLink(), false);
+    assert.ok(linkedRes.warnings.some((w) => /symlink/i.test(w) && /backup/i.test(w)), JSON.stringify(linkedRes.warnings));
+    assert.ok(SDLC_GITIGNORE_ENTRIES.includes('.agent/sdlc-config.json.bak'));
   });
 });

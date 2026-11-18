@@ -452,4 +452,45 @@ describe('Ring 2: lib/guard.mjs', () => {
     assert.equal(fs.existsSync(wtB), true);
     assert.equal(b.success, true);
   });
+
+  it('begin --worktree refuses dot-directories, symlink escapes, and paths outside the repo parent or temp dir; explicit ids never take over a reservation', () => {
+    const { dir, cleanup } = createTempGitRepo();
+    cleanups.push(cleanup);
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-wt-guard-'));
+    cleanups.push(() => fs.rmSync(scratch, { recursive: true, force: true }));
+
+    const homeDot = path.join(os.homedir(), '.claude', 'commands', `sdlc-pwn-${process.pid}`);
+    const outsideHome = path.join(os.homedir(), `sdlc-wt-outside-${process.pid}`);
+    fs.mkdirSync(path.join(scratch, '.hidden'), { recursive: true });
+    fs.symlinkSync(path.join(scratch, '.hidden'), path.join(scratch, 'innocent-link'));
+    for (const [label, wt] of [
+      ['home dot-dir', homeDot],
+      ['outside parent and tmp', outsideHome],
+      ['dot segment under tmp', path.join(scratch, '.hidden', 'wt')],
+      ['symlink into dot-dir', path.join(scratch, 'innocent-link', 'wt')]
+    ]) {
+      const res = beginSession({ branch: `feat/wt-${label.replace(/\W+/g, '-')}`, worktree: wt, repoRoot: dir });
+      assert.equal(res.success, false, label);
+      assert.match(res.error, /Worktree path/, label);
+      assert.equal(fs.existsSync(wt), false, `${label}: nothing created`);
+    }
+    assert.equal(fs.existsSync(path.dirname(homeDot)) && fs.readdirSync(path.dirname(homeDot)).includes(path.basename(homeDot)), false);
+
+    // Allowed: under the system temp dir (as used by the other tests) and <repo>/.worktrees
+    const okTmp = beginSession({ branch: 'feat/wt-ok-tmp', worktree: path.join(scratch, 'wt-ok'), repoRoot: dir });
+    assert.equal(okTmp.success, true, okTmp.error);
+    cleanups.push(() => git(dir, 'worktree', 'remove', '--force', path.join(scratch, 'wt-ok')));
+    const okInRepo = beginSession({ branch: 'feat/wt-ok-repo', worktree: '.worktrees/ok', repoRoot: dir });
+    assert.equal(okInRepo.success, true, okInRepo.error);
+    cleanups.push(() => git(dir, 'worktree', 'remove', '--force', path.join(dir, '.worktrees/ok')));
+
+    // An explicit --issue that names an in-flight reservation is refused instead of hijacking it
+    const store = readSessionStore(dir);
+    store.sessions['L-9'] = { active: false, reserved: true, issueId: 'L-9', startedAt: new Date().toISOString() };
+    fs.writeFileSync(path.join(dir, '.agent/.sdlc-session.json'), JSON.stringify(store, null, 2), 'utf8');
+    const hijack = beginSession({ issueId: 'L-9', branch: 'feat/hijack', repoRoot: dir });
+    assert.equal(hijack.success, false);
+    assert.match(hijack.error, /being created by another/);
+    assert.equal(readSessionStore(dir).sessions['L-9'].reserved, true);
+  });
 });
