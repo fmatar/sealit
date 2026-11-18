@@ -6,7 +6,7 @@
   "coverageAnalysis": "perTest",
   "disableTypeChecks": false,
   "mutator": {
-    "excludedMutations": ["StringLiteral", "Regex"]
+    "excludedMutations": ["StringLiteral"]
   },
   "tap": {
     "nodeArgs": ["--test", "--test-reporter=tap"],
@@ -18,7 +18,8 @@
       "tests/unit/guard.test.mjs",
       "tests/unit/receipt.test.mjs",
       "tests/unit/cli.test.mjs",
-      "tests/unit/measure.test.mjs"
+      "tests/unit/measure.test.mjs",
+      "tests/unit/bypass-corpus.test.mjs"
     ],
     "forceBail": true
   },
