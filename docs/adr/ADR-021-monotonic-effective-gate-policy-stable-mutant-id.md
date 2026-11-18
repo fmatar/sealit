@@ -2,16 +2,19 @@
 id: ADR-021
 title: "Monotonic Effective Gate Policy & Stable Mutant-Identity Exemptions"
 scope: architectural
-status: pending_approval
+status: accepted
 ticket: L-5
 supersedes: [CAP-02, CAP-03, CAP-04]
 createdAt: 2026-11-18T15:05:02.967Z
+decidedBy: "@fmatar"
+decidedAt: 2026-11-18T21:56:16.538Z
+decisionReason: "Approve monotonic effective gate policy and stable mutant-identity exemptions (#L-5)"
 ---
 
 # ADR-021: Monotonic Effective Gate Policy & Stable Mutant-Identity Exemptions
 
 - **Scope**: `architectural`
-- **Status**: `pending_approval`
+- **Status**: `accepted`
 - **Linked Ticket**: `L-5`
 - **Supersedes / Modifies**: `CAP-02, CAP-03, CAP-04`
 
