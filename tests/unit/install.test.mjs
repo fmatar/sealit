@@ -563,6 +563,23 @@ describe('Ring 2: lib/install.mjs', () => {
     assert.equal(installCIWorkflow({ repoRoot: npmRepo.dir, force: false, upgradeLegacy: true }).skipped, true);
     assert.match(fs.readFileSync(path.join(npmRepo.dir, '.github/workflows/sdlc-quality-gate.yml'), 'utf8'), /My custom step/);
 
+    // Other actions' `cache:` keys and correctly configured pnpm setups are never treated as broken
+    const pyCustom = createTempGitRepo();
+    cleanups.push(pyCustom.cleanup);
+    fs.mkdirSync(path.join(pyCustom.dir, '.github/workflows'), { recursive: true });
+    const withPip = `${buildQualityGateWorkflow({ repoRoot: null })}      - uses: actions/setup-python@v5\n        with:\n          python-version: '3.12'\n          cache: 'pip'\n`;
+    fs.writeFileSync(path.join(pyCustom.dir, '.github/workflows/sdlc-quality-gate.yml'), withPip, 'utf8');
+    assert.equal(installCIWorkflow({ repoRoot: pyCustom.dir, force: false, upgradeLegacy: true }).skipped, true);
+    const pnpmCustom = createTempGitRepo();
+    cleanups.push(pnpmCustom.cleanup);
+    fs.writeFileSync(path.join(pnpmCustom.dir, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n', 'utf8');
+    fs.mkdirSync(path.join(pnpmCustom.dir, '.github/workflows'), { recursive: true });
+    const withPnpm = buildQualityGateWorkflow({ repoRoot: null }).replace("node-version: \"lts/*\"\n", "node-version: \"lts/*\"\n          cache: 'pnpm'\n");
+    fs.writeFileSync(path.join(pnpmCustom.dir, '.github/workflows/sdlc-quality-gate.yml'), withPnpm, 'utf8');
+    assert.equal(installCIWorkflow({ repoRoot: pnpmCustom.dir, force: false, upgradeLegacy: true }).skipped, true);
+    assert.match(buildQualityGateWorkflow({ repoRoot: pyCustom.dir }), /package-manager-cache: false/, 'no npm lockfile => disable setup-node auto caching');
+    assert.doesNotMatch(buildQualityGateWorkflow({ repoRoot: npmRepo.dir }), /package-manager-cache/);
+
     // A workflow caching npm in a repo without a lockfile (quoted or unquoted) is reported and repaired by doctor --fix
     withoutReceiptEnv(() => {
       fs.writeFileSync(path.join(py.dir, '.github/workflows/sdlc-quality-gate.yml'), buildQualityGateWorkflow({ repoRoot: null }).replace("node-version: \"lts/*\"\n", "node-version: \"lts/*\"\n          cache: npm\n"), 'utf8');

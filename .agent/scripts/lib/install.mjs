@@ -325,10 +325,11 @@ export function auditSkills(repoRoot = '.') {
 
 // The generated workflow only installs with npm. A pnpm/yarn cache would need extra tooling, and yarn-berry's
 // `yarnPath` would execute repository JavaScript inside setup-node, before the receipt is verified.
+const NODE_CACHE_LOCKFILES = Object.freeze({ npm: ['package-lock.json', 'npm-shrinkwrap.json'], yarn: ['yarn.lock'], pnpm: ['pnpm-lock.yaml'] });
+
 function detectNodeCache(repoRoot = null) {
   if (!repoRoot) return null;
-  const has = (f) => fileExists(path.resolve(repoRoot, f));
-  return has('package-lock.json') || has('npm-shrinkwrap.json') ? 'npm' : null;
+  return NODE_CACHE_LOCKFILES.npm.some((f) => fileExists(path.resolve(repoRoot, f))) ? 'npm' : null;
 }
 
 export function buildQualityGateWorkflow({
@@ -339,7 +340,8 @@ export function buildQualityGateWorkflow({
   const runsOnYaml = Array.isArray(runsOn) ? JSON.stringify(runsOn) : runsOn;
   const safeCheckName = String(checkName || DEFAULT_QUALITY_GATE_CHECK).replace(/[\r\n]+/g, ' ');
   const nodeCache = detectNodeCache(repoRoot);
-  const cacheLine = nodeCache ? `\n          cache: '${nodeCache}'` : '';
+  // No npm lockfile: also disable setup-node's packageManager-driven auto caching (package.json is PR-controlled).
+  const cacheLine = nodeCache ? `\n          cache: '${nodeCache}'` : '\n          package-manager-cache: false';
   return `name: SDLC Quality Gate
 
 on:
@@ -469,12 +471,24 @@ function isLegacySdlcWorkflow(raw = '') {
   );
 }
 
+// Only the setup-node step's own `cache:` matters, and only when that manager's lockfile is missing (setup-node fails).
+function setupNodeCacheIsBroken(raw = '', repoRoot = null) {
+  const lines = raw.split('\n');
+  const at = lines.findIndex((l) => l.includes('actions/setup-node@'));
+  if (at === -1 || !repoRoot) return false;
+  let start = at;
+  while (start > 0 && !/^\s*- /.test(lines[start])) start--;
+  const stepIndent = (/^(\s*)/.exec(lines[start]) || ['', ''])[1].length;
+  let end = start + 1;
+  while (end < lines.length && !(/^\s*- /.test(lines[end]) && (/^(\s*)/.exec(lines[end])[1].length <= stepIndent))) end++;
+  const declared = (/^\s+cache:\s*['"]?([\w-]+)['"]?\s*$/m.exec(lines.slice(start, end).join('\n')) || [])[1];
+  const locks = NODE_CACHE_LOCKFILES[declared];
+  return Boolean(locks) && !locks.some((f) => fileExists(path.resolve(repoRoot, f)));
+}
+
 function workflowNeedsUpgrade(raw = '', repoRoot = null) {
   if (isLegacySdlcWorkflow(raw)) return true;
-  if (!raw.includes('sdlc-engine.mjs')) return false;
-  // Only a cache that cannot work (no matching lockfile) breaks CI; a missing cache is just slower, so keep user edits.
-  const declaredCache = (/^\s+cache:\s*['"]?([\w-]+)['"]?\s*$/m.exec(raw) || [])[1] || null;
-  return Boolean(declaredCache) && declaredCache !== detectNodeCache(repoRoot);
+  return raw.includes('sdlc-engine.mjs') && setupNodeCacheIsBroken(raw, repoRoot);
 }
 
 export function installCIWorkflow({ repoRoot = '.', force = false, upgradeLegacy = false } = {}) {

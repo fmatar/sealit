@@ -41,10 +41,10 @@ describe('Ring 2: lib/guard.mjs', () => {
     assert.equal(verifyCommitGuard({ repoRoot: dir }).allowed, true);
 
     // Start session 2 in a linked worktree with uncommitted file
-    const wtPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-guard-wt-')), 'wt-20');
+    const wtPath = path.join(path.dirname(dir), `${path.basename(dir)}-wt-20`);
     cleanups.push(() => {
       git(dir, 'worktree', 'remove', '--force', wtPath);
-      fs.rmSync(path.dirname(wtPath), { recursive: true, force: true });
+      fs.rmSync(wtPath, { recursive: true, force: true });
     });
     const s2 = beginSession({ issueId: '20', title: 'Worktree Feature', worktree: wtPath, repoRoot: dir });
     assert.equal(s2.success, true);
@@ -381,11 +381,14 @@ describe('Ring 2: lib/guard.mjs', () => {
     const { dir, cleanup } = createTempGitRepo();
     cleanups.push(cleanup);
     const engine = fileURLToPath(new URL('../../.agent/scripts/sdlc-engine.mjs', import.meta.url));
-    const wtRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-race-wt-'));
-    cleanups.push(() => fs.rmSync(wtRoot, { recursive: true, force: true }));
+    const wtRoot = path.dirname(dir);
+    const wtName = (name) => `${path.basename(dir)}-${name}`;
+    cleanups.push(() => {
+      for (const n of ['race-a', 'race-b']) fs.rmSync(path.join(wtRoot, wtName(n)), { recursive: true, force: true });
+    });
     const runBegin = (name) =>
       new Promise((resolve) => {
-        const child = spawn(process.execPath, [engine, 'begin', '--worktree', path.join(wtRoot, name), '--title', name, '--json'], {
+        const child = spawn(process.execPath, [engine, 'begin', '--worktree', path.join(wtRoot, wtName(name)), '--title', name, '--json'], {
           cwd: dir,
           env: cleanTestGitEnv()
         });
@@ -418,10 +421,10 @@ describe('Ring 2: lib/guard.mjs', () => {
     fs.writeFileSync(path.join(dir, 'a.txt'), 'a\n', 'utf8');
     git(dir, 'add', 'a.txt');
     git(dir, 'commit', '-q', '-m', 'feat: a');
-    const wtB = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-end-wt-')), 'wt-b');
+    const wtB = path.join(path.dirname(dir), `${path.basename(dir)}-wt-b`);
     cleanups.push(() => {
       git(dir, 'worktree', 'remove', '--force', wtB);
-      fs.rmSync(path.dirname(wtB), { recursive: true, force: true });
+      fs.rmSync(wtB, { recursive: true, force: true });
     });
     const b = beginSession({ issueId: '61', title: 'B', worktree: wtB, repoRoot: dir });
     assert.equal(readSessionStore(dir).activeSessionId, '61');
@@ -453,33 +456,38 @@ describe('Ring 2: lib/guard.mjs', () => {
     assert.equal(b.success, true);
   });
 
-  it('begin --worktree refuses dot-directories, symlink escapes, and paths outside the repo parent or temp dir; explicit ids never take over a reservation', () => {
+  it('begin --worktree only allows new direct children of the repo parent or <repo>/.worktrees; explicit ids never take over a reservation', () => {
     const { dir, cleanup } = createTempGitRepo();
     cleanups.push(cleanup);
-    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-wt-guard-'));
+    const parent = path.dirname(dir);
+    const scratch = fs.mkdtempSync(path.join(parent, `${path.basename(dir)}-scratch-`));
     cleanups.push(() => fs.rmSync(scratch, { recursive: true, force: true }));
 
     const homeDot = path.join(os.homedir(), '.claude', 'commands', `sdlc-pwn-${process.pid}`);
     const outsideHome = path.join(os.homedir(), `sdlc-wt-outside-${process.pid}`);
-    fs.mkdirSync(path.join(scratch, '.hidden'), { recursive: true });
-    fs.symlinkSync(path.join(scratch, '.hidden'), path.join(scratch, 'innocent-link'));
+    fs.mkdirSync(path.join(scratch, 'tests'), { recursive: true });
+    const sibling = path.join(parent, `${path.basename(dir)}-sib`);
+    fs.symlinkSync(path.join(scratch, 'tests'), sibling);
+    cleanups.push(() => fs.rmSync(sibling, { force: true }));
     for (const [label, wt] of [
       ['home dot-dir', homeDot],
-      ['outside parent and tmp', outsideHome],
-      ['dot segment under tmp', path.join(scratch, '.hidden', 'wt')],
-      ['symlink into dot-dir', path.join(scratch, 'innocent-link', 'wt')]
+      ['outside the repo parent', outsideHome],
+      ['nested inside a sibling project', path.join(scratch, 'tests', 'pwn')],
+      ['dot-name sibling', path.join(parent, `.${path.basename(dir)}-hidden`)],
+      ['existing directory', scratch],
+      ['symlinked sibling parent', path.join(sibling, 'wt')]
     ]) {
       const res = beginSession({ branch: `feat/wt-${label.replace(/\W+/g, '-')}`, worktree: wt, repoRoot: dir });
       assert.equal(res.success, false, label);
       assert.match(res.error, /Worktree path/, label);
-      assert.equal(fs.existsSync(wt), false, `${label}: nothing created`);
+      if (label !== 'existing directory') assert.equal(fs.existsSync(wt), false, `${label}: nothing created`);
     }
-    assert.equal(fs.existsSync(path.dirname(homeDot)) && fs.readdirSync(path.dirname(homeDot)).includes(path.basename(homeDot)), false);
 
-    // Allowed: under the system temp dir (as used by the other tests) and <repo>/.worktrees
-    const okTmp = beginSession({ branch: 'feat/wt-ok-tmp', worktree: path.join(scratch, 'wt-ok'), repoRoot: dir });
-    assert.equal(okTmp.success, true, okTmp.error);
-    cleanups.push(() => git(dir, 'worktree', 'remove', '--force', path.join(scratch, 'wt-ok')));
+    // Allowed: a new sibling of the repo ('../<name>') and <repo>/.worktrees/<name>
+    const okSibling = path.join(parent, `${path.basename(dir)}-wt-ok`);
+    const okSib = beginSession({ branch: 'feat/wt-ok-sibling', worktree: okSibling, repoRoot: dir });
+    assert.equal(okSib.success, true, okSib.error);
+    cleanups.push(() => { git(dir, 'worktree', 'remove', '--force', okSibling); fs.rmSync(okSibling, { recursive: true, force: true }); });
     const okInRepo = beginSession({ branch: 'feat/wt-ok-repo', worktree: '.worktrees/ok', repoRoot: dir });
     assert.equal(okInRepo.success, true, okInRepo.error);
     cleanups.push(() => git(dir, 'worktree', 'remove', '--force', path.join(dir, '.worktrees/ok')));

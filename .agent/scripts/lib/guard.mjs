@@ -1,6 +1,5 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
@@ -51,25 +50,27 @@ function allocateNextLocalId(sessions = {}) {
   return `L-${maxN + 1}`;
 }
 
-// Worktrees may live next to the repo (its parent dir, incl. <repo>/.worktrees) or under the system temp dir,
-// never inside dot-directories (e.g. ~/.claude/commands) and never through a symlink that escapes those roots.
+// A worktree must be a direct child of the repo's parent dir (`../<name>`) or of `<repo>/.worktrees`, must not exist
+// yet, and must not be a dot-name. Checked on the realpath so symlinked parents cannot escape (e.g. into ~/.claude,
+// ~/Library/LaunchAgents, or another project's test folder).
 function resolveSafeWorktreePath(absRoot, worktree) {
-  const target = path.resolve(absRoot, worktree);
-  let probe = target;
-  const rest = [];
-  while (!fs.existsSync(probe)) {
-    const parent = path.dirname(probe);
-    if (parent === probe) break;
-    rest.unshift(path.basename(probe));
-    probe = parent;
+  try {
+    const target = path.resolve(absRoot, worktree);
+    if (fs.existsSync(target) || path.basename(target).startsWith('.')) return null;
+    let probe = path.dirname(target);
+    const rest = [];
+    while (!fs.existsSync(probe)) {
+      const parent = path.dirname(probe);
+      if (parent === probe) return null;
+      rest.unshift(path.basename(probe));
+      probe = parent;
+    }
+    const realParent = path.join(fs.realpathSync(probe), ...rest);
+    const realRepo = fs.realpathSync(absRoot);
+    return realParent === path.dirname(realRepo) || realParent === path.join(realRepo, '.worktrees') ? target : null;
+  } catch {
+    return null;
   }
-  const realTarget = path.join(fs.realpathSync(probe), ...rest);
-  const roots = [path.dirname(fs.realpathSync(absRoot)), fs.realpathSync(os.tmpdir())];
-  const ok = roots.some((root) => {
-    const rel = path.relative(root, realTarget);
-    return rel && !rel.startsWith('..') && !path.isAbsolute(rel) && rel.split(path.sep).every((seg) => !seg.startsWith('.') || seg === '.worktrees');
-  });
-  return ok ? target : null;
 }
 
 export function beginSession({
@@ -131,7 +132,7 @@ export function beginSession({
   if (worktree) {
     resolvedWorktree = resolveSafeWorktreePath(absRoot, worktree);
     if (!resolvedWorktree) {
-      return fail(`Worktree path '${worktree}' must be next to the repository (its parent dir or <repo>/.worktrees) or under the system temp dir, outside dot-directories.`);
+      return fail(`Worktree path '${worktree}' must be a new directory directly next to the repository ('../<name>') or under '<repo>/.worktrees/', and not a dot-name.`);
     }
     try {
       fs.mkdirSync(path.dirname(resolvedWorktree), { recursive: true });
