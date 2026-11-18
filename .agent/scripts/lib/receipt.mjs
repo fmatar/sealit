@@ -7,7 +7,6 @@ import {
   computeContentTreeSha,
   fileExists,
   getCurrentGitBranch,
-  getModifiedFiles,
   gitExec,
   gitOutput,
   hasDirtyNonGovernanceFiles,
@@ -15,12 +14,13 @@ import {
   normalizeTicketId,
   parseEnvFile,
   parseTicketId,
+  readBlobs,
+  readChangeSet,
   readFileSafe,
-  resolveDiffComparisonState,
   resolveEffectiveDiffBase,
   resolveGitCommonRepoRoot,
+  resolveRange,
   sameShaPrefix,
-  unquoteGitPath,
   verifyCleanThreeWayMergeTrees,
   withFileLock,
   writeFileAtomic
@@ -400,62 +400,18 @@ export function writeActiveSession(repoRoot, updater) {
   });
 }
 
-function isCacheExcludedPath(relPath = '') {
-  const norm = String(relPath || '').replace(/\\/g, '/').replace(/^\.\//, '');
-  return CACHE_EXCLUDED_PATHS.has(norm) || norm.startsWith('.agent/.cache/');
-}
-
 export function computeTreeHash({ repoRoot = '.', modulePath = '.', checkType = '', baseBranch = null } = {}) {
   const absRoot = path.resolve(repoRoot);
   const hash = crypto.createHash('sha256');
   hash.update(`module:${modulePath}\nnode:${process.version}\ncheckType:${checkType}\nbase:${baseBranch || ''}\n`);
 
-  for (const cfgRel of ['.agent/sdlc-config.json', '.archlens/policy.json', 'stryker.config.json', 'package.json']) {
-    const cfgAbs = path.join(absRoot, cfgRel);
-    hash.update(`cfg:${cfgRel}:${fileExists(cfgAbs) ? readFileSafe(cfgAbs) || '' : ''}\n`);
-  }
-
-  const headRes = gitExec(['rev-parse', '--verify', 'HEAD'], absRoot);
-  if (headRes.error || headRes.status !== 0) {
+  const range = resolveRange({ baseBranch, head: 'HEAD', repoRoot: absRoot });
+  if (!range.headSha || hasDirtyNonGovernanceFiles(absRoot, { allowAuditChain: true })) {
     return { hash: hash.digest('hex'), cacheable: false };
   }
-  const headSha = headRes.stdout.trim();
-  const { mergeBase: mbOut } = resolveDiffComparisonState(baseBranch, absRoot);
-
-  const statusRes = gitExec(['status', '--porcelain', '--untracked-files=all', '--', modulePath], absRoot);
-  if (statusRes.error || statusRes.status !== 0) {
-    return { hash: hash.digest('hex'), cacheable: false };
-  }
-  const filteredStatus = statusRes.stdout
-    .replace(/\r\n/g, '\n')
-    .split('\n')
-    .filter((line) => {
-      if (!line.trim()) return false;
-      const rel = unquoteGitPath(line.slice(3).trim());
-      return !isCacheExcludedPath(rel);
-    });
-
-  const excludeSpecs = [...CACHE_EXCLUDED_PATHS].map((p) => `:(exclude)${p}`);
-  const diffRes = gitExec(['diff', '--no-ext-diff', '--no-textconv', 'HEAD', '--', modulePath, ...excludeSpecs], absRoot);
-  if (diffRes.error || diffRes.status !== 0) {
-    return { hash: hash.digest('hex'), cacheable: false };
-  }
-
-  hash.update(`head:${headSha}\nmb:${(mbOut || '').trim()}\nstatus:${filteredStatus.join('\n')}\ndiff:${diffRes.stdout}\n`);
-
-  for (const line of filteredStatus) {
-    if (line.startsWith('?? ')) {
-      const rel = unquoteGitPath(line.slice(3).trim());
-      if (isCacheExcludedPath(rel)) continue;
-      const full = path.resolve(absRoot, rel);
-      if (fileExists(full) && fs.statSync(full).isFile()) {
-        hash.update(`untracked:${rel}:`);
-        hash.update(fs.readFileSync(full));
-        hash.update('\n');
-      }
-    }
-  }
-
+  const treeSha = computeContentTreeSha(range.headSha, absRoot);
+  if (!treeSha) return { hash: hash.digest('hex'), cacheable: false };
+  hash.update(`head:${range.headSha}\nmb:${range.baseSha}\ntree:${treeSha}\n`);
   return { hash: hash.digest('hex'), cacheable: true };
 }
 
@@ -503,14 +459,12 @@ function isAuditOnlyCommitRange(fromSha, toSha, repoRoot) {
   if (anc.error || anc.status !== 0) return false;
   const merges = gitOutput(['rev-list', '--merges', '--end-of-options', `${fromSha}..${toSha}`], repoRoot);
   if (merges === null || merges.trim() !== '') return false;
-  const diffRes = gitExec(['diff', '--name-only', '--no-renames', '--end-of-options', `${fromSha}..${toSha}`], repoRoot);
-  if (diffRes.error || diffRes.status !== 0) return false;
-  const changed = diffRes.stdout
-    .replace(/\r\n/g, '\n')
-    .split('\n')
-    .map((s) => unquoteGitPath(s).replace(/\\/g, '/'))
-    .filter(Boolean);
-  return changed.every((f) => f === AUDIT_LEDGER_FILE);
+  try {
+    const cs = readChangeSet({ baseSha: fromSha, headSha: toSha, source: 'commit', repoRoot });
+    return cs.paths.every((f) => f === AUDIT_LEDGER_FILE);
+  } catch {
+    return false;
+  }
 }
 
 function isProtectedBranchHistory(commitSha, repoRoot) {
@@ -560,8 +514,9 @@ export function issueGateReceipt({ repoRoot = '.', docsOnly = false, reviewerOve
     };
   }
 
-  const modFiles = getModifiedFiles(session.baseBranch || null, repoRoot);
-  const isDocsDiff = modFiles.length > 0 && isDocsOnlyDiff(modFiles);
+  const range = resolveRange({ baseBranch: session.baseBranch || null, head: headSha, branchHint: branch, repoRoot });
+  const cs = readChangeSet({ ...range, source: 'commit', repoRoot });
+  const isDocsDiff = isDocsOnlyDiff(cs);
   if (docsOnly && !isDocsDiff) {
     return {
       success: false,
@@ -584,7 +539,7 @@ export function issueGateReceipt({ repoRoot = '.', docsOnly = false, reviewerOve
     };
   }
 
-  const liveHashes = computeAlignmentHashes(repoRoot);
+  const liveHashes = computeAlignmentHashes({ sha: headSha, repoRoot });
   if (!lastGate.specHash || lastGate.specHash !== liveHashes.specHash || lastGate.adrHashes !== liveHashes.adrHashes) {
     return {
       success: false,
@@ -791,7 +746,7 @@ export function verifyGateReceipt({ headSha = null, branch = null, repoRoot = '.
 
   let matched = findMatchingReceipt(activeChain.records);
   if (!matched && targetSha) {
-    const commitLedgerRaw = gitOutput(['show', '--end-of-options', `${targetSha}:${AUDIT_LEDGER_FILE}`], absRoot);
+    const commitLedgerRaw = readBlobs([`${targetSha}:${AUDIT_LEDGER_FILE}`], absRoot).get(`${targetSha}:${AUDIT_LEDGER_FILE}`);
     if (commitLedgerRaw) {
       const commitChain = verifyAuditChainContent(commitLedgerRaw);
       if (!commitChain.valid) {
@@ -824,7 +779,7 @@ export function verifyGateReceipt({ headSha = null, branch = null, repoRoot = '.
     }
   }
   if (baseCommit) {
-    const baseLedgerRaw = gitOutput(['show', '--end-of-options', `${baseCommit}:${AUDIT_LEDGER_FILE}`], absRoot);
+    const baseLedgerRaw = readBlobs([`${baseCommit}:${AUDIT_LEDGER_FILE}`], absRoot).get(`${baseCommit}:${AUDIT_LEDGER_FILE}`);
     if (baseLedgerRaw) {
       const baseChain = verifyAuditChainContent(baseLedgerRaw);
       if (baseChain.valid && baseChain.recordsCount > 0 && (activeChain.recordsCount < baseChain.recordsCount || activeChain.records[baseChain.recordsCount - 1]?.currentHash !== baseChain.chainHead)) {

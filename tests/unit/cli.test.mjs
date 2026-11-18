@@ -174,10 +174,11 @@ describe('Ring 3: sdlc-engine.mjs CLI registry', () => {
       const docFmt = formatCLIResult('doctor', await runCLI(['doctor'], null, dir));
       assert.match(docFmt, /SDLC Doctor:/);
       assert.match(docFmt, /Gitignore\s*:\s*Missing \d+:/);
-      assert.match(formatCLIResult('status', await runCLI(['status'], null, dir)), /Branch:/);
-      assert.match(formatCLIResult('drift', driftPass), /Spec drift verified.*ADR-001/i);
+      assert.match(formatCLIResult('status', await runCLI(['status'], null, dir)), /Branch:.*\(advisory: includes uncommitted changes\)/);
+      assert.match(formatCLIResult('drift', driftPass), /Spec drift verified.*ADR-001.*\(advisory: includes uncommitted changes\)/i);
       assert.match(formatCLIResult('adr', await runCLI(['adr', 'list'], null, dir)), /ADRs/);
-      assert.match(formatCLIResult('coverage', covRes), /root:/);
+      assert.match(formatCLIResult('coverage', covRes), /root:.*\(advisory: includes uncommitted changes\)/);
+      assert.equal((await runCLI(['guard', 'pre-push'], null, dir, { isTTY: false, readStdinFn: () => { throw new Error('EIO'); } })).success, false);
       assert.match(formatCLIResult('verify', verRes), /Verified Stage 7 receipt/);
       assert.match(formatCLIResult('begin', s), /Session started/);
 
@@ -234,7 +235,11 @@ describe('Ring 3: sdlc-engine.mjs CLI registry', () => {
 
       const mutRes = await runCLI(['mutation'], null, dir);
       assert.equal(mutRes.success, true);
-      assert.match(formatCLIResult('mutation', mutRes), /root:/);
+      assert.match(formatCLIResult('mutation', mutRes), /root:.*\(advisory: includes uncommitted changes\)/);
+      assert.match(formatCLIResult('test', { tests: { mode: 'affected' }, success: true }), /advisory: includes uncommitted changes/);
+      assert.equal(formatCLIResult('test', { tests: { mode: 'full' }, success: true }), 'OK');
+      assert.match(formatCLIResult('coverage', { coverage: [{ module: 'root', formatted: '50.0%', passed: false, reason: 'low cov' }] }), /low cov/);
+      assert.match(formatCLIResult('mutation', { mutation: [{ module: 'root', formatted: '40.0%', passed: false, reason: 'low mut' }] }), /low mut/);
 
       const docGate = await runCLI(['gate', '--no-cache'], null, dir);
       assert.equal(docGate.success, true);

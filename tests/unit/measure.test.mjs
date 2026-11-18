@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createTempGitRepo, git } from '../helpers/test-harness.mjs';
+import { readChangeSet, resolveRange } from '../../.agent/scripts/lib/git.mjs';
 import { readActiveSession, writeActiveSession } from '../../.agent/scripts/lib/receipt.mjs';
 import {
   scanDiffSecrets,
@@ -14,9 +15,9 @@ import {
   measureModuleCoverage,
   measureModuleMutation,
   resolveAffectedTests,
-  runGate,
-  buildReviewPlan
+  runGate
 } from '../../.agent/scripts/lib/measure.mjs';
+import { buildReviewPlan } from '../../.agent/scripts/lib/guard.mjs';
 
 const cleanups = [];
 afterEach(() => {
@@ -37,11 +38,30 @@ describe('Ring 2: lib/measure.mjs', () => {
     assert.equal(sec.passed, false);
     assert.ok(sec.secretViolations.some((v) => v.file === 'nul-secret.mjs'));
 
+    // Staged NUL-padded secret whose working copy was unlinked is still caught via :file index fallback
+    fs.unlinkSync(path.join(dir, 'nul-secret.mjs'));
+    assert.equal(scanDiffSecrets(dir).passed, false);
+
+    // Replacing a 160000 gitlink at base with a regular file containing a secret (oldMode 160000 -> newMode 100644) is caught, while mode-only chmod passes
+    const tcSecRepo = createTempGitRepo();
+    cleanups.push(tcSecRepo.cleanup);
+    fs.writeFileSync(path.join(tcSecRepo.dir, 'clean.mjs'), 'export const c = 1;\n', 'utf8');
+    git(tcSecRepo.dir, 'add', 'clean.mjs');
+    git(tcSecRepo.dir, 'update-index', '--add', '--cacheinfo', `160000,${'deadbeef'.repeat(5)},sub-to-file.mjs`);
+    git(tcSecRepo.dir, 'commit', '-q', '-m', 'chore: base gitlink and clean file');
+    git(tcSecRepo.dir, 'checkout', '-q', '-b', 'feat/tc-sec', 'develop');
+    git(tcSecRepo.dir, 'update-index', '--chmod=+x', 'clean.mjs');
+    git(tcSecRepo.dir, 'rm', '--cached', '-q', 'sub-to-file.mjs');
+    fs.writeFileSync(path.join(tcSecRepo.dir, 'sub-to-file.mjs'), `export const k = "${fakeKey}";\n`, 'utf8');
+    git(tcSecRepo.dir, 'add', 'sub-to-file.mjs');
+    git(tcSecRepo.dir, 'commit', '-q', '-m', 'evil: replace gitlink with secret file');
+    const tcCs = { ...scanDiffSecrets(tcSecRepo.dir, { baseBranch: 'develop' }) };
+    assert.equal(tcCs.passed, false);
+    assert.ok(tcCs.secretViolations.some((v) => v.file === 'sub-to-file.mjs' && v.type === 'SECRET_LEAK'));
+
     // Forced scan error fails closed with SCAN_ERROR
     const errRes = scanDiffSecrets(dir, {
-      diffGetter: () => {
-        throw new Error('simulated diff read failure');
-      }
+      changeSet: { source: 'commit', baseSha: '0'.repeat(40), headSha: 'f'.repeat(40), paths: ['src/a.js'], entries: [{ path: 'src/a.js', status: 'A', oldMode: '000000', newMode: '100644', oldOid: '0'.repeat(40), newOid: '1'.repeat(40) }], patches: new Map() }
     });
     assert.equal(errRes.passed, false);
     assert.ok(errRes.secretViolations.some((v) => v.type === 'SCAN_ERROR'));
@@ -78,7 +98,21 @@ describe('Ring 2: lib/measure.mjs', () => {
     git(dir, 'add', 'src/a.js', 'assets/logo.png');
     git(dir, 'commit', '-q', '-m', 'feat: commit a, png, and remove deleted');
 
-    const res = scanDiffSecrets(dir, { baseBranch: 'develop', diffGetter: () => new Map() });
+    const res = scanDiffSecrets(dir, {
+      baseBranch: 'develop',
+      changeSet: {
+        source: 'commit',
+        baseSha: '0'.repeat(40),
+        headSha: 'f'.repeat(40),
+        paths: ['assets/logo.png', 'src/a.js', 'src/deleted.js'],
+        entries: [
+          { path: 'assets/logo.png', status: 'A', oldMode: '000000', newMode: '100644', oldOid: '0'.repeat(40), newOid: '1'.repeat(40) },
+          { path: 'src/a.js', status: 'A', oldMode: '000000', newMode: '100644', oldOid: '0'.repeat(40), newOid: '2'.repeat(40) },
+          { path: 'src/deleted.js', status: 'D', oldMode: '100644', newMode: '000000', oldOid: '3'.repeat(40), newOid: '0'.repeat(40) }
+        ],
+        patches: new Map()
+      }
+    });
     assert.equal(res.passed, false);
     assert.ok(res.secretViolations.some((v) => v.file === 'src/a.js' && v.type === 'SCAN_ERROR'));
     assert.equal(res.secretViolations.some((v) => v.file === 'assets/logo.png'), false);
@@ -565,11 +599,40 @@ describe('Ring 2: lib/measure.mjs', () => {
     assert.equal(sessAfterClean.lastGate.passed, true);
     assert.notEqual(sessAfterClean.lastGate.headSha, 'DIRTY_WORKING_TREE');
 
-    // Dirty edit stamps DIRTY_WORKING_TREE
-    fs.writeFileSync(path.join(dir, 'README.md'), '# Dirty edit\n', 'utf8');
+    // Dirty edit is refused upfront by runGate before running any configured command (ADR-020)
+    fs.writeFileSync(
+      path.join(dir, '.agent/sdlc-config.json'),
+      JSON.stringify({
+        version: '0.1.0',
+        archlens: { enabled: false },
+        modules: [{ name: 'root', path: '.', commands: { lint: `${process.execPath} -e "import('node:fs').then(f=>f.writeFileSync('ran-on-dirty.txt','1'))"` }, thresholds: { diffCoverage: null, mutationScore: null } }]
+      }),
+      'utf8'
+    );
     const dirtyGate = runGate(dir, { noCache: true });
-    assert.equal(dirtyGate.passed, true);
-    assert.equal(readActiveSession(dir).lastGate.headSha, 'DIRTY_WORKING_TREE');
+    assert.equal(dirtyGate.passed, false);
+    assert.equal(dirtyGate.stage, 'dirty');
+    assert.match(dirtyGate.reason, /DIRTY_WORKING_TREE/);
+    assert.equal(fs.existsSync(path.join(dir, 'ran-on-dirty.txt')), false, 'dirty gate must refuse before running any command');
+    git(dir, 'checkout', '--', '.agent/sdlc-config.json');
+
+    // Advisory sdlc coverage on uncommitted work still measures the uncommitted lines
+    fs.writeFileSync(path.join(dir, 'uncommitted-mod.mjs'), 'export const u = 1;\nexport const u2 = 2;\n', 'utf8');
+    fs.writeFileSync(
+      path.join(dir, 'tests/emit-cov.mjs'),
+      "import fs from 'node:fs';\nfs.mkdirSync('coverage', { recursive: true });\nfs.writeFileSync('coverage/lcov.info', 'SF:uncommitted-mod.mjs\\nDA:1,1\\nDA:2,1\\nLF:2\\nLH:2\\nend_of_record\\n', 'utf8');\n",
+      'utf8'
+    );
+    const advCov = measureModuleCoverage(dir, {
+      name: 'root',
+      path: '.',
+      commands: { coverage: `${process.execPath} tests/emit-cov.mjs`, coverageFile: 'coverage/lcov.info' },
+      thresholds: { diffCoverage: 90 }
+    });
+    assert.equal(advCov.passed, true);
+    assert.equal(advCov.diffLineCoverage, 100);
+    fs.unlinkSync(path.join(dir, 'uncommitted-mod.mjs'));
+    git(dir, 'checkout', '--', 'tests/emit-cov.mjs');
 
     // Throwing session writer fails closed instead of swallowing
     assert.throws(() =>
@@ -635,28 +698,28 @@ describe('Ring 2: lib/measure.mjs', () => {
     fs.writeFileSync(path.join(dir, 'tests/unit/cli.test.mjs'), '// cli test\n', 'utf8');
     assert.deepEqual(resolveAffectedTests(dir), ['tests/unit/cli.test.mjs']);
 
-    const writeCfg = (commands, thresholds = { diffCoverage: null, mutationScore: null }) => {
+    const writeAndCommitCfg = (commands, thresholds = { diffCoverage: null, mutationScore: null }) => {
       fs.writeFileSync(
         path.join(dir, '.agent/sdlc-config.json'),
         JSON.stringify({ version: '0.1.0', archlens: { enabled: false }, modules: [{ name: 'root', path: '.', commands, thresholds }] }),
         'utf8'
       );
+      git(dir, 'add', '.agent/sdlc-config.json', '.agent/scripts/sdlc-engine.mjs', 'tests/unit/cli.test.mjs');
+      git(dir, 'commit', '-q', '-m', 'chore: update cfg');
     };
 
     // Failing lint, build, test, and mutation steps record exact failedStep
-    writeCfg({ lint: `${process.execPath} -e "process.exit(1)"` });
+    writeAndCommitCfg({ lint: `${process.execPath} -e "process.exit(1)"` });
     assert.equal(runGate(dir, { noCache: true }).modules[0].failedStep, 'lint');
 
-    writeCfg({ build: `${process.execPath} -e "process.exit(1)"` });
+    writeAndCommitCfg({ build: `${process.execPath} -e "process.exit(1)"` });
     assert.equal(runGate(dir, { noCache: true }).modules[0].failedStep, 'build');
 
-    writeCfg({ test: `${process.execPath} -e "process.exit(1)"` });
+    writeAndCommitCfg({ test: `${process.execPath} -e "process.exit(1)"` });
     assert.equal(runGate(dir, { noCache: true }).modules[0].failedStep, 'test');
 
     // Warm gate cache hit on clean committed tree
-    writeCfg({ test: `${process.execPath} -e "process.exit(0)"` });
-    git(dir, 'add', '.agent/sdlc-config.json', '.agent/scripts/sdlc-engine.mjs', 'tests/unit/cli.test.mjs');
-    git(dir, 'commit', '-q', '-m', 'feat: clean passing module');
+    writeAndCommitCfg({ test: `${process.execPath} -e "process.exit(0)"` });
     const cold = runGate(dir, { noCache: false });
     assert.equal(cold.passed, true);
     assert.equal(cold.modules[0].cached, false);
@@ -741,5 +804,79 @@ describe('Ring 2: lib/measure.mjs', () => {
     const bigPlan = buildReviewPlan(emptyRepo.dir);
     assert.equal(bigPlan.reviewers.length, 2);
     assert.match(bigPlan.reviewers[0].prompt, /diff truncated at 32kB/);
+
+    // Binary-attributed text secret scan across commit ChangeSet, worktree disk, and staged-deleted index fallback + mode-only/gitlink skips
+    const binSecRepo = createTempGitRepo();
+    cleanups.push(binSecRepo.cleanup);
+    const fakeAws = ['AKIA', '1234567890ABCDEF'].join('');
+    git(binSecRepo.dir, 'checkout', '-q', '-b', 'feat/bin-sec', 'develop');
+    fs.writeFileSync(path.join(binSecRepo.dir, '.gitattributes'), '*.mjs binary\n', 'utf8');
+    fs.writeFileSync(path.join(binSecRepo.dir, 'bin-secret.mjs'), Buffer.from(`\x00export const k = "${fakeAws}";\n`, 'latin1'));
+    git(binSecRepo.dir, 'add', '.gitattributes', 'bin-secret.mjs');
+    // Worktree scan on disk before commit
+    const wtBinDisk = scanDiffSecrets(binSecRepo.dir);
+    assert.equal(wtBinDisk.passed, false);
+    assert.equal(wtBinDisk.secretViolations[0].file, 'bin-secret.mjs');
+    // Staged-then-deleted worktree scan falls back to `git show :file`
+    fs.unlinkSync(path.join(binSecRepo.dir, 'bin-secret.mjs'));
+    const wtBinStaged = scanDiffSecrets(binSecRepo.dir);
+    assert.equal(wtBinStaged.passed, false);
+    // Commit ChangeSet scan reads blob via readBlobs + ignores mode-only and 160000 gitlink entries
+    fs.writeFileSync(path.join(binSecRepo.dir, 'bin-secret.mjs'), Buffer.from(`\x00export const k = "${fakeAws}";\n`, 'latin1'));
+    git(binSecRepo.dir, 'add', 'bin-secret.mjs');
+    git(binSecRepo.dir, 'update-index', '--chmod=+x', 'README.md');
+    const devTip = git(binSecRepo.dir, 'rev-parse', 'develop').stdout.trim();
+    git(binSecRepo.dir, 'update-index', '--add', '--cacheinfo', `160000,${devTip},submod`);
+    git(binSecRepo.dir, 'commit', '-q', '-m', 'feat: binary secret commit');
+    const commitBinCs = readChangeSet({ ...resolveRange({ baseBranch: 'develop', repoRoot: binSecRepo.dir }), source: 'commit', repoRoot: binSecRepo.dir });
+    const commitBinScan = scanDiffSecrets(binSecRepo.dir, { changeSet: commitBinCs });
+    assert.equal(commitBinScan.passed, false);
+    assert.equal(commitBinScan.secretViolations.length, 1);
+    assert.equal(commitBinScan.secretViolations[0].file, 'bin-secret.mjs');
+
+    // runGate: docs-only commit passes with mutationStatus 'docs-only' even when AUDIT_CHAIN.jsonl is dirty; archlens ring violation fails
+    const gateModeRepo = createTempGitRepo();
+    cleanups.push(gateModeRepo.cleanup);
+    fs.mkdirSync(path.join(gateModeRepo.dir, '.agent'), { recursive: true });
+    fs.mkdirSync(path.join(gateModeRepo.dir, '.archlens'), { recursive: true });
+    fs.mkdirSync(path.join(gateModeRepo.dir, 'docs'), { recursive: true });
+    fs.writeFileSync(
+      path.join(gateModeRepo.dir, '.agent/sdlc-config.json'),
+      JSON.stringify({
+        version: '0.1.0',
+        archlens: { enabled: true, policyPath: '.archlens/policy.json' },
+        modules: [{ name: 'root', path: '.', commands: {}, thresholds: { diffCoverage: null, mutationScore: null } }]
+      }),
+      'utf8'
+    );
+    fs.writeFileSync(
+      path.join(gateModeRepo.dir, '.archlens/policy.json'),
+      JSON.stringify({ src: 'src', order: ['core', 'adapters'], levels: [['src/core/**'], ['src/adapters/**']] }),
+      'utf8'
+    );
+    fs.writeFileSync(path.join(gateModeRepo.dir, 'docs/AUDIT_CHAIN.jsonl'), '', 'utf8');
+    git(gateModeRepo.dir, 'add', '-A');
+    git(gateModeRepo.dir, 'commit', '-q', '-m', 'chore: gate mode base');
+    git(gateModeRepo.dir, 'checkout', '-q', '-b', 'docs/note', 'develop');
+    fs.writeFileSync(path.join(gateModeRepo.dir, 'docs/guide.md'), '# Guide\n', 'utf8');
+    git(gateModeRepo.dir, 'add', 'docs/guide.md');
+    git(gateModeRepo.dir, 'commit', '-q', '-m', 'docs: guide');
+    fs.writeFileSync(path.join(gateModeRepo.dir, 'docs/AUDIT_CHAIN.jsonl'), '{"dirty":true}\n', 'utf8');
+    const docsGate = runGate(gateModeRepo.dir, { noCache: true });
+    assert.equal(docsGate.passed, true);
+    assert.equal(docsGate.dirty, false);
+    assert.equal(docsGate.mode, 'docs-only');
+    assert.equal(docsGate.lastGate.mutationStatus, 'docs-only');
+    git(gateModeRepo.dir, 'checkout', '--', 'docs/AUDIT_CHAIN.jsonl');
+
+    fs.mkdirSync(path.join(gateModeRepo.dir, 'src/core'), { recursive: true });
+    fs.mkdirSync(path.join(gateModeRepo.dir, 'src/adapters'), { recursive: true });
+    fs.writeFileSync(path.join(gateModeRepo.dir, 'src/adapters/out.mjs'), 'export const out = 1;\n', 'utf8');
+    fs.writeFileSync(path.join(gateModeRepo.dir, 'src/core/bad.mjs'), "import { out } from '../adapters/out.mjs';\nexport const v = out;\n", 'utf8');
+    git(gateModeRepo.dir, 'add', 'src');
+    git(gateModeRepo.dir, 'commit', '-q', '-m', 'feat: inward violation');
+    const archFailGate = runGate(gateModeRepo.dir, { noCache: true });
+    assert.equal(archFailGate.passed, false);
+    assert.equal(archFailGate.arch.passed, false);
   });
 });

@@ -10,6 +10,7 @@ import { readSessionStore, verifyAuditChain } from '../../.agent/scripts/lib/rec
 import { runGate } from '../../.agent/scripts/lib/measure.mjs';
 import {
   beginSession,
+  buildReviewPlan,
   getSessionStatus,
   recordReviewVerdict,
   endSession,
@@ -61,31 +62,103 @@ describe('Ring 2: lib/guard.mjs', () => {
     assert.equal(fs.existsSync(path.join(wtPath, 'unsaved.txt')), true);
   });
 
-  it('verifyPushGuard blocks protected branches, leaked secrets, and undeclared spec drift before remote push', () => {
+  it('verifyPushGuard evaluates each pushed ref commit range, ignores working-tree masking, allows tags, and fails closed on unreadable stdin', () => {
     const { dir, cleanup } = createTempGitRepo();
     cleanups.push(cleanup);
 
     assert.equal(verifyPushGuard({ repoRoot: dir }).allowed, false);
+    assert.equal(verifyPushGuard({ stdinError: new Error('EIO'), repoRoot: dir }).layer, 'LAYER_4_STDIN_UNREADABLE');
+
+    // Pushing a tag while HEAD is on main is allowed
+    git(dir, 'checkout', '-q', 'main');
+    const mainSha = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+    const tagPush = verifyPushGuard({
+      stdinText: `refs/tags/v0.1.1 ${mainSha} refs/tags/v0.1.1 ${'0'.repeat(40)}\n`,
+      repoRoot: dir
+    });
+    assert.equal(tagPush.allowed, true);
+    git(dir, 'checkout', '-q', 'develop');
 
     beginSession({ issueId: '31', title: 'Push Check', checkout: true, repoRoot: dir });
     assert.equal(verifyPushGuard({ repoRoot: dir }).allowed, true);
 
-    // Secret in staged diff blocks push immediately!
+    // 1 & 2. Secret committed then edited OR deleted only in working tree is STILL blocked!
     const fakeSecret = ['AKIA', '1234567890ABCDEF'].join('');
     fs.writeFileSync(path.join(dir, 'leak.mjs'), `export const k = "${fakeSecret}";\n`, 'utf8');
     git(dir, 'add', 'leak.mjs');
-    const secBlocked = verifyPushGuard({ repoRoot: dir });
-    assert.equal(secBlocked.allowed, false);
-    assert.match(secBlocked.message, /secret/i);
+    git(dir, 'commit', '-q', '-m', 'bad: commit secret');
+    fs.writeFileSync(path.join(dir, 'leak.mjs'), 'export const k = "redacted-in-worktree-only";\n', 'utf8');
+    assert.equal(verifyPushGuard({ repoRoot: dir }).allowed, false, 'worktree edit must not mask committed secret');
+    fs.unlinkSync(path.join(dir, 'leak.mjs'));
+    assert.equal(verifyPushGuard({ repoRoot: dir }).allowed, false, 'uncommitted deletion must not mask committed secret');
 
-    git(dir, 'rm', '-f', '-q', 'leak.mjs');
+    git(dir, 'reset', '--hard', 'HEAD~1');
     assert.equal(verifyPushGuard({ repoRoot: dir }).allowed, true);
 
-    // Undeclared PRODUCT.md drift blocks push
-    fs.writeFileSync(path.join(dir, 'PRODUCT.md'), '# Changed spec\n', 'utf8');
-    const driftBlocked = verifyPushGuard({ repoRoot: dir });
-    assert.equal(driftBlocked.allowed, false);
-    assert.match(driftBlocked.message, /drift|ADR/i);
+    // 4 & 5. While HEAD is on develop, pushing feat/x with remoteSha 000... judges feat/x against its session baseBranch (including drift)
+    git(dir, 'checkout', '-q', 'develop');
+    git(dir, 'branch', 'custom-base', 'HEAD');
+    git(dir, 'checkout', '-q', '-b', 'feat/custom-push', 'custom-base');
+    beginSession({ issueId: '32', title: 'Custom Push', branch: 'feat/custom-push', repoRoot: dir });
+    const store = readSessionStore(dir);
+    store.sessions['32'].baseBranch = 'custom-base';
+    fs.writeFileSync(path.join(dir, '.agent/.sdlc-session.json'), JSON.stringify(store, null, 2), 'utf8');
+    fs.writeFileSync(path.join(dir, 'PRODUCT.md'), '# Undeclared drift on feat/custom-push\n', 'utf8');
+    git(dir, 'add', 'PRODUCT.md');
+    git(dir, 'commit', '-q', '-m', 'docs: drift on feat/custom-push');
+    const featSha = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+    git(dir, 'checkout', '-q', 'develop');
+
+    const refBlocked = verifyPushGuard({
+      stdinText: `refs/heads/feat/custom-push ${featSha} refs/heads/feat/custom-push ${'0'.repeat(40)}\n`,
+      repoRoot: dir
+    });
+    assert.equal(refBlocked.allowed, false);
+    assert.equal(refBlocked.layer, 'LAYER_4_UNDECLARED_SPEC_DRIFT');
+    assert.equal(refBlocked.branch, 'feat/custom-push');
+
+    // Pushing a sessionless feature branch while HEAD is on develop (when develop has an accepted ADR ahead of main)
+    // MUST diff against develop (NOT main) and block undeclared drift!
+    git(dir, 'checkout', '-q', 'develop');
+    fs.mkdirSync(path.join(dir, 'docs/adr'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'docs/adr/ADR-001-dev.md'),
+      '---\nid: ADR-001\ntitle: Dev ADR\nstatus: accepted\nscope: product\nticket: "1"\n---\n',
+      'utf8'
+    );
+    git(dir, 'add', 'docs/adr/ADR-001-dev.md');
+    git(dir, 'commit', '--no-verify', '-q', '-m', 'chore: accepted ADR on develop ahead of main');
+    git(dir, 'checkout', '-q', '-b', 'feat/rogue-no-session', 'develop');
+    fs.writeFileSync(path.join(dir, 'PRODUCT.md'), '# Rogue unapproved drift\n', 'utf8');
+    git(dir, 'add', 'PRODUCT.md');
+    git(dir, 'commit', '--no-verify', '-q', '-m', 'evil: unapproved drift');
+    const rogueSha = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+    git(dir, 'checkout', '-q', 'develop');
+    const roguePush = verifyPushGuard({
+      stdinText: `refs/heads/feat/rogue-no-session ${rogueSha} refs/heads/feat/rogue-no-session ${'0'.repeat(40)}\n`,
+      repoRoot: dir
+    });
+    assert.equal(roguePush.allowed, false, 'sessionless feature push while HEAD is on develop must not piggyback on develop ADRs');
+    assert.equal(roguePush.layer, 'LAYER_4_UNDECLARED_SPEC_DRIFT');
+
+    // Edge cases: malformed stdin, unresolved SHA, protected delete blocked, non-protected delete allowed, custom ref scanned
+    assert.equal(verifyPushGuard({ stdinText: 'malformed-two-cols only\n', repoRoot: dir }).layer, 'LAYER_4_STDIN_UNREADABLE');
+    assert.equal(
+      verifyPushGuard({ stdinText: `refs/heads/feat/x ${'deadbeef'.repeat(5)} refs/heads/feat/x ${'0'.repeat(40)}\n`, repoRoot: dir }).layer,
+      'LAYER_4_UNRESOLVED_SHA'
+    );
+    assert.equal(
+      verifyPushGuard({ stdinText: `(delete) ${'0'.repeat(40)} refs/heads/develop ${rogueSha}\n`, repoRoot: dir }).layer,
+      'LAYER_4_PROTECTED_PUSH'
+    );
+    assert.equal(
+      verifyPushGuard({ stdinText: `(delete) ${'0'.repeat(40)} refs/heads/feat/old ${rogueSha}\n`, repoRoot: dir }).allowed,
+      true
+    );
+    assert.equal(
+      verifyPushGuard({ stdinText: `refs/heads/feat/rogue-no-session ${rogueSha} refs/for/review ${'0'.repeat(40)}\n`, repoRoot: dir }).allowed,
+      false
+    );
   });
 
   it('verifyMergeGuard extracts branch from GITHEAD_<sha> even when MERGE_HEAD exists, and recordReviewVerdict signs receipt', () => {
@@ -500,5 +573,48 @@ describe('Ring 2: lib/guard.mjs', () => {
     assert.equal(hijack.success, false);
     assert.match(hijack.error, /being created by another/);
     assert.equal(readSessionStore(dir).sessions['L-9'].reserved, true);
+  });
+
+  it('buildReviewPlan dispatches Architecture & Security Reviewer when .agent/sdlc-config.json or stryker.config.json changes', () => {
+    for (const govFile of ['.agent/sdlc-config.json', 'stryker.config.json']) {
+      const { dir, cleanup } = createTempGitRepo();
+      cleanups.push(cleanup);
+      git(dir, 'checkout', '-q', '-b', 'feat/cfg-rev', 'develop');
+      const full = path.join(dir, govFile);
+      fs.mkdirSync(path.dirname(full), { recursive: true });
+      fs.writeFileSync(full, '{"ok":true}\n', 'utf8');
+      const plan = buildReviewPlan(dir);
+      assert.equal(plan.mode, 'code', govFile);
+      assert.equal(plan.advisory, true);
+      assert.equal(plan.source, 'worktree');
+      assert.equal(plan.changedLines, 1);
+      assert.ok(plan.reviewers.some((r) => r.role === 'Architecture & Security Reviewer'), `${govFile} must trigger security reviewer`);
+      assert.match(plan.reviewers[0].prompt, /advisory: includes uncommitted changes/);
+      assert.match(plan.reviewers[1].prompt, /Audit security and architecture invariants/);
+    }
+
+    const { dir, cleanup } = createTempGitRepo();
+    cleanups.push(cleanup);
+    git(dir, 'checkout', '-q', '-b', 'feat/rev-modes', 'develop');
+    fs.writeFileSync(path.join(dir, 'README.md'), '# Updated Readme\n', 'utf8');
+    const docsPlan = buildReviewPlan(dir);
+    assert.equal(docsPlan.mode, 'docs-only');
+    assert.equal(docsPlan.reviewers.length, 1);
+    assert.equal(docsPlan.reviewers[0].role, 'Docs Alignment Reviewer');
+    assert.equal(docsPlan.changedLines, 2);
+
+    fs.writeFileSync(path.join(dir, 'calc.mjs'), 'export const add = (a, b) => a + b;\n', 'utf8');
+    const oneRev = buildReviewPlan(dir);
+    assert.equal(oneRev.mode, 'code');
+    assert.equal(oneRev.reviewers.length, 1);
+    assert.equal(oneRev.reviewers[0].role, 'PR Peer Reviewer');
+    assert.equal(oneRev.changedLines, 3);
+
+    fs.writeFileSync(path.join(dir, 'huge.mjs'), `${'// l\n'.repeat(205)}export const big = "${'z'.repeat(33000)}";\n`, 'utf8');
+    const twoRev = buildReviewPlan(dir);
+    assert.equal(twoRev.reviewers.length, 2);
+    assert.ok(twoRev.changedLines > 200);
+    assert.match(twoRev.reviewers[0].prompt, /diff truncated at 32kB/);
+    assert.match(twoRev.reviewers[1].prompt, /diff truncated at 32kB/);
   });
 });

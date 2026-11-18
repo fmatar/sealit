@@ -18,7 +18,8 @@ describe('Stryker in-process node:test runner parity & configuration', () => {
   it('stryker.config.json omits Node-22-incompatible --test-isolation=none and passes full-suite parity under SdlcNodeTestRunner', async () => {
     const cfg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'stryker.config.json'), 'utf8'));
     assert.equal((cfg.tap?.nodeArgs || []).includes('--test-isolation=none'), false);
-    assert.equal((cfg.tap?.testFiles || []).length, 8);
+    assert.equal((cfg.tap?.testFiles || []).length, 9);
+    assert.equal((cfg.mutator?.excludedMutations || []).includes('Regex'), false, 'Regex mutations must be enabled');
 
     const prevCeiling = process.env.GIT_CEILING_DIRECTORIES;
     try {

@@ -5,8 +5,8 @@
 - **Enforced Invariants**: `INV-02`, `INV-03`
 
 ## 1. Inputs
-- Git diff between `mergeBase` (`develop` or `main`) and working tree across `PRODUCT.md`, `docs/PRD.md`, `docs/SRS.md`, `docs/specs/*.md`, `.archlens/policy.json`, structural dependency manifests, schemas (`.sql`, `.graphql`, `.proto`, `schema.prisma`), and OpenAPI/Swagger contracts.
-- Architectural Decision Records in `docs/adr/ADR-*.md` and source modules governed by `.archlens/policy.json`.
+- Commit-sourced `ChangeSet` (`diff-tree` + `cat-file --batch` for authoritative `gate`/`pre-push`) or working-tree `ChangeSet` (`diff-index` + untracked files for advisory `sdlc drift`) between `mergeBase` (`develop` or `main`) and target across `PRODUCT.md`, `docs/PRD.md`, `docs/SRS.md`, `docs/specs/*.md`, `.archlens/policy.json`, structural dependency manifests, schemas (`.sql`, `.graphql`, `.proto`, `schema.prisma`), and OpenAPI/Swagger contracts.
+- Architectural Decision Records in `docs/adr/ADR-*.md` (checked against base ADRs for `ADR_MUTATION` and `ADR_ID_COLLISION`) and source modules governed by `.archlens/policy.json`.
 
 ## 2. Domain Rules
 1. **Universal ADR Approval Gate (`INV-03`)**: All ADRs created via `adr create` start in `pending_approval` regardless of scope (`technical`, `architectural`, `product`, `contract`). Only ADRs transitioned to `accepted` via `adr decide --status approve` satisfy `checkSpecDrift`.

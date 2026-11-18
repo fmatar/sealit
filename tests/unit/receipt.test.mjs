@@ -403,11 +403,25 @@ describe('Ring 1: lib/receipt.mjs', () => {
       });
       assert.equal(issueGateReceipt({ repoRoot: genRepo.dir }).success, true);
 
-      // 6. computeTreeHash honors explicit baseBranch
+      // 6. computeTreeHash honors explicit baseBranch and marks dirty working trees cacheable: false
       const hDev = computeTreeHash({ repoRoot: genRepo.dir, modulePath: '.', baseBranch: 'develop' });
       git(genRepo.dir, 'branch', 'other-base', genSha);
       const hOther = computeTreeHash({ repoRoot: genRepo.dir, modulePath: '.', baseBranch: 'other-base' });
       assert.notEqual(hDev.hash, hOther.hash);
+      fs.writeFileSync(path.join(genRepo.dir, 'dirty-cache.txt'), 'dirty\n', 'utf8');
+      assert.equal(computeTreeHash({ repoRoot: genRepo.dir, modulePath: '.' }).cacheable, false);
+      fs.unlinkSync(path.join(genRepo.dir, 'dirty-cache.txt'));
+      fs.mkdirSync(path.join(genRepo.dir, 'docs'), { recursive: true });
+      fs.writeFileSync(path.join(genRepo.dir, 'docs/AUDIT_CHAIN.jsonl'), '{"pending":1}\n', 'utf8');
+      assert.equal(computeTreeHash({ repoRoot: genRepo.dir, modulePath: '.', checkType: 'gate' }).cacheable, true);
+      assert.notEqual(
+        computeTreeHash({ repoRoot: genRepo.dir, modulePath: '.', checkType: 'gate' }).hash,
+        computeTreeHash({ repoRoot: genRepo.dir, modulePath: 'packages/a', checkType: 'cov' }).hash
+      );
+      const unbornDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-unborn-hash-'));
+      cleanups.push(() => fs.rmSync(unbornDir, { recursive: true, force: true }));
+      git(unbornDir, 'init', '-q');
+      assert.equal(computeTreeHash({ repoRoot: unbornDir, modulePath: '.' }).cacheable, false);
     });
   });
 

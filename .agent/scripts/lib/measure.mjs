@@ -2,10 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import {
-  computeContentTreeSha, fileExists, getCurrentGitBranch, getModifiedFiles,
-  getUnifiedDiffByFile, gitOutput, hasDirtyNonGovernanceFiles, isDocsOnlyDiff,
-  parseCommandArgv, readFileSafe, resolveDiffComparisonState, resolveInsideRepo,
-  runConfiguredCommand, writeFileAtomic
+  TRUE_BINARY_EXT_RE, computeContentTreeSha, fileExists, getCurrentGitBranch, gitExecBuffer,
+  hasDirtyNonGovernanceFiles, isDocsOnlyDiff, parseCommandArgv, readBlobs, readChangeSet,
+  readFileSafe, resolveInsideRepo, resolveRange, runConfiguredCommand, writeFileAtomic
 } from './git.mjs';
 import { listExemptions, validateConfigFile } from './config.mjs';
 import { computeTreeHash, readActiveSession, readGateCache, writeActiveSession, writeGateCache } from './receipt.mjs';
@@ -44,22 +43,43 @@ function isExecutableSourceLine(lineText = '') {
   return true;
 }
 
-export function scanDiffSecrets(repoRoot = '.', { baseBranch = null, runNpmAudit = false, diffGetter = null } = {}) {
+export function scanDiffSecrets(repoRoot = '.', { baseBranch = null, changeSet = null, runNpmAudit = false } = {}) {
   const secretViolations = [];
   let diffFiles = [];
   try {
-    diffFiles = getModifiedFiles(baseBranch, repoRoot);
-    const diffsByFile = diffGetter ? diffGetter(baseBranch, repoRoot, diffFiles) : getUnifiedDiffByFile(baseBranch, repoRoot, diffFiles, { strict: true });
-    for (const file of diffFiles) {
+    const cs = changeSet || readChangeSet({ ...resolveRange({ baseBranch, repoRoot }), source: 'worktree', repoRoot });
+    diffFiles = cs.paths;
+    const binEntries = cs.entries.filter(
+      (e) => e.status !== 'D' && !TRUE_BINARY_EXT_RE.test(e.path) && /^Binary files .* differ$/m.test(cs.patches.get(e.path) || '')
+    );
+    const binBlobs =
+      cs.source === 'commit' && cs.headSha && binEntries.length > 0
+        ? readBlobs(binEntries.map((e) => `${cs.headSha}:${e.path}`), repoRoot)
+        : new Map();
+
+    for (const entry of cs.entries) {
+      const file = entry.path;
       try {
-        const diffOutput = diffsByFile.get(file) || '';
-        const isBinExt = /\.(?:png|jpe?g|gif|webp|ico|bmp|tiff?|avif|mp[34]|mov|avi|mkv|wav|ogg|flac|woff2?|ttf|otf|eot|pdf|zip|tar|gz|tgz|bz2|xz|7z|rar|wasm|pyc|class|jar|so|dylib|dll|exe|bin|sqlite3?|db)$/i.test(file);
-        if (!diffOutput) { if (!isBinExt && fs.statSync(path.resolve(repoRoot, file), { throwIfNoEntry: false })?.isFile()) secretViolations.push({ file, type: 'SCAN_ERROR', error: 'Modified file missing from unified diff.' }); continue; }
-        const lines = diffOutput.replace(/\r\n/g, '\n').split('\n');
-        const hasPlus = lines.some((l) => l.startsWith('+') && !l.startsWith('+++'));
-        if (/^Binary files .* differ$/m.test(diffOutput) && !hasPlus && !isBinExt) {
-          secretViolations.push({ file, type: 'SCAN_ERROR', error: 'Unexpanded binary text diff.' });
-          continue;
+        if (entry.status === 'D' || (!/^0+$/.test(entry.oldOid) && entry.oldOid === entry.newOid && entry.oldMode !== entry.newMode)) continue;
+        if (entry.newMode === '160000' || TRUE_BINARY_EXT_RE.test(file) || entry.newOid === 'e69de29bb2d1d6434b8b29ae775ad8c2e48c5391') continue;
+        const diffOutput = cs.patches.get(file) || '';
+        if (!diffOutput) { secretViolations.push({ file, type: 'SCAN_ERROR', error: 'Modified file missing from ChangeSet patches.' }); continue; }
+        let lines = diffOutput.replace(/\r\n/g, '\n').split('\n');
+        if (/^Binary files .* differ$/m.test(diffOutput)) {
+          let rawText = null;
+          if (cs.source === 'commit' && cs.headSha) rawText = binBlobs.get(`${cs.headSha}:${file}`) ?? null;
+          else {
+            const abs = resolveInsideRepo(repoRoot, file);
+            if (fileExists(abs)) {
+              if (fs.statSync(abs).size > 16 * 1024 * 1024) throw new Error(`File '${file}' exceeds 16 MiB for secret scan.`);
+              rawText = fs.readFileSync(abs).toString('utf8');
+            } else {
+              const idx = gitExecBuffer(['show', `:${file}`], repoRoot);
+              if (!idx.error && idx.status === 0) rawText = idx.stdout.toString('utf8');
+            }
+          }
+          if (rawText === null) { secretViolations.push({ file, type: 'SCAN_ERROR', error: 'Unexpanded binary text diff.' }); continue; }
+          lines = rawText.replace(/\0/g, '').replace(/\r\n/g, '\n').split('\n').map((l) => `+${l}`);
         }
         const isTest = isTestFilePath(file);
         let addedIdx = 0;
@@ -68,9 +88,7 @@ export function scanDiffSecrets(repoRoot = '.', { baseBranch = null, runNpmAudit
           addedIdx++;
           for (const sp of SECRET_PATTERNS) {
             if (sp.skipInTests && isTest) continue;
-            if (sp.regex.test(line)) {
-              secretViolations.push({ file, type: 'SECRET_LEAK', pattern: sp.name, addedLineIndex: addedIdx });
-            }
+            if (sp.regex.test(line)) secretViolations.push({ file, type: 'SECRET_LEAK', pattern: sp.name, addedLineIndex: addedIdx });
           }
         }
       } catch (err) {
@@ -207,7 +225,7 @@ function parseLcovContent(raw, absRepo, modCwd) {
   return { fileLineHits, totalLF, totalLH };
 }
 
-export function parseCoverageReport(repoRoot = '.', mod = {}, { baseBranch = null } = {}) {
+export function parseCoverageReport(repoRoot = '.', mod = {}, { baseBranch = null, changeSet = null } = {}) {
   const absRepo = path.resolve(repoRoot);
   const modCwd = mod?.path && mod.path !== '.' ? resolveInsideRepo(absRepo, mod.path) : absRepo;
   const modPrefix = path.relative(absRepo, modCwd).replace(/\\/g, '/');
@@ -230,9 +248,11 @@ export function parseCoverageReport(repoRoot = '.', mod = {}, { baseBranch = nul
   let repoLineCoverage = 0;
   let fileLineHits = null;
 
-  const modFiles = getModifiedFiles(baseBranch, absRepo).filter((f) =>
-    !modPrefix ? true : f === modPrefix || f.startsWith(`${modPrefix}/`)
-  );
+  const cs = changeSet || readChangeSet({ ...resolveRange({ baseBranch, repoRoot: absRepo }), source: 'worktree', repoRoot: absRepo });
+  const modFiles = cs.entries
+    .filter((e) => e.status !== 'D')
+    .map((e) => e.path)
+    .filter((f) => (!modPrefix ? true : f === modPrefix || f.startsWith(`${modPrefix}/`)));
   const sourceModFiles = modFiles.filter((f) => isTrackableSourceFile(f));
 
   if (relFound.endsWith('.info') || raw.includes('end_of_record')) {
@@ -281,7 +301,8 @@ export function parseCoverageReport(repoRoot = '.', mod = {}, { baseBranch = nul
 
   let diffLineCoverage = repoLineCoverage;
   if (fileLineHits && sourceModFiles.length > 0) {
-      const diffMap = getUnifiedDiffByFile(baseBranch, absRepo, sourceModFiles);
+      const sourceSet = new Set(sourceModFiles);
+      const diffMap = new Map([...cs.patches.entries()].filter(([k]) => sourceSet.has(k)));
       const addedByFile = extractAddedLinesByFile(diffMap);
       let diffTotal = 0;
       let diffHit = 0;
@@ -372,7 +393,7 @@ function matchesMutatePatterns(relFile, patterns) {
   return matched;
 }
 
-export function buildMutationPlan(repoRoot = '.', mod = {}, { full = false, noCache = false, baseBranch = null } = {}) {
+export function buildMutationPlan(repoRoot = '.', mod = {}, { full = false, noCache = false, baseBranch = null, changeSet = null } = {}) {
   const baseCmd = mod?.commands?.mutation;
   if (!baseCmd) return { skip: true, reason: 'not-configured', commandArgv: null, targets: [] };
   const parsed = parseCommandArgv(baseCmd);
@@ -425,7 +446,12 @@ export function buildMutationPlan(repoRoot = '.', mod = {}, { full = false, noCa
     return { skip: false, diffScoped: false, full: true, commandArgv: [...baseTokens, ...jsonRepArgs, ...extraFlags], targets: [], shards: makeShards(concreteMutate) };
   }
 
-  const modified = getModifiedFiles(baseBranch, absRepo).filter((f) => (!modPrefix ? true : f === modPrefix || f.startsWith(`${modPrefix}/`))).map((f) => (!modPrefix ? f : f.slice(modPrefix.length + 1)));
+  const cs = changeSet || readChangeSet({ ...resolveRange({ baseBranch, repoRoot: absRepo }), source: 'worktree', repoRoot: absRepo });
+  const modified = cs.entries
+    .filter((e) => e.status !== 'D')
+    .map((e) => e.path)
+    .filter((f) => (!modPrefix ? true : f === modPrefix || f.startsWith(`${modPrefix}/`)))
+    .map((f) => (!modPrefix ? f : f.slice(modPrefix.length + 1)));
   const directSources = modified.filter((f) => (explicitMutate.length > 0 ? matchesMutatePatterns(f, explicitMutate) : isTrackableSourceFile(f)));
   const directSet = new Set(directSources);
   const pairedSources = modified.filter((f) => isTestFilePath(f)).map((t) => mapUnitTestToSource(t, concreteMutate)).filter((s) => s && !directSet.has(s));
@@ -434,11 +460,10 @@ export function buildMutationPlan(repoRoot = '.', mod = {}, { full = false, noCa
     return { skip: true, diffScoped: true, reason: 'diff-no-mutated-sources', commandArgv: null, targets: [] };
   }
 
-  const diffMap = getUnifiedDiffByFile(baseBranch, absRepo, directSources.map((s) => (modPrefix ? `${modPrefix}/${s}` : s)));
   const targets = [];
   const targetsBySource = new Map();
   for (const src of directSources) {
-    const ranges = extractChangedHunkRanges(diffMap.get(modPrefix ? `${modPrefix}/${src}` : src) || diffMap.get(src) || '');
+    const ranges = extractChangedHunkRanges(cs.patches.get(modPrefix ? `${modPrefix}/${src}` : src) || cs.patches.get(src) || '');
     const srcTargets = ranges.length > 0 ? ranges.map((r) => `${src}:${r.start}-${r.end}`) : [src];
     targets.push(...srcTargets);
     targetsBySource.set(src, srcTargets);
@@ -556,23 +581,18 @@ export function parseMutationReport(repoRoot = '.', mod = {}, { targets = null }
 
   if (pitRel) {
     const xml = fs.readFileSync(path.join(modCwd, pitRel), 'utf8');
-    let killed = 0;
-    let survived = 0;
+    let killed = 0; let survived = 0;
     for (const m of xml.matchAll(/<mutation\b[^>]*\bdetected="(true|false)"[^>]*\bstatus="([^"]+)"/g)) {
-      const detected = m[1] === 'true';
       const status = m[2].toUpperCase();
       if (status === 'MEMORY_ERROR' || status === 'RUN_ERROR') continue;
-      if (detected) killed++;
-      else survived++;
+      if (m[1] === 'true') killed++; else survived++;
     }
     return finalize({ relFile: pitRel, killed, survived });
   }
-
   if (fileExists(path.join(modCwd, cargoRel))) {
     const parsed = JSON.parse(fs.readFileSync(path.join(modCwd, cargoRel), 'utf8'));
     const outcomes = Array.isArray(parsed.outcomes) ? parsed.outcomes : Array.isArray(parsed) ? parsed : [];
-    let killed = 0;
-    let survived = 0;
+    let killed = 0; let survived = 0;
     for (const o of outcomes) {
       const sum = String(o.summary || o.outcome || '').toLowerCase();
       if (sum.includes('caught') || sum.includes('killed') || sum.includes('timeout')) killed++;
@@ -580,35 +600,26 @@ export function parseMutationReport(repoRoot = '.', mod = {}, { targets = null }
     }
     return finalize({ relFile: cargoRel, killed, survived });
   }
-
   if (fileExists(path.join(modCwd, mutmutJsonRel))) {
     const parsed = JSON.parse(fs.readFileSync(path.join(modCwd, mutmutJsonRel), 'utf8'));
-    const killed = Number(parsed.killed || 0) + Number(parsed.timeout || 0);
-    const survived = Number(parsed.survived || 0);
-    return finalize({ relFile: mutmutJsonRel, killed, survived });
+    return finalize({ relFile: mutmutJsonRel, killed: Number(parsed.killed || 0) + Number(parsed.timeout || 0), survived: Number(parsed.survived || 0) });
   }
-
   if (fileExists(path.join(modCwd, mutmutTxtRel))) {
     const txt = fs.readFileSync(path.join(modCwd, mutmutTxtRel), 'utf8');
     const km = txt.match(/(?:Killed|🎉)\s*:?\s*(\d+)/i);
     const tm = txt.match(/(?:Timeout|⏰)\s*:?\s*(\d+)/i);
     const sm = txt.match(/(?:Survived|🙁)\s*:?\s*(\d+)/i);
-    const killed = (km ? Number(km[1]) : 0) + (tm ? Number(tm[1]) : 0);
-    const survived = sm ? Number(sm[1]) : 0;
-    return finalize({ relFile: mutmutTxtRel, killed, survived });
+    return finalize({ relFile: mutmutTxtRel, killed: (km ? Number(km[1]) : 0) + (tm ? Number(tm[1]) : 0), survived: sm ? Number(sm[1]) : 0 });
   }
-
   if (fileExists(path.join(modCwd, goMutRel))) {
     const txt = fs.readFileSync(path.join(modCwd, goMutRel), 'utf8');
-    const killed = [...txt.matchAll(/^PASS:/gm)].length;
-    const survived = [...txt.matchAll(/^FAIL:/gm)].length;
-    return finalize({ relFile: goMutRel, killed, survived });
+    return finalize({ relFile: goMutRel, killed: [...txt.matchAll(/^PASS:/gm)].length, survived: [...txt.matchAll(/^FAIL:/gm)].length });
   }
 
   return { found: false, passed: false, threshold, reason: 'No mutation report found on disk.' };
 }
 
-export function measureModuleCoverage(repoRoot = '.', mod = {}, { verbose = false, baseBranch = null } = {}) {
+export function measureModuleCoverage(repoRoot = '.', mod = {}, { verbose = false, baseBranch = null, changeSet = null } = {}) {
   if (!mod.commands?.coverage) {
     return { found: false, passed: false, reason: `Module '${mod.name}' has no coverage command configured.` };
   }
@@ -618,11 +629,11 @@ export function measureModuleCoverage(repoRoot = '.', mod = {}, { verbose = fals
   }
   const startedAt = Date.now();
   runConfiguredCommand(mod.commands.coverage, { cwd: modCwd, stdio: verbose ? 'inherit' : 'pipe', encoding: 'utf8' });
-  return requireFreshReport(parseCoverageReport(repoRoot, mod, { baseBranch }), mod, repoRoot, startedAt);
+  return requireFreshReport(parseCoverageReport(repoRoot, mod, { baseBranch, changeSet }), mod, repoRoot, startedAt);
 }
 
-export function measureModuleMutation(repoRoot = '.', mod = {}, { full = false, noCache = false, verbose = false, baseBranch = null, onProgress = null } = {}) {
-  const plan = buildMutationPlan(repoRoot, mod, { full, noCache, baseBranch });
+export function measureModuleMutation(repoRoot = '.', mod = {}, { full = false, noCache = false, verbose = false, baseBranch = null, changeSet = null, onProgress = null } = {}) {
+  const plan = buildMutationPlan(repoRoot, mod, { full, noCache, baseBranch, changeSet });
   if (plan.skip) {
     const status = plan.reason || 'not-configured';
     return { found: false, passed: true, skipped: true, score: null, status, formatted: `skipped (${status})` };
@@ -674,16 +685,24 @@ export function runGate(repoRoot = '.', { noCache = false, online = false, verbo
   if (!cfgCheck.valid) {
     return { passed: false, stage: 'config', errors: cfgCheck.errors, reason: `Invalid configuration: ${cfgCheck.errors.join('; ')}` };
   }
+  if (hasDirtyNonGovernanceFiles(repoRoot, { allowAuditChain: true })) {
+    return { passed: false, stage: 'dirty', dirty: true, reason: 'DIRTY_WORKING_TREE: commit or stash before gating.' };
+  }
   const config = cfgCheck.config;
   const activeSession = readActiveSession(repoRoot);
   const effectiveBase = baseBranch || activeSession?.baseBranch || null;
-  const modifiedFiles = getModifiedFiles(effectiveBase, repoRoot);
-  const mode = modifiedFiles.length > 0 && isDocsOnlyDiff(modifiedFiles) ? 'docs-only' : 'code';
+  const range = resolveRange({ baseBranch: effectiveBase, head: 'HEAD', repoRoot });
+  const cs = readChangeSet({ ...range, source: 'commit', repoRoot });
+  const modifiedFiles = cs.paths;
+  const mode = isDocsOnlyDiff(cs) ? 'docs-only' : 'code';
 
   if (onProgress) onProgress(`[gate] Checking spec/ADR drift, architecture rings & secrets (mode=${mode})...`);
-  const drift = checkSpecDrift({ ticketId: activeSession?.issueId || null, baseBranch: effectiveBase, repoRoot });
-  const arch = config.archlens?.enabled !== false ? checkArchRings({ repoRoot, policyPath: config.archlens?.policyPath || '.archlens/policy.json' }) : { passed: true, violations: [] };
-  const secrets = scanDiffSecrets(repoRoot, { baseBranch: effectiveBase, runNpmAudit: Boolean(online || process.env.CI === 'true') });
+  const drift = checkSpecDrift({ ticketId: activeSession?.issueId || null, baseBranch: range.effectiveBase, changeSet: cs, repoRoot });
+  const arch =
+    config.archlens?.enabled !== false
+      ? checkArchRings({ repoRoot, policyPath: config.archlens?.policyPath || '.archlens/policy.json', sha: range.headSha })
+      : { passed: true, violations: [] };
+  const secrets = scanDiffSecrets(repoRoot, { baseBranch: range.effectiveBase, changeSet: cs, runNpmAudit: Boolean(online || process.env.CI === 'true') });
 
   const moduleResults = [];
   let lintPassed = true;
@@ -692,13 +711,12 @@ export function runGate(repoRoot = '.', { noCache = false, online = false, verbo
   let minDiffCov = null;
   let minMutation = null;
   let mutationStatus = mode === 'docs-only' ? 'docs-only' : 'not-configured';
-  const dirty = hasDirtyNonGovernanceFiles(repoRoot, { allowAuditChain: true });
 
   if (mode === 'code' && drift.passed && arch.passed && secrets.passed) {
     for (const mod of config.modules) {
       const modCwd = mod.path && mod.path !== '.' ? resolveInsideRepo(repoRoot, mod.path) : path.resolve(repoRoot);
-      const tree = computeTreeHash({ repoRoot, modulePath: mod.path || '.', checkType: 'gate', baseBranch: effectiveBase });
-      const cached = !noCache && !dirty && tree.cacheable ? readGateCache(repoRoot, mod.name, tree.hash) : null;
+      const tree = computeTreeHash({ repoRoot, modulePath: mod.path || '.', checkType: 'gate', baseBranch: range.effectiveBase });
+      const cached = !noCache && tree.cacheable ? readGateCache(repoRoot, mod.name, tree.hash) : null;
 
       if (cached && cached.passed === true) {
         if (typeof cached.diffCoveragePct === 'number') minDiffCov = minDiffCov === null ? cached.diffCoveragePct : Math.min(minDiffCov, cached.diffCoveragePct);
@@ -733,7 +751,7 @@ export function runGate(repoRoot = '.', { noCache = false, online = false, verbo
       try {
         if (mod.commands?.coverage && mod.thresholds?.diffCoverage !== null) {
           if (onProgress) onProgress(`[gate] Measuring diff coverage (${mod.name})...`);
-          const cov = measureModuleCoverage(repoRoot, mod, { verbose, baseBranch: effectiveBase });
+          const cov = measureModuleCoverage(repoRoot, mod, { verbose, baseBranch: range.effectiveBase, changeSet: cs });
           modCovPct = cov.diffLineCoverage ?? null;
           if (!cov.passed) {
             testsPassed = false;
@@ -752,7 +770,7 @@ export function runGate(repoRoot = '.', { noCache = false, online = false, verbo
 
       if (mod.commands?.mutation && mod.thresholds?.mutationScore !== null) {
         try {
-          const mut = measureModuleMutation(repoRoot, mod, { noCache, verbose, baseBranch: effectiveBase, onProgress });
+          const mut = measureModuleMutation(repoRoot, mod, { noCache, verbose, baseBranch: range.effectiveBase, changeSet: cs, onProgress });
           modMutPct = mut.score ?? null;
           modMutStatus = mut.status || 'measured';
           if (!mut.passed) {
@@ -769,7 +787,7 @@ export function runGate(repoRoot = '.', { noCache = false, online = false, verbo
       if (modMutPct !== null) minMutation = minMutation === null ? modMutPct : Math.min(minMutation, modMutPct);
       mutationStatus = modMutStatus;
       const entrySummary = { passed: true, diffCoveragePct: modCovPct, mutationPct: modMutPct, mutationStatus: modMutStatus };
-      if (!dirty && tree.cacheable) writeGateCache(repoRoot, mod.name, tree.hash, entrySummary);
+      if (tree.cacheable) writeGateCache(repoRoot, mod.name, tree.hash, entrySummary);
       moduleResults.push({ module: mod.name, cached: false, ...entrySummary });
     }
   }
@@ -777,10 +795,9 @@ export function runGate(repoRoot = '.', { noCache = false, online = false, verbo
   const allModulesPassed =
     mode === 'docs-only' || (moduleResults.length === config.modules.length && moduleResults.every((m) => m.passed === true));
   const passed = drift.passed && arch.passed && secrets.passed && lintPassed && buildPassed && testsPassed && allModulesPassed;
-  const rawHeadSha = (gitOutput(['rev-parse', '--verify', 'HEAD'], repoRoot) || '').trim() || null;
-  const recordedHeadSha = dirty ? 'DIRTY_WORKING_TREE' : rawHeadSha;
-  const treeSha = !dirty && rawHeadSha ? computeContentTreeSha(rawHeadSha, repoRoot) : null;
-  const { specHash, adrHashes } = computeAlignmentHashes(repoRoot);
+  const recordedHeadSha = range.headSha;
+  const treeSha = recordedHeadSha ? computeContentTreeSha(recordedHeadSha, repoRoot) : null;
+  const { specHash, adrHashes } = computeAlignmentHashes({ sha: recordedHeadSha || 'HEAD', repoRoot });
 
   const lastGate = {
     passed, headSha: recordedHeadSha, treeSha, mode, specHash, adrHashes,
@@ -801,12 +818,14 @@ export function runGate(repoRoot = '.', { noCache = false, online = false, verbo
     });
   }
 
-  return { passed, mode, dirty, headSha: recordedHeadSha, modifiedFiles, drift, arch, secrets, modules: moduleResults, lastGate };
+  return { passed, mode, dirty: false, headSha: recordedHeadSha, modifiedFiles, drift, arch, secrets, modules: moduleResults, lastGate };
 }
 
 export function resolveAffectedTests(repoRoot = '.', { baseBranch = null } = {}) {
   const absRepo = path.resolve(repoRoot);
-  const modified = getModifiedFiles(baseBranch, absRepo);
+  const modified = readChangeSet({ ...resolveRange({ baseBranch, repoRoot: absRepo }), source: 'worktree', repoRoot: absRepo })
+    .entries.filter((e) => e.status !== 'D')
+    .map((e) => e.path);
   const tests = new Set();
   for (const f of modified) {
     if (/\.(?:test|spec)\.[cm]?js$/i.test(f) && !f.startsWith('-') && fileExists(path.join(absRepo, f))) {
@@ -818,32 +837,4 @@ export function resolveAffectedTests(repoRoot = '.', { baseBranch = null } = {})
     if (mapped) tests.add(mapped);
   }
   return [...tests].sort();
-}
-
-export function buildReviewPlan(repoRoot = '.', { baseBranch = null } = {}) {
-  const { effectiveBase, headSha, mergeBase } = resolveDiffComparisonState(baseBranch, repoRoot);
-  const modifiedFiles = getModifiedFiles(effectiveBase, repoRoot);
-  const mode = modifiedFiles.length > 0 && isDocsOnlyDiff(modifiedFiles) ? 'docs-only' : 'code';
-  const diffsByFile = getUnifiedDiffByFile(effectiveBase, repoRoot, modifiedFiles);
-  let fullDiff = '';
-  let changedLines = 0;
-  for (const chunk of diffsByFile.values()) {
-    fullDiff += `${chunk}\n`;
-    changedLines += chunk.split('\n').filter((l) => (l.startsWith('+') && !l.startsWith('+++')) || (l.startsWith('-') && !l.startsWith('---'))).length;
-  }
-  const boundedDiff = fullDiff.length > 32000 ? `${fullDiff.slice(0, 32000)}\n... [diff truncated at 32kB]` : fullDiff;
-
-  const touchesGovernanceOrSec = modifiedFiles.some((f) =>
-    /^(?:PRODUCT\.md|docs\/specs\/|docs\/adr\/|\.archlens\/|\.github\/workflows\/)/.test(f) || /(?:receipt|guard|security|drift|auth|crypto)/i.test(f)
-  );
-  const needsArchReviewer = mode === 'code' && (changedLines > 200 || touchesGovernanceOrSec);
-
-  const reviewers = mode === 'docs-only'
-    ? [{ role: 'Docs Alignment Reviewer', focus: 'Verify clarity, link accuracy, and zero unintended spec drift.' }]
-    : [
-        { role: 'PR Peer Reviewer', focus: 'Verify behavioral correctness, edge cases, TDD test quality, and YAGNI simplicity.', prompt: `Review branch diff (${mergeBase?.slice(0, 7) || effectiveBase}..${headSha?.slice(0, 7) || 'HEAD'}).\nModified files: ${modifiedFiles.join(', ')}\nReturn structured verdict: approve | request-changes, blockers: [], notes.\n\nDiff:\n${boundedDiff}` },
-        ...(needsArchReviewer ? [{ role: 'Architecture & Security Reviewer', focus: 'Verify Concentric Clean Architecture ring boundaries, fail-closed error handling, shell-free execution (INV-04), and spec/ADR alignment.', prompt: `Audit security and architecture invariants on diff (${mergeBase?.slice(0, 7) || effectiveBase}..${headSha?.slice(0, 7) || 'HEAD'}).\nModified files: ${modifiedFiles.join(', ')}\nReturn structured verdict: approve | request-changes, blockers: [], notes.\n\nDiff:\n${boundedDiff}` }] : [])
-      ];
-
-  return { mode, baseBranch: effectiveBase, mergeBase, headSha, changedLines, modifiedFiles, reviewers };
 }

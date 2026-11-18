@@ -7,7 +7,6 @@ import { addExemption, listExemptions, loadConfig, validateConfigFile } from './
 import { issueGateReceipt, verifyAuditChain, verifyGateReceipt } from './lib/receipt.mjs';
 import { checkArchRings, checkSpecDrift, createADR, decideADR, listADRs } from './lib/drift.mjs';
 import {
-  buildReviewPlan,
   measureModuleCoverage,
   measureModuleMutation,
   resolveAffectedTests,
@@ -16,6 +15,7 @@ import {
 import {
   applyBranchProtection,
   beginSession,
+  buildReviewPlan,
   endSession,
   getSessionStatus,
   installHooks,
@@ -133,7 +133,7 @@ function failInvalid(result, message, exitCode = 2) {
   return result;
 }
 
-export async function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.', { isTTY = Boolean(process.stdin.isTTY && process.stdout.isTTY), onProgress = null } = {}) {
+export async function runCLI(customArgs = null, customConfigPath = null, repoRoot = '.', { isTTY = Boolean(process.stdin.isTTY && process.stdout.isTTY), onProgress = null, readStdinFn = null } = {}) {
   const rawArgs = Array.isArray(customArgs) ? customArgs : process.argv.slice(2);
   const { rest, jsonMode, verbose, help, version } = extractGlobalFlags(rawArgs);
   const progressFn = !jsonMode ? onProgress : null;
@@ -353,7 +353,7 @@ export async function runCLI(customArgs = null, customConfigPath = null, repoRoo
             cwd: path.resolve(repoRoot),
             stdio: verbose && !jsonMode ? 'inherit' : 'pipe'
           });
-          result.tests = { mode: 'affected', files: affected, passed: true };
+          result.tests = { mode: 'affected', advisory: true, files: affected, passed: true };
           return result;
         }
       }
@@ -531,10 +531,15 @@ export async function runCLI(customArgs = null, customConfigPath = null, repoRoo
       }
       if (sub === 'pre-push') {
         let stdinText = '';
-        if (!process.stdin.isTTY) {
-          try { stdinText = fs.readFileSync(0, 'utf8'); } catch {}
+        let stdinError = null;
+        if (readStdinFn || (customArgs === null && !process.stdin.isTTY)) {
+          try {
+            stdinText = readStdinFn ? readStdinFn() : fs.readFileSync(0, 'utf8');
+          } catch (err) {
+            stdinError = err;
+          }
         }
-        const g = verifyPushGuard({ stdinText, repoRoot });
+        const g = verifyPushGuard({ stdinText, stdinError, repoRoot });
         result.guard = g;
         result.success = g.allowed;
         if (!g.allowed) result.error = g.message;
@@ -607,6 +612,7 @@ export function formatCLIResult(cmd, res = {}) {
       return [
         `SDLC Doctor: ${d.passed ? 'HEALTHY' : 'ISSUES FOUND'}`,
         `  Node Runtime  : ${d.nodeVersion} (${d.nodeOk ? 'OK' : 'Requires >=22.0.0'})`,
+        `  Git Runtime   : ${d.gitVersion || 'missing'} (${d.gitOk ? 'OK' : 'Requires >=2.38'})`,
         `  Config        : ${d.config.valid ? 'Valid' : `Invalid (${d.config.errors.join('; ')})`}`,
         `  Archlens Rings: ${d.policyOk ? 'Present' : 'Missing'}`,
         `  Gitignore     : ${d.gitignore?.upToDate ? 'Up to date' : `Missing ${d.gitignore?.missing?.length || 0}: ${(d.gitignore?.missing || []).join(', ')}`}`,
@@ -624,10 +630,10 @@ export function formatCLIResult(cmd, res = {}) {
       return `Session #${res.end?.issueId} closed.`;
     case 'status': {
       const s = res.status;
-      return `Branch: ${s.branch || 'detached'} | Session: ${s.active ? `#${s.session.issueId}` : 'none'} | Mode: ${s.mode} | Drift: ${s.drift.passed ? 'clean' : 'drift'} | Receipt ready: ${s.readyForReceipt ? 'yes' : 'no'}`;
+      return `Branch: ${s.branch || 'detached'} | Session: ${s.active ? `#${s.session.issueId}` : 'none'} | Mode: ${s.mode} | Drift: ${s.drift.passed ? 'clean' : 'drift'} | Receipt ready: ${s.readyForReceipt ? 'yes' : 'no'} (advisory: includes uncommitted changes)`;
     }
     case 'drift':
-      return [res.drift?.message, res.arch?.message].filter(Boolean).join(' | ') || 'Aligned.';
+      return `${[res.drift?.message, res.arch?.message].filter(Boolean).join(' | ') || 'Aligned.'} (advisory: includes uncommitted changes)`;
     case 'adr':
       if (Array.isArray(res.adrs)) return `ADRs (${res.adrs.length}): ${res.adrs.map((a) => `${a.id} [${a.status}]`).join(', ') || 'none'}`;
       return `ADR ${res.adr?.id}: ${res.adr?.status} (${res.adr?.file || ''})`;
@@ -653,12 +659,14 @@ export function formatCLIResult(cmd, res = {}) {
     }
     case 'coverage':
       return (res.coverage || [])
-        .map((c) => `${c.module}: ${c.formatted || 'n/a'} (${c.passed ? 'PASS' : c.reason || 'FAIL'})`)
+        .map((c) => `${c.module}: ${c.formatted || 'n/a'} (${c.passed ? 'PASS' : c.reason || 'FAIL'}) (advisory: includes uncommitted changes)`)
         .join('\n') || (res.success ? 'OK' : 'Failed');
     case 'mutation':
       return (res.mutation || [])
-        .map((m) => `${m.module}: ${m.formatted || 'n/a'} (${m.passed ? 'PASS' : m.reason || 'FAIL'})`)
+        .map((m) => `${m.module}: ${m.formatted || 'n/a'} (${m.passed ? 'PASS' : m.reason || 'FAIL'}) (advisory: includes uncommitted changes)`)
         .join('\n') || (res.success ? 'OK' : 'Failed');
+    case 'test':
+      return res.tests?.mode === 'affected' ? 'OK (advisory: includes uncommitted changes)' : res.success ? 'OK' : 'Failed';
     case 'receipt':
       return `Issued Stage 7 receipt ${res.receipt?.receipt?.receiptId}`;
     case 'verify':
