@@ -479,6 +479,31 @@ describe('Ring 0: lib/git.mjs', () => {
     assert.equal(blobs.get(`${subSha}:vendor/ext-sub`), null);
     assert.deepEqual(listTree(prMergeSha, 'docs/specs', dir), ['docs/specs/cap-01.md']);
 
+    // Commit binary file with " b/" in name (symmetric header parsing) + 100%-identical rename (rename to header)
+    fs.mkdirSync(path.join(dir, 'src/my b'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'src/my b/nul.mjs'), Buffer.from('\x00export const sym = 1;\n', 'latin1'));
+    git(dir, 'mv', 'docs/specs/cap-01.md', 'docs/specs/cap-01-renamed.md');
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'feat: symmetric binary header and pure 100% rename');
+    const symHead = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+    const symCs = readChangeSet({ baseSha: subSha, headSha: symHead, source: 'commit', repoRoot: dir });
+    assert.equal(symCs.patches.has('src/my b/nul.mjs'), true);
+    assert.equal(symCs.patches.has('docs/specs/cap-01-renamed.md'), true);
+
+    // Worktree stat-dirty unmodified file is filtered out via blob SHA-1 check; untracked symlink/NUL/empty files synthesize patches
+    const fut = new Date(Date.now() + 20000);
+    fs.utimesSync(path.join(dir, 'PRODUCT.md'), fut, fut);
+    fs.symlinkSync('PRODUCT.md', path.join(dir, 'untracked-link.md'));
+    fs.writeFileSync(path.join(dir, 'untracked-empty.mjs'), '', 'utf8');
+    fs.writeFileSync(path.join(dir, 'untracked-nul.mjs'), Buffer.from('\x00const x = 1;\n', 'latin1'));
+    const wtCheck = readChangeSet({ baseSha: symHead, headSha: symHead, source: 'worktree', repoRoot: dir });
+    assert.equal(wtCheck.paths.includes('PRODUCT.md'), false, 'stat-only touch on unmodified file must be excluded');
+    assert.equal(wtCheck.entries.find((e) => e.path === 'untracked-link.md')?.newMode, '120000');
+    assert.match(wtCheck.patches.get('untracked-nul.mjs') || '', /Binary files .* differ/);
+    fs.rmSync(path.join(dir, 'untracked-link.md'), { force: true });
+    fs.rmSync(path.join(dir, 'untracked-empty.mjs'), { force: true });
+    fs.rmSync(path.join(dir, 'untracked-nul.mjs'), { force: true });
+
     // computeAlignmentHashes({ sha }) ignores uncommitted spec edits on disk
     const committedHashes = computeAlignmentHashes({ sha: prMergeSha, repoRoot: dir });
     fs.writeFileSync(path.join(dir, 'PRODUCT.md'), '# Uncommitted tamper on disk!\n', 'utf8');

@@ -585,7 +585,36 @@ describe('Ring 2: lib/guard.mjs', () => {
       fs.writeFileSync(full, '{"ok":true}\n', 'utf8');
       const plan = buildReviewPlan(dir);
       assert.equal(plan.mode, 'code', govFile);
+      assert.equal(plan.advisory, true);
+      assert.equal(plan.source, 'worktree');
+      assert.equal(plan.changedLines, 1);
       assert.ok(plan.reviewers.some((r) => r.role === 'Architecture & Security Reviewer'), `${govFile} must trigger security reviewer`);
+      assert.match(plan.reviewers[0].prompt, /advisory: includes uncommitted changes/);
+      assert.match(plan.reviewers[1].prompt, /Audit security and architecture invariants/);
     }
+
+    const { dir, cleanup } = createTempGitRepo();
+    cleanups.push(cleanup);
+    git(dir, 'checkout', '-q', '-b', 'feat/rev-modes', 'develop');
+    fs.writeFileSync(path.join(dir, 'README.md'), '# Updated Readme\n', 'utf8');
+    const docsPlan = buildReviewPlan(dir);
+    assert.equal(docsPlan.mode, 'docs-only');
+    assert.equal(docsPlan.reviewers.length, 1);
+    assert.equal(docsPlan.reviewers[0].role, 'Docs Alignment Reviewer');
+    assert.equal(docsPlan.changedLines, 2);
+
+    fs.writeFileSync(path.join(dir, 'calc.mjs'), 'export const add = (a, b) => a + b;\n', 'utf8');
+    const oneRev = buildReviewPlan(dir);
+    assert.equal(oneRev.mode, 'code');
+    assert.equal(oneRev.reviewers.length, 1);
+    assert.equal(oneRev.reviewers[0].role, 'PR Peer Reviewer');
+    assert.equal(oneRev.changedLines, 3);
+
+    fs.writeFileSync(path.join(dir, 'huge.mjs'), `${'// l\n'.repeat(205)}export const big = "${'z'.repeat(33000)}";\n`, 'utf8');
+    const twoRev = buildReviewPlan(dir);
+    assert.equal(twoRev.reviewers.length, 2);
+    assert.ok(twoRev.changedLines > 200);
+    assert.match(twoRev.reviewers[0].prompt, /diff truncated at 32kB/);
+    assert.match(twoRev.reviewers[1].prompt, /diff truncated at 32kB/);
   });
 });
