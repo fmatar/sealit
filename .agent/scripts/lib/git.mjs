@@ -531,16 +531,12 @@ function parsePatchSections(rawDiff, knownPaths) {
     if (plusMatch) cleanPath = plusMatch[1] ? unquoteGitPath(`"${plusMatch[1]}"`) : plusMatch[2].trim();
     else if (renMatch) cleanPath = unquoteGitPath(renMatch[1]);
     else {
-      const rest = hdr.slice('diff --git '.length);
-      const mid = (rest.length - 1) / 2;
-      if (Number.isInteger(mid) && mid > 2 && rest.startsWith('a/') && rest[mid] === ' ' && rest.slice(mid + 1) === `b/${rest.slice(2, mid)}`) {
-        cleanPath = rest.slice(2, mid);
-      } else {
-        const pairMatch = hdr.match(/^diff --git (?:"a\/(.+?)"|a\/(.+?)) (?:"b\/(.+?)"|b\/(.+))$/);
-        if (pairMatch) cleanPath = unquoteGitPath(pairMatch[3] ? `"${pairMatch[3]}"` : pairMatch[4] || (pairMatch[1] ? `"${pairMatch[1]}"` : pairMatch[2]));
-        if ((!cleanPath || !knownPaths.has(cleanPath)) && knownPaths.size > 0) {
-          for (const kp of knownPaths) if (hdr.endsWith(` b/${kp}`)) { cleanPath = kp; break; }
-        }
+      for (const kp of knownPaths) {
+        if (hdr.endsWith(` b/${kp}`)) { cleanPath = kp; break; }
+      }
+      if (!cleanPath) {
+        const q = hdr.match(/ "b\/((?:\\.|[^"\\])+)"$/);
+        if (q) cleanPath = unquoteGitPath(`"${q[1]}"`);
       }
     }
     if (!cleanPath) continue;

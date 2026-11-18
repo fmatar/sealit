@@ -518,5 +518,51 @@ describe('Ring 0: lib/git.mjs', () => {
       () => readChangeSet({ ...moveRange, source: 'commit', repoRoot: dir, _rawPatchOverride: '' }),
       (err) => err instanceof ChangeSetParseError && err.code === 'CHANGESET_PARSE_ERROR'
     );
+    assert.throws(
+      () => readChangeSet({ ...moveRange, source: 'bogus', repoRoot: dir }),
+      (err) => err instanceof ChangeSetParseError && /Invalid ChangeSet source/.test(err.message)
+    );
+
+    // Header-only binary patch fallback (knownPaths + quoted C-escaped path), empty/same-SHA ranges, and invalid readBlobs specs
+    const headerOnlyCs = readChangeSet({
+      ...moveRange,
+      source: 'commit',
+      repoRoot: dir,
+      _rawPatchOverride: [
+        'diff --git a/src/moved.mjs b/src/moved.mjs\nBinary files a/src/moved.mjs and b/src/moved.mjs differ',
+        'diff --git "a/tab\\tname" "b/tab\\tname"\nBinary files differ'
+      ].join('\n')
+    });
+    assert.ok(headerOnlyCs.patches.get('src/moved.mjs').includes('Binary files'));
+    assert.ok(headerOnlyCs.patches.get('tab\tname').includes('Binary files'));
+    assert.deepEqual(readChangeSet({ baseSha: moveRange.headSha, headSha: moveRange.headSha, source: 'commit', repoRoot: dir }).paths, []);
+    assert.equal(readBlobs([], dir).size, 0);
+    assert.equal(readBlobs(['bad\nspec'], dir).get('bad\nspec'), null);
+    assert.deepEqual(listTree('', '', dir), []);
+    assert.deepEqual(listTree('deadbeefdeadbeefdeadbeefdeadbeefdeadbeef', '', dir), []);
+    assert.deepEqual(listTree(prMergeSha, './docs/specs/', dir), ['docs/specs/cap-01.md']);
+
+    // resolveRange: branchHint on base vs feature at base vs missing base ref fallback
+    git(dir, 'checkout', '--', 'PRODUCT.md');
+    git(dir, 'checkout', '-q', 'develop');
+    const devHead = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+    const devParent = git(dir, 'rev-parse', 'HEAD~1').stdout.trim();
+    const pushBaseRange = resolveRange({ baseBranch: 'develop', branchHint: 'develop', repoRoot: dir });
+    assert.equal(pushBaseRange.baseSha, devParent);
+    const featAtBaseRange = resolveRange({ baseBranch: 'develop', branchHint: 'feat/aligned', repoRoot: dir });
+    assert.equal(featAtBaseRange.baseSha, devHead);
+    const missingBaseRange = resolveRange({ baseBranch: 'no-such-base', repoRoot: dir });
+    assert.equal(missingBaseRange.baseSha, devParent);
+
+    // worktree readChangeSet: staged-then-reverted file (cachedMissing) and untracked executable (100755)
+    git(dir, 'checkout', '-q', '-b', 'feat/wt-edges', 'develop');
+    fs.writeFileSync(path.join(dir, 'src/staged-only.js'), 'export const s = 1;\n', 'utf8');
+    git(dir, 'add', 'src/staged-only.js');
+    fs.unlinkSync(path.join(dir, 'src/staged-only.js'));
+    fs.writeFileSync(path.join(dir, 'src/untracked-exec.sh'), '#!/bin/sh\necho ok\n', { mode: 0o755 });
+    const wtEdgeCs = readChangeSet({ baseSha: devHead, headSha: devHead, source: 'worktree', repoRoot: dir });
+    assert.equal(wtEdgeCs.paths.includes('src/staged-only.js'), true);
+    assert.ok(wtEdgeCs.patches.get('src/staged-only.js').includes('+export const s = 1;'));
+    assert.equal(wtEdgeCs.entries.find((e) => e.path === 'src/untracked-exec.sh')?.newMode, '100755');
   });
 });

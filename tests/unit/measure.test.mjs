@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createTempGitRepo, git } from '../helpers/test-harness.mjs';
+import { readChangeSet, resolveRange } from '../../.agent/scripts/lib/git.mjs';
 import { readActiveSession, writeActiveSession } from '../../.agent/scripts/lib/receipt.mjs';
 import {
   scanDiffSecrets,
@@ -803,5 +804,79 @@ describe('Ring 2: lib/measure.mjs', () => {
     const bigPlan = buildReviewPlan(emptyRepo.dir);
     assert.equal(bigPlan.reviewers.length, 2);
     assert.match(bigPlan.reviewers[0].prompt, /diff truncated at 32kB/);
+
+    // Binary-attributed text secret scan across commit ChangeSet, worktree disk, and staged-deleted index fallback + mode-only/gitlink skips
+    const binSecRepo = createTempGitRepo();
+    cleanups.push(binSecRepo.cleanup);
+    const fakeAws = ['AKIA', '1234567890ABCDEF'].join('');
+    git(binSecRepo.dir, 'checkout', '-q', '-b', 'feat/bin-sec', 'develop');
+    fs.writeFileSync(path.join(binSecRepo.dir, '.gitattributes'), '*.mjs binary\n', 'utf8');
+    fs.writeFileSync(path.join(binSecRepo.dir, 'bin-secret.mjs'), Buffer.from(`\x00export const k = "${fakeAws}";\n`, 'latin1'));
+    git(binSecRepo.dir, 'add', '.gitattributes', 'bin-secret.mjs');
+    // Worktree scan on disk before commit
+    const wtBinDisk = scanDiffSecrets(binSecRepo.dir);
+    assert.equal(wtBinDisk.passed, false);
+    assert.equal(wtBinDisk.secretViolations[0].file, 'bin-secret.mjs');
+    // Staged-then-deleted worktree scan falls back to `git show :file`
+    fs.unlinkSync(path.join(binSecRepo.dir, 'bin-secret.mjs'));
+    const wtBinStaged = scanDiffSecrets(binSecRepo.dir);
+    assert.equal(wtBinStaged.passed, false);
+    // Commit ChangeSet scan reads blob via readBlobs + ignores mode-only and 160000 gitlink entries
+    fs.writeFileSync(path.join(binSecRepo.dir, 'bin-secret.mjs'), Buffer.from(`\x00export const k = "${fakeAws}";\n`, 'latin1'));
+    git(binSecRepo.dir, 'add', 'bin-secret.mjs');
+    git(binSecRepo.dir, 'update-index', '--chmod=+x', 'README.md');
+    const devTip = git(binSecRepo.dir, 'rev-parse', 'develop').stdout.trim();
+    git(binSecRepo.dir, 'update-index', '--add', '--cacheinfo', `160000,${devTip},submod`);
+    git(binSecRepo.dir, 'commit', '-q', '-m', 'feat: binary secret commit');
+    const commitBinCs = readChangeSet({ ...resolveRange({ baseBranch: 'develop', repoRoot: binSecRepo.dir }), source: 'commit', repoRoot: binSecRepo.dir });
+    const commitBinScan = scanDiffSecrets(binSecRepo.dir, { changeSet: commitBinCs });
+    assert.equal(commitBinScan.passed, false);
+    assert.equal(commitBinScan.secretViolations.length, 1);
+    assert.equal(commitBinScan.secretViolations[0].file, 'bin-secret.mjs');
+
+    // runGate: docs-only commit passes with mutationStatus 'docs-only' even when AUDIT_CHAIN.jsonl is dirty; archlens ring violation fails
+    const gateModeRepo = createTempGitRepo();
+    cleanups.push(gateModeRepo.cleanup);
+    fs.mkdirSync(path.join(gateModeRepo.dir, '.agent'), { recursive: true });
+    fs.mkdirSync(path.join(gateModeRepo.dir, '.archlens'), { recursive: true });
+    fs.mkdirSync(path.join(gateModeRepo.dir, 'docs'), { recursive: true });
+    fs.writeFileSync(
+      path.join(gateModeRepo.dir, '.agent/sdlc-config.json'),
+      JSON.stringify({
+        version: '0.1.0',
+        archlens: { enabled: true, policyPath: '.archlens/policy.json' },
+        modules: [{ name: 'root', path: '.', commands: {}, thresholds: { diffCoverage: null, mutationScore: null } }]
+      }),
+      'utf8'
+    );
+    fs.writeFileSync(
+      path.join(gateModeRepo.dir, '.archlens/policy.json'),
+      JSON.stringify({ src: 'src', order: ['core', 'adapters'], levels: [['src/core/**'], ['src/adapters/**']] }),
+      'utf8'
+    );
+    fs.writeFileSync(path.join(gateModeRepo.dir, 'docs/AUDIT_CHAIN.jsonl'), '', 'utf8');
+    git(gateModeRepo.dir, 'add', '-A');
+    git(gateModeRepo.dir, 'commit', '-q', '-m', 'chore: gate mode base');
+    git(gateModeRepo.dir, 'checkout', '-q', '-b', 'docs/note', 'develop');
+    fs.writeFileSync(path.join(gateModeRepo.dir, 'docs/guide.md'), '# Guide\n', 'utf8');
+    git(gateModeRepo.dir, 'add', 'docs/guide.md');
+    git(gateModeRepo.dir, 'commit', '-q', '-m', 'docs: guide');
+    fs.writeFileSync(path.join(gateModeRepo.dir, 'docs/AUDIT_CHAIN.jsonl'), '{"dirty":true}\n', 'utf8');
+    const docsGate = runGate(gateModeRepo.dir, { noCache: true });
+    assert.equal(docsGate.passed, true);
+    assert.equal(docsGate.dirty, false);
+    assert.equal(docsGate.mode, 'docs-only');
+    assert.equal(docsGate.lastGate.mutationStatus, 'docs-only');
+    git(gateModeRepo.dir, 'checkout', '--', 'docs/AUDIT_CHAIN.jsonl');
+
+    fs.mkdirSync(path.join(gateModeRepo.dir, 'src/core'), { recursive: true });
+    fs.mkdirSync(path.join(gateModeRepo.dir, 'src/adapters'), { recursive: true });
+    fs.writeFileSync(path.join(gateModeRepo.dir, 'src/adapters/out.mjs'), 'export const out = 1;\n', 'utf8');
+    fs.writeFileSync(path.join(gateModeRepo.dir, 'src/core/bad.mjs'), "import { out } from '../adapters/out.mjs';\nexport const v = out;\n", 'utf8');
+    git(gateModeRepo.dir, 'add', 'src');
+    git(gateModeRepo.dir, 'commit', '-q', '-m', 'feat: inward violation');
+    const archFailGate = runGate(gateModeRepo.dir, { noCache: true });
+    assert.equal(archFailGate.passed, false);
+    assert.equal(archFailGate.arch.passed, false);
   });
 });
