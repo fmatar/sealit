@@ -149,6 +149,10 @@ export class SdlcNodeTestRunner {
 
   async init() {
     process.env.GIT_CEILING_DIRECTORIES = path.dirname(process.cwd());
+    delete process.env.GITHUB_BASE_REF;
+    delete process.env.GITHUB_REF;
+    delete process.env.GITHUB_REF_NAME;
+    delete process.env.GITHUB_HEAD_REF;
     ensureLoaderRegistered();
     const ns = this.getNs();
     ns.activeMutant = undefined;

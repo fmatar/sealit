@@ -3,6 +3,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
+delete process.env.GITHUB_BASE_REF;
+delete process.env.GITHUB_REF;
+delete process.env.GITHUB_REF_NAME;
+delete process.env.GITHUB_HEAD_REF;
+
 export function cleanTestGitEnv(extraEnv = {}) {
   const env = { ...process.env, ...extraEnv };
   delete env.GIT_DIR;
@@ -12,6 +17,9 @@ export function cleanTestGitEnv(extraEnv = {}) {
   delete env.GIT_OBJECT_DIRECTORY;
   delete env.GIT_ALTERNATE_OBJECT_DIRECTORIES;
   delete env.GITHUB_BASE_REF;
+  delete env.GITHUB_REF;
+  delete env.GITHUB_REF_NAME;
+  delete env.GITHUB_HEAD_REF;
   delete env.SDLC_RECEIPT_KEY;
   return env;
 }
