@@ -1,0 +1,3 @@
+interface:
+  display_name: "SDLC Vertical TDD & Measured Gate"
+  short_description: "Build slices or diagnose bugs via public-seam Red-Green TDD, diff coverage, and diff-scoped mutation kills."

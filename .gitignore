@@ -32,6 +32,7 @@ coverage/
 .DS_Store
 Thumbs.db
 
-# Stryker mutation testing
+# Stryker mutation testing & local scratch plans
 .stryker-tmp/
+.scratch/
 reports/

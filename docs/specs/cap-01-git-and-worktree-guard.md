@@ -10,7 +10,7 @@
 
 ## 2. Domain Rules
 1. **Protected Branch Lock (`INV-01`)**: Direct commits, merges without a Stage 7 receipt, and pushes to `main` or `develop` fail closed across `pre-commit`, `pre-merge-commit`, and `pre-push` hooks.
-2. **Active Session Binding (`INV-02`)**: Commits on non-protected branches require `.agent/.sdlc-session.json` with `branch` matching `HEAD`.
+2. **Active Session & Worktree Base Binding (`INV-02`)**: Commits on non-protected branches require `.agent/.sdlc-session.json` with `branch` matching `HEAD`. `beginSession` supports `--worktree <dir>` and optional `--base <branch>` (validated with `check-ref-format --branch` and commit resolution) so parallel vertical-slice worktrees branch from and diff against an integration or feature branch cleanly across `git >= 2.38`.
 3. **Git Plumbing & Case-Exact Tree Paths (`ADR-020`)**: Authoritative verification reads immutable commit objects via `git >= 2.38` plumbing (`diff-tree`, `ls-tree -z`, `cat-file --batch`) with zero pathspecs, comparing tree paths case-exactly and rejecting non-`100644` modes (symlinks, gitlinks, executables) from `docs-only` classification. All `git` subprocess calls sanitize `GIT_*` environment variables (`cleanGitEnv`) and pass `-C <repoRoot> -c core.quotepath=false`.
 4. **Docs-Only vs Code Classification & Per-Ref Pre-Push**: Diffs are deterministically classified into `docs-only` or `code`; governance files (`PRODUCT.md`, `docs/PRD.md`, `docs/SRS.md`, `docs/specs/*`, `docs/adr/*`, `docs/AUDIT_CHAIN.jsonl`) and dependency/contract manifests never classify as `docs-only`. `pre-push` evaluates each pushed `refs/heads/*` commit range independently (allowing tag pushes and failing closed on unreadable stdin).
 

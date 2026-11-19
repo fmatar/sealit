@@ -27,19 +27,13 @@ import {
   verifyGateReceipt,
   writeActiveSession
 } from './receipt.mjs';
-import { checkSpecDrift } from './drift.mjs';
+import { checkArchRings, checkSpecDrift } from './drift.mjs';
 import { scanDiffSecrets } from './measure.mjs';
 
 export const PROTECTED_BRANCHES = Object.freeze(['main', 'master', 'develop']);
 
 function slugifyBranchTitle(title) {
-  return (
-    String(title || 'work')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 40) || 'work'
-  );
+  return String(title || 'work').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'work';
 }
 
 function allocateNextLocalId(sessions = {}) {
@@ -75,23 +69,18 @@ function resolveSafeWorktreePath(absRoot, worktree) {
 }
 
 export function beginSession({
-  issueId = null,
-  title = 'change',
-  type = 'feat',
-  branch = null,
-  checkout = false,
-  worktree = null,
-  repoRoot = '.'
+  issueId = null, title = 'change', type = 'feat', branch = null,
+  baseBranch = null, checkout = false, worktree = null, repoRoot = '.'
 } = {}) {
   const absRoot = path.resolve(repoRoot);
-  const baseBranch = resolveDefaultBaseBranch(absRoot);
+  const explicitBase = baseBranch !== null && baseBranch !== undefined ? String(baseBranch).trim() : null;
+  const resolvedBase = explicitBase || resolveDefaultBaseBranch(absRoot);
   let resolvedId = normalizeTicketId(issueId);
   let reservedId = null;
   if (resolvedId && readSessionStore(absRoot).sessions?.[resolvedId]?.reserved) {
     return { success: false, error: `Session id '${resolvedId}' is being created by another begin; retry or pick another id.` };
   }
   if (!resolvedId) {
-    // Allocate and reserve the local id inside the session lock so concurrent `begin` runs never collide.
     writeActiveSession(absRoot, (store) => {
       reservedId = allocateNextLocalId(store.sessions);
       store.sessions[reservedId] = { active: false, reserved: true, issueId: reservedId, startedAt: new Date().toISOString() };
@@ -109,25 +98,28 @@ export function beginSession({
     return { success: false, error };
   };
 
-  const prefix = ['feat', 'fix', 'hotfix', 'chore', 'docs', 'refactor'].includes(String(type).toLowerCase())
-    ? String(type).toLowerCase()
-    : 'feat';
+  if (explicitBase !== null) {
+    if (!explicitBase || explicitBase === 'HEAD' || explicitBase.startsWith('-')) {
+      return fail(`Invalid base branch '${explicitBase}'.`);
+    }
+    const baseRefOk = gitExec(['check-ref-format', '--branch', explicitBase], absRoot);
+    const baseSha = (gitOutput(['rev-parse', '--verify', '-q', '--end-of-options', `${explicitBase}^{commit}`], absRoot) || '').trim();
+    if (baseRefOk.error || baseRefOk.status !== 0 || !baseSha) {
+      return fail(`Base branch '${explicitBase}' does not resolve to an existing branch commit.`);
+    }
+  }
+
+  const prefix = ['feat', 'fix', 'hotfix', 'chore', 'docs', 'refactor'].includes(String(type).toLowerCase()) ? String(type).toLowerCase() : 'feat';
   const curBranch = getCurrentGitBranch(absRoot);
   const defaultBranchName = `${prefix}/${/^\d+$/.test(resolvedId) ? `issue-${resolvedId}` : resolvedId}-${slugifyBranchTitle(title)}`;
-  const targetBranch =
-    branch ||
-    (!checkout && !worktree && curBranch && !PROTECTED_BRANCHES.includes(curBranch) ? curBranch : defaultBranchName);
+  const targetBranch = branch || (!checkout && !worktree && curBranch && !PROTECTED_BRANCHES.includes(curBranch) ? curBranch : defaultBranchName);
 
   if (PROTECTED_BRANCHES.includes(targetBranch)) {
     return fail(`Cannot start session on protected branch '${targetBranch}'. Pass --checkout or switch to a feature branch.`);
   }
-  if (targetBranch === 'HEAD' || targetBranch.startsWith('-')) {
-    return fail(`Invalid branch name '${targetBranch}'.`);
-  }
+  if (targetBranch === 'HEAD' || targetBranch.startsWith('-')) return fail(`Invalid branch name '${targetBranch}'.`);
   const refCheck = gitExec(['check-ref-format', '--branch', targetBranch], absRoot);
-  if (refCheck.error || refCheck.status !== 0) {
-    return fail(`Invalid branch name '${targetBranch}'.`);
-  }
+  if (refCheck.error || refCheck.status !== 0) return fail(`Invalid branch name '${targetBranch}'.`);
 
   let resolvedWorktree = null;
   if (worktree) {
@@ -135,24 +127,25 @@ export function beginSession({
     if (!resolvedWorktree) {
       return fail(`Worktree path '${worktree}' must be a new directory directly next to the repository ('../<name>') or under '<repo>/.worktrees/', and not a dot-name.`);
     }
-    try {
-      fs.mkdirSync(path.dirname(resolvedWorktree), { recursive: true });
-    } catch (err) {
+    try { fs.mkdirSync(path.dirname(resolvedWorktree), { recursive: true }); } catch (err) {
       return fail(`Failed to create worktree parent directory: ${err.message}`);
     }
     const wtArgs = hasBranch(targetBranch, absRoot)
       ? ['worktree', 'add', resolvedWorktree, targetBranch]
-      : ['worktree', 'add', '-b', targetBranch, resolvedWorktree, baseBranch];
+      : ['worktree', 'add', '-b', targetBranch, resolvedWorktree, resolvedBase];
     const wtRes = gitExec(wtArgs, absRoot);
-    if (wtRes.error || wtRes.status !== 0) {
-      return fail(`Failed to create git worktree: ${wtRes.stderr || wtRes.error?.message}`);
-    }
+    if (wtRes.error || wtRes.status !== 0) return fail(`Failed to create git worktree: ${wtRes.stderr || wtRes.error?.message}`);
   } else if (checkout && curBranch !== targetBranch) {
-    const coArgs = hasBranch(targetBranch, absRoot) ? ['checkout', '--end-of-options', targetBranch] : ['checkout', '-b', targetBranch];
+    const hasLocalBranch = gitExec(['show-ref', '--verify', '--quiet', `refs/heads/${targetBranch}`], absRoot).status === 0;
+    const coArgs = hasLocalBranch
+      ? ['checkout', targetBranch, '--']
+      : hasBranch(targetBranch, absRoot)
+        ? ['checkout', '-b', targetBranch, '--track', `origin/${targetBranch}`]
+        : explicitBase
+          ? ['checkout', '-b', targetBranch, resolvedBase, '--']
+          : ['checkout', '-b', targetBranch];
     const coRes = gitExec(coArgs, absRoot);
-    if (coRes.error || coRes.status !== 0) {
-      return fail(`Failed to checkout branch '${targetBranch}': ${coRes.stderr || coRes.error?.message}`);
-    }
+    if (coRes.error || coRes.status !== 0) return fail(`Failed to checkout branch '${targetBranch}': ${coRes.stderr || coRes.error?.message}`);
   }
 
   const now = new Date().toISOString();
@@ -160,40 +153,34 @@ export function beginSession({
   let lostReservation = false;
   writeActiveSession(absRoot, (store) => {
     if (reservedId && !store.sessions[reservedId]?.reserved) {
-      lostReservation = true; // another begin took this id explicitly; never inherit or overwrite its session
+      lostReservation = true;
       return store;
     }
     const prev = store.sessions[resolvedId]?.reserved ? {} : store.sessions[resolvedId] || {};
     savedSession = {
-      active: true,
-      issueId: resolvedId,
-      title: String(title || prev.title || '').trim() || null,
-      type: prefix,
-      branch: targetBranch,
-      baseBranch,
-      worktree: resolvedWorktree || prev.worktree || null,
-      peerReview: prev.peerReview || null,
-      lastGate: prev.lastGate || null,
-      startedAt: prev.startedAt || now,
-      updatedAt: now
+      active: true, issueId: resolvedId, title: String(title || prev.title || '').trim() || null,
+      type: prefix, branch: targetBranch, baseBranch: explicitBase || prev.baseBranch || resolvedBase,
+      worktree: resolvedWorktree || prev.worktree || null, peerReview: prev.peerReview || null,
+      lastGate: prev.lastGate || null, startedAt: prev.startedAt || now, updatedAt: now
     };
     store.sessions[resolvedId] = savedSession;
     store.activeSessionId = resolvedId;
     return store;
   });
-  if (lostReservation) {
-    return { success: false, error: `Session id '${resolvedId}' was claimed by another begin while this one ran; retry.` };
-  }
-
+  if (lostReservation) return { success: false, error: `Session id '${resolvedId}' was claimed by another begin while this one ran; retry.` };
   return { success: true, session: savedSession, branch: targetBranch, worktree: resolvedWorktree };
 }
 
-export function getSessionStatus(repoRoot = '.') {
+function resolveSessionDiffContext(repoRoot = '.', explicitBase = null) {
   const branch = getCurrentGitBranch(repoRoot);
   const session = readActiveSession(repoRoot, branch);
-  const baseBranch = session?.baseBranch || null;
-  const range = resolveRange({ baseBranch, head: 'HEAD', repoRoot });
+  const range = resolveRange({ baseBranch: explicitBase || session?.baseBranch || null, head: 'HEAD', repoRoot });
   const cs = readChangeSet({ ...range, source: 'worktree', repoRoot });
+  return { branch, session, range, cs };
+}
+
+export function getSessionStatus(repoRoot = '.') {
+  const { branch, session, range, cs } = resolveSessionDiffContext(repoRoot);
   const modifiedFiles = cs.paths;
   const mode = isDocsOnlyDiff(cs) ? 'docs-only' : 'code';
   const drift = checkSpecDrift({ ticketId: session?.issueId || null, baseBranch: range.effectiveBase, changeSet: cs, repoRoot });
@@ -203,19 +190,7 @@ export function getSessionStatus(repoRoot = '.') {
   const gateFresh = Boolean(session?.lastGate?.passed && !dirty && headSha && session.lastGate.headSha === headSha);
   const reviewOk = mode === 'docs-only' || Boolean(session?.peerReview?.verdict === 'approve' && session.peerReview.headSha === headSha);
 
-  return {
-    active: Boolean(session),
-    advisory: true,
-    source: 'worktree',
-    branch,
-    headSha,
-    dirty,
-    mode,
-    modifiedFiles,
-    drift,
-    session,
-    readyForReceipt: Boolean(session && gateFresh && reviewOk && drift.passed)
-  };
+  return { active: Boolean(session), advisory: true, source: 'worktree', branch, headSha, dirty, mode, modifiedFiles, drift, session, readyForReceipt: Boolean(session && gateFresh && reviewOk && drift.passed) };
 }
 
 export function recordReviewVerdict({
@@ -723,9 +698,25 @@ export function applyBranchProtection({
   };
 }
 
+function collectContextPointers(repoRoot, modifiedFiles = []) {
+  const absRoot = path.resolve(repoRoot);
+  const out = [];
+  for (const cand of ['PRODUCT.md', 'GLOSSARY.md', 'CONTRIBUTING.md', '.archlens/policy.json']) {
+    if (fileExists(path.join(absRoot, cand))) out.push(cand);
+  }
+  const specsDir = path.join(absRoot, 'docs/specs');
+  if (fileExists(specsDir)) {
+    for (const name of fs.readdirSync(specsDir).filter((n) => n.endsWith('.md')).sort()) out.push(`docs/specs/${name}`);
+  }
+  for (const f of modifiedFiles) {
+    if (/^docs\/adr\/.+\.md$/i.test(f) && !out.includes(f) && fileExists(path.join(absRoot, f))) out.push(f);
+  }
+  return out;
+}
+
 export function buildReviewPlan(repoRoot = '.', { baseBranch = null } = {}) {
-  const { effectiveBase, baseSha: mergeBase, headSha } = resolveRange({ baseBranch, head: 'HEAD', repoRoot });
-  const cs = readChangeSet({ baseSha: mergeBase, headSha, source: 'worktree', repoRoot });
+  const { session, range, cs } = resolveSessionDiffContext(repoRoot, baseBranch);
+  const { effectiveBase, baseSha: mergeBase, headSha } = range;
   const modifiedFiles = cs.paths;
   const mode = isDocsOnlyDiff(cs) ? 'docs-only' : 'code';
   let fullDiff = '';
@@ -738,33 +729,68 @@ export function buildReviewPlan(repoRoot = '.', { baseBranch = null } = {}) {
 
   const policy = loadEffectivePolicy({ repoRoot, baseSha: mergeBase, headSha: null, changedPaths: modifiedFiles });
   const pendingExemptions = policy.pendingExemptions;
-  const touchesGovernanceOrSec = modifiedFiles.some(
-    (f) =>
-      /^(?:PRODUCT\.md|docs\/specs\/|docs\/adr\/|\.archlens\/|\.github\/workflows\/|\.agent\/sdlc-config\.json$|\.agent\/scripts\/)|(?:^|\/)stryker\.config\.json$/.test(f) ||
-      /(?:receipt|guard|security|drift|auth|crypto)/i.test(f)
-  );
-  const needsArchReviewer = mode === 'code' && (changedLines > 200 || touchesGovernanceOrSec || pendingExemptions.length > 0);
+  const contextPointers = collectContextPointers(repoRoot, modifiedFiles);
+  const sessionLine = session ? `\nSession: #${session.issueId}${session.title ? ` (${session.title})` : ''}` : '';
+  const ptrLine = contextPointers.length > 0 ? `\nContext pointers: ${contextPointers.join(', ')}` : '';
   const pendNote = pendingExemptions.length > 0 ? `\nPending mutant exemptions (inactive until merged): ${pendingExemptions.map((e) => `${e.file}::${e.id}`).join(', ')}` : '';
 
   const reviewers =
     mode === 'docs-only'
-      ? [{ role: 'Docs Alignment Reviewer', focus: 'Verify clarity, link accuracy, and zero unintended spec drift.' }]
+      ? [{ role: 'Docs Alignment Reviewer', axis: 'docs', focus: 'Verify clarity, glossary alignment, link accuracy, and zero unintended spec drift.' }]
       : [
           {
-            role: 'PR Peer Reviewer',
-            focus: 'Verify behavioral correctness, edge cases, TDD test quality, and YAGNI simplicity.',
-            prompt: `Review branch diff (${mergeBase?.slice(0, 7) || effectiveBase}..${headSha?.slice(0, 7) || 'HEAD'}) (advisory: includes uncommitted changes).\nModified files: ${modifiedFiles.join(', ')}\nReturn structured verdict: approve | request-changes, blockers: [], notes.\n\nDiff:\n${boundedDiff}`
+            role: 'Spec Fidelity & Peer Reviewer',
+            axis: 'spec',
+            focus: 'Verify faithful implementation of spec/ticket requirements, flag unrequested scope creep, and audit public-seam behavioral tests (no tautological assertions).',
+            prompt: `Review branch diff (${mergeBase?.slice(0, 7) || effectiveBase}..${headSha?.slice(0, 7) || 'HEAD'}) on the Spec Fidelity axis (advisory: includes uncommitted changes).${sessionLine}${ptrLine}\nModified files: ${modifiedFiles.join(', ')}\nReport separately without merging into style notes: (a) missing/partial spec requirements, (b) unrequested scope creep, (c) behavioral or public-seam TDD defects (tautological assertions, private-helper coupling).\nReturn structured verdict: approve | request-changes, blockers: [], notes.\n\nDiff:\n${boundedDiff}`
           },
-          ...(needsArchReviewer
-            ? [
-                {
-                  role: 'Architecture & Security Reviewer',
-                  focus: 'Verify Concentric Clean Architecture ring boundaries, fail-closed error handling, shell-free execution (INV-04), and spec/ADR alignment.',
-                  prompt: `Audit security and architecture invariants on diff (${mergeBase?.slice(0, 7) || effectiveBase}..${headSha?.slice(0, 7) || 'HEAD'}) (advisory: includes uncommitted changes).\nModified files: ${modifiedFiles.join(', ')}${pendNote}\nReturn structured verdict: approve | request-changes, blockers: [], notes.\n\nDiff:\n${boundedDiff}`
-                }
-              ]
-            : [])
+          {
+            role: 'Architecture & Security Reviewer',
+            axis: 'standards-architecture',
+            focus: 'Verify Concentric Clean Architecture ring boundaries, fail-closed error handling, shell-free execution (INV-04), repo coding standards, and deep-module vs. Fowler code smells.',
+            prompt: `Audit security and architecture invariants on diff (${mergeBase?.slice(0, 7) || effectiveBase}..${headSha?.slice(0, 7) || 'HEAD'}) (advisory: includes uncommitted changes).${sessionLine}${ptrLine}\nModified files: ${modifiedFiles.join(', ')}${pendNote}\nDistinguish hard violations (Concentric ring inversions, shell interpolation INV-04, secret/path traversal leaks, documented repo standards) from heuristic code-smell judgement calls (Feature Envy, Shotgun Surgery, Divergent Change, Primitive Obsession, Speculative Generality).\nReturn structured verdict: approve | request-changes, blockers: [], notes.\n\nDiff:\n${boundedDiff}`
+          }
         ];
 
-  return { advisory: true, source: 'worktree', mode, baseBranch: effectiveBase, mergeBase, headSha, changedLines, modifiedFiles, pendingExemptions, reviewers };
+  return { advisory: true, source: 'worktree', mode, baseBranch: effectiveBase, mergeBase, headSha, changedLines, modifiedFiles, contextPointers, pendingExemptions, reviewers };
+}
+
+export function buildPrSummary(repoRoot = '.', { baseBranch = null } = {}) {
+  const { branch, session, range, cs } = resolveSessionDiffContext(repoRoot, baseBranch);
+  const nonLedgerEntries = cs.entries.filter((e) => e.path !== 'docs/AUDIT_CHAIN.jsonl');
+  const modifiedFiles = nonLedgerEntries.map((e) => e.path);
+  const ver = range.headSha ? verifyGateReceipt({ headSha: range.headSha, branch, repoRoot }) : { valid: false };
+  const rec = ver?.valid ? ver.receipt : null;
+  const mode = nonLedgerEntries.length === 0 ? rec?.mode || 'docs-only' : isDocsOnlyDiff({ entries: nonLedgerEntries }) ? 'docs-only' : 'code';
+  const drift = checkSpecDrift({ ticketId: session?.issueId || null, baseBranch: range.effectiveBase, changeSet: cs, repoRoot });
+  const arch = checkArchRings({ repoRoot });
+  const lastGate = session?.lastGate?.headSha === range.headSha ? session.lastGate : null;
+
+  const door = drift.triggers.length > 0 ? 'One-Way' : 'Two-Way';
+  const hasHighScope = drift.triggers.some((t) => t.scope === 'contract' || t.scope === 'architectural');
+  const blastRadius = hasHighScope || modifiedFiles.length > 12 ? 'High' : drift.triggers.length > 0 || modifiedFiles.length > 4 ? 'Medium' : 'Low';
+  const fileTree = modifiedFiles.length > 0 ? modifiedFiles.slice(0, 20).map((f) => `- \`${f}\``).join('\n') : '- _(no modified files)_';
+  const covNum = typeof lastGate?.diffCoveragePct === 'number' ? lastGate.diffCoveragePct : typeof rec?.diffCoverage === 'number' ? rec.diffCoverage : null;
+  const mutNum = typeof lastGate?.mutationPct === 'number' ? lastGate.mutationPct : typeof rec?.mutationScore === 'number' ? rec.mutationScore : null;
+  const covText = covNum !== null ? `${covNum.toFixed(1)}%` : mode === 'docs-only' ? 'n/a (docs-only)' : 'pending gate';
+  const mutText = mutNum !== null ? `${mutNum.toFixed(1)}%` : lastGate?.mutationStatus || rec?.mutationStatus || (mode === 'docs-only' ? 'n/a (docs-only)' : 'pending gate');
+
+  const markdown = [
+    '## Summary',
+    `- **Branch**: \`${branch || 'HEAD'}\` -> \`${range.effectiveBase}\`${session ? ` (Ticket \`#${session.issueId}\`${session.title ? `: ${session.title}` : ''})` : ''}`,
+    fileTree,
+    '',
+    '## Evidence',
+    `- **Gate Mode**: \`${mode}\` | **Concentric Rings**: \`${arch.passed ? 'PASS' : 'FAIL'}\` | **Spec/ADR Drift**: \`${drift.passed ? 'PASS' : 'DRIFT'}\``,
+    `- **Measured Proof**: Diff Coverage \`${covText}\` | Diff Mutation \`${mutText}\` | Stage 7 Receipt \`${rec?.receiptId || 'unsigned'}\``,
+    '',
+    '## Merge Danger',
+    `**Door:** ${door}`,
+    `**Blast Radius:** ${blastRadius}`,
+    drift.triggers.length > 0
+      ? `- Structural triggers (${drift.triggers.length}): ${drift.triggers.map((t) => `\`${t.file}\` (${t.type})`).join(', ')}`
+      : '- Reversible change within existing module seams and contracts.'
+  ].join('\n');
+
+  return { branch, baseBranch: range.effectiveBase, headSha: range.headSha, mode, door, blastRadius, triggers: drift.triggers, receiptId: rec?.receiptId || null, markdown };
 }

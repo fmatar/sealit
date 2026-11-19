@@ -774,6 +774,24 @@ export function parseFrontmatter(markdown = '') {
   return { frontmatter, body };
 }
 
+export const ADR_PATH_RE = /^docs\/adr\/(?:ADR-\d+[^/]*|\d+-[^/]+)\.md$/i;
+
+export function normalizeCanonicalAdrId(raw, fallback = '') {
+  const s = String(raw || '').trim();
+  const m = s.match(/^(?:ADR-)?(\d+)$/i);
+  if (m) return `ADR-${String(Number(m[1])).padStart(3, '0')}`;
+  return (s || fallback).toUpperCase();
+}
+
+export function parseAdrFilenameId(relOrBase = '') {
+  const baseName = path.posix.basename(String(relOrBase || '').replace(/\\/g, '/'));
+  const sdlcMatch = baseName.match(/^ADR-(\d+)/i);
+  if (sdlcMatch) return { id: normalizeCanonicalAdrId(sdlcMatch[1]), num: Number(sdlcMatch[1]), isMadr: false };
+  const madrMatch = baseName.match(/^(\d+)-[^/]+\.md$/i);
+  if (madrMatch) return { id: normalizeCanonicalAdrId(madrMatch[1]), num: Number(madrMatch[1]), isMadr: true };
+  return { id: baseName.replace(/\.md$/i, '').toUpperCase(), num: null, isMadr: false };
+}
+
 export function computeAlignmentHashes(arg = '.') {
   const { sha = 'HEAD', repoRoot = '.' } = typeof arg === 'string' ? { repoRoot: arg } : arg || {};
   const specHasher = crypto.createHash('sha256');
@@ -782,13 +800,10 @@ export function computeAlignmentHashes(arg = '.') {
   if (!commitSha) return { specHash: specHasher.digest('hex'), adrHashes: adrHasher.digest('hex') };
 
   const specFiles = [
-    'PRODUCT.md',
-    'docs/PRD.md',
-    'docs/SRS.md',
-    '.archlens/policy.json',
+    'PRODUCT.md', 'docs/PRD.md', 'docs/SRS.md', '.archlens/policy.json',
     ...listTree(commitSha, 'docs/specs', repoRoot).filter((f) => /^docs\/specs\/[^/]+\.md$/.test(f))
   ];
-  const adrFiles = listTree(commitSha, 'docs/adr', repoRoot).filter((f) => /^docs\/adr\/ADR-\d+[^/]*\.md$/i.test(f));
+  const adrFiles = listTree(commitSha, 'docs/adr', repoRoot).filter((f) => ADR_PATH_RE.test(f));
   const blobs = readBlobs([...specFiles, ...adrFiles].map((f) => `${commitSha}:${f}`), repoRoot);
 
   for (const rel of specFiles) {
@@ -800,9 +815,7 @@ export function computeAlignmentHashes(arg = '.') {
     if (!raw) continue;
     const { frontmatter } = parseFrontmatter(raw);
     if (String(frontmatter.status || '').toLowerCase() !== 'accepted') continue;
-    const baseName = path.posix.basename(rel);
-    const idMatch = baseName.match(/^(ADR-\d+)/i);
-    const id = (frontmatter.id || (idMatch ? idMatch[1] : baseName.replace(/\.md$/i, ''))).toUpperCase();
+    const id = normalizeCanonicalAdrId(frontmatter.id, parseAdrFilenameId(rel).id);
     const digest = crypto.createHash('sha256').update(raw.replace(/\r\n/g, '\n')).digest('hex');
     adrHasher.update(`${id}:${digest}\n`);
   }

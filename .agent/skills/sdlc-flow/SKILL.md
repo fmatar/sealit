@@ -1,42 +1,48 @@
 ---
 name: sdlc-flow
-description: "Use when implementing a feature, bug fix, or refactor end-to-end from branch creation through TDD, gate verification, and signed receipt. Not for read-only questions."
+description: "Use when delivering a feature, bug fix, or wide refactor end-to-end across vertical slices, branch/worktree sessions, TDD, gate verification, and signed PR receipt."
 tools: read_file, write_file, edit_file, run_command, invoke_subagent
 ---
 
-# End-to-End Branch Delivery Orchestrator (`sdlc-flow`)
+# End-to-End Branch & Vertical-Slice Orchestrator (`sdlc-flow`)
 
 ## When to use / When NOT to use
-- **Use when** delivering a code or documentation change from branch setup (`begin`) through alignment, TDD, `gate`, signed Stage 7 receipt, PR, and `end`.
-- **Not for** read-only questions, `sdlc status` checks, or standalone greenfield spec authoring (`sdlc-spec`).
+- **Use when** delivering a code or documentation change from branch setup (`begin`) through alignment, vertical-slice TDD, 2-axis review, `gate`, signed Stage 7 receipt, PR, and `end`.
+- **Not for** read-only status checks or standalone greenfield discovery (`sdlc-spec`).
 
-## Core Invariants
-1. **Git Flow (`INV-01`)**: Never commit, merge, or push directly to `main` or `develop`. Feature/fix/chore PRs target `develop`; PRs targeting `main` originate exclusively from `develop`.
-2. **Single Gate & Concentric Rings (`INV-02` & `INV-04`)**: `sdlc gate` classifies diffs into `docs-only` vs `code`, verifies `.archlens/policy.json` rings, scans diffs for secrets, and runs configured lint/build/test/coverage/mutation without shell interpolation.
-3. **Spec & ADR Alignment (`INV-03`)**: Structural changes to `PRODUCT.md`, `docs/specs/*`, `.archlens/policy.json`, dependencies, schemas, or contracts require an accepted ADR via `sdlc-adr`.
+## Core Invariants & Slicing Strategy
+1. **Git Flow (`INV-01`)**: Never commit, merge, or push directly to `main` or `develop`. Feature/fix/chore PRs target `develop` (or `main` on trunk-only repos without `develop`); PRs targeting `main` originate exclusively from `develop` when `develop` exists.
+2. **Tracer-Bullet Vertical Slicing**: Break multi-part work into narrow, end-to-end vertical slices that cut cleanly across necessary rings and stay verifiable on their own. Do any enabling prefactoring first.
+3. **Wide Refactors Use Expand–Contract**: When a mechanical change spans too many callers for one vertical slice, sequence as **Expand** (add new interface beside old, tests green) $\rightarrow$ **Migrate** (move callers in bounded batches) $\rightarrow$ **Contract** (delete old form once unused).
+4. **Optional Parallel Subagent Worktrees**: For independent slices in a task graph, spawn isolated implementer subagents via `invoke_subagent` using sparse **context pointers** (`PRODUCT.md`, `docs/specs/*`, `GLOSSARY.md`, commits), each bound to its own worktree against the feature/integration branch:
+   ```bash
+   node .agent/scripts/sdlc-engine.mjs begin --issue <slice-id> --title "<slice>" --base <feature-branch> --worktree .worktrees/<slice-id>
+   ```
+   Merge completed slice branches cleanly into `<feature-branch>`, remove clean worktrees via `sdlc end --issue <slice-id>`, and run the full `sdlc gate --no-cache` + Stage 7 receipt once on `<feature-branch>`.
 
-## Steps (`begin -> gate -> receipt`)
+## End-to-End Delivery Steps (`begin -> slice TDD -> gate -> receipt -> PR -> end`)
 
 ```bash
-# 1. Start feature branch & session
-node .agent/scripts/sdlc-engine.mjs begin --issue <id> --title "<short-desc>" --type <feat|fix|chore> --checkout
+# 1. Start feature branch & governed session
+node .agent/scripts/sdlc-engine.mjs begin --issue <id> --title "<short-desc>" --type <feat|fix|chore|refactor> --checkout
 
-# 2. Align specs/ADRs if needed (sdlc-spec / sdlc-adr) & implement via TDD (sdlc-tdd)
+# 2. Align specs/GLOSSARY.md/ADRs if needed (sdlc-spec / sdlc-adr) & build vertical slices via TDD (sdlc-tdd)
 node .agent/scripts/sdlc-engine.mjs drift
 node .agent/scripts/sdlc-engine.mjs test --affected-only
 
-# 3. Run peer review, single gate & sign receipt on clean HEAD (sdlc-gate)
+# 3. Run 2-axis cold review, commit any refactors, run single gate & sign receipt on clean HEAD (sdlc-gate)
 node .agent/scripts/sdlc-engine.mjs gate --no-cache
-# (for docs-only changes: node .agent/scripts/sdlc-engine.mjs receipt --docs-only)
-# (for code changes: execute sdlc-gate review plan -> review record --verdict approve)
+# (docs-only: node .agent/scripts/sdlc-engine.mjs receipt --docs-only)
+# (code mode: run sdlc-gate review plan -> review record --verdict approve)
 
-# 4. Commit docs/AUDIT_CHAIN.jsonl, verify receipt, open PR -> merge -> close session (pass --issue: after merge you are on develop)
+# 4. Commit docs/AUDIT_CHAIN.jsonl, verify receipt, generate PR body -> open PR -> after merge, close session
 node .agent/scripts/sdlc-engine.mjs verify
+node .agent/scripts/sdlc-engine.mjs pr-body
 node .agent/scripts/sdlc-engine.mjs end --issue <id>
 ```
 
 ## Confirm with user before
-- Approving an ADR (`adr decide --status approve`), recording an approving review or receipt, pushing to a remote repository, or merging a PR.
+- Approving an ADR (`adr decide --status approve`), recording an approving Stage 7 receipt, pushing to a remote repository, or merging a PR.
 
 ## Done when
-`sdlc gate --no-cache` and `sdlc verify` pass on clean `HEAD`, PR checks are green, and `sdlc end --issue <id>` has closed the session.
+`sdlc gate --no-cache` and `sdlc verify` pass on clean `HEAD`, the PR body includes measured proof and merge-danger classification (`sdlc pr-body`), PR checks pass, and `sdlc end --issue <id>` closes the session.
