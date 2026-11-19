@@ -669,9 +669,20 @@ describe('Ring 2: lib/guard.mjs', () => {
     git(wtSlice, 'commit', '-q', '-m', 'feat: add slice 1');
     const twoWay = buildPrSummary(wtSlice);
     assert.equal(twoWay.door, 'Two-Way');
+    assert.equal(twoWay.blastRadius, 'Low');
+    assert.equal(twoWay.receiptId, null);
     assert.equal(twoWay.baseBranch, 'feat/epic-70');
     assert.match(twoWay.markdown, /\*\*Door:\*\* Two-Way/);
+    assert.match(twoWay.markdown, /Reversible change within existing module seams/);
     assert.match(twoWay.markdown, /slice\.mjs/);
+
+    // Medium blast radius on product-scope trigger; High blast radius on schema/contract trigger
+    fs.writeFileSync(path.join(wtSlice, 'PRODUCT.md'), '# Product\n', 'utf8');
+    git(wtSlice, 'add', 'PRODUCT.md');
+    git(wtSlice, 'commit', '-q', '-m', 'docs: add product');
+    const medWay = buildPrSummary(wtSlice);
+    assert.equal(medWay.door, 'One-Way');
+    assert.equal(medWay.blastRadius, 'Medium');
 
     // One-Way door when mutating a schema/contract file
     fs.writeFileSync(path.join(wtSlice, 'migration.sql'), 'CREATE TABLE items (id INT PRIMARY KEY);\n', 'utf8');
@@ -681,6 +692,7 @@ describe('Ring 2: lib/guard.mjs', () => {
     assert.equal(oneWay.door, 'One-Way');
     assert.equal(oneWay.blastRadius, 'High');
     assert.match(oneWay.markdown, /\*\*Door:\*\* One-Way/);
+    assert.match(oneWay.markdown, /`migration\.sql` \(SCHEMA_OR_CONTRACT_DRIFT\)/);
 
     // Remote-only origin/<branch> checkout succeeds via --track without pathspec error
     const bareRemote = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-bare-rem-'));

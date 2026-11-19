@@ -263,6 +263,9 @@ describe('Ring 3: sdlc-engine.mjs CLI registry', () => {
       const prBodyRes = await runCLI(['pr-body'], null, dir);
       assert.equal(prBodyRes.success, true);
       assert.match(formatCLIResult('pr-body', prBodyRes), /## Merge Danger/);
+      assert.equal(formatCLIResult('pr-body', {}), '');
+      assert.equal(cliExitCode(await runCLI(['pr-body', '--bad-flag'], null, dir)), 2);
+      assert.equal(cliExitCode(await runCLI(['review', 'pr-body', '--bad-flag'], null, dir)), 2);
       assert.equal((await runCLI(['review', 'pr-body'], null, dir)).success, true);
 
       assert.equal((await runCLI(['stage', 'complete'], null, dir)).success, true);
@@ -271,7 +274,7 @@ describe('Ring 3: sdlc-engine.mjs CLI registry', () => {
       assert.equal(baseSub.success, true);
       assert.equal(baseSub.begin.session.baseBranch, 'develop');
 
-      // Integration branch with unapproved PRODUCT.md on base: child session with --base <integ> sees clean drift vs <integ>
+      // Integration branch with unapproved PRODUCT.md on base: child session with --base <integ> sees clean drift vs <integ>, while explicit --base develop overrides
       fs.writeFileSync(path.join(dir, 'PRODUCT.md'), '# Epic Spec on Integration\n', 'utf8');
       git(dir, 'add', 'PRODUCT.md');
       git(dir, 'commit', '--no-verify', '-q', '-m', 'docs: integration base spec');
@@ -280,6 +283,10 @@ describe('Ring 3: sdlc-engine.mjs CLI registry', () => {
       assert.equal(childSub.success, true);
       const childDrift = await runCLI(['drift'], null, dir);
       assert.equal(childDrift.success, true, 'sdlc drift must diff against session.baseBranch rather than develop');
+      assert.equal((await runCLI(['drift', '--base', 'develop'], null, dir)).success, false);
+      assert.equal((await runCLI(['pr-body'], null, dir)).prBody.baseBranch, integBranch);
+      assert.equal((await runCLI(['pr-body', '--base', 'develop'], null, dir)).prBody.baseBranch, 'develop');
+      assert.equal((await runCLI(['review', 'pr-body', '--base', 'develop'], null, dir)).prBody.baseBranch, 'develop');
     });
   });
 });
