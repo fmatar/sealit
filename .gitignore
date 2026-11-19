@@ -9,18 +9,24 @@ coverage/
 !.env.example
 .agent/.cache/
 .agent/.sdlc-session.json
+.agent/.sdlc-session.lock
+.agent/.sdlc-config.lock
 .agent/.receipt-key
 .agent/.audit-chain.lock
-.agent/skills/*/scripts/bin/
-**/skills/*/scripts/bin/
-.agent/workbench/index.html
-.agent/arch-trace.jsonl
-docs/ARCH_TRACE.md
+.agent/sdlc-config.json.bak
+.archlens/to-agent.json
+.archlens/to-viewer.json
 *.lcov
-.impeccable/review/
-.impeccable/mocks/
-.impeccable/questions/
-.impeccable/config.local.json
+
+# Generated Local Agent Mirrors (provisioned at install time from .agent/skills)
+.claude/skills/sdlc*/
+.claude/cowork/
+.cursor/skills/sdlc*/
+.cursor/rules/sdlc*.mdc
+.cursor/rules/agentic-sdlc.mdc
+.codex/skills/sdlc*/
+.cursorrules
+.windsurfrules
 
 # OS & Editor
 .DS_Store

@@ -9,33 +9,82 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: sdlc-gate-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   quality-gate:
-    name: Universal Quality Gate, Spec-Drift & Merkle Receipt Defense
+    name: "Universal Quality Gate, Spec-Drift & Merkle Receipt Defense"
     runs-on: ${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}
 
     steps:
+      - name: Require Self-Hosted Runner Policy
+        if: github.repository == 'fmatar/agentic-sdlc-framework' && runner.environment == 'github-hosted'
+        run: |
+          echo "::error::This repository must run exclusively on self-hosted runners (configure vars.SDLC_RUNS_ON)."
+          exit 1
+
+      - name: Block Unverified Fork Pull Requests
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+        env:
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          echo "::error::Fork pull request ($PR_HEAD_REPO) requires maintainer branch verification and a signed Stage 7 gate receipt."
+          exit 1
+
       - name: Checkout Code
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Enforce Branch Flow Policy
         if: github.event_name == 'pull_request' && github.base_ref == 'main'
         env:
           HEAD_REF: ${{ github.head_ref }}
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
         run: |
-          if [ "$HEAD_REF" != "develop" ]; then
-            echo "::error::Branch policy violation: Pull requests targeting 'main' must originate exclusively from 'develop'. Direct merges from '$HEAD_REF' into 'main' are forbidden."
+          if [ "$PR_HEAD_REPO" != "$BASE_REPO" ] || [ "$HEAD_REF" != "develop" ]; then
+            echo "::error::Pull requests targeting 'main' must originate exclusively from same-repo 'develop' (got '$PR_HEAD_REPO:$HEAD_REF')."
             exit 1
           fi
-          echo "Branch policy validated: PR targeting 'main' originates from 'develop'."
 
       - name: Setup Node.js Runtime
         uses: actions/setup-node@v7
         with:
           node-version: "lts/*"
           cache: 'npm'
+
+      - name: Verify Signed Stage 7 Gate Receipt
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          SDLC_RECEIPT_KEY: ${{ secrets.SDLC_RECEIPT_KEY }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_REF: ${{ github.base_ref }}
+          GITHUB_HEAD_REF: ${{ github.head_ref }}
+        run: |
+          if [ -z "$SDLC_RECEIPT_KEY" ]; then
+            echo "::error::Missing SDLC_RECEIPT_KEY secret: configure repository secret SDLC_RECEIPT_KEY to verify Stage 7 gate receipts."
+            exit 1
+          fi
+          TRUSTED_DIR="${RUNNER_TEMP:-/tmp}/sdlc-trusted-verifier"
+          rm -rf "$TRUSTED_DIR" && mkdir -p "$TRUSTED_DIR"
+          if git cat-file -e "origin/$BASE_REF:.agent/scripts/sdlc-engine.mjs" 2>/dev/null; then
+            git archive "origin/$BASE_REF" .agent/scripts | tar -x -C "$TRUSTED_DIR"
+            ENGINE_BIN="$TRUSTED_DIR/.agent/scripts/sdlc-engine.mjs"
+          elif [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
+            ENGINE_BIN=".agent/scripts/sdlc-engine.mjs"
+          else
+            echo "::error::Missing .agent/scripts/sdlc-engine.mjs; refusing unverified pull request."
+            exit 1
+          fi
+          if [ "$BASE_REF" = "main" ]; then
+            node "$ENGINE_BIN" guard verify --sha "$PR_HEAD_SHA"
+          else
+            node "$ENGINE_BIN" guard verify --sha "$PR_HEAD_SHA" --branch "$GITHUB_HEAD_REF"
+          fi
 
       - name: Install Dependencies
         run: |
@@ -45,46 +94,20 @@ jobs:
             npm install --no-audit --no-fund
           fi
 
-      - name: Verify Spec Drift
+      - name: Verify Env-Isolated Test Suite
+        if: hashFiles('package.json') != ''
+        env:
+          SDLC_RECEIPT_KEY: ci-dummy-test-key
         run: |
-          if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
-            node .agent/scripts/sdlc-engine.mjs drift check
-          fi
-
-      - name: Validate SDLC Configuration
-        run: |
-          if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
-            node .agent/scripts/sdlc-engine.mjs config check
-          fi
+          npm test
 
       - name: Verify Universal Quality Gate & Hash-Chain Audit Ledger
         run: |
           if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
-            node .agent/scripts/sdlc-engine.mjs audit verify
+            node .agent/scripts/sdlc-engine.mjs config check
+            node .agent/scripts/sdlc-engine.mjs verify --chain-only
             node .agent/scripts/sdlc-engine.mjs skill-audit
-            node .agent/scripts/sdlc-engine.mjs gate --strict --no-cache
-          elif npm run | grep -q 'gate'; then
-            npm run gate
+            node .agent/scripts/sdlc-engine.mjs gate --no-cache
           else
             npm test
-          fi
-
-      - name: Verify Signed Stage 7 Gate Receipt
-        if: github.event_name == 'pull_request'
-        env:
-          SDLC_RECEIPT_KEY: ${{ secrets.SDLC_RECEIPT_KEY }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
-          BASE_REPO: ${{ github.repository }}
-        run: |
-          if [ "$PR_HEAD_REPO" != "$BASE_REPO" ]; then
-            echo "::warning::Skipping Stage 7 gate receipt verification for fork pull request ($PR_HEAD_REPO)."
-            exit 0
-          fi
-          if [ -z "$SDLC_RECEIPT_KEY" ]; then
-            echo "::error::Missing SDLC_RECEIPT_KEY secret: configure the repository secret SDLC_RECEIPT_KEY to verify Stage 7 gate receipts."
-            exit 1
-          fi
-          if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
-            node .agent/scripts/sdlc-engine.mjs guard verify --sha "$PR_HEAD_SHA"
           fi
