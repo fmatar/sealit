@@ -655,4 +655,106 @@ describe('Ring 2: lib/install.mjs', () => {
       assert.equal(minGit.gitVersion, '2.38.0');
     });
   });
+
+  it('merges allowlist into hook-only .claude/settings.json, gitignores .scratch/, and audits disable-model-invocation + openai.yaml + plugin.json parity', async () => {
+    assert.ok(SDLC_GITIGNORE_ENTRIES.includes('.scratch/'));
+    assert.ok(CLAUDE_SDLC_ALLOW_RULES.some((r) => claudeRuleAllows(r, `${ENGINE_CMD} pr-body`)));
+
+    const src = createSourceBundleFixture();
+    cleanups.push(src.cleanup);
+    for (const id of CANONICAL_SKILLS) {
+      fs.mkdirSync(path.join(src.srcDir, '.agent/skills', id, 'agents'), { recursive: true });
+      const userOnly = id === 'sdlc';
+      if (userOnly) {
+        fs.writeFileSync(
+          path.join(src.srcDir, '.agent/skills/sdlc/SKILL.md'),
+          '---\nname: sdlc\ndescription: "Direct 1:1 CLI command router for explicit /sdlc invocations."\ndisable-model-invocation: true\n---\n\n# sdlc\n',
+          'utf8'
+        );
+      }
+      fs.writeFileSync(
+        path.join(src.srcDir, '.agent/skills', id, 'agents/openai.yaml'),
+        `interface:\n  display_name: "${id}"\n  short_description: "Summary for ${id}"\n${userOnly ? 'policy:\n  allow_implicit_invocation: false\n' : ''}`,
+        'utf8'
+      );
+    }
+    fs.writeFileSync(path.join(src.srcDir, 'package.json'), JSON.stringify({ name: '@fmatar/agentic-sdlc', version: '0.1.0' }), 'utf8');
+    fs.mkdirSync(path.join(src.srcDir, '.claude-plugin'), { recursive: true });
+    fs.writeFileSync(
+      path.join(src.srcDir, '.claude-plugin/plugin.json'),
+      JSON.stringify({ name: 'agentic-sdlc', version: '0.1.0', skills: CANONICAL_SKILLS.map((s) => `./.agent/skills/${s}`) }),
+      'utf8'
+    );
+    assert.equal(auditSkills(src.srcDir).passed, true, JSON.stringify(auditSkills(src.srcDir).findings));
+
+    // Mismatched openai.yaml policy or drifted plugin.json version fails auditSkills
+    fs.writeFileSync(
+      path.join(src.srcDir, '.agent/skills/sdlc/agents/openai.yaml'),
+      'interface:\n  display_name: "sdlc"\n  short_description: "Summary"\n',
+      'utf8'
+    );
+    const mismatchAudit = auditSkills(src.srcDir);
+    assert.equal(mismatchAudit.passed, false);
+    assert.ok(mismatchAudit.findings.some((f) => f.rule === 'OAI1'));
+
+    fs.writeFileSync(
+      path.join(src.srcDir, '.agent/skills/sdlc/agents/openai.yaml'),
+      'interface:\n  display_name: "sdlc"\n  short_description: "Summary"\npolicy:\n  allow_implicit_invocation: false\n',
+      'utf8'
+    );
+    fs.writeFileSync(
+      path.join(src.srcDir, '.claude-plugin/plugin.json'),
+      JSON.stringify({ name: 'agentic-sdlc', version: '9.9.9', skills: [] }),
+      'utf8'
+    );
+    const badPluginAudit = auditSkills(src.srcDir);
+    assert.equal(badPluginAudit.passed, false);
+    assert.ok(badPluginAudit.findings.some((f) => f.rule === 'PLG1'));
+
+    // Hook-only .claude/settings.json (e.g. PreToolUse git-guardrails) gets CLAUDE_SDLC_ALLOW_RULES merged without losing hooks
+    const hookRepo = createTempGitRepo();
+    cleanups.push(hookRepo.cleanup);
+    fs.mkdirSync(path.join(hookRepo.dir, '.claude'), { recursive: true });
+    fs.writeFileSync(
+      path.join(hookRepo.dir, '.claude/settings.json'),
+      JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'guard.sh' }] }] } }, null, 2),
+      'utf8'
+    );
+    await installFramework({ targetDir: hookRepo.dir, sourceRoot: src.srcDir, agents: ['claude', 'codex'], yes: true });
+    const mergedSettings = JSON.parse(fs.readFileSync(path.join(hookRepo.dir, '.claude/settings.json'), 'utf8'));
+    assert.equal(mergedSettings.hooks.PreToolUse.length, 1);
+    assert.deepEqual(mergedSettings.permissions.allow, [...CLAUDE_SDLC_ALLOW_RULES]);
+    assert.equal(fs.existsSync(path.join(hookRepo.dir, '.codex/skills/sdlc/agents/openai.yaml')), true);
+
+    // Non-object valid JSON (null or []) in .claude/settings.json warns and stays untouched instead of throwing TypeError
+    for (const rawNonObj of ['null\n', '["not-an-object"]\n']) {
+      const nonObjRepo = createTempGitRepo();
+      cleanups.push(nonObjRepo.cleanup);
+      fs.mkdirSync(path.join(nonObjRepo.dir, '.claude'), { recursive: true });
+      fs.writeFileSync(path.join(nonObjRepo.dir, '.claude/settings.json'), rawNonObj, 'utf8');
+      const rNonObj = await installFramework({ targetDir: nonObjRepo.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+      assert.equal(rNonObj.success, true);
+      assert.equal(fs.readFileSync(path.join(nonObjRepo.dir, '.claude/settings.json'), 'utf8'), rawNonObj);
+      assert.ok(rNonObj.warnings.some((w) => /settings\.json/i.test(w)));
+    }
+
+    // Plugin-backed repo rejects string plugin.json skills and rejects sdlc missing disable-model-invocation: true
+    fs.writeFileSync(
+      path.join(src.srcDir, '.claude-plugin/plugin.json'),
+      JSON.stringify({ name: 'agentic-sdlc', version: '0.1.0', skills: './.agent/skills' }),
+      'utf8'
+    );
+    assert.ok(auditSkills(src.srcDir).findings.some((f) => f.rule === 'PLG1'));
+    fs.writeFileSync(
+      path.join(src.srcDir, '.claude-plugin/plugin.json'),
+      JSON.stringify({ name: 'agentic-sdlc', version: '0.1.0', skills: CANONICAL_SKILLS.map((s) => `./.agent/skills/${s}`) }),
+      'utf8'
+    );
+    fs.writeFileSync(
+      path.join(src.srcDir, '.agent/skills/sdlc/SKILL.md'),
+      '---\nname: sdlc\ndescription: "Use when routing /sdlc."\n---\n# sdlc\n',
+      'utf8'
+    );
+    assert.ok(auditSkills(src.srcDir).findings.some((f) => f.rule === 'FM3'));
+  });
 });

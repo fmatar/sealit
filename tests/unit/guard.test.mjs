@@ -604,11 +604,15 @@ describe('Ring 2: lib/guard.mjs', () => {
     assert.equal(docsPlan.changedLines, 2);
 
     fs.writeFileSync(path.join(dir, 'calc.mjs'), 'export const add = (a, b) => a + b;\n', 'utf8');
-    const oneRev = buildReviewPlan(dir);
-    assert.equal(oneRev.mode, 'code');
-    assert.equal(oneRev.reviewers.length, 1);
-    assert.equal(oneRev.reviewers[0].role, 'PR Peer Reviewer');
-    assert.equal(oneRev.changedLines, 3);
+    fs.writeFileSync(path.join(dir, 'GLOSSARY.md'), '# Glossary\n- **Sum**: result of addition.\n', 'utf8');
+    const codeRev = buildReviewPlan(dir);
+    assert.equal(codeRev.mode, 'code');
+    assert.equal(codeRev.reviewers.length, 2);
+    assert.equal(codeRev.reviewers[0].role, 'Spec Fidelity & Peer Reviewer');
+    assert.equal(codeRev.reviewers[1].role, 'Architecture & Security Reviewer');
+    assert.ok(codeRev.contextPointers.includes('GLOSSARY.md'));
+    assert.match(codeRev.reviewers[0].prompt, /GLOSSARY\.md/);
+    assert.match(codeRev.reviewers[1].prompt, /Feature Envy/);
 
     fs.writeFileSync(path.join(dir, 'huge.mjs'), `${'// l\n'.repeat(205)}export const big = "${'z'.repeat(33000)}";\n`, 'utf8');
     const twoRev = buildReviewPlan(dir);
@@ -617,7 +621,7 @@ describe('Ring 2: lib/guard.mjs', () => {
     assert.match(twoRev.reviewers[0].prompt, /diff truncated at 32kB/);
     assert.match(twoRev.reviewers[1].prompt, /diff truncated at 32kB/);
 
-    // Small <=200-line edits to .agent/scripts/** or packages/api/stryker.config.json trigger Architecture & Security Reviewer
+    // Small <=200-line edits to .agent/scripts/** or packages/api/stryker.config.json also dispatch both reviewers
     fs.unlinkSync(path.join(dir, 'huge.mjs'));
     fs.mkdirSync(path.join(dir, '.agent/scripts/lib'), { recursive: true });
     fs.writeFileSync(path.join(dir, '.agent/scripts/lib/config.mjs'), '// engine edit\n', 'utf8');
@@ -626,5 +630,136 @@ describe('Ring 2: lib/guard.mjs', () => {
     fs.mkdirSync(path.join(dir, 'packages/api'), { recursive: true });
     fs.writeFileSync(path.join(dir, 'packages/api/stryker.config.json'), '{"mutate":["src/**/*.mjs"]}\n', 'utf8');
     assert.equal(buildReviewPlan(dir).reviewers.length, 2);
+  });
+
+  it('supports beginSession --base for integration-branch worktrees and generates One-Way vs Two-Way door PR summaries', async () => {
+    const { buildPrSummary } = await import('../../.agent/scripts/lib/guard.mjs');
+    const { dir, cleanup } = createTempGitRepo();
+    cleanups.push(cleanup);
+
+    // Create an integration branch ahead of develop
+    const integ = beginSession({ issueId: '70', title: 'Integration Epic', branch: 'feat/epic-70', checkout: true, repoRoot: dir });
+    assert.equal(integ.success, true);
+    fs.writeFileSync(path.join(dir, 'epic-base.mjs'), 'export const epic = true;\n', 'utf8');
+    git(dir, 'add', 'epic-base.mjs');
+    git(dir, 'commit', '-q', '-m', 'feat: seed integration branch');
+    git(dir, 'checkout', '-q', 'develop');
+
+    // Invalid --base fails closed
+    assert.equal(beginSession({ issueId: '71', title: 'Bad Base', baseBranch: 'nonexistent-branch', checkout: true, repoRoot: dir }).success, false);
+    assert.equal(beginSession({ issueId: '71', title: 'Flag Base', baseBranch: '-bad', checkout: true, repoRoot: dir }).success, false);
+
+    // Valid --base in a linked worktree branches from feat/epic-70 and binds baseBranch
+    const wtSlice = path.join(dir, '.worktrees/slice-71');
+    cleanups.push(() => git(dir, 'worktree', 'remove', '--force', wtSlice));
+    const slice = beginSession({
+      issueId: '71',
+      title: 'Vertical Slice 1',
+      baseBranch: 'feat/epic-70',
+      worktree: '.worktrees/slice-71',
+      repoRoot: dir
+    });
+    assert.equal(slice.success, true, slice.error);
+    assert.equal(slice.session.baseBranch, 'feat/epic-70');
+    assert.equal(fs.existsSync(path.join(wtSlice, 'epic-base.mjs')), true, 'worktree must branch from feat/epic-70');
+
+    // Two-Way door when editing internal code inside slice worktree
+    fs.writeFileSync(path.join(wtSlice, 'slice.mjs'), 'export const s = 1;\n', 'utf8');
+    git(wtSlice, 'add', 'slice.mjs');
+    git(wtSlice, 'commit', '-q', '-m', 'feat: add slice 1');
+    const twoWay = buildPrSummary(wtSlice);
+    assert.equal(twoWay.door, 'Two-Way');
+    assert.equal(twoWay.blastRadius, 'Low');
+    assert.equal(twoWay.receiptId, null);
+    assert.equal(twoWay.baseBranch, 'feat/epic-70');
+    assert.match(twoWay.markdown, /\*\*Door:\*\* Two-Way/);
+    assert.match(twoWay.markdown, /Reversible change within existing module seams/);
+    assert.match(twoWay.markdown, /slice\.mjs/);
+
+    // Medium blast radius on product-scope trigger; High blast radius on schema/contract trigger
+    fs.writeFileSync(path.join(wtSlice, 'PRODUCT.md'), '# Product\n', 'utf8');
+    git(wtSlice, 'add', 'PRODUCT.md');
+    git(wtSlice, 'commit', '-q', '-m', 'docs: add product');
+    const medWay = buildPrSummary(wtSlice);
+    assert.equal(medWay.door, 'One-Way');
+    assert.equal(medWay.blastRadius, 'Medium');
+
+    // One-Way door when mutating a schema/contract file
+    fs.writeFileSync(path.join(wtSlice, 'migration.sql'), 'CREATE TABLE items (id INT PRIMARY KEY);\n', 'utf8');
+    git(wtSlice, 'add', 'migration.sql');
+    git(wtSlice, 'commit', '-q', '-m', 'feat: add items table');
+    const oneWay = buildPrSummary(wtSlice);
+    assert.equal(oneWay.door, 'One-Way');
+    assert.equal(oneWay.blastRadius, 'High');
+    assert.match(oneWay.markdown, /\*\*Door:\*\* One-Way/);
+    assert.match(oneWay.markdown, /`migration\.sql` \(SCHEMA_OR_CONTRACT_DRIFT\)/);
+
+    // Remote-only origin/<branch> checkout succeeds via --track without pathspec error
+    const bareRemote = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-bare-rem-'));
+    cleanups.push(() => fs.rmSync(bareRemote, { recursive: true, force: true }));
+    git(bareRemote, 'init', '--bare', '-q');
+    git(dir, 'remote', 'add', 'origin', bareRemote);
+    git(dir, 'push', '-q', 'origin', 'feat/epic-70:refs/heads/feat/remote-only-72');
+    git(dir, 'fetch', '-q', 'origin');
+    const remCo = beginSession({ issueId: '72', branch: 'feat/remote-only-72', checkout: true, repoRoot: dir });
+    assert.equal(remCo.success, true, remCo.error);
+
+    // Post-receipt commit (docs/AUDIT_CHAIN.jsonl at HEAD) preserves docs-only mode and receipt ID in buildPrSummary
+    withoutReceiptEnv(() => {
+      const docRepo = createTempGitRepo();
+      cleanups.push(docRepo.cleanup);
+      fs.mkdirSync(path.join(docRepo.dir, '.agent'), { recursive: true });
+      fs.writeFileSync(
+        path.join(docRepo.dir, '.agent/sdlc-config.json'),
+        JSON.stringify({ version: '0.1.0', archlens: { enabled: false }, modules: [{ name: 'root', path: '.', commands: { test: 'node --version' }, thresholds: { diffCoverage: null, mutationScore: null } }] }),
+        'utf8'
+      );
+      git(docRepo.dir, 'add', '.agent/sdlc-config.json');
+      git(docRepo.dir, 'commit', '-q', '-m', 'chore: seed config');
+      git(docRepo.dir, 'branch', '-f', 'main', 'HEAD');
+      beginSession({ issueId: '73', title: 'Docs Receipt PR', checkout: true, repoRoot: docRepo.dir });
+      fs.writeFileSync(path.join(docRepo.dir, 'README.md'), '# Updated Docs\n', 'utf8');
+      git(docRepo.dir, 'add', 'README.md');
+      git(docRepo.dir, 'commit', '-q', '-m', 'docs: update readme');
+      assert.equal(runGate(docRepo.dir, { noCache: true }).passed, true);
+      const rec = recordReviewVerdict({ verdict: 'approve', reviewer: '@sdlc-gate', repoRoot: docRepo.dir });
+      assert.equal(rec.success, true);
+      git(docRepo.dir, 'add', 'docs/AUDIT_CHAIN.jsonl');
+      git(docRepo.dir, 'commit', '-q', '-m', 'chore(audit): record receipt');
+      const postRecPr = buildPrSummary(docRepo.dir);
+      assert.equal(postRecPr.mode, 'docs-only');
+      assert.ok(postRecPr.receiptId);
+      assert.doesNotMatch(postRecPr.markdown, /pending gate/);
+
+      // Code-mode post-receipt commit reads diffCoveragePct & mutationPct from verified receipt
+      const codeRepo = createTempGitRepo();
+      cleanups.push(codeRepo.cleanup);
+      fs.mkdirSync(path.join(codeRepo.dir, '.agent'), { recursive: true });
+      fs.mkdirSync(path.join(codeRepo.dir, 'tests'), { recursive: true });
+      fs.writeFileSync(
+        path.join(codeRepo.dir, 'tests/c.test.mjs'),
+        "import fs from 'node:fs';\nfs.mkdirSync('coverage', { recursive: true });\nfs.writeFileSync('coverage/lcov.info', 'SF:mod.mjs\\nDA:1,1\\nLF:1\\nLH:1\\nend_of_record\\n', 'utf8');\n",
+        'utf8'
+      );
+      fs.writeFileSync(
+        path.join(codeRepo.dir, '.agent/sdlc-config.json'),
+        JSON.stringify({ version: '0.1.0', archlens: { enabled: false }, modules: [{ name: 'root', path: '.', commands: { coverage: `${process.execPath} tests/c.test.mjs`, coverageFile: 'coverage/lcov.info' }, thresholds: { diffCoverage: 85, mutationScore: null } }] }),
+        'utf8'
+      );
+      git(codeRepo.dir, 'add', '.agent/sdlc-config.json', 'tests/c.test.mjs');
+      git(codeRepo.dir, 'commit', '-q', '-m', 'chore: base');
+      git(codeRepo.dir, 'branch', '-f', 'main', 'HEAD');
+      beginSession({ issueId: '74', title: 'Code Receipt PR', checkout: true, repoRoot: codeRepo.dir });
+      fs.writeFileSync(path.join(codeRepo.dir, 'mod.mjs'), 'export const v = 1;\n', 'utf8');
+      git(codeRepo.dir, 'add', 'mod.mjs');
+      git(codeRepo.dir, 'commit', '-q', '-m', 'feat: add mod');
+      assert.equal(runGate(codeRepo.dir, { noCache: true }).passed, true);
+      assert.equal(recordReviewVerdict({ verdict: 'approve', reviewer: '@sdlc-gate', repoRoot: codeRepo.dir }).success, true);
+      git(codeRepo.dir, 'add', 'docs/AUDIT_CHAIN.jsonl');
+      git(codeRepo.dir, 'commit', '-q', '-m', 'chore(audit): sign code receipt');
+      const codePostRecPr = buildPrSummary(codeRepo.dir);
+      assert.equal(codePostRecPr.mode, 'code');
+      assert.match(codePostRecPr.markdown, /Diff Coverage `100\.0%`/);
+    });
   });
 });

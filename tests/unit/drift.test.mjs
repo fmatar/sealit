@@ -624,4 +624,93 @@ describe('Ring 1: lib/drift.mjs', () => {
     assert.equal(oaDrift.passed, false);
     assert.match(oaDrift.message, /CONTRACT_PARSE_ERROR/);
   });
+
+  it('supports MADR NNNN-slug.md ADRs alongside ADR-NNN, prevents numbering collisions, stamps frontmatter via decideADR, and hashes accepted MADR files', () => {
+    const { dir, cleanup } = createTempGitRepo();
+    cleanups.push(cleanup);
+
+    fs.mkdirSync(path.join(dir, 'docs/adr'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'docs/adr/0003-event-sourced-orders.md'),
+      '# Event-sourced orders\n\nOrder mutations are persisted as immutable domain events.\n',
+      'utf8'
+    );
+    git(dir, 'add', 'docs/adr/0003-event-sourced-orders.md');
+    git(dir, 'commit', '-q', '-m', 'docs: add MADR 0003 on develop');
+
+    git(dir, 'checkout', '-q', '-b', 'feat/madr-compat', 'develop');
+
+    // 1. listADRs parses frontmatter-less MADR 0003 as ADR-003 (informational) with heading title
+    const initialList = listADRs(dir);
+    assert.equal(initialList.length, 1);
+    assert.equal(initialList[0].id, 'ADR-003');
+    assert.equal(initialList[0].title, 'Event-sourced orders');
+    assert.equal(initialList[0].status, 'informational');
+
+    // 2. Adding a new frontmatter-less MADR 0004 without INV-03 triggers is non-blocking
+    fs.writeFileSync(
+      path.join(dir, 'docs/adr/0004-choose-postgres.md'),
+      '# Choose Postgres for read projections\n\nUse Postgres JSONB for query projections.\n',
+      'utf8'
+    );
+    assert.equal(checkSpecDrift({ ticketId: '88', repoRoot: dir }).passed, true);
+
+    // 3. Introducing INV-03 drift (PRODUCT.md) fails until 0004 is approved via decideADR('0004')
+    fs.writeFileSync(path.join(dir, 'PRODUCT.md'), '# Product Constitution\n', 'utf8');
+    assert.equal(checkSpecDrift({ ticketId: '88', repoRoot: dir }).passed, false);
+
+    const stamped = decideADR({
+      adrId: '0004',
+      status: 'approve',
+      reviewer: '@architect',
+      reason: 'Approved domain + storage decision',
+      repoRoot: dir
+    });
+    assert.equal(stamped.success, true);
+    assert.equal(stamped.adr.id, 'ADR-004');
+    assert.equal(stamped.adr.status, 'accepted');
+    assert.equal(checkSpecDrift({ ticketId: '88', repoRoot: dir }).passed, true);
+
+    // 4. createADR skips 0001..0004 and allocates ADR-005 cleanly
+    const nextAdr = createADR({ title: 'Next Decision', scope: 'technical', ticket: '88', repoRoot: dir });
+    assert.equal(nextAdr.id, 'ADR-005');
+    decideADR({ adrId: 'ADR-005', status: 'approve', reviewer: '@architect', reason: 'ok', repoRoot: dir });
+
+    // 5. computeAlignmentHashes binds accepted 0004-choose-postgres.md into adrHashes
+    const hashBefore = computeAlignmentHashes(dir);
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'feat: commit stamped MADR 0004 and ADR-005');
+    const hashAfter = computeAlignmentHashes(dir);
+    assert.notEqual(hashAfter.adrHashes, hashBefore.adrHashes);
+
+    // 6. MADR 'status: proposed' maps to pending_approval and blocks until approved
+    fs.writeFileSync(
+      path.join(dir, 'docs/adr/0006-proposed-bus.md'),
+      '---\nstatus: proposed\n---\n# Proposed Message Bus\n',
+      'utf8'
+    );
+    const propDrift = checkSpecDrift({ ticketId: '88', repoRoot: dir });
+    assert.equal(propDrift.passed, false);
+    assert.deepEqual(propDrift.blockingADRs, ['ADR-006']);
+
+    // 7. MADR with date-only frontmatter + 'status: draft' in body + $' in reason stamps frontmatter without mutating body or injecting $'
+    fs.writeFileSync(
+      path.join(dir, 'docs/adr/0007-body-status.md'),
+      '---\ndate: 2026-11-19\n---\n# Body Status Guard\n\nBody mentions:\nstatus: keep-this-prose-line\n---\nthematic break\n',
+      'utf8'
+    );
+    const stamped7 = decideADR({
+      adrId: 'ADR-0007',
+      status: 'approve',
+      reviewer: "@sec$'team",
+      reason: "Wasn't worth $'s migration risk",
+      repoRoot: dir
+    });
+    assert.equal(stamped7.success, true);
+    assert.equal(stamped7.adr.id, 'ADR-007');
+    assert.equal(stamped7.adr.status, 'accepted');
+    const raw7 = fs.readFileSync(path.join(dir, 'docs/adr/0007-body-status.md'), 'utf8');
+    assert.match(raw7, /\nstatus: keep-this-prose-line\n/, 'body status line must not be overwritten');
+    assert.equal((raw7.match(/# Body Status Guard/g) || []).length, 1, "$' in reason/reviewer must not duplicate body into frontmatter");
+  });
 });

@@ -2,69 +2,43 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  EMPTY_TREE_SHA,
-  computeAlignmentHashes,
-  fileExists,
-  listTree,
-  normalizeTicketId,
-  parseFrontmatter,
-  readBlobs,
-  readChangeSet,
-  readFileSafe,
-  resolveEffectiveDiffBase,
-  resolveInsideRepo,
-  resolveRange,
-  writeFileAtomic
+  ADR_PATH_RE, EMPTY_TREE_SHA, computeAlignmentHashes, fileExists, listTree,
+  normalizeCanonicalAdrId, normalizeTicketId, parseAdrFilenameId, parseFrontmatter,
+  readBlobs, readChangeSet, readFileSafe, resolveEffectiveDiffBase, resolveInsideRepo,
+  resolveRange, writeFileAtomic
 } from './git.mjs';
 import { loadEffectivePolicy } from './config.mjs';
 import { appendAuditRecord } from './receipt.mjs';
 
 export { computeAlignmentHashes };
 
-const STRUCTURAL_PKG_KEYS = [
-  'dependencies',
-  'devDependencies',
-  'peerDependencies',
-  'optionalDependencies',
-  'overrides',
-  'workspaces'
-];
-
+const STRUCTURAL_PKG_KEYS = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies', 'overrides', 'workspaces'];
 const SOURCE_EXTS = ['.ts', '.tsx', '.mts', '.cts', '.mjs', '.cjs', '.js'];
+const VALID_ADR_SCOPES = new Set(['technical', 'architectural', 'product', 'contract']);
 
 function parseListField(raw) {
   if (Array.isArray(raw)) return raw.map((x) => String(x).trim()).filter(Boolean);
-  const str = String(raw ?? '')
-    .trim()
-    .replace(/^\[/, '')
-    .replace(/\]$/, '');
+  const str = String(raw ?? '').trim().replace(/^\[/, '').replace(/\]$/, '');
   if (!str) return [];
-  return str
-    .split(',')
-    .map((item) => item.trim().replace(/^['"]|['"]$/g, ''))
-    .filter((item) => item && !/^(?:none|n\/a|null)$/i.test(item));
+  return str.split(',').map((item) => item.trim().replace(/^['"]|['"]$/g, '')).filter((item) => item && !/^(?:none|n\/a|null)$/i.test(item));
 }
 
 function slugifyTitle(title) {
-  return (
-    String(title || 'decision')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 48) || 'decision'
-  );
+  return String(title || 'decision').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) || 'decision';
 }
 
 function parseAdrRecord(relFile, raw) {
-  const { frontmatter } = parseFrontmatter(raw);
-  const name = path.posix.basename(relFile);
-  const idMatch = name.match(/^(ADR-\d+)/i);
-  const id = (frontmatter.id || (idMatch ? idMatch[1] : name.replace(/\.md$/i, ''))).toUpperCase();
+  const { frontmatter, body } = parseFrontmatter(raw);
+  const fnMeta = parseAdrFilenameId(relFile);
+  const id = normalizeCanonicalAdrId(frontmatter.id, fnMeta.id);
+  const headingTitle = (body.match(/^#\s+(.+)$/m) || [])[1]?.trim() || null;
+  const rawSt = String(frontmatter.status || '').toLowerCase().trim();
+  const status = rawSt === 'proposed' ? 'pending_approval' : rawSt || (fnMeta.isMadr ? 'informational' : 'pending_approval');
   return {
     id,
-    title: frontmatter.title || id,
-    scope: (frontmatter.scope || 'technical').toLowerCase(),
-    status: (frontmatter.status || 'pending_approval').toLowerCase(),
+    title: frontmatter.title || headingTitle || id,
+    scope: (frontmatter.scope || (fnMeta.isMadr ? 'architectural' : 'technical')).toLowerCase(),
+    status,
     ticket: normalizeTicketId(frontmatter.ticket ?? frontmatter.ticketId),
     supersedes: parseListField(frontmatter.supersedes ?? frontmatter.affects),
     decidedBy: frontmatter.decidedBy || null,
@@ -76,7 +50,7 @@ function parseAdrRecord(relFile, raw) {
 
 export function listADRs(repoRoot = '.', { sha = null } = {}) {
   if (sha) {
-    const files = listTree(sha, 'docs/adr', repoRoot).filter((f) => /^docs\/adr\/ADR-\d+[^/]*\.md$/i.test(f));
+    const files = listTree(sha, 'docs/adr', repoRoot).filter((f) => ADR_PATH_RE.test(f));
     const blobs = readBlobs(files.map((f) => `${sha}:${f}`), repoRoot);
     const out = [];
     for (const f of files) {
@@ -87,7 +61,7 @@ export function listADRs(repoRoot = '.', { sha = null } = {}) {
   }
   const adrDir = path.resolve(repoRoot, 'docs/adr');
   if (!fileExists(adrDir)) return [];
-  const entries = fs.readdirSync(adrDir).filter((name) => /^ADR-\d+.*\.md$/i.test(name)).sort();
+  const entries = fs.readdirSync(adrDir).filter((name) => ADR_PATH_RE.test(`docs/adr/${name}`)).sort();
   const out = [];
   for (const name of entries) {
     const raw = readFileSafe(path.join(adrDir, name));
@@ -98,21 +72,19 @@ export function listADRs(repoRoot = '.', { sha = null } = {}) {
 
 function resolveNextAdrId(repoRoot = '.') {
   let maxNum = 0;
+  const bumpNum = (n) => { if (Number.isInteger(n) && n > maxNum) maxNum = n; };
   const bump = (text) => {
     if (!text) return;
-    for (const m of String(text).matchAll(/\bADR-(\d+)\b/gi)) {
-      const n = Number(m[1]);
-      if (Number.isInteger(n) && n > maxNum) maxNum = n;
-    }
+    for (const m of String(text).matchAll(/\bADR-(\d+)\b/gi)) bumpNum(Number(m[1]));
   };
-  for (const adr of listADRs(repoRoot)) bump(adr.id);
+  for (const adr of listADRs(repoRoot)) { bump(adr.id); bumpNum(parseAdrFilenameId(adr.file).num); }
   const effBase = resolveEffectiveDiffBase(null, repoRoot);
   for (const ref of [`origin/${effBase}`, effBase]) {
-    const treeFiles = listTree(ref, 'docs/adr', repoRoot).filter((f) => /^docs\/adr\/ADR-\d+[^/]*\.md$/i.test(f));
-    for (const f of treeFiles) bump(f);
+    const treeFiles = listTree(ref, 'docs/adr', repoRoot).filter((f) => ADR_PATH_RE.test(f));
+    for (const f of treeFiles) { bump(f); bumpNum(parseAdrFilenameId(f).num); }
     if (treeFiles.length > 0) {
       const blobs = readBlobs(treeFiles.map((f) => `${ref}:${f}`), repoRoot);
-      for (const raw of blobs.values()) if (raw) bump(parseFrontmatter(raw).frontmatter?.id);
+      for (const raw of blobs.values()) if (raw) bump(normalizeCanonicalAdrId(parseFrontmatter(raw).frontmatter?.id));
     }
   }
   bump(readFileSafe(path.resolve(repoRoot, 'docs/SRS.md')));
@@ -127,27 +99,17 @@ function syncProductAdrIndex(repoRoot = '.') {
   if (!raw || !raw.includes('<!-- ADR_INDEX_START -->') || !raw.includes('<!-- ADR_INDEX_END -->')) return;
 
   const adrs = listADRs(repoRoot);
-  const header = [
-    '<!-- ADR_INDEX_START -->',
-    '| ADR ID | Title | Scope | Status | Ticket | Supersedes |',
-    '| :--- | :--- | :--- | :--- | :--- | :--- |'
-  ];
+  const header = ['<!-- ADR_INDEX_START -->', '| ADR ID | Title | Scope | Status | Ticket | Supersedes |', '| :--- | :--- | :--- | :--- | :--- | :--- |'];
   const rows = adrs.map(
-    (a) =>
-      `| ${a.id} | ${a.title.replace(/\|/g, '\\|')} | \`${a.scope}\` | \`${a.status}\` | ${a.ticket || 'N/A'} | ${a.supersedes.length > 0 ? a.supersedes.join(', ') : 'None'} |`
+    (a) => `| ${a.id} | ${a.title.replace(/\|/g, '\\|')} | \`${a.scope}\` | \`${a.status}\` | ${a.ticket || 'N/A'} | ${a.supersedes.length > 0 ? a.supersedes.join(', ') : 'None'} |`
   );
   const block = [...header, ...rows, '<!-- ADR_INDEX_END -->'].join('\n');
-  const updated = raw.replace(/<!-- ADR_INDEX_START -->[\s\S]*?<!-- ADR_INDEX_END -->/, block);
-  if (updated !== raw) {
-    writeFileAtomic(prodPath, updated);
-  }
+  const updated = raw.replace(/<!-- ADR_INDEX_START -->[\s\S]*?<!-- ADR_INDEX_END -->/, () => block);
+  if (updated !== raw) writeFileAtomic(prodPath, updated);
 }
 
 export function createADR({
-  title,
-  scope = 'technical',
-  ticket = null,
-  supersedes = [],
+  title, scope = 'technical', ticket = null, supersedes = [],
   context = 'Describe the spec, dependency, contract, or architecture change.',
   decision = 'Document the chosen design and constraints.',
   consequences = 'Document trade-offs and reversal criteria.',
@@ -155,106 +117,85 @@ export function createADR({
 } = {}) {
   const cleanTitle = String(title || '').trim();
   if (!cleanTitle) throw new Error('ADR requires a non-empty --title.');
-  const validScopes = new Set(['technical', 'architectural', 'product', 'contract']);
   const normScope = String(scope || 'technical').toLowerCase().trim();
-  if (!validScopes.has(normScope)) {
-    throw new Error(`Invalid ADR scope '${scope}'. Expected one of: technical, architectural, product, contract.`);
-  }
+  if (!VALID_ADR_SCOPES.has(normScope)) throw new Error(`Invalid ADR scope '${scope}'. Expected one of: technical, architectural, product, contract.`);
 
   const normTicket = normalizeTicketId(ticket) || 'N/A';
   const supList = parseListField(supersedes);
-  // Raw frontmatter values: reject anything that could inject extra YAML lines (e.g. a second `status:`).
   if (normTicket !== 'N/A' && !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(normTicket)) throw new Error(`Invalid ADR ticket '${ticket}'.`);
   const badSup = supList.find((s) => !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(s));
   if (badSup !== undefined) throw new Error(`Invalid ADR supersedes entry '${badSup}'.`);
   const id = resolveNextAdrId(repoRoot);
-  const slug = slugifyTitle(cleanTitle);
-  const relFile = `docs/adr/${id}-${slug}.md`;
+  const relFile = `docs/adr/${id}-${slugifyTitle(cleanTitle)}.md`;
   const absFile = resolveInsideRepo(repoRoot, relFile);
   const now = new Date().toISOString();
 
   const md = [
-    '---',
-    `id: ${id}`,
-    `title: ${JSON.stringify(cleanTitle)}`,
-    `scope: ${normScope}`,
-    'status: pending_approval',
-    `ticket: ${normTicket}`,
-    `supersedes: [${supList.join(', ')}]`,
-    `createdAt: ${now}`,
-    '---',
-    '',
-    `# ${id}: ${cleanTitle}`,
-    '',
-    `- **Scope**: \`${normScope}\``,
-    '- **Status**: `pending_approval`',
-    `- **Linked Ticket**: \`${normTicket}\``,
-    `- **Supersedes / Modifies**: \`${supList.length > 0 ? supList.join(', ') : 'None'}\``,
-    '',
-    '## 1. Context & Spec Drift Trigger',
-    String(context || '').trim(),
-    '',
-    '## 2. Decision',
-    String(decision || '').trim(),
-    '',
-    '## 3. Consequences & Reversal Criteria',
-    String(consequences || '').trim(),
-    ''
+    '---', `id: ${id}`, `title: ${JSON.stringify(cleanTitle)}`, `scope: ${normScope}`,
+    'status: pending_approval', `ticket: ${normTicket}`, `supersedes: [${supList.join(', ')}]`, `createdAt: ${now}`, '---', '',
+    `# ${id}: ${cleanTitle}`, '', `- **Scope**: \`${normScope}\``, '- **Status**: `pending_approval`',
+    `- **Linked Ticket**: \`${normTicket}\``, `- **Supersedes / Modifies**: \`${supList.length > 0 ? supList.join(', ') : 'None'}\``, '',
+    '## 1. Context & Spec Drift Trigger', String(context || '').trim(), '',
+    '## 2. Decision', String(decision || '').trim(), '',
+    '## 3. Consequences & Reversal Criteria', String(consequences || '').trim(), ''
   ].join('\n');
 
   writeFileAtomic(absFile, md);
   syncProductAdrIndex(repoRoot);
-  appendAuditRecord({
-    event: 'ADR_CREATED',
-    metadata: { id, title: cleanTitle, scope: normScope, status: 'pending_approval', ticket: normTicket, file: relFile },
-    repoRoot
-  });
-
+  appendAuditRecord({ event: 'ADR_CREATED', metadata: { id, title: cleanTitle, scope: normScope, status: 'pending_approval', ticket: normTicket, file: relFile }, repoRoot });
   return { success: true, id, title: cleanTitle, scope: normScope, status: 'pending_approval', ticket: normTicket, file: relFile };
 }
 
 export function decideADR({ adrId, status, action, reviewer = '@reviewer', reason = '', repoRoot = '.' } = {}) {
-  const targetId = String(adrId || '').trim().toUpperCase();
+  const targetId = normalizeCanonicalAdrId(adrId);
   if (!targetId) return { success: false, error: 'Missing --id for ADR decision.' };
 
   const rawStatus = String(status || action || '').toLowerCase().trim();
-  let nextStatus = null;
-  if (rawStatus === 'approve' || rawStatus === 'accept' || rawStatus === 'accepted') nextStatus = 'accepted';
-  else if (rawStatus === 'reject' || rawStatus === 'rejected') nextStatus = 'rejected';
-  else if (rawStatus === 'supersede' || rawStatus === 'superseded') nextStatus = 'superseded';
-  if (!nextStatus) {
-    return { success: false, error: `Invalid ADR decision '${rawStatus}'. Expected 'approve' or 'reject'.` };
-  }
+  const nextStatus = rawStatus === 'approve' || rawStatus === 'accept' || rawStatus === 'accepted'
+    ? 'accepted'
+    : rawStatus === 'reject' || rawStatus === 'rejected'
+      ? 'rejected'
+      : rawStatus === 'supersede' || rawStatus === 'superseded'
+        ? 'superseded'
+        : null;
+  if (!nextStatus) return { success: false, error: `Invalid ADR decision '${rawStatus}'. Expected 'approve' or 'reject'.` };
 
   const found = listADRs(repoRoot).find((a) => a.id === targetId);
-  if (!found) {
-    return { success: false, error: `ADR '${targetId}' not found in docs/adr/.` };
-  }
+  if (!found) return { success: false, error: `ADR '${targetId}' not found in docs/adr/.` };
 
   const absFile = resolveInsideRepo(repoRoot, found.file);
-  const raw = fs.readFileSync(absFile, 'utf8').replace(/\r\n/g, '\n');
+  const raw = fs.readFileSync(absFile, 'utf8').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   const now = new Date().toISOString();
   const cleanReviewer = String(reviewer || '@reviewer').trim();
   const cleanReason = String(reason || 'Reviewed and decided').trim();
+  const decisionLines = [`decidedBy: ${JSON.stringify(cleanReviewer)}`, `decidedAt: ${now}`, `decisionReason: ${JSON.stringify(cleanReason)}`];
 
-  let updated = raw
-    .replace(/^(?:decidedBy|decidedAt|decisionReason):\s*.*\n/gm, '')
-    .replace(/^status:\s*.*$/m, `status: ${nextStatus}`);
-  if (/^---\n[\s\S]*?\n---/.test(updated)) {
-    updated = updated.replace(/\n---/, `\ndecidedBy: ${JSON.stringify(cleanReviewer)}\ndecidedAt: ${now}\ndecisionReason: ${JSON.stringify(cleanReason)}\n---`);
+  let updated;
+  const fmEndIdx = raw.startsWith('---\n') ? raw.indexOf('\n---', 3) : -1;
+  if (fmEndIdx !== -1) {
+    const rawFmLines = raw.slice(4, fmEndIdx).split('\n').filter((l) => !/^(?:decidedBy|decidedAt|decisionReason):\s*/.test(l));
+    let replacedStatus = false;
+    const nextFmLines = rawFmLines.map((l) => {
+      if (!replacedStatus && /^status:\s*/.test(l)) {
+        replacedStatus = true;
+        return `status: ${nextStatus}`;
+      }
+      return l;
+    });
+    if (!replacedStatus) nextFmLines.push(`status: ${nextStatus}`);
+    const restBody = raw.slice(fmEndIdx + 4).replace(/^- \*\*Status\*\*:\s*`[^`]+`/m, () => `- **Status**: \`${nextStatus}\``);
+    updated = `---\n${[...nextFmLines, ...decisionLines].join('\n')}\n---${restBody}`;
+  } else {
+    const safeId = /^ADR-\d+$/.test(found.id) ? found.id : targetId;
+    const safeScope = VALID_ADR_SCOPES.has(found.scope) ? found.scope : 'architectural';
+    const fm = ['---', `id: ${safeId}`, `title: ${JSON.stringify(found.title)}`, `scope: ${safeScope}`, `status: ${nextStatus}`, ...decisionLines, '---', ''].join('\n');
+    updated = `${fm}${raw}`;
   }
-  updated = updated.replace(/^- \*\*Status\*\*:\s*`[^`]+`/m, `- **Status**: \`${nextStatus}\``);
 
   writeFileAtomic(absFile, updated);
   syncProductAdrIndex(repoRoot);
-  appendAuditRecord({
-    event: nextStatus === 'accepted' ? 'ADR_APPROVED' : 'ADR_DECIDED',
-    metadata: { id: targetId, status: nextStatus, reviewer: cleanReviewer, reason: cleanReason, file: found.file },
-    repoRoot
-  });
-
-  const refreshed = listADRs(repoRoot).find((a) => a.id === targetId);
-  return { success: true, adr: refreshed };
+  appendAuditRecord({ event: nextStatus === 'accepted' ? 'ADR_APPROVED' : 'ADR_DECIDED', metadata: { id: targetId, status: nextStatus, reviewer: cleanReviewer, reason: cleanReason, file: found.file }, repoRoot });
+  return { success: true, adr: listADRs(repoRoot).find((a) => a.id === targetId) };
 }
 
 function hasPackageJsonStructuralDiff(curRaw, baseRaw) {
@@ -354,7 +295,7 @@ export function checkSpecDrift({ ticketId = null, baseBranch = null, changeSet =
   ];
   const contractErrors = [];
   const DELETED_GOVERNANCE_RE =
-    /^(?:PRODUCT\.md|docs\/PRD\.md|docs\/SRS\.md|docs\/specs\/.+\.md|docs\/adr\/ADR-\d+.*\.md|docs\/AUDIT_CHAIN\.jsonl|\.archlens\/policy\.json)$|(?:^|\/)(?:package\.json|Cargo\.toml|pyproject\.toml|requirements[^/]*\.txt|go\.mod|pom\.xml|build\.gradle(?:\.kts)?|prisma\/schema\.prisma)$|\.(?:sql|graphql|proto)$|(?:openapi|swagger).*\.(?:json|ya?ml)$/i;
+    /^(?:PRODUCT\.md|docs\/PRD\.md|docs\/SRS\.md|docs\/specs\/.+\.md|docs\/adr\/(?:ADR-\d+[^/]*|\d+-[^/]+)\.md|docs\/AUDIT_CHAIN\.jsonl|\.archlens\/policy\.json)$|(?:^|\/)(?:package\.json|Cargo\.toml|pyproject\.toml|requirements[^/]*\.txt|go\.mod|pom\.xml|build\.gradle(?:\.kts)?|prisma\/schema\.prisma)$|\.(?:sql|graphql|proto)$|(?:openapi|swagger).*\.(?:json|ya?ml)$/i;
 
   const activeEntries = cs.entries.filter((e) => e.status !== 'D' && e.newMode !== '160000');
   const needsCurBlob = (p) => p === 'PRODUCT.md' || /(?:^|\/)package\.json$/.test(p) || /(?:openapi|swagger).*\.(?:json|ya?ml)$/i.test(p);
@@ -362,7 +303,7 @@ export function checkSpecDrift({ ticketId = null, baseBranch = null, changeSet =
   const headSpecs = fromCommit
     ? activeEntries.filter((e) => needsCurBlob(e.path)).map((e) => (!/^0+$/.test(e.newOid) ? e.newOid : `${cs.headSha}:${e.path}`))
     : [];
-  const baseAdrPaths = mergeBase ? listTree(mergeBase, 'docs/adr', repoRoot).filter((f) => /^docs\/adr\/ADR-\d+.*\.md$/i.test(f)) : [];
+  const baseAdrPaths = mergeBase ? listTree(mergeBase, 'docs/adr', repoRoot).filter((f) => ADR_PATH_RE.test(f)) : [];
   const baseSpecs = mergeBase
     ? [
         ...activeEntries.filter((e) => e.path === 'PRODUCT.md' || /(?:^|\/)package\.json$/.test(e.path)).map((e) => `${mergeBase}:${e.path}`),
@@ -434,7 +375,7 @@ export function checkSpecDrift({ ticketId = null, baseBranch = null, changeSet =
 
   const allAdrs = listADRs(repoRoot, { sha: fromCommit ? cs.headSha : null });
   const normTicket = normalizeTicketId(ticketId);
-  const diffAdrFiles = new Set(cs.paths.filter((f) => /^docs\/adr\/ADR-\d+.*\.md$/i.test(f)));
+  const diffAdrFiles = new Set(cs.paths.filter((f) => ADR_PATH_RE.test(f)));
   const deletedPaths = new Set(cs.entries.filter((e) => e.status === 'D' || e.newMode === '160000').map((e) => e.path));
   const gitlinkReplacedPaths = new Set(cs.entries.filter((e) => e.newMode === '160000').map((e) => e.path));
   const baseExactPaths = new Set(baseAdrPaths);
@@ -445,8 +386,7 @@ export function checkSpecDrift({ ticketId = null, baseBranch = null, changeSet =
     const baseRaw = readBase(relBase);
     if (baseRaw === null) continue;
     const fm = parseFrontmatter(baseRaw).frontmatter || {};
-    const idMatch = path.posix.basename(relBase).match(/^(ADR-\d+)/i);
-    const normId = String(fm.id || (idMatch ? idMatch[1] : '')).trim().toUpperCase();
+    const normId = normalizeCanonicalAdrId(fm.id, parseAdrFilenameId(relBase).id);
     if (normId && !baseAdrFileById.has(normId)) baseAdrFileById.set(normId, relBase);
     const baseStatus = String(fm.status || '').toLowerCase();
     if (baseStatus === 'accepted' || baseStatus === 'superseded') {

@@ -1,4 +1,4 @@
-# `@fmatar/agentic-sdlc` (v0.1.0)
+# `@fmatar/agentic-sdlc` (v0.2.0)
 
 **Alignment and Proof Kernel for AI Coding Agents**: mechanical specification & ADR drift checks, [Archlens](https://github.com/fmatar/archlens) Concentric Clean Architecture ring checks, measured diff coverage & mutation gates, and HMAC-SHA256 cryptographic merge receipts.
 
@@ -62,7 +62,7 @@ flowchart TD
 | **Ring 1** (`governance-models`) | `.agent/scripts/lib/receipt.mjs` | Session persistence, SHA-256 gate cache, append-only `AUDIT_CHAIN.jsonl`, multi-topology HMAC-SHA256 Stage 7 receipts |
 | **Ring 1** (`governance-models`) | `.agent/scripts/lib/drift.mjs` | Spec/manifest/OpenAPI drift detection, ADR lifecycle (`pending_approval` -> `accepted`), [Archlens](https://github.com/fmatar/archlens) ring & cycle checker |
 | **Ring 2** (`adapters-orchestrators`) | `.agent/scripts/lib/measure.mjs` | Single-path `runGate` (`docs-only` vs `code`), diff secret scanner, polyglot coverage/mutation report parsers, `buildReviewPlan` |
-| **Ring 2** (`adapters-orchestrators`) | `.agent/scripts/lib/guard.mjs` | Session lifecycle (`beginSession` / `endSession`), 4-Layer Git hooks, branch protection, review recording |
+| **Ring 2** (`adapters-orchestrators`) | `.agent/scripts/lib/guard.mjs` | Session lifecycle (`beginSession` `--base` / `endSession`), 4-Layer Git hooks, 2-axis `buildReviewPlan`, `buildPrSummary`, review recording |
 | **Ring 2** (`adapters-orchestrators`) | `.agent/scripts/lib/install.mjs` | Symlink-safe local & `--global` multi-agent skill installer, `skill-audit`, `doctor`, and GitHub Actions workflow generator |
 | **Ring 3** (`cli-entrypoints`) | `.agent/scripts/sdlc-engine.mjs` | Declarative CLI command registry, `--json` output, and fail-closed exit codes |
 
@@ -70,16 +70,16 @@ flowchart TD
 
 ## Canonical 6-Skill Suite
 
-All skills live in `.agent/skills/` (the single source of truth tracked in git) and are adapted at install time for **Antigravity**, **Claude Code**, **Cursor**, **Codex**, and **GitHub Copilot** without touching non-`sdlc*` user skills:
+All skills live in `.agent/skills/` (the single source of truth tracked in git alongside `agents/openai.yaml` metadata) and are adapted at install time for **Antigravity**, **Claude Code**, **Cursor**, **Codex**, and **GitHub Copilot** without touching non-`sdlc*` user skills:
 
 | Skill | Purpose |
 | :--- | :--- |
-| `sdlc` | Direct 1:1 CLI subcommand router (`init`, `doctor`, `begin`, `status`, `drift`, `adr`, `test`, `coverage`, `mutation`, `gate`, `review`, `receipt`, `verify`, `end`) |
-| `sdlc-spec` | Author or align `PRODUCT.md` invariants and `docs/specs/cap-XX-*.md` contracts before coding |
-| `sdlc-adr` | Create (`pending_approval`) and obtain human sign-off (`accepted`) on Spec-Drift ADRs |
-| `sdlc-tdd` | Enforce Red-Green-Refactor TDD and verify fresh diff coverage & mutation thresholds |
-| `sdlc-gate` | Dispatch read-only reviewer subagent(s), run `sdlc gate`, and sign the Stage 7 merge receipt |
-| `sdlc-flow` | Orchestrate end-to-end branch delivery (`begin -> align -> tdd -> gate -> receipt -> end`) |
+| `sdlc` | User-invoked 1:1 CLI subcommand router (`init`, `doctor`, `begin`, `status`, `drift`, `adr`, `test`, `coverage`, `mutation`, `gate`, `review`, `pr-body`, `receipt`, `verify`, `end`) |
+| `sdlc-spec` | Resolve requirements via decision-tree discovery, sharpen `GLOSSARY.md`, and author `PRODUCT.md` / `docs/specs/cap-XX-*.md` contracts |
+| `sdlc-adr` | Compare architectural options (`ADR-NNN` & MADR `NNNN-slug.md`) and obtain human sign-off (`accepted`) on `INV-03` drift |
+| `sdlc-tdd` | Drive public-seam vertical tracer-bullet Red-Green TDD, bug diagnosis loops, and fresh diff coverage & mutation gates |
+| `sdlc-gate` | Dispatch orthogonal 2-axis cold reviewers (Spec Fidelity + Architecture/Security/Smells), run `sdlc gate`, sign Stage 7 receipts, and emit `pr-body` proof |
+| `sdlc-flow` | Orchestrate vertical-slice or expand-contract delivery (`begin -> align -> tdd -> gate -> receipt -> pr-body -> end`), including `--base` worktrees |
 
 ---
 

@@ -842,13 +842,13 @@ describe('Ring 2: lib/measure.mjs', () => {
     assert.equal(codePlan.mode, 'code');
     assert.equal(codePlan.reviewers.length, 2);
 
-    // Small non-governance code diff gets 1 reviewer; >32kB diff gets truncated prompt marker
+    // Small non-governance code diff also dispatches both orthogonal reviewers; >32kB diff gets truncated prompt marker
     fs.unlinkSync(path.join(emptyRepo.dir, 'guard-sec.mjs'));
     fs.writeFileSync(path.join(emptyRepo.dir, 'math.mjs'), 'export const add = (a, b) => a + b;\n', 'utf8');
     const smallPlan = buildReviewPlan(emptyRepo.dir);
     assert.equal(smallPlan.mode, 'code');
-    assert.equal(smallPlan.reviewers.length, 1);
-    assert.equal(smallPlan.reviewers[0].role, 'PR Peer Reviewer');
+    assert.equal(smallPlan.reviewers.length, 2);
+    assert.equal(smallPlan.reviewers[0].role, 'Spec Fidelity & Peer Reviewer');
     assert.match(smallPlan.reviewers[0].prompt, /math\.mjs/);
 
     fs.writeFileSync(path.join(emptyRepo.dir, 'big.mjs'), `${'// line\n'.repeat(210)}export const s = "${'x'.repeat(35000)}";\n`, 'utf8');

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createTempGitRepo, git, withoutReceiptEnv } from '../helpers/test-harness.mjs';
-import { runCLI, formatCLIResult, cliExitCode } from '../../.agent/scripts/sdlc-engine.mjs';
+import { runCLI, formatCLIResult, cliExitCode, readPackageVersion } from '../../.agent/scripts/sdlc-engine.mjs';
 
 const cleanups = [];
 afterEach(() => {
@@ -195,11 +195,28 @@ describe('Ring 3: sdlc-engine.mjs CLI registry', () => {
     cleanups.push(cleanup);
 
     await withoutReceiptEnv(async () => {
+      const expectedPkgVer = JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
       const ver = await runCLI(['--version'], null, dir);
       assert.equal(ver.success, true);
+      assert.equal(ver.version, expectedPkgVer);
+      assert.notEqual(ver.version, '0.1.0');
       assert.match(formatCLIResult('version', ver), /^\d+\.\d+\.\d+/);
 
+      fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: '@fmatar/agentic-sdlc', version: '9.8.7' }), 'utf8');
+      assert.equal(readPackageVersion(path.join(dir, '.agent/scripts')), '9.8.7');
+      fs.mkdirSync(path.join(dir, 'global-home'), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'global-home/package.json'), JSON.stringify({ name: '@fmatar/agentic-sdlc', version: '8.7.6' }), 'utf8');
+      assert.equal(readPackageVersion(path.join(dir, 'global-home/scripts')), '8.7.6');
+      assert.equal(readPackageVersion(path.join(dir, 'no-pkg/scripts')), expectedPkgVer);
+      fs.mkdirSync(path.join(dir, 'consumer'), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'consumer/package.json'), JSON.stringify({ name: 'consumer-app', version: '4.5.6' }), 'utf8');
+      assert.equal(readPackageVersion(path.join(dir, 'consumer/.agent/scripts')), expectedPkgVer);
+      fs.mkdirSync(path.join(dir, 'empty-ver'), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'empty-ver/package.json'), JSON.stringify({ name: '@fmatar/agentic-sdlc', version: '' }), 'utf8');
+      assert.equal(readPackageVersion(path.join(dir, 'empty-ver/.agent/scripts')), expectedPkgVer);
+
       const hlp = await runCLI(['--help'], null, dir);
+      assert.ok(formatCLIResult('help', hlp).includes(`v${expectedPkgVer}`));
       assert.match(formatCLIResult('help', hlp), /Usage:/);
 
       assert.equal(cliExitCode(await runCLI(['begin', '--issue'], null, dir)), 2);
@@ -259,7 +276,34 @@ describe('Ring 3: sdlc-engine.mjs CLI registry', () => {
       assert.match(formatCLIResult('adr', { adrs: [] }), /none/);
       assert.equal((await runCLI(['adr', 'create'], null, dir)).success, false);
       assert.equal((await runCLI(['audit', 'verify'], null, dir)).success, true);
+
+      const prBodyRes = await runCLI(['pr-body'], null, dir);
+      assert.equal(prBodyRes.success, true);
+      assert.match(formatCLIResult('pr-body', prBodyRes), /## Merge Danger/);
+      assert.equal(formatCLIResult('pr-body', {}), '');
+      assert.equal(cliExitCode(await runCLI(['pr-body', '--bad-flag'], null, dir)), 2);
+      assert.equal(cliExitCode(await runCLI(['review', 'pr-body', '--bad-flag'], null, dir)), 2);
+      assert.equal((await runCLI(['review', 'pr-body'], null, dir)).success, true);
+
       assert.equal((await runCLI(['stage', 'complete'], null, dir)).success, true);
+
+      const baseSub = await runCLI(['begin', '--issue', '203', '--title', 'Sub Slice', '--base', 'develop', '--checkout'], null, dir);
+      assert.equal(baseSub.success, true);
+      assert.equal(baseSub.begin.session.baseBranch, 'develop');
+
+      // Integration branch with unapproved PRODUCT.md on base: child session with --base <integ> sees clean drift vs <integ>, while explicit --base develop overrides
+      fs.writeFileSync(path.join(dir, 'PRODUCT.md'), '# Epic Spec on Integration\n', 'utf8');
+      git(dir, 'add', 'PRODUCT.md');
+      git(dir, 'commit', '--no-verify', '-q', '-m', 'docs: integration base spec');
+      const integBranch = baseSub.begin.branch;
+      const childSub = await runCLI(['begin', '--issue', '204', '--title', 'Child Slice', '--base', integBranch, '--checkout'], null, dir);
+      assert.equal(childSub.success, true);
+      const childDrift = await runCLI(['drift'], null, dir);
+      assert.equal(childDrift.success, true, 'sdlc drift must diff against session.baseBranch rather than develop');
+      assert.equal((await runCLI(['drift', '--base', 'develop'], null, dir)).success, false);
+      assert.equal((await runCLI(['pr-body'], null, dir)).prBody.baseBranch, integBranch);
+      assert.equal((await runCLI(['pr-body', '--base', 'develop'], null, dir)).prBody.baseBranch, 'develop');
+      assert.equal((await runCLI(['review', 'pr-body', '--base', 'develop'], null, dir)).prBody.baseBranch, 'develop');
     });
   });
 });

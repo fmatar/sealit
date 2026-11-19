@@ -1,4 +1,4 @@
-# @fmatar/agentic-sdlc (v0.1.0)
+# @fmatar/agentic-sdlc (v0.2.0)
 
 > Zero-dependency Alignment and Proof Kernel for AI coding agents (Antigravity, Claude Code, Cursor, Codex, GitHub Copilot) enforcing Git Flow session guards, Spec/ADR alignment, [Archlens](https://github.com/fmatar/archlens) Concentric Clean Architecture rings, measured diff coverage & mutation gates, and HMAC-SHA256 merge receipts.
 
@@ -6,6 +6,7 @@
 
 - [README.md](./README.md): Quickstart, 8-module Concentric Kernel architecture, and 6-skill suite overview
 - [PRODUCT.md](./PRODUCT.md): Constitutional invariants (`INV-01`..`INV-04`), capability matrix (`CAP-01`..`CAP-06`), and ADR index
+- [GLOSSARY.md](./GLOSSARY.md): Ubiquitous domain vocabulary for Proof Kernel, sessions, seams, and receipts
 - [docs/PRD.md](./docs/PRD.md): Product Requirements Document (`v0.1.0`)
 - [docs/SRS.md](./docs/SRS.md): IEEE 29148 Software Requirements Specification & compacted ADR lineage
 - [CONTRIBUTING.md](./CONTRIBUTING.md): Local setup, TDD workflow, and pull request verification checklist

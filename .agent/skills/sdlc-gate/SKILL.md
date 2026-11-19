@@ -1,41 +1,51 @@
 ---
 name: sdlc-gate
-description: "Use when reviewing a branch or PR, running sdlc gate, or signing a Stage 7 merge receipt. Not for writing initial feature code (use sdlc-tdd or sdlc-flow)."
+description: "Use when running 2-axis cold code review on a branch or PR, executing sdlc gate, signing a Stage 7 merge receipt, or generating PR evidence."
 tools: read_file, write_file, edit_file, run_command, invoke_subagent
 ---
 
-# Peer Review, Single Gate & Signed Merge Receipt (`sdlc-gate`)
+# Two-Axis Cold Review, Single Gate & Signed Receipt (`sdlc-gate`)
 
 ## When to use / When NOT to use
-- **Use when** auditing a branch diff, dispatching read-only reviewer subagents, executing `sdlc gate`, and signing the `HEAD`-bound Stage 7 receipt in `docs/AUDIT_CHAIN.jsonl`.
-- **Not for** writing initial feature logic (`sdlc-tdd` / `sdlc-flow`).
+- **Use when** auditing a branch diff along Spec Fidelity and Architecture/Security axes, executing `sdlc gate`, signing the `HEAD`-bound Stage 7 receipt in `docs/AUDIT_CHAIN.jsonl`, and generating structured PR proof.
+- **Not for** writing initial feature slices (use `sdlc-tdd` or `sdlc-flow`).
+
+## Why Two Orthogonal Cold Axes
+`sdlc review plan` emits two independent subagent briefs backed by repo context pointers (`PRODUCT.md`, `docs/specs/*`, `docs/adr/*`, `GLOSSARY.md`, `CONTRIBUTING.md`, session ticket):
+1. **Spec Fidelity & Peer Reviewer**: Checks missing/partial spec requirements, unrequested scope creep, and public-seam TDD quality.
+2. **Architecture & Security Reviewer**: Checks `.archlens/policy.json` Concentric Rings, fail-closed security, shell-free `INV-04` execution, documented repo standards, and deep-module vs. Fowler code-smell heuristics (`Feature Envy`, `Shotgun Surgery`, `Divergent Change`, `Primitive Obsession`, `Speculative Generality`).
+
+Run both reviewers in parallel with fresh contexts and **keep their findings separate** so clean code style never masks a spec miss (and vice versa). Hard standard/ring/security/spec breaches are blockers; code smells are judgement calls for targeted refactoring.
 
 ## Steps
 
-1. **Build the Review Plan**:
+1. **Build & Dispatch the Two-Axis Review Plan**:
    ```bash
    node .agent/scripts/sdlc-engine.mjs review plan --json
    ```
-   - In `docs-only` mode: run `sdlc gate` and `sdlc receipt --docs-only`.
-   - In `code` mode: dispatch each reviewer in `reviewPlan.reviewers` in parallel via `invoke_subagent` (`TypeName: "research"`) using its `prompt`, instructing each reviewer to return `verdict: approve | request-changes`, `blockers: []`, and `notes`.
+   - In `docs-only` mode: run `sdlc gate --no-cache` and `sdlc receipt --docs-only`.
+   - In `code` mode: dispatch both `reviewPlan.reviewers` in parallel via `invoke_subagent` (`TypeName: "research"`), instructing each to return `verdict: approve | request-changes`, `blockers: []`, and `notes`.
 
-2. **Remediate Any Blockers**:
-   Derive `<verdict>` strictly from reviewer output (`approve` only when every reviewer reports `0` blockers). Fix any blockers with failing-first tests, commit, and re-verify.
+2. **Remediate Blockers & Commit Refactors Before Gating**:
+   Fix every blocker (and any worthwhile smell refactors) with failing-first tests and **commit to clean `HEAD`** before running the gate, because Stage 7 receipts bind exact `headSha` and `treeSha`.
 
-3. **Run the Single Gate & Sign Receipt on Clean `HEAD`**:
+3. **Run Single-Path Gate, Sign Receipt & Emit PR Proof**:
    ```bash
    node .agent/scripts/sdlc-engine.mjs gate --no-cache
 
    node .agent/scripts/sdlc-engine.mjs review record \
      --verdict <approve|request-changes> \
      --reviewer "@sdlc-gate" \
-     --peer-review "<reviewer_1_notes>" \
-     --arch-review "<reviewer_2_notes>"
+     --peer-review "<spec_axis_notes>" \
+     --arch-review "<arch_security_axis_notes>"
+
+   git add docs/AUDIT_CHAIN.jsonl && git commit -m "chore(audit): record Stage 7 gate receipt"
+   node .agent/scripts/sdlc-engine.mjs verify
+   node .agent/scripts/sdlc-engine.mjs pr-body
    ```
-   When `verdict` is `approve`, commit `docs/AUDIT_CHAIN.jsonl` and run `node .agent/scripts/sdlc-engine.mjs verify` to confirm the signed receipt matches `HEAD`.
 
 ## Confirm with user before
-- Dismissing any security or architectural blocker raised by a reviewer.
+- Dismissing any security, architectural, or spec-fidelity blocker, or recording an approving Stage 7 receipt when required by repo policy.
 
 ## Done when
-All reviewers report `0` blockers, `sdlc gate --no-cache` exits `0`, `docs/AUDIT_CHAIN.jsonl` is committed with a valid `GATE-RECEIPT-*`, and `sdlc verify` exits `0`.
+Both review axes report `0` blockers, `sdlc gate --no-cache` exits `0`, `docs/AUDIT_CHAIN.jsonl` is committed with a valid `GATE-RECEIPT-*`, `sdlc verify` exits `0`, and `sdlc pr-body` summarizes proof and merge danger.

@@ -22,38 +22,15 @@ import {
 import { inspectReceiptKeyStatus, verifyAuditChain } from './receipt.mjs';
 import { inspectHooks, installHooks } from './guard.mjs';
 
-export const CANONICAL_SKILLS = Object.freeze([
-  'sdlc',
-  'sdlc-spec',
-  'sdlc-adr',
-  'sdlc-tdd',
-  'sdlc-gate',
-  'sdlc-flow'
-]);
-
+export const CANONICAL_SKILLS = Object.freeze(['sdlc', 'sdlc-spec', 'sdlc-adr', 'sdlc-tdd', 'sdlc-gate', 'sdlc-flow']);
 export const RETIRED_SKILLS = Object.freeze([
-  'sdlc-doctor',
-  'sdlc-product',
-  'sdlc-release',
-  'sdlc-status',
-  'sdlc-wiki',
-  'sdlc-initialize',
-  'sdlc-review',
-  'sdlc-test'
+  'sdlc-doctor', 'sdlc-product', 'sdlc-release', 'sdlc-status', 'sdlc-wiki', 'sdlc-initialize', 'sdlc-review', 'sdlc-test'
 ]);
-
 export const SUPPORTED_AGENTS = Object.freeze(['antigravity', 'claude', 'cursor', 'codex', 'copilot']);
-
 export const SDLC_GITIGNORE_ENTRIES = Object.freeze([
-  '.env',
-  '.agent/.cache/',
-  '.agent/.sdlc-session.json',
-  '.agent/.sdlc-session.lock',
-  '.agent/.sdlc-config.lock',
-  '.agent/.audit-chain.lock',
-  '.agent/.receipt-key',
-  '.agent/sdlc-config.json.bak',
-  '.stryker-tmp/'
+  '.env', '.agent/.cache/', '.agent/.sdlc-session.json', '.agent/.sdlc-session.lock',
+  '.agent/.sdlc-config.lock', '.agent/.audit-chain.lock', '.agent/.receipt-key',
+  '.agent/sdlc-config.json.bak', '.stryker-tmp/', '.scratch/'
 ]);
 
 const SDLC_ENGINE_CMD = 'node .agent/scripts/sdlc-engine.mjs';
@@ -61,7 +38,7 @@ const LEGACY_CLAUDE_WILDCARD = `Bash(${SDLC_ENGINE_CMD} *)`;
 // Read/measure commands only. Approve/sign/exempt/install commands (adr decide, review record, receipt,
 // guard receipt, exemption add, protect, init, hooks, ci-workflow, doctor --fix) always prompt a human.
 const CLAUDE_EXACT_ONLY = ['status', 'doctor', 'skill-audit', 'config check', 'session status'];
-const CLAUDE_WITH_FLAGS = ['drift', 'test', 'coverage', 'mutation', 'gate', 'verify', 'guard verify', 'audit verify', 'review plan', 'adr list', 'adr create', 'begin', 'end'];
+const CLAUDE_WITH_FLAGS = ['drift', 'test', 'coverage', 'mutation', 'gate', 'verify', 'guard verify', 'audit verify', 'review plan', 'review pr-body', 'pr-body', 'adr list', 'adr create', 'begin', 'end'];
 export const CLAUDE_SDLC_ALLOW_RULES = Object.freeze([
   ...CLAUDE_EXACT_ONLY.map((c) => `Bash(${SDLC_ENGINE_CMD} ${c})`),
   ...CLAUDE_WITH_FLAGS.flatMap((c) => [`Bash(${SDLC_ENGINE_CMD} ${c})`, `Bash(${SDLC_ENGINE_CMD} ${c} *)`])
@@ -70,12 +47,7 @@ export const CLAUDE_SDLC_ALLOW_RULES = Object.freeze([
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 
 function normalizeAgentList(rawAgents) {
-  const items = Array.isArray(rawAgents)
-    ? rawAgents
-    : String(rawAgents || '')
-        .split(',')
-        .map((s) => s.trim().toLowerCase())
-        .filter(Boolean);
+  const items = Array.isArray(rawAgents) ? rawAgents : String(rawAgents || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
   if (items.includes('all')) return [...SUPPORTED_AGENTS];
   const out = new Set();
   for (const item of items) {
@@ -270,15 +242,14 @@ function adaptSkillContent(rawMarkdown, agent, { globalEnginePath = null } = {})
 }
 
 export function auditSkills(repoRoot = '.') {
-  const skillsDir = path.resolve(repoRoot, '.agent/skills');
+  const absRoot = path.resolve(repoRoot);
+  const skillsDir = path.join(absRoot, '.agent/skills');
   const findings = [];
   if (!fileExists(skillsDir)) {
-    return {
-      passed: false,
-      skillsCount: 0,
-      findings: [{ skill: '*', rule: 'DIR_MISSING', message: 'Missing .agent/skills directory.' }]
-    };
+    return { passed: false, skillsCount: 0, findings: [{ skill: '*', rule: 'DIR_MISSING', message: 'Missing .agent/skills directory.' }] };
   }
+  const pluginPath = path.join(absRoot, '.claude-plugin/plugin.json');
+  const hasPlugin = fileExists(pluginPath);
 
   for (const id of CANONICAL_SKILLS) {
     const skillPath = path.join(skillsDir, id, 'SKILL.md');
@@ -289,38 +260,54 @@ export function auditSkills(repoRoot = '.') {
     const raw = fs.readFileSync(skillPath, 'utf8').replace(/\r\n/g, '\n');
     const linesCount = raw.split('\n').length;
     const { frontmatter, body } = parseFrontmatter(raw);
+    const isUserOnly = String(frontmatter['disable-model-invocation'] || '').toLowerCase() === 'true';
 
     if (!frontmatter.name || frontmatter.name !== id) {
       findings.push({ skill: id, rule: 'FM1', message: `Frontmatter 'name' must equal '${id}'.` });
     }
     const desc = String(frontmatter.description || '');
-    if (!desc || desc.length > 220 || !/\bUse when\b/i.test(desc)) {
-      findings.push({
-        skill: id,
-        rule: 'FM2',
-        message: `Frontmatter 'description' in '${id}' must be <=220 chars and start/include 'Use when'.`
-      });
+    if (!desc || desc.length > 220 || (!isUserOnly && !/\bUse when\b/i.test(desc))) {
+      findings.push({ skill: id, rule: 'FM2', message: `Frontmatter 'description' in '${id}' must be <=220 chars${isUserOnly ? '' : " and include 'Use when'"}.` });
     }
     if (linesCount > 160) {
       findings.push({ skill: id, rule: 'LEN1', message: `Skill '${id}' exceeds 160 lines (${linesCount}).` });
     }
-
     for (const m of body.matchAll(/\bnpx\s+(?:--yes\s+|-y\s+)?(@?[a-z0-9._/-]+)(?![@\w.-])/gi)) {
-      const pkg = m[1];
-      if (pkg === '@fmatar/agentic-sdlc') continue;
-      findings.push({ skill: id, rule: 'RP1', message: `Unpinned npx package '${pkg}' in '${id}/SKILL.md'.` });
+      if (m[1] !== '@fmatar/agentic-sdlc') findings.push({ skill: id, rule: 'RP1', message: `Unpinned npx package '${m[1]}' in '${id}/SKILL.md'.` });
     }
-
     if (/\.\.\/sdlc-[a-z0-9-]+\/SKILL\.md/i.test(body)) {
       findings.push({ skill: id, rule: 'AS3', message: `Cross-skill relative file link detected in '${id}/SKILL.md'.` });
     }
+
+    if (hasPlugin && isUserOnly !== (id === 'sdlc')) {
+      findings.push({ skill: id, rule: 'FM3', message: `Skill '${id}' must ${id === 'sdlc' ? 'set' : 'omit'} 'disable-model-invocation: true'.` });
+    }
+    const oaiPath = path.join(skillsDir, id, 'agents/openai.yaml');
+    if (fileExists(oaiPath) || hasPlugin) {
+      const oaiRaw = readFileSafe(oaiPath) || '';
+      const oaiDisablesImplicit = /^\s*allow_implicit_invocation:\s*false\s*(?:#.*)?$/m.test(oaiRaw);
+      if (!oaiRaw || !/\bdisplay_name:/.test(oaiRaw) || !/\bshort_description:/.test(oaiRaw) || oaiDisablesImplicit !== isUserOnly) {
+        findings.push({ skill: id, rule: 'OAI1', message: `Missing or out-of-sync '${id}/agents/openai.yaml' metadata.` });
+      }
+    }
   }
 
-  return {
-    passed: findings.length === 0,
-    skillsCount: CANONICAL_SKILLS.length,
-    findings
-  };
+  if (hasPlugin) {
+    try {
+      const plg = JSON.parse(fs.readFileSync(pluginPath, 'utf8'));
+      const pkgRaw = readFileSafe(path.join(absRoot, 'package.json'));
+      const pkgVer = pkgRaw ? JSON.parse(pkgRaw).version : null;
+      const expectedSkills = CANONICAL_SKILLS.map((s) => `./.agent/skills/${s}`);
+      const skillsOk = Array.isArray(plg.skills) && JSON.stringify(plg.skills) === JSON.stringify(expectedSkills);
+      if ((pkgVer && plg.version !== pkgVer) || !skillsOk) {
+        findings.push({ skill: '*', rule: 'PLG1', message: '.claude-plugin/plugin.json version or skills array out of sync.' });
+      }
+    } catch {
+      findings.push({ skill: '*', rule: 'PLG1', message: 'Malformed .claude-plugin/plugin.json.' });
+    }
+  }
+
+  return { passed: findings.length === 0, skillsCount: CANONICAL_SKILLS.length, findings };
 }
 
 // The generated workflow only installs with npm. A pnpm/yarn cache would need extra tooling, and yarn-berry's
@@ -640,13 +627,12 @@ function pruneRetiredSkillsInDir(skillsParentDir, baseRoot = null) {
   }
 }
 
-function updateClaudeSettingsJson(settingsPath, warnings, baseRoot = null) {
+function updateClaudeSettingsJson(settingsPath, warnings, baseRoot = null, { force = false } = {}) {
   if (baseRoot) assertNoSymlinkAncestors(baseRoot, path.dirname(settingsPath));
   if (!fs.lstatSync(settingsPath, { throwIfNoEntry: false })) {
     writeFileAtomic(settingsPath, JSON.stringify({ permissions: { allow: [...CLAUDE_SDLC_ALLOW_RULES] } }, null, 2) + '\n');
     return;
   }
-  // Read through the existing path first; only touch the file when the legacy wildcard actually needs migrating.
   let parsed;
   try {
     parsed = JSON.parse(fs.readFileSync(settingsPath, 'utf8') || '{}');
@@ -654,27 +640,27 @@ function updateClaudeSettingsJson(settingsPath, warnings, baseRoot = null) {
     warnings.push(`Unreadable or malformed JSON in '${settingsPath}'; left untouched so user configuration is not lost.`);
     return;
   }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || (parsed.permissions !== undefined && (!parsed.permissions || typeof parsed.permissions !== 'object' || Array.isArray(parsed.permissions)))) {
+    warnings.push(`Non-object JSON structure in '${settingsPath}'; left untouched so user configuration is not lost.`);
+    return;
+  }
   const allow = parsed?.permissions?.allow;
-  if (!Array.isArray(allow) || !allow.includes(LEGACY_CLAUDE_WILDCARD)) return;
+  const hasLegacy = Array.isArray(allow) && allow.includes(LEGACY_CLAUDE_WILDCARD);
+  const missingAllowArray = allow === undefined || allow === null;
+  if (!hasLegacy && !missingAllowArray && !force) return;
   const target = resolveUserFileTarget(settingsPath, baseRoot, warnings, { onOutside: 'skip' });
   if (!target) return;
-  const kept = allow.filter((r) => r !== LEGACY_CLAUDE_WILDCARD);
-  parsed.permissions.allow = [...kept, ...CLAUDE_SDLC_ALLOW_RULES.filter((r) => !kept.includes(r))];
+  const kept = Array.isArray(allow) ? allow.filter((r) => r !== LEGACY_CLAUDE_WILDCARD) : [];
+  parsed.permissions = { ...(parsed.permissions || {}), allow: [...kept, ...CLAUDE_SDLC_ALLOW_RULES.filter((r) => !kept.includes(r))] };
   writeFileAtomic(target, JSON.stringify(parsed, null, 2) + '\n');
-  warnings.push(`Replaced legacy '${LEGACY_CLAUDE_WILDCARD}' in '${settingsPath}' with read/measure-only rules; approvals now prompt.`);
+  if (hasLegacy) {
+    warnings.push(`Replaced legacy '${LEGACY_CLAUDE_WILDCARD}' in '${settingsPath}' with read/measure-only rules; approvals now prompt.`);
+  }
 }
 
 export async function installFramework({
-  targetDir = '.',
-  sourceRoot = PACKAGE_ROOT,
-  agents = null,
-  globalMode = false,
-  homeDir = null,
-  force = false,
-  yes = false,
-  input = null,
-  output = null,
-  fsImpl = fs
+  targetDir = '.', sourceRoot = PACKAGE_ROOT, agents = null, globalMode = false,
+  homeDir = null, force = false, yes = false, input = null, output = null, fsImpl = fs
 } = {}) {
   const absTarget = path.resolve(targetDir);
   const absSource = path.resolve(sourceRoot);
@@ -710,25 +696,17 @@ export async function installFramework({
       for (const skillId of CANONICAL_SKILLS) {
         const raw = readFileSafe(path.join(absSource, '.agent/skills', skillId, 'SKILL.md'));
         if (!raw) continue;
-        safeWriteFile(
-          path.join(dstBase, skillId, 'SKILL.md'),
-          adaptSkillContent(raw, agent, { globalEnginePath })
-        );
+        safeWriteFile(path.join(dstBase, skillId, 'SKILL.md'), adaptSkillContent(raw, agent, { globalEnginePath }));
+        const oaiRaw = readFileSafe(path.join(absSource, '.agent/skills', skillId, 'agents/openai.yaml'));
+        if (oaiRaw && agent === 'codex') safeWriteFile(path.join(dstBase, skillId, 'agents/openai.yaml'), oaiRaw);
       }
       if (agent === 'claude') {
         upsertMarkedRulesFile(path.join(resolvedHome, '.claude/CLAUDE.md'), rulesBlock, resolvedHome, warnings);
-        updateClaudeSettingsJson(path.join(resolvedHome, '.claude/settings.json'), warnings, resolvedHome);
+        updateClaudeSettingsJson(path.join(resolvedHome, '.claude/settings.json'), warnings, resolvedHome, { force });
       }
     }
 
-    return {
-      success: errors.length === 0,
-      globalMode: true,
-      homeDir: resolvedHome,
-      agents: selectedAgents,
-      warnings,
-      errors
-    };
+    return { success: errors.length === 0, globalMode: true, homeDir: resolvedHome, agents: selectedAgents, warnings, errors };
   }
 
   // Local repository installation
@@ -745,6 +723,11 @@ export async function installFramework({
     if (fileExists(srcSkillPath) && srcSkillPath !== dstSkillPath) {
       safeWriteFile(dstSkillPath, fs.readFileSync(srcSkillPath, 'utf8'), undefined, absTarget);
     }
+    const srcOaiPath = path.join(absSource, '.agent/skills', skillId, 'agents/openai.yaml');
+    const dstOaiPath = path.join(absTarget, '.agent/skills', skillId, 'agents/openai.yaml');
+    if (fileExists(srcOaiPath) && srcOaiPath !== dstOaiPath) {
+      safeWriteFile(dstOaiPath, fs.readFileSync(srcOaiPath, 'utf8'), undefined, absTarget);
+    }
   }
 
   // Never silently replace an existing config: invalid ones are left untouched unless --force (which backs up first).
@@ -756,7 +739,7 @@ export async function installFramework({
     if (fs.lstatSync(cfgPath).isSymbolicLink()) {
       warnings.push('Not writing a backup of the symlinked .agent/sdlc-config.json (its target is never copied into the repo); the symlink is replaced by a regular file.');
     } else {
-      writeFileAtomic(`${cfgPath}.bak`, fs.readFileSync(cfgPath)); // replaces, never follows, a planted .bak symlink
+      writeFileAtomic(`${cfgPath}.bak`, fs.readFileSync(cfgPath));
     }
   }
   if (!cfgExists || force) {
@@ -768,9 +751,7 @@ export async function installFramework({
 
   assertNoSymlinkAncestors(absTarget, path.join(absTarget, '.archlens'));
   scaffoldArchlensPolicy(absTarget, { force: false });
-  if (fileExists(path.join(absTarget, '.git'))) {
-    installHooks({ repoRoot: absTarget, fsImpl });
-  }
+  if (fileExists(path.join(absTarget, '.git'))) installHooks({ repoRoot: absTarget, fsImpl });
   assertNoSymlinkAncestors(absTarget, path.join(absTarget, '.github/workflows'));
   installCIWorkflow({ repoRoot: absTarget, force, upgradeLegacy: true });
 
@@ -784,10 +765,9 @@ export async function installFramework({
         if (raw) safeWriteFile(path.join(absTarget, '.claude/skills', skillId, 'SKILL.md'), adaptSkillContent(raw, 'claude'), undefined, absTarget);
       }
       upsertMarkedRulesFile(path.join(absTarget, 'CLAUDE.md'), rulesBlock, absTarget, warnings);
-      updateClaudeSettingsJson(path.join(absTarget, '.claude/settings.json'), warnings, absTarget);
+      updateClaudeSettingsJson(path.join(absTarget, '.claude/settings.json'), warnings, absTarget, { force });
     } else if (agent === 'cursor') {
       pruneRetiredSkillsInDir(path.join(absTarget, '.cursor/skills'), absTarget);
-      // Remove legacy duplicate per-skill .mdc files
       const rulesDir = path.join(absTarget, '.cursor/rules');
       assertNoSymlinkAncestors(absTarget, rulesDir);
       if (fileExists(rulesDir)) {
@@ -810,18 +790,13 @@ export async function installFramework({
       for (const skillId of CANONICAL_SKILLS) {
         const raw = readFileSafe(path.join(absTarget, '.agent/skills', skillId, 'SKILL.md'));
         if (raw) safeWriteFile(path.join(absTarget, '.codex/skills', skillId, 'SKILL.md'), adaptSkillContent(raw, 'codex'), undefined, absTarget);
+        const oaiRaw = readFileSafe(path.join(absTarget, '.agent/skills', skillId, 'agents/openai.yaml'));
+        if (oaiRaw) safeWriteFile(path.join(absTarget, '.codex/skills', skillId, 'agents/openai.yaml'), oaiRaw, undefined, absTarget);
       }
     } else if (agent === 'copilot') {
       upsertMarkedRulesFile(path.join(absTarget, '.github/copilot-instructions.md'), rulesBlock, absTarget, warnings);
     }
   }
 
-  return {
-    success: errors.length === 0,
-    globalMode: false,
-    targetDir: absTarget,
-    agents: selectedAgents,
-    warnings,
-    errors
-  };
+  return { success: errors.length === 0, globalMode: false, targetDir: absTarget, agents: selectedAgents, warnings, errors };
 }
