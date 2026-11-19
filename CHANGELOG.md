@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-19
+
+### Added
+- **Enriched Canonical 6-Skill Suite (`ADR-022`, #152)**: Upgraded all 6 canonical `sdlc*` skills (`39–53` lines each, zero new skill directories, zero runtime dependencies) with Socratic decision-tree discovery + `GLOSSARY.md` ubiquitous-language maintenance (`sdlc-spec`), dual-format ADR workflows (`sdlc-adr`), vertical tracer-bullet Red-Green-Refactor slices + reproduce-first bug diagnosis + expand-contract wide-refactor sequencing (`sdlc-tdd`), orthogonal 2-axis cold review (`sdlc-gate`), `--base` multi-worktree slice orchestration (`sdlc-flow`), and user-only `disable-model-invocation: true` CLI routing (`sdlc`).
+- **Dual-Format ADR Support (`ADR-NNN` + MADR `NNNN-slug.md`, `ADR-022`)**: `listADRs`, `resolveNextAdrId`, `decideADR`, `checkSpecDrift`, and `computeAlignmentHashes` now index, collision-check, stamp, and hash standard MADR `docs/adr/NNNN-slug.md` records alongside canonical `ADR-NNN-*.md` files without numbering collisions (treating frontmatter-less MADR files as `informational` and mapping `status: proposed` to `pending_approval`).
+- **Integration-Branch Worktree Slices (`sdlc begin --base`)**: Added `--base <branch>` to `sdlc begin`, persisting `session.baseBranch` and propagating it automatically across `drift`, `test --affected-only`, `coverage`, `mutation`, `review plan`, `pr-body`, and `gate` for parallel stacked worktree slices.
+- **Structured PR Evidence & Merge-Danger Summary (`sdlc pr-body` / `sdlc review pr-body`)**: Generates a Markdown PR body combining changed-file scope, measured diff coverage/mutation + Stage 7 receipt proof (preserving metrics across post-receipt `docs/AUDIT_CHAIN.jsonl` commits), `One-Way` vs. `Two-Way` door classification, and `Blast Radius`.
+- **Multi-Target Skill Metadata Parity (`agents/openai.yaml` & `.scratch/`)**: Added `agents/openai.yaml` across all 6 canonical skills (installed by `installFramework` and verified by `auditSkills` rule `OAI1`), explicit 6-skill array registration in `.claude-plugin/plugin.json` (`PLG1`), and `.scratch/` in managed `.gitignore` entries.
+
+### Changed
+- **Orthogonal 2-Axis Cold Review (`sdlc review plan`)**: `code`-mode review plans now consistently dispatch two independent read-only subagent prompts — Axis 1 (`Spec Fidelity & Peer Reviewer`) and Axis 2 (`Architecture & Security Reviewer`) — with `contextPointers` (`PRODUCT.md`, `GLOSSARY.md`, `CONTRIBUTING.md`, `.archlens/policy.json`, `docs/specs/*.md`, and changed ADRs).
+- **Hook-Only `.claude/settings.json` Allowlist Merge (`sdlc init`)**: `updateClaudeSettingsJson` now merges the read-only SDLC CLI allowlist into hook-only `.claude/settings.json` files while continuing to preserve pre-existing user-curated `permissions.allow` arrays byte-identically unless `--force` is passed.
+
+### Fixed
+- **CLI `--version` & `--help` Package Resolution (`sdlc-engine.mjs`)**: Fixed `readPackageVersion` root resolution across `.agent/scripts/` and global `~/.agentic-sdlc/scripts/` layouts, guarding `pkg.name === '@fmatar/agentic-sdlc'` (so vendored consumer `package.json` versions never leak) with `0.2.0` fallback.
+- **Git 2.38/2.39 Branch Checkout Compatibility (`beginSession`)**: Replaced `git checkout --end-of-options` (unsupported on `git checkout` in Git 2.38/2.39) with portable `refs/heads/<branch>` verification, `['checkout', targetBranch, '--']`, remote-only `--track origin/<branch>`, and `['checkout', '-b', targetBranch, resolvedBase, '--']`.
+- **CI Test-Harness `GITHUB_BASE_REF` Isolation (#151)**: Stripped outer `GITHUB_BASE_REF` in `tests/helpers/test-harness.mjs` and `tests/helpers/stryker-node-runner.mjs` so nested GitHub Actions PR runs never leak the outer pull request's base ref into isolated temp-repo unit and mutation tests.
+
+### Security
+- **Frontmatter-Scoped `decideADR` Stamping & Non-Object Settings Guard (`ADR-022`, #152)**: Scoped `decideADR` status/metadata updates strictly to the leading YAML frontmatter block using callback replacements (preventing `$'` backreference injection or accidental body rewrites) and hardened `updateClaudeSettingsJson` against valid non-object JSON payloads (`null`, arrays, primitives).
+
 ## [0.1.0] - 2026-11-18
 
 ### Added
