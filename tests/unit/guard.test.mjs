@@ -718,6 +718,36 @@ describe('Ring 2: lib/guard.mjs', () => {
       assert.equal(postRecPr.mode, 'docs-only');
       assert.ok(postRecPr.receiptId);
       assert.doesNotMatch(postRecPr.markdown, /pending gate/);
+
+      // Code-mode post-receipt commit reads diffCoveragePct & mutationPct from verified receipt
+      const codeRepo = createTempGitRepo();
+      cleanups.push(codeRepo.cleanup);
+      fs.mkdirSync(path.join(codeRepo.dir, '.agent'), { recursive: true });
+      fs.mkdirSync(path.join(codeRepo.dir, 'tests'), { recursive: true });
+      fs.writeFileSync(
+        path.join(codeRepo.dir, 'tests/c.test.mjs'),
+        "import fs from 'node:fs';\nfs.mkdirSync('coverage', { recursive: true });\nfs.writeFileSync('coverage/lcov.info', 'SF:mod.mjs\\nDA:1,1\\nLF:1\\nLH:1\\nend_of_record\\n', 'utf8');\n",
+        'utf8'
+      );
+      fs.writeFileSync(
+        path.join(codeRepo.dir, '.agent/sdlc-config.json'),
+        JSON.stringify({ version: '0.1.0', archlens: { enabled: false }, modules: [{ name: 'root', path: '.', commands: { coverage: `${process.execPath} tests/c.test.mjs`, coverageFile: 'coverage/lcov.info' }, thresholds: { diffCoverage: 85, mutationScore: null } }] }),
+        'utf8'
+      );
+      git(codeRepo.dir, 'add', '.agent/sdlc-config.json', 'tests/c.test.mjs');
+      git(codeRepo.dir, 'commit', '-q', '-m', 'chore: base');
+      git(codeRepo.dir, 'branch', '-f', 'main', 'HEAD');
+      beginSession({ issueId: '74', title: 'Code Receipt PR', checkout: true, repoRoot: codeRepo.dir });
+      fs.writeFileSync(path.join(codeRepo.dir, 'mod.mjs'), 'export const v = 1;\n', 'utf8');
+      git(codeRepo.dir, 'add', 'mod.mjs');
+      git(codeRepo.dir, 'commit', '-q', '-m', 'feat: add mod');
+      assert.equal(runGate(codeRepo.dir, { noCache: true }).passed, true);
+      assert.equal(recordReviewVerdict({ verdict: 'approve', reviewer: '@sdlc-gate', repoRoot: codeRepo.dir }).success, true);
+      git(codeRepo.dir, 'add', 'docs/AUDIT_CHAIN.jsonl');
+      git(codeRepo.dir, 'commit', '-q', '-m', 'chore(audit): sign code receipt');
+      const codePostRecPr = buildPrSummary(codeRepo.dir);
+      assert.equal(codePostRecPr.mode, 'code');
+      assert.match(codePostRecPr.markdown, /Diff Coverage `100\.0%`/);
     });
   });
 });

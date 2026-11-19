@@ -770,8 +770,8 @@ export function buildPrSummary(repoRoot = '.', { baseBranch = null } = {}) {
   const hasHighScope = drift.triggers.some((t) => t.scope === 'contract' || t.scope === 'architectural');
   const blastRadius = hasHighScope || modifiedFiles.length > 12 ? 'High' : drift.triggers.length > 0 || modifiedFiles.length > 4 ? 'Medium' : 'Low';
   const fileTree = modifiedFiles.length > 0 ? modifiedFiles.slice(0, 20).map((f) => `- \`${f}\``).join('\n') : '- _(no modified files)_';
-  const covNum = typeof lastGate?.diffCoveragePct === 'number' ? lastGate.diffCoveragePct : typeof rec?.diffCoverage === 'number' ? rec.diffCoverage : null;
-  const mutNum = typeof lastGate?.mutationPct === 'number' ? lastGate.mutationPct : typeof rec?.mutationScore === 'number' ? rec.mutationScore : null;
+  const covNum = typeof lastGate?.diffCoveragePct === 'number' ? lastGate.diffCoveragePct : typeof rec?.diffCoveragePct === 'number' ? rec.diffCoveragePct : null;
+  const mutNum = typeof lastGate?.mutationPct === 'number' ? lastGate.mutationPct : typeof rec?.mutationPct === 'number' ? rec.mutationPct : null;
   const covText = covNum !== null ? `${covNum.toFixed(1)}%` : mode === 'docs-only' ? 'n/a (docs-only)' : 'pending gate';
   const mutText = mutNum !== null ? `${mutNum.toFixed(1)}%` : lastGate?.mutationStatus || rec?.mutationStatus || (mode === 'docs-only' ? 'n/a (docs-only)' : 'pending gate');
 
