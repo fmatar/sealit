@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { fileExists, resolveInsideRepo, runConfiguredCommand } from './lib/git.mjs';
 import { addExemption, listExemptions, loadConfig, validateConfigFile } from './lib/config.mjs';
-import { issueGateReceipt, verifyAuditChain, verifyGateReceipt } from './lib/receipt.mjs';
+import { issueGateReceipt, readActiveSession, verifyAuditChain, verifyGateReceipt } from './lib/receipt.mjs';
 import { checkArchRings, checkSpecDrift, createADR, decideADR, listADRs } from './lib/drift.mjs';
 import {
   measureModuleCoverage,
@@ -15,6 +15,7 @@ import {
 import {
   applyBranchProtection,
   beginSession,
+  buildPrSummary,
   buildReviewPlan,
   endSession,
   getSessionStatus,
@@ -51,7 +52,7 @@ Onboarding & Health:
   skill-audit                                           Audit canonical skills in .agent/skills/
 
 Branch & Alignment:
-  begin [--issue <id>] [--title "<desc>"] [--type <feat|fix|chore>] [--checkout] [--worktree <dir>]
+  begin [--issue <id>] [--title "<desc>"] [--type <feat|fix|chore>] [--base <branch>] [--checkout] [--worktree <dir>]
   status                                                Show active session, diff mode & gate readiness
   drift [--base <branch>]                               Verify spec, dependency, contract & ring alignment
   adr <create|list|decide> [flags]                      Manage Architecture Decision Records in docs/adr/
@@ -62,7 +63,8 @@ Verification & Cryptographic Receipt:
   mutation [--full] [--no-cache]                        Run diff-scoped or full mutation check
   exemption <add|list> [--mutant <id> --file <p> --reason "<why>"]
   gate [--no-cache] [--online]                          Single verification path -> writes lastGate record
-  review <plan|record> [--verdict <approve|request-changes>] [--reviewer <id>] [--pr <n>]
+  review <plan|record|pr-body> [--verdict <approve|request-changes>] [--reviewer <id>] [--pr <n>]
+  pr-body [--base <branch>]                             Generate PR summary, measured proof & merge danger
   receipt [--docs-only]                                 Sign HEAD + treeSha + specHash Stage 7 receipt
   verify [--sha <sha>] [--branch <name>] [--chain-only] Verify AUDIT_CHAIN.jsonl & signed merge receipt
   end [--issue <id>]                                    Close active session after merge`;
@@ -229,7 +231,7 @@ export async function runCLI(customArgs = null, customConfigPath = null, repoRoo
       if (action === 'begin') {
         const p = parseFlags(subArgs, {
           bools: ['--checkout', '--local'],
-          values: ['--issue', '--title', '--type', '--branch', '--worktree'],
+          values: ['--issue', '--title', '--type', '--branch', '--base', '--worktree'],
           deprecatedBools: ['--ui', '--create-issue']
         });
         if (p.error) return failInvalid(result, p.error, p.exitCode);
@@ -239,6 +241,7 @@ export async function runCLI(customArgs = null, customConfigPath = null, repoRoo
           title: p.flags['--title'] || p.positionals[1] || 'work',
           type: p.flags['--type'] || 'feat',
           branch: p.flags['--branch'] || null,
+          baseBranch: p.flags['--base'] || null,
           checkout: Boolean(p.flags['--checkout']),
           worktree: p.flags['--worktree'] || null,
           repoRoot
@@ -280,7 +283,7 @@ export async function runCLI(customArgs = null, customConfigPath = null, repoRoo
       const sess = getSessionStatus(repoRoot);
       const drift = checkSpecDrift({
         ticketId: p.flags['--ticket'] || sess.session?.issueId || null,
-        baseBranch: p.flags['--base'] || null,
+        baseBranch: p.flags['--base'] || sess.session?.baseBranch || null,
         repoRoot
       });
       const { config } = loadConfig(repoRoot, customConfigPath);
@@ -344,9 +347,10 @@ export async function runCLI(customArgs = null, customConfigPath = null, repoRoo
       const p = parseFlags(cmdArgs, { bools: ['--affected-only'] });
       if (p.error) return failInvalid(result, p.error, p.exitCode);
       const { config } = loadConfig(repoRoot, customConfigPath);
+      const sessBase = readActiveSession(repoRoot)?.baseBranch || null;
       const usesNodeTest = config.modules.length === 1 && /\bnode\b.*--test\b/.test(String(config.modules[0]?.commands?.test || ''));
       if (p.flags['--affected-only'] && usesNodeTest) {
-        const affected = resolveAffectedTests(repoRoot);
+        const affected = resolveAffectedTests(repoRoot, { baseBranch: sessBase });
         if (affected.length > 0) {
           const safeTestPaths = affected.map((f) => (f.startsWith('./') ? f : `./${f}`));
           runConfiguredCommand([process.execPath, '--test', '--test-reporter=dot', ...safeTestPaths], {
@@ -370,9 +374,10 @@ export async function runCLI(customArgs = null, customConfigPath = null, repoRoo
       const p = parseFlags(cmdArgs, { bools: ['--no-cache'] });
       if (p.error) return failInvalid(result, p.error, p.exitCode);
       const { config } = loadConfig(repoRoot, customConfigPath);
+      const sessBase = readActiveSession(repoRoot)?.baseBranch || null;
       const reports = config.modules.map((mod) => ({
         module: mod.name,
-        ...measureModuleCoverage(repoRoot, mod, { verbose: verbose && !jsonMode })
+        ...measureModuleCoverage(repoRoot, mod, { verbose: verbose && !jsonMode, baseBranch: sessBase })
       }));
       result.coverage = reports;
       result.success = reports.every((r) => r.passed);
@@ -383,12 +388,14 @@ export async function runCLI(customArgs = null, customConfigPath = null, repoRoo
       const p = parseFlags(cmdArgs, { bools: ['--full', '--no-cache'] });
       if (p.error) return failInvalid(result, p.error, p.exitCode);
       const { config } = loadConfig(repoRoot, customConfigPath);
+      const sessBase = readActiveSession(repoRoot)?.baseBranch || null;
       const reports = config.modules.map((mod) => ({
         module: mod.name,
         ...measureModuleMutation(repoRoot, mod, {
           full: Boolean(p.flags['--full']),
           noCache: Boolean(p.flags['--no-cache']),
           verbose: verbose && !jsonMode,
+          baseBranch: sessBase,
           onProgress: progressFn
         })
       }));
@@ -466,7 +473,21 @@ export async function runCLI(customArgs = null, customConfigPath = null, repoRoo
         if (!rec.success) result.error = rec.reason;
         return result;
       }
-      return failInvalid(result, `Unknown review subcommand '${sub}'. Expected 'plan' or 'record'.`);
+      if (sub === 'pr-body') {
+        const p = parseFlags(subArgs, { values: ['--base'] });
+        if (p.error) return failInvalid(result, p.error, p.exitCode);
+        result.command = 'pr-body';
+        result.prBody = buildPrSummary(repoRoot, { baseBranch: p.flags['--base'] || null });
+        return result;
+      }
+      return failInvalid(result, `Unknown review subcommand '${sub}'. Expected 'plan', 'record', or 'pr-body'.`);
+    }
+
+    case 'pr-body': {
+      const p = parseFlags(cmdArgs, { values: ['--base'] });
+      if (p.error) return failInvalid(result, p.error, p.exitCode);
+      result.prBody = buildPrSummary(repoRoot, { baseBranch: p.flags['--base'] || null });
+      return result;
     }
 
     case 'receipt': {
@@ -671,6 +692,8 @@ export function formatCLIResult(cmd, res = {}) {
         .join('\n') || (res.success ? 'OK' : 'Failed');
     case 'test':
       return res.tests?.mode === 'affected' ? 'OK (advisory: includes uncommitted changes)' : res.success ? 'OK' : 'Failed';
+    case 'pr-body':
+      return res.prBody?.markdown || '';
     case 'receipt':
       return `Issued Stage 7 receipt ${res.receipt?.receipt?.receiptId}`;
     case 'verify':

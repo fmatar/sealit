@@ -1,0 +1,5 @@
+interface:
+  display_name: "SDLC Command Router"
+  short_description: "Direct 1:1 router for explicit /sdlc CLI commands (doctor, begin, drift, gate, pr-body, verify, end)."
+policy:
+  allow_implicit_invocation: false

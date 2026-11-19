@@ -259,7 +259,34 @@ describe('Ring 3: sdlc-engine.mjs CLI registry', () => {
       assert.match(formatCLIResult('adr', { adrs: [] }), /none/);
       assert.equal((await runCLI(['adr', 'create'], null, dir)).success, false);
       assert.equal((await runCLI(['audit', 'verify'], null, dir)).success, true);
+
+      const prBodyRes = await runCLI(['pr-body'], null, dir);
+      assert.equal(prBodyRes.success, true);
+      assert.match(formatCLIResult('pr-body', prBodyRes), /## Merge Danger/);
+      assert.equal(formatCLIResult('pr-body', {}), '');
+      assert.equal(cliExitCode(await runCLI(['pr-body', '--bad-flag'], null, dir)), 2);
+      assert.equal(cliExitCode(await runCLI(['review', 'pr-body', '--bad-flag'], null, dir)), 2);
+      assert.equal((await runCLI(['review', 'pr-body'], null, dir)).success, true);
+
       assert.equal((await runCLI(['stage', 'complete'], null, dir)).success, true);
+
+      const baseSub = await runCLI(['begin', '--issue', '203', '--title', 'Sub Slice', '--base', 'develop', '--checkout'], null, dir);
+      assert.equal(baseSub.success, true);
+      assert.equal(baseSub.begin.session.baseBranch, 'develop');
+
+      // Integration branch with unapproved PRODUCT.md on base: child session with --base <integ> sees clean drift vs <integ>, while explicit --base develop overrides
+      fs.writeFileSync(path.join(dir, 'PRODUCT.md'), '# Epic Spec on Integration\n', 'utf8');
+      git(dir, 'add', 'PRODUCT.md');
+      git(dir, 'commit', '--no-verify', '-q', '-m', 'docs: integration base spec');
+      const integBranch = baseSub.begin.branch;
+      const childSub = await runCLI(['begin', '--issue', '204', '--title', 'Child Slice', '--base', integBranch, '--checkout'], null, dir);
+      assert.equal(childSub.success, true);
+      const childDrift = await runCLI(['drift'], null, dir);
+      assert.equal(childDrift.success, true, 'sdlc drift must diff against session.baseBranch rather than develop');
+      assert.equal((await runCLI(['drift', '--base', 'develop'], null, dir)).success, false);
+      assert.equal((await runCLI(['pr-body'], null, dir)).prBody.baseBranch, integBranch);
+      assert.equal((await runCLI(['pr-body', '--base', 'develop'], null, dir)).prBody.baseBranch, 'develop');
+      assert.equal((await runCLI(['review', 'pr-body', '--base', 'develop'], null, dir)).prBody.baseBranch, 'develop');
     });
   });
 });

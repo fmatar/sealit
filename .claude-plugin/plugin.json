@@ -1,6 +1,13 @@
 {
   "name": "agentic-sdlc",
   "version": "0.1.0",
-  "description": "Agentic SDLC v0.1.0 Alignment + Proof Kernel: 6 canonical skills for spec/ADR alignment, TDD coverage/mutation gates, and signed merge receipts",
-  "skills": "./.agent/skills"
+  "description": "Agentic SDLC Alignment + Proof Kernel: 6 canonical skills for spec/ADR alignment, vertical TDD coverage/mutation gates, 2-axis cold review, and signed merge receipts",
+  "skills": [
+    "./.agent/skills/sdlc",
+    "./.agent/skills/sdlc-spec",
+    "./.agent/skills/sdlc-adr",
+    "./.agent/skills/sdlc-tdd",
+    "./.agent/skills/sdlc-gate",
+    "./.agent/skills/sdlc-flow"
+  ]
 }

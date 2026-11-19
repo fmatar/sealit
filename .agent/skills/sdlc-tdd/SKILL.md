@@ -1,35 +1,43 @@
 ---
 name: sdlc-tdd
-description: "Use when writing tests, fixing bugs, or verifying diff coverage and mutation thresholds against sdlc-config.json. Not for pure documentation edits."
+description: "Use when implementing features, diagnosing bugs, writing tests, or verifying diff coverage and mutation kill thresholds against sdlc-config.json."
 tools: read_file, write_file, edit_file, run_command
 ---
 
-# Test-Driven Development & Measured Verification (`sdlc-tdd`)
+# Vertical Tracer-Bullet TDD & Bug Diagnosis (`sdlc-tdd`)
 
 ## When to use / When NOT to use
-- **Use when** implementing features or bug fixes via Red-Green-Refactor TDD, or measuring diff line coverage and diff mutation scores.
+- **Use when** building vertical slices or fixing bugs via Red-Green TDD, diagnosing regressions, or measuring diff line coverage and diff-scoped mutation scores.
 - **Not for** pure Markdown documentation edits (`docs-only` mode).
 
-## TDD Rules
-1. **Red -> Green -> Refactor**: Write a minimal failing behavioral test first, watch it fail for the expected reason, write the smallest implementation that passes, then clean up while respecting `.archlens/policy.json` concentric rings.
-2. **Real Behavior Over Mocks**: Test real inputs, outputs, and isolated temp repos/files; avoid tautological assertions or unasserted smoke calls.
-3. **Config-Driven Bars**: Read `thresholds.diffCoverage` and `thresholds.mutationScore` from `.agent/sdlc-config.json`.
+## Vertical TDD Discipline
+1. **One Vertical Tracer Bullet at a Time (Ban Horizontal Slicing)**: Never write all tests in bulk before writing all production code. Execute **one behavior test at the public module seam $\rightarrow$ watch it fail for the expected reason $\rightarrow$ write the minimal code to pass $\rightarrow$ repeat**, letting each cycle inform the next while respecting `.archlens/policy.json` Concentric Rings.
+2. **Test the Public Seam, Not Private Internals**: Callers and tests cross the same module interface. Prefer real isolated temp repos/files and in-memory adapters at real seams over heavy mock wiring.
+3. **Eliminate Test Anti-Smells**:
+   - **No tautological assertions**: Never recompute expected values using the same formula as the implementation (`expect(fn(x)).toBe(x + 1)` derived from reading `fn`); derive expected literals independently from the spec or worked examples.
+   - **No unasserted smoke calls**: Every test must assert observable outputs, state transitions, or fail-closed error paths capable of killing surviving mutants.
 
-## Steps
+## Bug & Regression Diagnosis Loop (`type=fix`)
+For non-trivial bugs or flaky/perf regressions, follow this strict sequence before editing production logic:
+1. **Reproduce Red**: Build a deterministic test or minimal reproduction harness that fails reliably on the bug.
+2. **Minimize & Hypothesize**: Narrow the failing input to the smallest case, form a falsifiable root-cause hypothesis, and instrument if needed (remove temporary logs before committing).
+3. **Minimal Fix & Keep Regression Test**: Apply the smallest root-cause fix that turns the reproduction test green without breaking adjacent invariants.
+
+## Measured Verification Steps
 
 ```bash
 # 1. Fast inner loop on diff-affected unit suites
 node .agent/scripts/sdlc-engine.mjs test --affected-only
 
-# 2. Measure fresh diff line coverage
+# 2. Measure fresh diff line coverage against thresholds.diffCoverage
 node .agent/scripts/sdlc-engine.mjs coverage
 
-# 3. Measure diff-scoped (or --full) mutation score when configured
+# 3. Measure diff-scoped (or --full) mutation kills against thresholds.mutationScore
 node .agent/scripts/sdlc-engine.mjs mutation
 ```
 
 ## Confirm with user before
-- Adding a mutant exemption (`node .agent/scripts/sdlc-engine.mjs exemption add --mutant "<id>" --file "<path>" --reason "<why>"`).
+- Adding a mutant exemption (`node .agent/scripts/sdlc-engine.mjs exemption add --mutant "<id>" --file "<path>" --reason "<why>"`). Note: new exemptions stay `pendingExemptions` until merged to the base branch.
 
 ## Done when
-All tests pass deterministically and configured `coverage` and `mutation` thresholds in `.agent/sdlc-config.json` pass cleanly.
+All unit and regression tests pass deterministically at public seams, and configured `coverage` and `mutation` thresholds in `.agent/sdlc-config.json` pass cleanly.
