@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **First-adoption gate & Quickstart onboarding (`ADR-023`)**: Excluded vendored `.agent/scripts/**` from diff coverage and default/unmutated Stryker mutation scope in consumer repositories (`!isEngineOwnerRepo`), evaluated LCOV `diffLineCoverage` to `100%` when zero consumer source files changed, added `coverage/` and `reports/` to managed `.gitignore` entries, made `scaffoldArchlensPolicy` layout-aware (`levels: []` with `.agent` omitted unless `src/{domain,application,adapters,entrypoints}` exists), and provisioned `.agent/.receipt-key` (`0600`, untracked) during local `sdlc init` exclusively on first adoption.
+
 ## [0.1.0] - 2026-11-18
 
 ### Added
