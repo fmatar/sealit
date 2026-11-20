@@ -799,4 +799,56 @@ describe('Ring 2: lib/install.mjs', () => {
     assert.deepEqual(pc.order, ['domain', 'application', 'adapters', 'entrypoints']);
     assert.equal(pc.levels.length, 4);
   });
+
+  it('init creates a receipt key only on first adoption', async () => {
+    const src = createSourceBundleFixture();
+    cleanups.push(src.cleanup);
+    const hadEnv = Object.prototype.hasOwnProperty.call(process.env, 'SDLC_RECEIPT_KEY');
+    const prevEnv = process.env.SDLC_RECEIPT_KEY;
+    delete process.env.SDLC_RECEIPT_KEY;
+
+    try {
+      const fresh = createTempGitRepo();
+      cleanups.push(fresh.cleanup);
+      const r1 = await installFramework({ targetDir: fresh.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+      assert.equal(r1.receiptKeyCreated, true);
+      const key = path.join(fresh.dir, '.agent/.receipt-key');
+      if (process.platform !== 'win32') assert.equal(fs.statSync(key).mode & 0o777, 0o600);
+      assert.equal(git(fresh.dir, 'check-ignore', '-q', '.agent/.receipt-key').status, 0);
+      const before = fs.readFileSync(key, 'utf8');
+      assert.ok(before.trim().length >= 32);
+
+      const r2 = await installFramework({ targetDir: fresh.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+      assert.equal(r2.receiptKeyCreated, false);
+      assert.equal(fs.readFileSync(key, 'utf8'), before);
+
+      // Teammate repo with committed .agent/sdlc-config.json and no local key
+      const team = createTempGitRepo();
+      cleanups.push(team.cleanup);
+      fs.mkdirSync(path.join(team.dir, '.agent'), { recursive: true });
+      fs.writeFileSync(
+        path.join(team.dir, '.agent/sdlc-config.json'),
+        JSON.stringify({ version: '0.1.0', modules: [{ name: 'root', path: '.', commands: {}, thresholds: { diffCoverage: null, mutationScore: null } }] }),
+        'utf8'
+      );
+      git(team.dir, 'add', '.agent/sdlc-config.json');
+      git(team.dir, 'commit', '-qm', 'chore: existing config');
+      const rTeam = await installFramework({ targetDir: team.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+      assert.equal(rTeam.receiptKeyCreated, false);
+      assert.equal(fs.existsSync(path.join(team.dir, '.agent/.receipt-key')), false);
+      assert.equal(runDoctor({ repoRoot: team.dir }).receiptKey.ciSecretHint, null);
+
+      // Env key present during first adoption -> no key file created
+      process.env.SDLC_RECEIPT_KEY = 'env-provided-secret';
+      const envRepo = createTempGitRepo();
+      cleanups.push(envRepo.cleanup);
+      const rEnv = await installFramework({ targetDir: envRepo.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+      assert.equal(rEnv.receiptKeyCreated, false);
+      assert.equal(fs.existsSync(path.join(envRepo.dir, '.agent/.receipt-key')), false);
+      assert.equal(runDoctor({ repoRoot: envRepo.dir }).receiptKey.ciSecretHint, null);
+    } finally {
+      if (hadEnv) process.env.SDLC_RECEIPT_KEY = prevEnv;
+      else delete process.env.SDLC_RECEIPT_KEY;
+    }
+  });
 });

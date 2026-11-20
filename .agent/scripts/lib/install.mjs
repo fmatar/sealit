@@ -19,7 +19,7 @@ import {
   upgradeConfigToV010,
   validateConfigFile
 } from './config.mjs';
-import { inspectReceiptKeyStatus, verifyAuditChain } from './receipt.mjs';
+import { inspectReceiptKeyStatus, loadReceiptKey, verifyAuditChain } from './receipt.mjs';
 import { inspectHooks, installHooks } from './guard.mjs';
 
 export const CANONICAL_SKILLS = Object.freeze(['sdlc', 'sdlc-spec', 'sdlc-adr', 'sdlc-tdd', 'sdlc-gate', 'sdlc-flow']);
@@ -575,7 +575,7 @@ export function runDoctor({ repoRoot = '.', fix = false, gitVersionRaw = null } 
     }
   }
   const keyInfo = inspectReceiptKeyStatus(absRoot);
-  const ciSecretHint = wfExists
+  const ciSecretHint = wfExists && keyInfo.source === 'file' && keyInfo.usable
     ? "Provision CI secret with: tr -d '\\r\\n' < .agent/.receipt-key | gh secret set SDLC_RECEIPT_KEY"
     : null;
 
@@ -751,7 +751,10 @@ export async function installFramework({
 
   assertNoSymlinkAncestors(absTarget, path.join(absTarget, '.archlens'));
   scaffoldArchlensPolicy(absTarget, { force: false });
-  if (fileExists(path.join(absTarget, '.git'))) installHooks({ repoRoot: absTarget, fsImpl });
+  const hasGit = fileExists(path.join(absTarget, '.git'));
+  if (hasGit) installHooks({ repoRoot: absTarget, fsImpl });
+  const receiptKeyCreated = hasGit && !cfgExists && verifyAuditChain(absTarget).gateReceiptsCount === 0 && inspectReceiptKeyStatus(absTarget).source === 'none';
+  if (receiptKeyCreated) loadReceiptKey(absTarget, { create: true });
   assertNoSymlinkAncestors(absTarget, path.join(absTarget, '.github/workflows'));
   installCIWorkflow({ repoRoot: absTarget, force, upgradeLegacy: true });
 
@@ -798,5 +801,5 @@ export async function installFramework({
     }
   }
 
-  return { success: errors.length === 0, globalMode: false, targetDir: absTarget, agents: selectedAgents, warnings, errors };
+  return { success: errors.length === 0, globalMode: false, targetDir: absTarget, agents: selectedAgents, receiptKeyCreated, warnings, errors };
 }
