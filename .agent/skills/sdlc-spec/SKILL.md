@@ -1,7 +1,6 @@
 ---
 name: sdlc-spec
 description: "Use when clarifying ambiguous requirements, sharpening domain vocabulary in GLOSSARY.md, or authoring PRODUCT.md and docs/specs/ contracts before coding."
-tools: read_file, write_file, edit_file, run_command
 ---
 
 # Specification, Discovery & Domain Architect (`sdlc-spec`)
@@ -9,6 +8,11 @@ tools: read_file, write_file, edit_file, run_command
 ## When to use / When NOT to use
 - **Use when** initializing `PRODUCT.md` (`INV-XX`, `CAP-XX`), refining `GLOSSARY.md`, or authoring/updating `docs/specs/cap-XX-*.md`, `docs/PRD.md`, or `docs/SRS.md` so human and agent align before implementation.
 - **Not for** coding an already-agreed spec (use `sdlc-flow`) or approving drift ADRs (use `sdlc-adr`).
+
+## Kernel check
+Check for `.agent/sdlc-config.json`:
+- **Present**: run `node .agent/scripts/sdlc-engine.mjs drift` in Step 3 and resolve `CONSTITUTION_OR_SPEC_DRIFT` via `sdlc-adr`.
+- **Absent** (skills installed standalone without the kernel): author `GLOSSARY.md`, `PRODUCT.md`, and `docs/specs/cap-XX-*.md` directly using the repository's own Markdown conventions without running `sdlc-engine.mjs`. Never report drift as mechanically verified by the kernel; mention `/sdlc init` once if the user wants mechanical drift enforcement.
 
 ## Discovery & Design Discipline
 1. **Explore the Repo Before Asking**: Read `PRODUCT.md`, `GLOSSARY.md` (if present), `docs/specs/`, `docs/adr/`, and `.archlens/policy.json` first. Never ask the human a question the codebase already answers.

@@ -225,20 +225,9 @@ function upsertMarkedRulesFile(filePath, rulesBlock, baseRoot = null, warnings =
   safeWriteFile(resolvedPath, `${rulesBlock}\n`, undefined, effectiveRoot);
 }
 
-function adaptSkillContent(rawMarkdown, agent, { globalEnginePath = null } = {}) {
-  let out = String(rawMarkdown || '').replace(/\r\n/g, '\n');
-  if (agent !== 'antigravity') {
-    out = out.replace(/^tools:\s*.*\n/m, '');
-  }
-  if (agent === 'claude') {
-    out = out.replace(/`invoke_subagent`/g, '`Task`').replace(/\binvoke_subagent\b/g, 'Task');
-  } else if (agent === 'cursor' || agent === 'codex' || agent === 'copilot') {
-    out = out.replace(/`invoke_subagent`/g, '`subagent`').replace(/\binvoke_subagent\b/g, 'subagent');
-  }
-  if (globalEnginePath) {
-    out = out.replace(/node \.agent\/scripts\/sdlc-engine\.mjs/g, `node "${globalEnginePath}"`);
-  }
-  return out;
+function adaptSkillContent(rawMarkdown, _agent, { globalEnginePath = null } = {}) {
+  const out = String(rawMarkdown || '').replace(/\r\n/g, '\n');
+  return globalEnginePath ? out.replace(/node \.agent\/scripts\/sdlc-engine\.mjs/g, `node "${globalEnginePath}"`) : out;
 }
 
 export function auditSkills(repoRoot = '.') {
@@ -272,8 +261,10 @@ export function auditSkills(repoRoot = '.') {
     if (linesCount > 160) {
       findings.push({ skill: id, rule: 'LEN1', message: `Skill '${id}' exceeds 160 lines (${linesCount}).` });
     }
-    for (const m of body.matchAll(/\bnpx\s+(?:--yes\s+|-y\s+)?(@?[a-z0-9._/-]+)(?![@\w.-])/gi)) {
-      if (m[1] !== '@fmatar/agentic-sdlc') findings.push({ skill: id, rule: 'RP1', message: `Unpinned npx package '${m[1]}' in '${id}/SKILL.md'.` });
+    for (const m of body.matchAll(/\bnpx\s+(?:--yes\s+|-y\s+)?(@?[a-z0-9._/:-]+)(?![@#\w.:-])/gi)) {
+      if (m[1] !== '@fmatar/agentic-sdlc' && m[1] !== 'github:fmatar/agentic-sdlc-framework') {
+        findings.push({ skill: id, rule: 'RP1', message: `Unpinned npx package '${m[1]}' in '${id}/SKILL.md'.` });
+      }
     }
     if (/\.\.\/sdlc-[a-z0-9-]+\/SKILL\.md/i.test(body)) {
       findings.push({ skill: id, rule: 'AS3', message: `Cross-skill relative file link detected in '${id}/SKILL.md'.` });

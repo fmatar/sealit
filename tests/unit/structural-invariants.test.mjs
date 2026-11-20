@@ -76,6 +76,16 @@ describe('v0.1.0 Structural & Governance Invariants', () => {
     assert.equal(skillsRes.passed, true, JSON.stringify(skillsRes.findings));
     assert.equal(skillsRes.skillsCount, CANONICAL_SKILLS.length);
 
+    for (const s of CANONICAL_SKILLS) {
+      const raw = fs.readFileSync(path.join(REPO_ROOT, `.agent/skills/${s}/SKILL.md`), 'utf8');
+      assert.doesNotMatch(raw, /^tools:/m, `Unexpected non-portable tools: frontmatter in ${s}`);
+      assert.doesNotMatch(raw, /invoke_subagent/, `Unexpected Antigravity-only invoke_subagent token in ${s}`);
+      assert.match(raw, /\.agent\/sdlc-config\.json/, `Expected kernel check on .agent/sdlc-config.json in ${s}`);
+      if (s === 'sdlc-gate' || s === 'sdlc-flow') {
+        assert.match(raw, /\/sdlc init/, `Expected /sdlc init stop-and-offer in ${s}`);
+      }
+    }
+
     const tracked = execFileSync('git', ['ls-files'], { cwd: REPO_ROOT, encoding: 'utf8' })
       .split('\n')
       .filter(Boolean);

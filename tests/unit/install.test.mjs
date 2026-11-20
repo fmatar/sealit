@@ -90,6 +90,20 @@ describe('Ring 2: lib/install.mjs', () => {
     assert.ok(badAudit.findings.some((f) => f.rule === 'FM2'));
     assert.ok(badAudit.findings.some((f) => f.rule === 'RP1'));
     assert.ok(badAudit.findings.some((f) => f.rule === 'AS3'));
+
+    // Canonical github:fmatar/agentic-sdlc-framework specifier produces zero RP1 findings while npx cowsay still triggers RP1
+    fs.writeFileSync(
+      path.join(srcDir, '.agent/skills/sdlc/SKILL.md'),
+      '---\nname: sdlc\ndescription: "Use when routing /sdlc commands."\n---\nRun `npx --yes github:fmatar/agentic-sdlc-framework init`.\n',
+      'utf8'
+    );
+    assert.equal(auditSkills(srcDir).findings.some((f) => f.rule === 'RP1'), false);
+    fs.writeFileSync(
+      path.join(srcDir, '.agent/skills/sdlc/SKILL.md'),
+      '---\nname: sdlc\ndescription: "Use when routing /sdlc commands."\n---\nRun `npx cowsay hello`.\n',
+      'utf8'
+    );
+    assert.equal(auditSkills(srcDir).findings.some((f) => f.rule === 'RP1'), true);
   });
 
   it('runDoctor reports receipt key status and doctor --fix preserves custom config while upgrading legacy v0.0.x CI workflow', () => {
@@ -278,8 +292,9 @@ describe('Ring 2: lib/install.mjs', () => {
     const agentsMd = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
     assert.ok(agentsMd.startsWith('# Custom Header'));
     assert.equal((agentsMd.match(/AGENTIC-SDLC-RULES:START/g) || []).length, 1);
-    assert.match(fs.readFileSync(path.join(dir, '.claude/skills/sdlc/SKILL.md'), 'utf8'), /\bTask\b/);
-    assert.match(fs.readFileSync(path.join(dir, '.cursor/skills/sdlc/SKILL.md'), 'utf8'), /\bsubagent\b/);
+    const canonicalSdlc = fs.readFileSync(path.join(dir, '.agent/skills/sdlc/SKILL.md'), 'utf8').replace(/\r\n/g, '\n');
+    assert.equal(fs.readFileSync(path.join(dir, '.claude/skills/sdlc/SKILL.md'), 'utf8'), canonicalSdlc);
+    assert.equal(fs.readFileSync(path.join(dir, '.cursor/skills/sdlc/SKILL.md'), 'utf8'), canonicalSdlc);
 
     const wfSkip = installCIWorkflow({ repoRoot: dir, force: false });
     assert.equal(wfSkip.skipped, true);

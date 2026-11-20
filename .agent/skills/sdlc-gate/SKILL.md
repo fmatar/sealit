@@ -1,7 +1,6 @@
 ---
 name: sdlc-gate
 description: "Use when running 2-axis cold code review on a branch or PR, executing sdlc gate, signing a Stage 7 merge receipt, or generating PR evidence."
-tools: read_file, write_file, edit_file, run_command, invoke_subagent
 ---
 
 # Two-Axis Cold Review, Single Gate & Signed Receipt (`sdlc-gate`)
@@ -9,6 +8,9 @@ tools: read_file, write_file, edit_file, run_command, invoke_subagent
 ## When to use / When NOT to use
 - **Use when** auditing a branch diff along Spec Fidelity and Architecture/Security axes, executing `sdlc gate`, signing the `HEAD`-bound Stage 7 receipt in `docs/AUDIT_CHAIN.jsonl`, and generating structured PR proof.
 - **Not for** writing initial feature slices (use `sdlc-tdd` or `sdlc-flow`).
+
+## Kernel check
+Check for `.agent/sdlc-config.json` first. Without it, **stop**: `sdlc gate`, Stage 7 review receipts, and `sdlc verify` require the Proof Kernel—never simulate or claim a passed gate or receipt without it, and offer to run `/sdlc init`.
 
 ## Why Two Orthogonal Cold Axes
 `sdlc review plan` emits two independent subagent briefs backed by repo context pointers (`PRODUCT.md`, `docs/specs/*`, `docs/adr/*`, `GLOSSARY.md`, `CONTRIBUTING.md`, session ticket):
@@ -24,7 +26,7 @@ Run both reviewers in parallel with fresh contexts and **keep their findings sep
    node .agent/scripts/sdlc-engine.mjs review plan --json
    ```
    - In `docs-only` mode: run `sdlc gate --no-cache` and `sdlc receipt --docs-only`.
-   - In `code` mode: dispatch both `reviewPlan.reviewers` in parallel via `invoke_subagent` (`TypeName: "research"`), instructing each to return `verdict: approve | request-changes`, `blockers: []`, and `notes`.
+   - In `code` mode: spawn two isolated read-only subagents (your harness's subagent tool, e.g. Claude Code's `Task`) in parallel for `reviewPlan.reviewers`, instructing each to return `verdict: approve | request-changes`, `blockers: []`, and `notes`.
 
 2. **Remediate Blockers & Commit Refactors Before Gating**:
    Fix every blocker (and any worthwhile smell refactors) with failing-first tests and **commit to clean `HEAD`** before running the gate, because Stage 7 receipts bind exact `headSha` and `treeSha`.
