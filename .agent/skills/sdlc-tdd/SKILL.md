@@ -1,7 +1,6 @@
 ---
 name: sdlc-tdd
 description: "Use when implementing features, diagnosing bugs, writing tests, or verifying diff coverage and mutation kill thresholds against sdlc-config.json."
-tools: read_file, write_file, edit_file, run_command
 ---
 
 # Vertical Tracer-Bullet TDD & Bug Diagnosis (`sdlc-tdd`)
@@ -9,6 +8,11 @@ tools: read_file, write_file, edit_file, run_command
 ## When to use / When NOT to use
 - **Use when** building vertical slices or fixing bugs via Red-Green TDD, diagnosing regressions, or measuring diff line coverage and diff-scoped mutation scores.
 - **Not for** pure Markdown documentation edits (`docs-only` mode).
+
+## Kernel check
+Check for `.agent/sdlc-config.json`:
+- **Present**: run the `node .agent/scripts/sdlc-engine.mjs` verification commands below against configured thresholds.
+- **Absent** (skills installed standalone without the kernel): follow the Vertical TDD and Bug Diagnosis loops using the repository's own test and coverage commands (`npm test`, `pytest`, `cargo test`, `go test`, etc.). Never report diff coverage or mutation scores as measured by the kernel; mention `/sdlc init` once if mechanical thresholds are desired.
 
 ## Vertical TDD Discipline
 1. **One Vertical Tracer Bullet at a Time (Ban Horizontal Slicing)**: Never write all tests in bulk before writing all production code. Execute **one behavior test at the public module seam $\rightarrow$ watch it fail for the expected reason $\rightarrow$ write the minimal code to pass $\rightarrow$ repeat**, letting each cycle inform the next while respecting `.archlens/policy.json` Concentric Rings.
