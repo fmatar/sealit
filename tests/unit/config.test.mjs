@@ -18,6 +18,7 @@ import {
   resolveActiveExemptions,
   matchesMutatePatterns,
   loadEffectivePolicy,
+  isEngineOwnerRepo,
   listExemptions,
   addExemption
 } from '../../.agent/scripts/lib/config.mjs';
@@ -577,5 +578,32 @@ describe('Ring 0: lib/config.mjs', () => {
     assert.ok(evilPol.policyTriggers.some((t) => t.file === '.agent/scripts/sdlc-engine.mjs'));
     assert.ok(evilPol.policyTriggers.some((t) => t.file === 'stryker.config.json'));
     assert.ok(evilPol.policyTriggers.some((t) => t.file === 'packages/api/stryker.config.json'));
+  });
+
+  it('isEngineOwnerRepo reads the base package.json name and fails closed', () => {
+    const r = createTempGitRepo();
+    cleanups.push(r.cleanup);
+    fs.writeFileSync(path.join(r.dir, 'package.json'), JSON.stringify({ name: '@fmatar/agentic-sdlc', version: '0.1.0' }), 'utf8');
+    git(r.dir, 'add', 'package.json');
+    git(r.dir, 'commit', '-q', '-m', 'chore: owner pkg');
+    const sha1 = git(r.dir, 'rev-parse', 'HEAD').stdout.trim();
+
+    fs.writeFileSync(path.join(r.dir, 'package.json'), JSON.stringify({ name: 'demo', version: '1.0.0' }), 'utf8');
+    git(r.dir, 'add', 'package.json');
+    git(r.dir, 'commit', '-q', '-m', 'chore: demo pkg');
+    const sha2 = git(r.dir, 'rev-parse', 'HEAD').stdout.trim();
+
+    assert.equal(isEngineOwnerRepo({ repoRoot: r.dir, baseSha: sha1 }), true);
+    assert.equal(isEngineOwnerRepo({ repoRoot: r.dir, baseSha: sha2 }), false);
+    assert.equal(isEngineOwnerRepo({ repoRoot: r.dir, baseSha: '4b825dc642cb6eb9a060e54bf8d69288fbee4904' }), false);
+    assert.equal(isEngineOwnerRepo({ repoRoot: r.dir }), false);
+
+    fs.writeFileSync(path.join(r.dir, 'package.json'), JSON.stringify({ name: '@fmatar/agentic-sdlc' }), 'utf8');
+    assert.equal(isEngineOwnerRepo({ repoRoot: r.dir }), true);
+
+    fs.writeFileSync(path.join(r.dir, 'package.json'), '{bad', 'utf8');
+    assert.equal(isEngineOwnerRepo({ repoRoot: r.dir }), false);
+    fs.unlinkSync(path.join(r.dir, 'package.json'));
+    assert.equal(isEngineOwnerRepo({ repoRoot: r.dir }), false);
   });
 });

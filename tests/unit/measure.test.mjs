@@ -930,4 +930,62 @@ describe('Ring 2: lib/measure.mjs', () => {
     assert.equal(archFailGate.passed, false);
     assert.equal(archFailGate.arch.passed, false);
   });
+
+  it('copied .agent/scripts is excluded from diff coverage and mutation scope only in adopting repos', () => {
+    const setupFixture = (pkgName) => {
+      const repo = createTempGitRepo();
+      cleanups.push(repo.cleanup);
+      fs.mkdirSync(path.join(repo.dir, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(repo.dir, 'package.json'), JSON.stringify({ name: pkgName, version: '1.0.0' }), 'utf8');
+      const legacyLines = Array.from({ length: 10 }, (_, i) => `export const l${i} = ${i};`).join('\n') + '\n';
+      fs.writeFileSync(path.join(repo.dir, 'src/legacy.mjs'), legacyLines, 'utf8');
+      git(repo.dir, 'add', 'package.json', 'src/legacy.mjs');
+      git(repo.dir, 'commit', '-q', '-m', 'chore: base');
+      git(repo.dir, 'checkout', '-q', '-b', 'feat/x', 'develop');
+
+      fs.mkdirSync(path.join(repo.dir, '.agent/scripts'), { recursive: true });
+      fs.writeFileSync(
+        path.join(repo.dir, '.agent/scripts/sdlc-engine.mjs'),
+        'export const e1 = 1;\nexport const e2 = 2;\nexport const e3 = 3;\nexport const e4 = 4;\nexport const e5 = 5;\n',
+        'utf8'
+      );
+      fs.writeFileSync(path.join(repo.dir, 'stryker.config.json'), JSON.stringify({ mutate: ['src/**/*.mjs'] }), 'utf8');
+      fs.mkdirSync(path.join(repo.dir, 'coverage'), { recursive: true });
+      const legacyDa = Array.from({ length: 10 }, (_, i) => `DA:${i + 1},0`).join('\n');
+      fs.writeFileSync(path.join(repo.dir, 'coverage/lcov.info'), `SF:src/legacy.mjs\n${legacyDa}\nLF:10\nLH:0\nend_of_record\n`, 'utf8');
+      return repo.dir;
+    };
+
+    const adoptDir = setupFixture('demo');
+    const cov0 = parseCoverageReport(adoptDir, { name: 'root', path: '.', commands: { coverageFile: 'coverage/lcov.info' }, thresholds: { diffCoverage: 85 } });
+    assert.equal(cov0.diffLineCoverage, 100);
+    assert.equal(cov0.passed, true);
+
+    fs.writeFileSync(path.join(adoptDir, 'src/a.mjs'), 'export const a1 = 1;\nexport const a2 = 2;\n', 'utf8');
+    const legacyDa = Array.from({ length: 10 }, (_, i) => `DA:${i + 1},0`).join('\n');
+    fs.writeFileSync(
+      path.join(adoptDir, 'coverage/lcov.info'),
+      `SF:src/legacy.mjs\n${legacyDa}\nLF:10\nLH:0\nend_of_record\nSF:src/a.mjs\nDA:1,1\nDA:2,1\nLF:2\nLH:2\nend_of_record\n`,
+      'utf8'
+    );
+    const cov = parseCoverageReport(adoptDir, { name: 'root', path: '.', commands: { coverageFile: 'coverage/lcov.info' }, thresholds: { diffCoverage: 85 } });
+    assert.equal(cov.diffLineCoverage, 100);
+    assert.equal(cov.passed, true);
+    const plan = buildMutationPlan(adoptDir, { name: 'root', path: '.', commands: { mutation: 'npx stryker run' } });
+    assert.notEqual(plan.status, 'diff-unmutated-sources');
+
+    const ownerDir = setupFixture('@fmatar/agentic-sdlc');
+    fs.writeFileSync(path.join(ownerDir, 'src/a.mjs'), 'export const a1 = 1;\nexport const a2 = 2;\n', 'utf8');
+    fs.writeFileSync(
+      path.join(ownerDir, 'coverage/lcov.info'),
+      `SF:src/legacy.mjs\n${legacyDa}\nLF:10\nLH:0\nend_of_record\nSF:src/a.mjs\nDA:1,1\nDA:2,1\nLF:2\nLH:2\nend_of_record\n`,
+      'utf8'
+    );
+    const ownerCov = parseCoverageReport(ownerDir, { name: 'root', path: '.', commands: { coverageFile: 'coverage/lcov.info' }, thresholds: { diffCoverage: 85 } });
+    assert.equal(ownerCov.passed, false);
+    assert.ok(ownerCov.diffLineCoverage < 85);
+    const ownerPlan = buildMutationPlan(ownerDir, { name: 'root', path: '.', commands: { mutation: 'npx stryker run' } });
+    assert.equal(ownerPlan.status, 'diff-unmutated-sources');
+    assert.ok(ownerPlan.unmutatedSources.includes('.agent/scripts/sdlc-engine.mjs'));
+  });
 });

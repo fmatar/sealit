@@ -7,7 +7,7 @@ import {
   readFileSafe, resolveInsideRepo, resolveRange, runConfiguredCommand, writeFileAtomic
 } from './git.mjs';
 import {
-  formatMutantIdentity, listExemptions, loadEffectivePolicy,
+  formatMutantIdentity, isEngineOwnerRepo, listExemptions, loadEffectivePolicy,
   matchesMutatePatterns, resolveActiveExemptions, validateConfigFile
 } from './config.mjs';
 import { computeTreeHash, readActiveSession, readGateCache, writeActiveSession, writeGateCache } from './receipt.mjs';
@@ -252,11 +252,10 @@ export function parseCoverageReport(repoRoot = '.', mod = {}, { baseBranch = nul
   let fileLineHits = null;
 
   const cs = changeSet || readChangeSet({ ...resolveRange({ baseBranch, repoRoot: absRepo }), source: 'worktree', repoRoot: absRepo });
-  const modFiles = cs.entries
-    .filter((e) => e.status !== 'D')
-    .map((e) => e.path)
+  const keepEngine = isEngineOwnerRepo({ repoRoot: absRepo, baseSha: cs.baseSha });
+  const modFiles = cs.entries.filter((e) => e.status !== 'D').map((e) => e.path)
     .filter((f) => (!modPrefix ? true : f === modPrefix || f.startsWith(`${modPrefix}/`)));
-  const sourceModFiles = modFiles.filter((f) => isTrackableSourceFile(f));
+  const sourceModFiles = modFiles.filter((f) => isTrackableSourceFile(f) && (keepEngine || !f.startsWith('.agent/scripts/')));
 
   if (relFound.endsWith('.info') || raw.includes('end_of_record')) {
     const lcov = parseLcovContent(raw, absRepo, modCwd);
@@ -302,7 +301,7 @@ export function parseCoverageReport(repoRoot = '.', mod = {}, { baseBranch = nul
     repoLineCoverage = total > 0 ? Number(((covered / total) * 100).toFixed(2)) : 100;
   }
 
-  let diffLineCoverage = repoLineCoverage;
+  let diffLineCoverage = fileLineHits && sourceModFiles.length === 0 ? 100 : repoLineCoverage;
   if (fileLineHits && sourceModFiles.length > 0) {
       const sourceSet = new Set(sourceModFiles);
       const diffMap = new Map([...cs.patches.entries()].filter(([k]) => sourceSet.has(k)));
@@ -439,21 +438,20 @@ export function buildMutationPlan(repoRoot = '.', mod = {}, { full = false, noCa
   }
 
   const cs = changeSet || readChangeSet({ ...resolveRange({ baseBranch, repoRoot: absRepo }), source: 'worktree', repoRoot: absRepo });
-  const modified = cs.entries
-    .filter((e) => e.status !== 'D' && e.newMode !== '160000')
-    .map((e) => e.path)
+  const isCopiedEngine = isEngineOwnerRepo({ repoRoot: absRepo, baseSha: cs.baseSha }) ? () => false : (f) => f.startsWith('.agent/scripts/');
+  const modified = cs.entries.filter((e) => e.status !== 'D' && e.newMode !== '160000').map((e) => e.path)
     .filter((f) => (!modPrefix ? true : f === modPrefix || f.startsWith(`${modPrefix}/`)))
     .map((f) => (!modPrefix ? f : f.slice(modPrefix.length + 1)));
   if (explicitMutate.length > 0) {
     const negPatterns = explicitMutate.filter((p) => p.startsWith('!')).map((p) => p.slice(1));
     const unmutatedSources = modified.filter(
-      (f) => isTrackableSourceFile(f) && !matchesMutatePatterns(f, explicitMutate) && (negPatterns.length === 0 || !matchesMutatePatterns(f, negPatterns))
+      (f) => isTrackableSourceFile(f) && !isCopiedEngine(f) && !matchesMutatePatterns(f, explicitMutate) && (negPatterns.length === 0 || !matchesMutatePatterns(f, negPatterns))
     );
     if (unmutatedSources.length > 0) {
       return { skip: false, diffScoped: true, status: 'diff-unmutated-sources', unmutatedSources, reason: `Changed source file(s) outside Stryker mutate scope: ${unmutatedSources.join(', ')}`, commandArgv: null, targets: [] };
     }
   }
-  const directSources = modified.filter((f) => (explicitMutate.length > 0 ? matchesMutatePatterns(f, explicitMutate) : isTrackableSourceFile(f)));
+  const directSources = modified.filter((f) => (explicitMutate.length > 0 ? matchesMutatePatterns(f, explicitMutate) : isTrackableSourceFile(f) && !isCopiedEngine(f)));
   const directSet = new Set(directSources);
   const pairedSources = modified.filter((f) => isTestFilePath(f)).map((t) => mapUnitTestToSource(t, concreteMutate)).filter((s) => s && !directSet.has(s));
   const allSources = [...new Set([...directSources, ...pairedSources])];
