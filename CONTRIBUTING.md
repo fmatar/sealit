@@ -4,7 +4,7 @@ This repository dogfoods its own 8-module Alignment and Proof Kernel (`.agent/sc
 
 ## Local Setup & Verification
 
-Requires **Node.js >= 22.0.0** and **Git >= 2.30**:
+Requires **Node.js >= 22.0.0** and **Git >= 2.38**:
 
 ```bash
 git clone https://github.com/fmatar/agentic-sdlc-framework.git
