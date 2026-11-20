@@ -19,7 +19,7 @@ import {
   upgradeConfigToV010,
   validateConfigFile
 } from './config.mjs';
-import { inspectReceiptKeyStatus, verifyAuditChain } from './receipt.mjs';
+import { inspectReceiptKeyStatus, loadReceiptKey, verifyAuditChain } from './receipt.mjs';
 import { inspectHooks, installHooks } from './guard.mjs';
 
 export const CANONICAL_SKILLS = Object.freeze(['sdlc', 'sdlc-spec', 'sdlc-adr', 'sdlc-tdd', 'sdlc-gate', 'sdlc-flow']);
@@ -30,7 +30,7 @@ export const SUPPORTED_AGENTS = Object.freeze(['antigravity', 'claude', 'cursor'
 export const SDLC_GITIGNORE_ENTRIES = Object.freeze([
   '.env', '.agent/.cache/', '.agent/.sdlc-session.json', '.agent/.sdlc-session.lock',
   '.agent/.sdlc-config.lock', '.agent/.audit-chain.lock', '.agent/.receipt-key',
-  '.agent/sdlc-config.json.bak', '.stryker-tmp/', '.scratch/'
+  '.agent/sdlc-config.json.bak', '.stryker-tmp/', '.scratch/', 'coverage/', 'reports/'
 ]);
 
 const SDLC_ENGINE_CMD = 'node .agent/scripts/sdlc-engine.mjs';
@@ -503,17 +503,17 @@ export function installCIWorkflow({ repoRoot = '.', force = false, upgradeLegacy
 }
 
 export function scaffoldArchlensPolicy(repoRoot = '.', { force = false } = {}) {
-  const policyPath = path.resolve(repoRoot, '.archlens/policy.json');
-  if (fileExists(policyPath) && !force) {
-    return { created: false, path: policyPath };
-  }
+  const absRoot = path.resolve(repoRoot);
+  const policyPath = path.join(absRoot, '.archlens/policy.json');
+  if (fileExists(policyPath) && !force) return { created: false, path: policyPath };
+  const hasRings = ['domain', 'application', 'adapters', 'entrypoints'].some((r) => fileExists(path.join(absRoot, 'src', r)));
   const defaultPolicy = {
-    title: path.basename(path.resolve(repoRoot)) || 'project',
-    src: 'src',
+    title: path.basename(absRoot) || 'project',
+    src: hasRings || fileExists(path.join(absRoot, 'src')) ? 'src' : '.',
     hierarchical: true,
-    order: ['domain', 'application', 'adapters', 'entrypoints'],
-    levels: [['src/domain/**'], ['src/application/**'], ['src/adapters/**'], ['src/entrypoints/**']],
-    omit: ['node_modules', '.git', 'coverage', 'reports', 'dist', 'build', 'target']
+    order: hasRings ? ['domain', 'application', 'adapters', 'entrypoints'] : [],
+    levels: hasRings ? [['src/domain/**'], ['src/application/**'], ['src/adapters/**'], ['src/entrypoints/**']] : [],
+    omit: ['node_modules', '.git', 'coverage', 'reports', 'dist', 'build', 'target', ...(hasRings ? [] : ['.agent'])]
   };
   writeFileAtomic(policyPath, JSON.stringify(defaultPolicy, null, 2) + '\n');
   return { created: true, path: policyPath };
@@ -575,7 +575,7 @@ export function runDoctor({ repoRoot = '.', fix = false, gitVersionRaw = null } 
     }
   }
   const keyInfo = inspectReceiptKeyStatus(absRoot);
-  const ciSecretHint = wfExists
+  const ciSecretHint = wfExists && keyInfo.source === 'file' && keyInfo.usable
     ? "Provision CI secret with: tr -d '\\r\\n' < .agent/.receipt-key | gh secret set SDLC_RECEIPT_KEY"
     : null;
 
@@ -751,7 +751,10 @@ export async function installFramework({
 
   assertNoSymlinkAncestors(absTarget, path.join(absTarget, '.archlens'));
   scaffoldArchlensPolicy(absTarget, { force: false });
-  if (fileExists(path.join(absTarget, '.git'))) installHooks({ repoRoot: absTarget, fsImpl });
+  const hasGit = fileExists(path.join(absTarget, '.git'));
+  if (hasGit) installHooks({ repoRoot: absTarget, fsImpl });
+  const receiptKeyCreated = hasGit && !cfgExists && verifyAuditChain(absTarget).gateReceiptsCount === 0 && inspectReceiptKeyStatus(absTarget).source === 'none';
+  if (receiptKeyCreated) loadReceiptKey(absTarget, { create: true });
   assertNoSymlinkAncestors(absTarget, path.join(absTarget, '.github/workflows'));
   installCIWorkflow({ repoRoot: absTarget, force, upgradeLegacy: true });
 
@@ -798,5 +801,5 @@ export async function installFramework({
     }
   }
 
-  return { success: errors.length === 0, globalMode: false, targetDir: absTarget, agents: selectedAgents, warnings, errors };
+  return { success: errors.length === 0, globalMode: false, targetDir: absTarget, agents: selectedAgents, receiptKeyCreated, warnings, errors };
 }

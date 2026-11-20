@@ -6,6 +6,7 @@ import path from 'node:path';
 import { PassThrough } from 'node:stream';
 import { createTempGitRepo, git, withoutReceiptEnv } from '../helpers/test-harness.mjs';
 import { hasDirtyNonGovernanceFiles } from '../../.agent/scripts/lib/git.mjs';
+import { checkArchRings } from '../../.agent/scripts/lib/drift.mjs';
 import { beginSession } from '../../.agent/scripts/lib/guard.mjs';
 import {
   CANONICAL_SKILLS,
@@ -756,5 +757,98 @@ describe('Ring 2: lib/install.mjs', () => {
       'utf8'
     );
     assert.ok(auditSkills(src.srcDir).findings.some((f) => f.rule === 'FM3'));
+  });
+
+  it('scaffolds a ring policy only when ring directories exist and gitignores coverage output', () => {
+    assert.ok(SDLC_GITIGNORE_ENTRIES.includes('coverage/') && SDLC_GITIGNORE_ENTRIES.includes('reports/'));
+
+    // Repo A: src/add.mjs only (no domain/application/adapters/entrypoints dirs)
+    const a = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-pol-a-'));
+    cleanups.push(() => fs.rmSync(a, { recursive: true, force: true }));
+    fs.mkdirSync(path.join(a, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(a, 'src/add.mjs'), 'export const add = (x, y) => x + y;\n', 'utf8');
+    scaffoldArchlensPolicy(a);
+    const pa = JSON.parse(fs.readFileSync(path.join(a, '.archlens/policy.json'), 'utf8'));
+    assert.deepEqual(pa.levels, []);
+    assert.deepEqual(pa.order, []);
+    assert.equal(pa.src, 'src');
+    assert.ok(pa.omit.includes('.agent'));
+    assert.equal(checkArchRings({ repoRoot: a }).passed, true);
+
+    // Repo B: index.mjs at root, no src/, plus .agent/scripts/x.mjs
+    const b = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-pol-b-'));
+    cleanups.push(() => fs.rmSync(b, { recursive: true, force: true }));
+    fs.mkdirSync(path.join(b, '.agent/scripts'), { recursive: true });
+    fs.writeFileSync(path.join(b, 'index.mjs'), 'export const ok = 1;\n', 'utf8');
+    fs.writeFileSync(path.join(b, '.agent/scripts/x.mjs'), 'export const x = 1;\n', 'utf8');
+    scaffoldArchlensPolicy(b);
+    const pb = JSON.parse(fs.readFileSync(path.join(b, '.archlens/policy.json'), 'utf8'));
+    assert.equal(pb.src, '.');
+    assert.deepEqual(pb.levels, []);
+    assert.deepEqual(pb.order, []);
+    assert.ok(pb.omit.includes('.agent'));
+    assert.equal(checkArchRings({ repoRoot: b }).passed, true);
+
+    // Repo C: src/domain/x.mjs exists -> classic 4-ring scaffold
+    const c = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-pol-c-'));
+    cleanups.push(() => fs.rmSync(c, { recursive: true, force: true }));
+    fs.mkdirSync(path.join(c, 'src/domain'), { recursive: true });
+    fs.writeFileSync(path.join(c, 'src/domain/x.mjs'), 'export const d = 1;\n', 'utf8');
+    scaffoldArchlensPolicy(c);
+    const pc = JSON.parse(fs.readFileSync(path.join(c, '.archlens/policy.json'), 'utf8'));
+    assert.deepEqual(pc.order, ['domain', 'application', 'adapters', 'entrypoints']);
+    assert.equal(pc.levels.length, 4);
+  });
+
+  it('init creates a receipt key only on first adoption', async () => {
+    const src = createSourceBundleFixture();
+    cleanups.push(src.cleanup);
+    const hadEnv = Object.prototype.hasOwnProperty.call(process.env, 'SDLC_RECEIPT_KEY');
+    const prevEnv = process.env.SDLC_RECEIPT_KEY;
+    delete process.env.SDLC_RECEIPT_KEY;
+
+    try {
+      const fresh = createTempGitRepo();
+      cleanups.push(fresh.cleanup);
+      const r1 = await installFramework({ targetDir: fresh.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+      assert.equal(r1.receiptKeyCreated, true);
+      const key = path.join(fresh.dir, '.agent/.receipt-key');
+      if (process.platform !== 'win32') assert.equal(fs.statSync(key).mode & 0o777, 0o600);
+      assert.equal(git(fresh.dir, 'check-ignore', '-q', '.agent/.receipt-key').status, 0);
+      const before = fs.readFileSync(key, 'utf8');
+      assert.ok(before.trim().length >= 32);
+
+      const r2 = await installFramework({ targetDir: fresh.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+      assert.equal(r2.receiptKeyCreated, false);
+      assert.equal(fs.readFileSync(key, 'utf8'), before);
+
+      // Teammate repo with committed .agent/sdlc-config.json and no local key
+      const team = createTempGitRepo();
+      cleanups.push(team.cleanup);
+      fs.mkdirSync(path.join(team.dir, '.agent'), { recursive: true });
+      fs.writeFileSync(
+        path.join(team.dir, '.agent/sdlc-config.json'),
+        JSON.stringify({ version: '0.1.0', modules: [{ name: 'root', path: '.', commands: {}, thresholds: { diffCoverage: null, mutationScore: null } }] }),
+        'utf8'
+      );
+      git(team.dir, 'add', '.agent/sdlc-config.json');
+      git(team.dir, 'commit', '-qm', 'chore: existing config');
+      const rTeam = await installFramework({ targetDir: team.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+      assert.equal(rTeam.receiptKeyCreated, false);
+      assert.equal(fs.existsSync(path.join(team.dir, '.agent/.receipt-key')), false);
+      assert.equal(runDoctor({ repoRoot: team.dir }).receiptKey.ciSecretHint, null);
+
+      // Env key present during first adoption -> no key file created
+      process.env.SDLC_RECEIPT_KEY = 'env-provided-secret';
+      const envRepo = createTempGitRepo();
+      cleanups.push(envRepo.cleanup);
+      const rEnv = await installFramework({ targetDir: envRepo.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+      assert.equal(rEnv.receiptKeyCreated, false);
+      assert.equal(fs.existsSync(path.join(envRepo.dir, '.agent/.receipt-key')), false);
+      assert.equal(runDoctor({ repoRoot: envRepo.dir }).receiptKey.ciSecretHint, null);
+    } finally {
+      if (hadEnv) process.env.SDLC_RECEIPT_KEY = prevEnv;
+      else delete process.env.SDLC_RECEIPT_KEY;
+    }
   });
 });

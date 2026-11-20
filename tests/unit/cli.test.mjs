@@ -304,6 +304,10 @@ describe('Ring 3: sdlc-engine.mjs CLI registry', () => {
       assert.equal((await runCLI(['pr-body'], null, dir)).prBody.baseBranch, integBranch);
       assert.equal((await runCLI(['pr-body', '--base', 'develop'], null, dir)).prBody.baseBranch, 'develop');
       assert.equal((await runCLI(['review', 'pr-body', '--base', 'develop'], null, dir)).prBody.baseBranch, 'develop');
+      assert.match(
+        formatCLIResult('init', { command: 'init', init: { agents: ['claude'], receiptKeyCreated: true } }),
+        /\.agent\/\.receipt-key/
+      );
     });
   });
 });

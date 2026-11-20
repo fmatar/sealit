@@ -631,7 +631,7 @@ export function formatCLIResult(cmd, res = {}) {
   switch (res.command || cmd) {
     case 'init':
     case 'install':
-      return `Initialized @fmatar/agentic-sdlc (${(res.init?.agents || []).join(', ')})`;
+      return `Initialized @fmatar/agentic-sdlc (${(res.init?.agents || []).join(', ')})${res.init?.receiptKeyCreated ? '; created .agent/.receipt-key (gitignored). Store it as CI secret SDLC_RECEIPT_KEY.' : ''}`;
     case 'doctor': {
       const d = res.doctor;
       return [
