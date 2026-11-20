@@ -1,4 +1,4 @@
-# @fmatar/agentic-sdlc (v0.2.0)
+# @fmatar/agentic-sdlc (v0.3.0)
 
 > Zero-dependency Alignment and Proof Kernel for AI coding agents (Antigravity, Claude Code, Cursor, Codex, GitHub Copilot) enforcing Git Flow session guards, Spec/ADR alignment, [Archlens](https://github.com/fmatar/archlens) Concentric Clean Architecture rings, measured diff coverage & mutation gates, and HMAC-SHA256 merge receipts.
 

@@ -29,7 +29,7 @@ import {
 import { auditSkills, installCIWorkflow, installFramework, runDoctor } from './lib/install.mjs';
 
 const ENGINE_FILE = fileURLToPath(import.meta.url);
-const ENGINE_VERSION = '0.2.0';
+const ENGINE_VERSION = '0.3.0';
 const ENGINE_DIR = path.dirname(ENGINE_FILE);
 
 export function readPackageVersion(engineDir = ENGINE_DIR) {

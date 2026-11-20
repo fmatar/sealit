@@ -7,12 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-20
+
 ### Added
-- **Two-track skill installation & `npx skills` coexistence (`ADR-024`)**: Made all 6 canonical `.agent/skills/*/SKILL.md` files harness-neutral (removing `tools:` frontmatter and `invoke_subagent` tokens) with a `.agent/sdlc-config.json` kernel check (`sdlc-spec`, `sdlc-adr`, `sdlc-tdd` work standalone; `sdlc-gate` and `sdlc-flow` fail closed and offer `/sdlc init`), added `.agents/skills/<id>/SKILL.md` (`vercel-labs/skills`) detection in `installFramework` so `sdlc init` preserves `npx skills` symlinks with warnings, mapped local Copilot skill provisioning to `.claude/skills`, and overhauled `README.md` with both installation tracks and a verified Quickstart.
+- **Two-track skill installation & `npx skills` coexistence (`ADR-024`, #156)**: Made all 6 canonical `.agent/skills/*/SKILL.md` files harness-neutral (removing `tools:` frontmatter and `invoke_subagent` tokens) with a `.agent/sdlc-config.json` kernel check (`sdlc-spec`, `sdlc-adr`, `sdlc-tdd` work standalone; `sdlc-gate` and `sdlc-flow` fail closed and offer `/sdlc init`), added `.agents/skills/<id>/SKILL.md` and `~/.agents/skills/<id>/SKILL.md` (`vercel-labs/skills`) detection in `installFramework` so `sdlc init` preserves `npx skills` symlinks with warnings, mapped local Copilot skill provisioning to `.claude/skills`, and overhauled `README.md` with both installation tracks and a verified Quickstart.
 
 ### Fixed
-- **Global Antigravity skill directory (`ADR-024`)**: Fixed `sdlc init --global --agents antigravity` to target `~/.gemini/config/skills` and prune stale `sdlc*` copies from legacy `~/.gemini/antigravity/skills` while preserving non-`sdlc*` user skills.
-- **First-adoption gate & Quickstart onboarding (`ADR-023`)**: Excluded vendored `.agent/scripts/**` from diff coverage and default/unmutated Stryker mutation scope in consumer repositories (`!isEngineOwnerRepo`), evaluated LCOV `diffLineCoverage` to `100%` when zero consumer source files changed, added `coverage/` and `reports/` to managed `.gitignore` entries, made `scaffoldArchlensPolicy` layout-aware (`levels: []` with `.agent` omitted unless `src/{domain,application,adapters,entrypoints}` exists), and provisioned `.agent/.receipt-key` (`0600`, untracked) during local `sdlc init` exclusively on first adoption.
+- **Global Antigravity skill directory (`ADR-024`, #156)**: Fixed `sdlc init --global --agents antigravity` to target `~/.gemini/config/skills` and prune stale `sdlc*` copies from legacy `~/.gemini/antigravity/skills` while preserving non-`sdlc*` user skills.
+- **First-adoption gate & Quickstart onboarding (`ADR-023`, #155)**: Excluded vendored `.agent/scripts/**` from diff coverage and default/unmutated Stryker mutation scope in consumer repositories (`!isEngineOwnerRepo`), evaluated LCOV `diffLineCoverage` to `100%` when zero consumer source files changed, added `coverage/` and `reports/` to managed `.gitignore` entries, made `scaffoldArchlensPolicy` layout-aware (`levels: []` with `.agent` omitted unless `src/{domain,application,adapters,entrypoints}` exists), and provisioned `.agent/.receipt-key` (`0600`, untracked) during local `sdlc init` exclusively on first adoption.
+
+### Security
+- **Global installer symlink containment, `RP1` lookahead & vendored-path normalization (#155, #156)**: Enforced `baseRoot: resolvedHome` symlink containment across `sdlc init --global` `safeCopyDir` / `safeWriteFile` paths and `assertNoSymlinkAncestors` on `.agent/.receipt-key` creation, tightened `auditSkills` rule `RP1` lookahead (`(?![@#/\w.:-])`) for pinned GitHub `npx` specs, and normalized `isVendoredEnginePath` before submodule prefix slicing.
 
 ## [0.2.0] - 2026-11-19
 
