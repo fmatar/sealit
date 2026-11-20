@@ -94,7 +94,7 @@ describe('Ring 2: lib/install.mjs', () => {
     // Canonical github:fmatar/agentic-sdlc-framework specifier produces zero RP1 findings while npx cowsay still triggers RP1
     fs.writeFileSync(
       path.join(srcDir, '.agent/skills/sdlc/SKILL.md'),
-      '---\nname: sdlc\ndescription: "Use when routing /sdlc commands."\n---\nRun `npx --yes github:fmatar/agentic-sdlc-framework init`.\n',
+      '---\nname: sdlc\ndescription: "Use when routing /sdlc commands."\n---\nRun `npx --yes github:fmatar/agentic-sdlc-framework init` and `npx @scope/pkg@1.2.3` and `npx github:fmatar/agentic-sdlc-framework#v0.2.0`.\n',
       'utf8'
     );
     assert.equal(auditSkills(srcDir).findings.some((f) => f.rule === 'RP1'), false);
@@ -921,5 +921,25 @@ describe('Ring 2: lib/install.mjs', () => {
     assert.ok(fs.existsSync(path.join(fakeHome, '.gemini/config/skills/sdlc/SKILL.md')));
     assert.equal(fs.existsSync(path.join(fakeHome, '.gemini/antigravity/skills/sdlc')), false);
     assert.ok(fs.existsSync(path.join(fakeHome, '.gemini/antigravity/skills/design-system-builder/SKILL.md')));
+
+    // 5. Global mode skips ~/.agents/skills/<id>/SKILL.md (npx skills -g) and refuses outside symlinks under homeDir
+    fs.mkdirSync(path.join(fakeHome, '.agents/skills/sdlc'), { recursive: true });
+    fs.mkdirSync(path.join(fakeHome, '.claude/skills'), { recursive: true });
+    fs.writeFileSync(path.join(fakeHome, '.agents/skills/sdlc/SKILL.md'), 'GLOBAL_NPX', 'utf8');
+    fs.symlinkSync('../../.agents/skills/sdlc', path.join(fakeHome, '.claude/skills/sdlc'));
+    const gCoexist = await installFramework({ targetDir: r1.dir, sourceRoot: src.srcDir, agents: ['claude'], globalMode: true, homeDir: fakeHome, yes: true });
+    assert.equal(gCoexist.success, true);
+    assert.equal(fs.readFileSync(path.join(fakeHome, '.agents/skills/sdlc/SKILL.md'), 'utf8'), 'GLOBAL_NPX');
+    assert.ok(fs.existsSync(path.join(fakeHome, '.claude/skills/sdlc-gate/SKILL.md')));
+
+    const badHome = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-bad-home-'));
+    cleanups.push(() => fs.rmSync(badHome, { recursive: true, force: true }));
+    fs.mkdirSync(path.join(badHome, '.claude/skills'), { recursive: true });
+    fs.symlinkSync(outsideDir, path.join(badHome, '.claude/skills/sdlc'));
+    await assert.rejects(
+      () => installFramework({ targetDir: r1.dir, sourceRoot: src.srcDir, agents: ['claude'], globalMode: true, homeDir: badHome, yes: true }),
+      /symlink/i
+    );
+    assert.equal(fs.existsSync(path.join(outsideDir, 'SKILL.md')), false);
   });
 });

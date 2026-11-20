@@ -261,7 +261,7 @@ export function auditSkills(repoRoot = '.') {
     if (linesCount > 160) {
       findings.push({ skill: id, rule: 'LEN1', message: `Skill '${id}' exceeds 160 lines (${linesCount}).` });
     }
-    for (const m of body.matchAll(/\bnpx\s+(?:--yes\s+|-y\s+)?(@?[a-z0-9._/:-]+)(?![@#\w.:-])/gi)) {
+    for (const m of body.matchAll(/\bnpx\s+(?:--yes\s+|-y\s+)?(@?[a-z0-9._/:-]+)(?![@#/\w.:-])/gi)) {
       if (m[1] !== '@fmatar/agentic-sdlc' && m[1] !== 'github:fmatar/agentic-sdlc-framework') {
         findings.push({ skill: id, rule: 'RP1', message: `Unpinned npx package '${m[1]}' in '${id}/SKILL.md'.` });
       }
@@ -663,8 +663,8 @@ export async function installFramework({
   if (globalMode) {
     const resolvedHome = path.resolve(homeDir || os.homedir());
     const globalRoot = path.join(resolvedHome, '.agentic-sdlc');
-    safeCopyDir(path.join(absSource, '.agent/scripts'), path.join(globalRoot, 'scripts'), { chmodExecutable: true, errors, fsImpl });
-    safeCopyDir(path.join(absSource, '.agent/schemas'), path.join(globalRoot, 'schemas'), { chmodExecutable: false, errors, fsImpl });
+    safeCopyDir(path.join(absSource, '.agent/scripts'), path.join(globalRoot, 'scripts'), { chmodExecutable: true, errors, fsImpl, baseRoot: resolvedHome });
+    safeCopyDir(path.join(absSource, '.agent/schemas'), path.join(globalRoot, 'schemas'), { chmodExecutable: false, errors, fsImpl, baseRoot: resolvedHome });
 
     const defaultHome = path.resolve(os.homedir());
     const globalEnginePath =
@@ -680,6 +680,7 @@ export async function installFramework({
       copilot: path.join(resolvedHome, '.copilot/skills')
     };
 
+    const globalNpxManaged = new Set(CANONICAL_SKILLS.filter((id) => fileExists(path.join(resolvedHome, '.agents/skills', id, 'SKILL.md'))));
     for (const agent of selectedAgents) {
       const dstBase = agentSkillDirs[agent];
       if (!dstBase) continue;
@@ -687,13 +688,16 @@ export async function installFramework({
       if (agent === 'antigravity') {
         pruneRetiredSkillsInDir(path.join(resolvedHome, '.gemini/antigravity/skills'), resolvedHome, [...CANONICAL_SKILLS, ...RETIRED_SKILLS]);
       }
+      const skipped = [];
       for (const skillId of CANONICAL_SKILLS) {
+        if (globalNpxManaged.has(skillId)) { skipped.push(skillId); continue; }
         const raw = readFileSafe(path.join(absSource, '.agent/skills', skillId, 'SKILL.md'));
         if (!raw) continue;
-        safeWriteFile(path.join(dstBase, skillId, 'SKILL.md'), adaptSkillContent(raw, agent, { globalEnginePath }));
+        safeWriteFile(path.join(dstBase, skillId, 'SKILL.md'), adaptSkillContent(raw, agent, { globalEnginePath }), undefined, resolvedHome);
         const oaiRaw = readFileSafe(path.join(absSource, '.agent/skills', skillId, 'agents/openai.yaml'));
-        if (oaiRaw && agent === 'codex') safeWriteFile(path.join(dstBase, skillId, 'agents/openai.yaml'), oaiRaw);
+        if (oaiRaw && agent === 'codex') safeWriteFile(path.join(dstBase, skillId, 'agents/openai.yaml'), oaiRaw, undefined, resolvedHome);
       }
+      if (skipped.length > 0) warnings.push(`Skipped installing ${skipped.join(', ')} into '${dstBase}': managed by npx skills (~/.agents/skills/).`);
       if (agent === 'claude') {
         upsertMarkedRulesFile(path.join(resolvedHome, '.claude/CLAUDE.md'), rulesBlock, resolvedHome, warnings);
         updateClaudeSettingsJson(path.join(resolvedHome, '.claude/settings.json'), warnings, resolvedHome, { force });
