@@ -7,7 +7,7 @@ import {
   readFileSafe, resolveInsideRepo, resolveRange, runConfiguredCommand, writeFileAtomic
 } from './git.mjs';
 import {
-  formatMutantIdentity, isEngineOwnerRepo, listExemptions, loadEffectivePolicy,
+  formatMutantIdentity, isEngineOwnerRepo, isVendoredEnginePath, listExemptions, loadEffectivePolicy,
   matchesMutatePatterns, resolveActiveExemptions, validateConfigFile
 } from './config.mjs';
 import { computeTreeHash, readActiveSession, readGateCache, writeActiveSession, writeGateCache } from './receipt.mjs';
@@ -255,7 +255,7 @@ export function parseCoverageReport(repoRoot = '.', mod = {}, { baseBranch = nul
   const keepEngine = isEngineOwnerRepo({ repoRoot: absRepo, baseSha: cs.baseSha });
   const modFiles = cs.entries.filter((e) => e.status !== 'D').map((e) => e.path)
     .filter((f) => (!modPrefix ? true : f === modPrefix || f.startsWith(`${modPrefix}/`)));
-  const sourceModFiles = modFiles.filter((f) => isTrackableSourceFile(f) && (keepEngine || !f.startsWith('.agent/scripts/')));
+  const sourceModFiles = modFiles.filter((f) => isTrackableSourceFile(f) && (keepEngine || !isVendoredEnginePath(f)));
 
   if (relFound.endsWith('.info') || raw.includes('end_of_record')) {
     const lcov = parseLcovContent(raw, absRepo, modCwd);
@@ -438,7 +438,7 @@ export function buildMutationPlan(repoRoot = '.', mod = {}, { full = false, noCa
   }
 
   const cs = changeSet || readChangeSet({ ...resolveRange({ baseBranch, repoRoot: absRepo }), source: 'worktree', repoRoot: absRepo });
-  const isCopiedEngine = isEngineOwnerRepo({ repoRoot: absRepo, baseSha: cs.baseSha }) ? () => false : (f) => f.startsWith('.agent/scripts/');
+  const isCopiedEngine = isEngineOwnerRepo({ repoRoot: absRepo, baseSha: cs.baseSha }) ? () => false : (f) => isVendoredEnginePath(modPrefix ? `${modPrefix}/${f}` : f);
   const modified = cs.entries.filter((e) => e.status !== 'D' && e.newMode !== '160000').map((e) => e.path)
     .filter((f) => (!modPrefix ? true : f === modPrefix || f.startsWith(`${modPrefix}/`)))
     .map((f) => (!modPrefix ? f : f.slice(modPrefix.length + 1)));

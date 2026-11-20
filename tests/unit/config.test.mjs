@@ -19,6 +19,7 @@ import {
   matchesMutatePatterns,
   loadEffectivePolicy,
   isEngineOwnerRepo,
+  isVendoredEnginePath,
   listExemptions,
   addExemption
 } from '../../.agent/scripts/lib/config.mjs';
@@ -605,5 +606,10 @@ describe('Ring 0: lib/config.mjs', () => {
     assert.equal(isEngineOwnerRepo({ repoRoot: r.dir }), false);
     fs.unlinkSync(path.join(r.dir, 'package.json'));
     assert.equal(isEngineOwnerRepo({ repoRoot: r.dir }), false);
+
+    assert.equal(isVendoredEnginePath('.agent/scripts/sdlc-engine.mjs'), true);
+    assert.equal(isVendoredEnginePath('.\\.agent\\scripts\\lib\\git.mjs'), true);
+    assert.equal(isVendoredEnginePath('packages/api/.agent/scripts/worker.mjs'), false);
+    assert.equal(isVendoredEnginePath(''), false);
   });
 });

@@ -618,6 +618,10 @@ function mergeStrykerPolicy(baseParsed, headParsed, relPath, addTrigger) {
   return eff;
 }
 
+export function isVendoredEnginePath(relPath = '') {
+  return String(relPath || '').replace(/\\/g, '/').replace(/^\.\//, '').startsWith('.agent/scripts/');
+}
+
 export function isEngineOwnerRepo({ repoRoot = '.', baseSha = null } = {}) {
   if (baseSha === EMPTY_TREE_SHA) return false;
   const raw = baseSha
@@ -762,7 +766,7 @@ export function loadEffectivePolicy({ repoRoot = '.', baseSha = null, headSha = 
       ? changedPaths
       : readChangeSet({ baseSha, headSha, source: headSha ? 'commit' : 'worktree', repoRoot }).paths;
     for (const p of diffPaths) {
-      if (/^\.agent\/scripts\//.test(p)) addTrigger(p);
+      if (isVendoredEnginePath(p)) addTrigger(p);
     }
   }
 

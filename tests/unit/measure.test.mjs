@@ -974,6 +974,14 @@ describe('Ring 2: lib/measure.mjs', () => {
     const plan = buildMutationPlan(adoptDir, { name: 'root', path: '.', commands: { mutation: 'npx stryker run' } });
     assert.notEqual(plan.status, 'diff-unmutated-sources');
 
+    // Submodule packages/api/.agent/scripts/worker.mjs is NOT repo-root vendored engine and MUST NOT be silently exempted
+    fs.mkdirSync(path.join(adoptDir, 'packages/api/.agent/scripts'), { recursive: true });
+    fs.writeFileSync(path.join(adoptDir, 'packages/api/stryker.config.json'), JSON.stringify({ mutate: ['src/**/*.mjs'] }), 'utf8');
+    fs.writeFileSync(path.join(adoptDir, 'packages/api/.agent/scripts/worker.mjs'), 'export const w = 1;\n', 'utf8');
+    const subPlan = buildMutationPlan(adoptDir, { name: 'api', path: 'packages/api', commands: { mutation: 'npx stryker run' } });
+    assert.equal(subPlan.status, 'diff-unmutated-sources');
+    assert.deepEqual(subPlan.unmutatedSources, ['.agent/scripts/worker.mjs']);
+
     const ownerDir = setupFixture('@fmatar/agentic-sdlc');
     fs.writeFileSync(path.join(ownerDir, 'src/a.mjs'), 'export const a1 = 1;\nexport const a2 = 2;\n', 'utf8');
     fs.writeFileSync(
