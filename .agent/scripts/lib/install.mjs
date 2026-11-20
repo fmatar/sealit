@@ -30,7 +30,7 @@ export const SUPPORTED_AGENTS = Object.freeze(['antigravity', 'claude', 'cursor'
 export const SDLC_GITIGNORE_ENTRIES = Object.freeze([
   '.env', '.agent/.cache/', '.agent/.sdlc-session.json', '.agent/.sdlc-session.lock',
   '.agent/.sdlc-config.lock', '.agent/.audit-chain.lock', '.agent/.receipt-key',
-  '.agent/sdlc-config.json.bak', '.stryker-tmp/', '.scratch/'
+  '.agent/sdlc-config.json.bak', '.stryker-tmp/', '.scratch/', 'coverage/', 'reports/'
 ]);
 
 const SDLC_ENGINE_CMD = 'node .agent/scripts/sdlc-engine.mjs';
@@ -503,17 +503,17 @@ export function installCIWorkflow({ repoRoot = '.', force = false, upgradeLegacy
 }
 
 export function scaffoldArchlensPolicy(repoRoot = '.', { force = false } = {}) {
-  const policyPath = path.resolve(repoRoot, '.archlens/policy.json');
-  if (fileExists(policyPath) && !force) {
-    return { created: false, path: policyPath };
-  }
+  const absRoot = path.resolve(repoRoot);
+  const policyPath = path.join(absRoot, '.archlens/policy.json');
+  if (fileExists(policyPath) && !force) return { created: false, path: policyPath };
+  const hasRings = ['domain', 'application', 'adapters', 'entrypoints'].some((r) => fileExists(path.join(absRoot, 'src', r)));
   const defaultPolicy = {
-    title: path.basename(path.resolve(repoRoot)) || 'project',
-    src: 'src',
+    title: path.basename(absRoot) || 'project',
+    src: hasRings || fileExists(path.join(absRoot, 'src')) ? 'src' : '.',
     hierarchical: true,
-    order: ['domain', 'application', 'adapters', 'entrypoints'],
-    levels: [['src/domain/**'], ['src/application/**'], ['src/adapters/**'], ['src/entrypoints/**']],
-    omit: ['node_modules', '.git', 'coverage', 'reports', 'dist', 'build', 'target']
+    order: hasRings ? ['domain', 'application', 'adapters', 'entrypoints'] : [],
+    levels: hasRings ? [['src/domain/**'], ['src/application/**'], ['src/adapters/**'], ['src/entrypoints/**']] : [],
+    omit: ['node_modules', '.git', 'coverage', 'reports', 'dist', 'build', 'target', ...(hasRings ? [] : ['.agent'])]
   };
   writeFileAtomic(policyPath, JSON.stringify(defaultPolicy, null, 2) + '\n');
   return { created: true, path: policyPath };

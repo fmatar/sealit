@@ -6,6 +6,7 @@ import path from 'node:path';
 import { PassThrough } from 'node:stream';
 import { createTempGitRepo, git, withoutReceiptEnv } from '../helpers/test-harness.mjs';
 import { hasDirtyNonGovernanceFiles } from '../../.agent/scripts/lib/git.mjs';
+import { checkArchRings } from '../../.agent/scripts/lib/drift.mjs';
 import { beginSession } from '../../.agent/scripts/lib/guard.mjs';
 import {
   CANONICAL_SKILLS,
@@ -756,5 +757,46 @@ describe('Ring 2: lib/install.mjs', () => {
       'utf8'
     );
     assert.ok(auditSkills(src.srcDir).findings.some((f) => f.rule === 'FM3'));
+  });
+
+  it('scaffolds a ring policy only when ring directories exist and gitignores coverage output', () => {
+    assert.ok(SDLC_GITIGNORE_ENTRIES.includes('coverage/') && SDLC_GITIGNORE_ENTRIES.includes('reports/'));
+
+    // Repo A: src/add.mjs only (no domain/application/adapters/entrypoints dirs)
+    const a = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-pol-a-'));
+    cleanups.push(() => fs.rmSync(a, { recursive: true, force: true }));
+    fs.mkdirSync(path.join(a, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(a, 'src/add.mjs'), 'export const add = (x, y) => x + y;\n', 'utf8');
+    scaffoldArchlensPolicy(a);
+    const pa = JSON.parse(fs.readFileSync(path.join(a, '.archlens/policy.json'), 'utf8'));
+    assert.deepEqual(pa.levels, []);
+    assert.deepEqual(pa.order, []);
+    assert.equal(pa.src, 'src');
+    assert.ok(pa.omit.includes('.agent'));
+    assert.equal(checkArchRings({ repoRoot: a }).passed, true);
+
+    // Repo B: index.mjs at root, no src/, plus .agent/scripts/x.mjs
+    const b = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-pol-b-'));
+    cleanups.push(() => fs.rmSync(b, { recursive: true, force: true }));
+    fs.mkdirSync(path.join(b, '.agent/scripts'), { recursive: true });
+    fs.writeFileSync(path.join(b, 'index.mjs'), 'export const ok = 1;\n', 'utf8');
+    fs.writeFileSync(path.join(b, '.agent/scripts/x.mjs'), 'export const x = 1;\n', 'utf8');
+    scaffoldArchlensPolicy(b);
+    const pb = JSON.parse(fs.readFileSync(path.join(b, '.archlens/policy.json'), 'utf8'));
+    assert.equal(pb.src, '.');
+    assert.deepEqual(pb.levels, []);
+    assert.deepEqual(pb.order, []);
+    assert.ok(pb.omit.includes('.agent'));
+    assert.equal(checkArchRings({ repoRoot: b }).passed, true);
+
+    // Repo C: src/domain/x.mjs exists -> classic 4-ring scaffold
+    const c = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-pol-c-'));
+    cleanups.push(() => fs.rmSync(c, { recursive: true, force: true }));
+    fs.mkdirSync(path.join(c, 'src/domain'), { recursive: true });
+    fs.writeFileSync(path.join(c, 'src/domain/x.mjs'), 'export const d = 1;\n', 'utf8');
+    scaffoldArchlensPolicy(c);
+    const pc = JSON.parse(fs.readFileSync(path.join(c, '.archlens/policy.json'), 'utf8'));
+    assert.deepEqual(pc.order, ['domain', 'application', 'adapters', 'entrypoints']);
+    assert.equal(pc.levels.length, 4);
   });
 });
