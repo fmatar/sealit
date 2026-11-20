@@ -29,13 +29,16 @@ import {
 import { auditSkills, installCIWorkflow, installFramework, runDoctor } from './lib/install.mjs';
 
 const ENGINE_FILE = fileURLToPath(import.meta.url);
-const PACKAGE_ROOT = path.resolve(path.dirname(ENGINE_FILE), '../../..');
+const ENGINE_VERSION = '0.2.0';
+const ENGINE_DIR = path.dirname(ENGINE_FILE);
 
-function readPackageVersion() {
+export function readPackageVersion(engineDir = ENGINE_DIR) {
+  const pkgRoot = path.basename(path.dirname(engineDir)) === '.agent' ? path.resolve(engineDir, '../..') : path.resolve(engineDir, '..');
   try {
-    return JSON.parse(fs.readFileSync(path.join(PACKAGE_ROOT, 'package.json'), 'utf8')).version || '0.1.0';
+    const pkg = JSON.parse(fs.readFileSync(path.join(pkgRoot, 'package.json'), 'utf8'));
+    return pkg.name === '@fmatar/agentic-sdlc' && pkg.version ? pkg.version : ENGINE_VERSION;
   } catch {
-    return '0.1.0';
+    return ENGINE_VERSION;
   }
 }
 
