@@ -866,4 +866,60 @@ describe('Ring 2: lib/install.mjs', () => {
       else delete process.env.SDLC_RECEIPT_KEY;
     }
   });
+
+  it('init skips npx-managed skills, never writes through their symlinks, and targets loaded agent paths', async () => {
+    const src = createSourceBundleFixture();
+    cleanups.push(src.cleanup);
+
+    // 1. npx skills layout: .agents/skills/sdlc/SKILL.md ("NPX") + .claude/skills/sdlc -> ../../.agents/skills/sdlc
+    const r1 = createTempGitRepo();
+    cleanups.push(r1.cleanup);
+    fs.mkdirSync(path.join(r1.dir, '.agents/skills/sdlc'), { recursive: true });
+    fs.mkdirSync(path.join(r1.dir, '.claude/skills'), { recursive: true });
+    fs.writeFileSync(path.join(r1.dir, '.agents/skills/sdlc/SKILL.md'), 'NPX', 'utf8');
+    fs.symlinkSync('../../.agents/skills/sdlc', path.join(r1.dir, '.claude/skills/sdlc'));
+
+    const res = await installFramework({ targetDir: r1.dir, sourceRoot: src.srcDir, agents: ['claude', 'copilot'], yes: true });
+    assert.equal(res.success, true);
+    assert.equal(fs.lstatSync(path.join(r1.dir, '.claude/skills/sdlc')).isSymbolicLink(), true);
+    assert.equal(fs.readFileSync(path.join(r1.dir, '.agents/skills/sdlc/SKILL.md'), 'utf8'), 'NPX');
+    assert.ok(res.warnings.some((w) => /npx skills/.test(w) && /\bsdlc\b/.test(w)));
+    assert.ok(res.warnings.some((w) => /\.agent\/skills/.test(w) && /\.agents\/skills/.test(w)));
+    assert.ok(fs.existsSync(path.join(r1.dir, '.claude/skills/sdlc-gate/SKILL.md')));
+    assert.ok(fs.existsSync(path.join(r1.dir, '.github/copilot-instructions.md')));
+
+    // 2. Copilot-only local install provisions .claude/skills/sdlc* alongside .github/copilot-instructions.md
+    const copRepo = createTempGitRepo();
+    cleanups.push(copRepo.cleanup);
+    await installFramework({ targetDir: copRepo.dir, sourceRoot: src.srcDir, agents: ['copilot'], yes: true });
+    assert.ok(fs.existsSync(path.join(copRepo.dir, '.claude/skills/sdlc/SKILL.md')));
+    assert.ok(fs.existsSync(path.join(copRepo.dir, '.github/copilot-instructions.md')));
+
+    // 3. Outside directory symlink at .claude/skills/sdlc when NOT npx-managed -> still refused
+    const r2 = createTempGitRepo();
+    cleanups.push(r2.cleanup);
+    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-outside-skill-dir-'));
+    cleanups.push(() => fs.rmSync(outsideDir, { recursive: true, force: true }));
+    fs.mkdirSync(path.join(r2.dir, '.claude/skills'), { recursive: true });
+    fs.symlinkSync(outsideDir, path.join(r2.dir, '.claude/skills/sdlc'));
+    await assert.rejects(
+      () => installFramework({ targetDir: r2.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true }),
+      /symlink/i
+    );
+    assert.equal(fs.existsSync(path.join(outsideDir, 'SKILL.md')), false);
+
+    // 4. Global Antigravity targets ~/.gemini/config/skills and prunes legacy ~/.gemini/antigravity/skills/sdlc* while keeping user skills
+    const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-agy-home-'));
+    cleanups.push(() => fs.rmSync(fakeHome, { recursive: true, force: true }));
+    fs.mkdirSync(path.join(fakeHome, '.gemini/antigravity/skills/sdlc'), { recursive: true });
+    fs.writeFileSync(path.join(fakeHome, '.gemini/antigravity/skills/sdlc/SKILL.md'), 'legacy', 'utf8');
+    fs.mkdirSync(path.join(fakeHome, '.gemini/antigravity/skills/design-system-builder'), { recursive: true });
+    fs.writeFileSync(path.join(fakeHome, '.gemini/antigravity/skills/design-system-builder/SKILL.md'), 'keep', 'utf8');
+
+    const gRes = await installFramework({ targetDir: r1.dir, sourceRoot: src.srcDir, agents: ['antigravity'], globalMode: true, homeDir: fakeHome, yes: true });
+    assert.equal(gRes.success, true);
+    assert.ok(fs.existsSync(path.join(fakeHome, '.gemini/config/skills/sdlc/SKILL.md')));
+    assert.equal(fs.existsSync(path.join(fakeHome, '.gemini/antigravity/skills/sdlc')), false);
+    assert.ok(fs.existsSync(path.join(fakeHome, '.gemini/antigravity/skills/design-system-builder/SKILL.md')));
+  });
 });
