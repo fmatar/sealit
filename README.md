@@ -1,4 +1,4 @@
-# `@fmatar/agentic-sdlc` (v0.1.0)
+# `@fmatar/agentic-sdlc` (v0.2.0)
 
 **Alignment and Proof Kernel for AI Coding Agents**: mechanical specification & ADR drift checks, [Archlens](https://github.com/fmatar/archlens) Concentric Clean Architecture ring checks, measured diff coverage & mutation gates, and HMAC-SHA256 cryptographic merge receipts.
 

@@ -1,6 +1,6 @@
 {
   "name": "@fmatar/agentic-sdlc",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Alignment and Proof Kernel for AI Coding Agents: Spec/ADR Drift Guard, Diff Coverage & Mutation Gate, and Cryptographic Merge Receipts",
   "keywords": [
     "agentic-sdlc",
