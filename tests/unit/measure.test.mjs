@@ -982,6 +982,34 @@ describe('Ring 2: lib/measure.mjs', () => {
     assert.equal(subPlan.status, 'diff-unmutated-sources');
     assert.deepEqual(subPlan.unmutatedSources, ['.agent/scripts/worker.mjs']);
 
+    // explicitMutate.length === 0 fallback excludes copied .agent/scripts and mutates only consumer src/a.mjs
+    fs.writeFileSync(path.join(adoptDir, 'stryker.config.json'), JSON.stringify({}), 'utf8');
+    const noExplicitPlan = buildMutationPlan(adoptDir, { name: 'root', path: '.', commands: { mutation: 'npx stryker run' } });
+    assert.equal(noExplicitPlan.targets.some((t) => t.startsWith('.agent/scripts/')), false);
+    assert.equal(noExplicitPlan.targets.some((t) => t.startsWith('src/a.mjs')), true);
+
+    // Synthetic changeSet with baseSha: null never falls back to worktree package.json
+    const synthOwnerWorktree = setupFixture('demo');
+    fs.writeFileSync(path.join(synthOwnerWorktree, 'package.json'), JSON.stringify({ name: '@fmatar/agentic-sdlc' }), 'utf8');
+    const synthCs = {
+      baseSha: null,
+      entries: [{ status: 'A', newMode: '100644', path: '.agent/scripts/sdlc-engine.mjs' }],
+      patches: new Map([['.agent/scripts/sdlc-engine.mjs', '@@ -0,0 +1,2 @@\n+export const x = 1;\n+export const y = 2;\n']])
+    };
+    const synthCov = parseCoverageReport(
+      synthOwnerWorktree,
+      { name: 'root', path: '.', commands: { coverageFile: 'coverage/lcov.info' }, thresholds: { diffCoverage: 85 } },
+      { changeSet: synthCs }
+    );
+    assert.equal(synthCov.diffLineCoverage, 100);
+    const synthPlan = buildMutationPlan(
+      synthOwnerWorktree,
+      { name: 'root', path: '.', commands: { mutation: 'npx stryker run' } },
+      { changeSet: synthCs }
+    );
+    assert.equal(synthPlan.skip, true);
+    assert.equal(synthPlan.reason, 'diff-no-mutated-sources');
+
     const ownerDir = setupFixture('@fmatar/agentic-sdlc');
     fs.writeFileSync(path.join(ownerDir, 'src/a.mjs'), 'export const a1 = 1;\nexport const a2 = 2;\n', 'utf8');
     fs.writeFileSync(

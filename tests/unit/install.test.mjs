@@ -286,7 +286,7 @@ describe('Ring 2: lib/install.mjs', () => {
     assert.equal(fs.existsSync(path.join(dir, '.claude/skills/sdlc-flow/SKILL.md')), true);
     assert.equal(fs.existsSync(path.join(dir, '.agent/skills/sdlc-flow/SKILL.md')), true);
 
-    // Second install updates marked rules block in-place (zero duplication), skips up-to-date workflow/policy unless --force, and preserves tools: only on antigravity
+    // Second install updates marked rules block in-place (zero duplication), skips up-to-date workflow/policy unless --force, and keeps skill output byte-identical to canonical source
     fs.writeFileSync(path.join(dir, 'AGENTS.md'), `# Custom Header\n\n${fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8')}`, 'utf8');
     await installFramework({ targetDir: dir, sourceRoot: src.srcDir, agents: ['all'], yes: true });
     const agentsMd = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
@@ -802,7 +802,9 @@ describe('Ring 2: lib/install.mjs', () => {
     assert.deepEqual(pb.levels, []);
     assert.deepEqual(pb.order, []);
     assert.ok(pb.omit.includes('.agent'));
-    assert.equal(checkArchRings({ repoRoot: b }).passed, true);
+    const bRings = checkArchRings({ repoRoot: b });
+    assert.equal(bRings.passed, true);
+    assert.equal(bRings.filesChecked, 1);
 
     // Repo C: src/domain/x.mjs exists -> classic 4-ring scaffold
     const c = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-pol-c-'));
@@ -852,6 +854,15 @@ describe('Ring 2: lib/install.mjs', () => {
       assert.equal(rTeam.receiptKeyCreated, false);
       assert.equal(fs.existsSync(path.join(team.dir, '.agent/.receipt-key')), false);
       assert.equal(runDoctor({ repoRoot: team.dir }).receiptKey.ciSecretHint, null);
+
+      // Corrupt line 1 in docs/AUDIT_CHAIN.jsonl without .agent/sdlc-config.json -> no key file created
+      const corrupt = createTempGitRepo();
+      cleanups.push(corrupt.cleanup);
+      fs.mkdirSync(path.join(corrupt.dir, 'docs'), { recursive: true });
+      fs.writeFileSync(path.join(corrupt.dir, 'docs/AUDIT_CHAIN.jsonl'), '{corrupt-line-1\n', 'utf8');
+      const rCorrupt = await installFramework({ targetDir: corrupt.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+      assert.equal(rCorrupt.receiptKeyCreated, false);
+      assert.equal(fs.existsSync(path.join(corrupt.dir, '.agent/.receipt-key')), false);
 
       // Env key present during first adoption -> no key file created
       process.env.SDLC_RECEIPT_KEY = 'env-provided-secret';
@@ -941,5 +952,18 @@ describe('Ring 2: lib/install.mjs', () => {
       /symlink/i
     );
     assert.equal(fs.existsSync(path.join(outsideDir, 'SKILL.md')), false);
+
+    // 6. Planted external symlink at .agents -> outsideAgentsDir never acts as an npxManaged oracle
+    const outsideAgents = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-outside-agents-'));
+    cleanups.push(() => fs.rmSync(outsideAgents, { recursive: true, force: true }));
+    fs.mkdirSync(path.join(outsideAgents, 'skills/sdlc'), { recursive: true });
+    fs.writeFileSync(path.join(outsideAgents, 'skills/sdlc/SKILL.md'), 'OUTSIDE', 'utf8');
+    const rOracle = createTempGitRepo();
+    cleanups.push(rOracle.cleanup);
+    fs.symlinkSync(outsideAgents, path.join(rOracle.dir, '.agents'));
+    const oracleRes = await installFramework({ targetDir: rOracle.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+    assert.equal(oracleRes.success, true);
+    assert.equal(oracleRes.warnings.some((w) => /npx skills/.test(w)), false);
+    assert.ok(fs.existsSync(path.join(rOracle.dir, '.claude/skills/sdlc/SKILL.md')));
   });
 });

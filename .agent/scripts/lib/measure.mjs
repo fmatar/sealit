@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import {
-  TRUE_BINARY_EXT_RE, computeContentTreeSha, fileExists, getCurrentGitBranch, gitExecBuffer,
+  EMPTY_TREE_SHA, TRUE_BINARY_EXT_RE, computeContentTreeSha, fileExists, getCurrentGitBranch, gitExecBuffer,
   hasDirtyNonGovernanceFiles, isDocsOnlyDiff, parseCommandArgv, readBlobs, readChangeSet,
   readFileSafe, resolveInsideRepo, resolveRange, runConfiguredCommand, writeFileAtomic
 } from './git.mjs';
@@ -252,7 +252,7 @@ export function parseCoverageReport(repoRoot = '.', mod = {}, { baseBranch = nul
   let fileLineHits = null;
 
   const cs = changeSet || readChangeSet({ ...resolveRange({ baseBranch, repoRoot: absRepo }), source: 'worktree', repoRoot: absRepo });
-  const keepEngine = isEngineOwnerRepo({ repoRoot: absRepo, baseSha: cs.baseSha });
+  const keepEngine = isEngineOwnerRepo({ repoRoot: absRepo, baseSha: cs.baseSha ?? EMPTY_TREE_SHA });
   const modFiles = cs.entries.filter((e) => e.status !== 'D').map((e) => e.path)
     .filter((f) => (!modPrefix ? true : f === modPrefix || f.startsWith(`${modPrefix}/`)));
   const sourceModFiles = modFiles.filter((f) => isTrackableSourceFile(f) && (keepEngine || !isVendoredEnginePath(f)));
@@ -438,7 +438,7 @@ export function buildMutationPlan(repoRoot = '.', mod = {}, { full = false, noCa
   }
 
   const cs = changeSet || readChangeSet({ ...resolveRange({ baseBranch, repoRoot: absRepo }), source: 'worktree', repoRoot: absRepo });
-  const isCopiedEngine = isEngineOwnerRepo({ repoRoot: absRepo, baseSha: cs.baseSha }) ? () => false : (f) => isVendoredEnginePath(modPrefix ? `${modPrefix}/${f}` : f);
+  const isCopiedEngine = isEngineOwnerRepo({ repoRoot: absRepo, baseSha: cs.baseSha ?? EMPTY_TREE_SHA }) ? () => false : (f) => isVendoredEnginePath(modPrefix ? `${modPrefix}/${f}` : f);
   const modified = cs.entries.filter((e) => e.status !== 'D' && e.newMode !== '160000').map((e) => e.path)
     .filter((f) => (!modPrefix ? true : f === modPrefix || f.startsWith(`${modPrefix}/`)))
     .map((f) => (!modPrefix ? f : f.slice(modPrefix.length + 1)));

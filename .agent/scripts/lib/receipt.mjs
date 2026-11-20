@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+  assertNoSymlinkAncestors,
   cleanGitEnv,
   computeAlignmentHashes,
   computeContentTreeSha,
@@ -105,6 +106,7 @@ export function loadReceiptKey(repoRoot = '.', { create = false } = {}) {
   if (!create) return null;
 
   const targetCreatePath = sharedKeyPath;
+  assertNoSymlinkAncestors(commonRoot, path.dirname(targetCreatePath));
   const key = crypto.randomBytes(32).toString('hex');
   fs.mkdirSync(path.dirname(targetCreatePath), { recursive: true });
   try {

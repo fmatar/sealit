@@ -225,9 +225,20 @@ function upsertMarkedRulesFile(filePath, rulesBlock, baseRoot = null, warnings =
   safeWriteFile(resolvedPath, `${rulesBlock}\n`, undefined, effectiveRoot);
 }
 
-function adaptSkillContent(rawMarkdown, _agent, { globalEnginePath = null } = {}) {
+function adaptSkillContent(rawMarkdown, { globalEnginePath = null } = {}) {
   const out = String(rawMarkdown || '').replace(/\r\n/g, '\n');
   return globalEnginePath ? out.replace(/node \.agent\/scripts\/sdlc-engine\.mjs/g, `node "${globalEnginePath}"`) : out;
+}
+
+function collectNpxManagedSkills(rootDir) {
+  try { assertNoSymlinkAncestors(rootDir, path.join(rootDir, '.agents/skills')); } catch { return new Set(); }
+  const realRoot = fs.realpathSync(rootDir);
+  return new Set(CANONICAL_SKILLS.filter((id) => {
+    try {
+      const rel = path.relative(realRoot, fs.realpathSync(path.join(rootDir, '.agents/skills', id, 'SKILL.md')));
+      return Boolean(rel) && !rel.startsWith('..') && !path.isAbsolute(rel);
+    } catch { return false; }
+  }));
 }
 
 export function auditSkills(repoRoot = '.') {
@@ -680,7 +691,7 @@ export async function installFramework({
       copilot: path.join(resolvedHome, '.copilot/skills')
     };
 
-    const globalNpxManaged = new Set(CANONICAL_SKILLS.filter((id) => fileExists(path.join(resolvedHome, '.agents/skills', id, 'SKILL.md'))));
+    const globalNpxManaged = collectNpxManagedSkills(resolvedHome);
     for (const agent of selectedAgents) {
       const dstBase = agentSkillDirs[agent];
       if (!dstBase) continue;
@@ -693,7 +704,7 @@ export async function installFramework({
         if (globalNpxManaged.has(skillId)) { skipped.push(skillId); continue; }
         const raw = readFileSafe(path.join(absSource, '.agent/skills', skillId, 'SKILL.md'));
         if (!raw) continue;
-        safeWriteFile(path.join(dstBase, skillId, 'SKILL.md'), adaptSkillContent(raw, agent, { globalEnginePath }), undefined, resolvedHome);
+        safeWriteFile(path.join(dstBase, skillId, 'SKILL.md'), adaptSkillContent(raw, { globalEnginePath }), undefined, resolvedHome);
         const oaiRaw = readFileSafe(path.join(absSource, '.agent/skills', skillId, 'agents/openai.yaml'));
         if (oaiRaw && agent === 'codex') safeWriteFile(path.join(dstBase, skillId, 'agents/openai.yaml'), oaiRaw, undefined, resolvedHome);
       }
@@ -751,14 +762,15 @@ export async function installFramework({
   scaffoldArchlensPolicy(absTarget, { force: false });
   const hasGit = fileExists(path.join(absTarget, '.git'));
   if (hasGit) installHooks({ repoRoot: absTarget, fsImpl });
-  const receiptKeyCreated = hasGit && !cfgExists && verifyAuditChain(absTarget).gateReceiptsCount === 0 && inspectReceiptKeyStatus(absTarget).source === 'none';
+  const chain = verifyAuditChain(absTarget);
+  const receiptKeyCreated = hasGit && !cfgExists && chain.valid && chain.gateReceiptsCount === 0 && inspectReceiptKeyStatus(absTarget).source === 'none';
   if (receiptKeyCreated) loadReceiptKey(absTarget, { create: true });
   assertNoSymlinkAncestors(absTarget, path.join(absTarget, '.github/workflows'));
   installCIWorkflow({ repoRoot: absTarget, force, upgradeLegacy: true });
 
   upsertMarkedRulesFile(path.join(absTarget, 'AGENTS.md'), rulesBlock, absTarget, warnings);
 
-  const npxManaged = new Set(CANONICAL_SKILLS.filter((id) => fileExists(path.join(absTarget, '.agents/skills', id, 'SKILL.md'))));
+  const npxManaged = collectNpxManagedSkills(absTarget);
   if (npxManaged.size > 0) {
     warnings.push(`Detected sdlc skill(s) in both '.agent/skills' and '.agents/skills' (${[...npxManaged].join(', ')}); harnesses scanning both directories may list them twice.`);
   }
@@ -770,7 +782,7 @@ export async function installFramework({
     for (const skillId of CANONICAL_SKILLS) {
       if (npxManaged.has(skillId)) { skipped.push(skillId); continue; }
       const raw = readFileSafe(path.join(absTarget, '.agent/skills', skillId, 'SKILL.md'));
-      if (raw) safeWriteFile(path.join(absSkillBase, skillId, 'SKILL.md'), adaptSkillContent(raw, relDir), undefined, absTarget);
+      if (raw) safeWriteFile(path.join(absSkillBase, skillId, 'SKILL.md'), adaptSkillContent(raw), undefined, absTarget);
       if (relDir === '.codex/skills') {
         const oaiRaw = readFileSafe(path.join(absTarget, '.agent/skills', skillId, 'agents/openai.yaml'));
         if (oaiRaw) safeWriteFile(path.join(absSkillBase, skillId, 'agents/openai.yaml'), oaiRaw, undefined, absTarget);
