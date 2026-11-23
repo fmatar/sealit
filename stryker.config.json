@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
   "packageManager": "npm",
-  "testRunner": "sdlc-node",
+  "testRunner": "sealit-node",
   "plugins": ["@stryker-mutator/tap-runner", "./tests/helpers/stryker-node-runner.mjs"],
   "coverageAnalysis": "perTest",
   "disableTypeChecks": false,
@@ -31,7 +31,7 @@
     ".agent/scripts/lib/measure.mjs",
     ".agent/scripts/lib/guard.mjs",
     ".agent/scripts/lib/install.mjs",
-    ".agent/scripts/sdlc-engine.mjs"
+    ".agent/scripts/sealit-engine.mjs"
   ],
   "thresholds": {
     "high": 80,

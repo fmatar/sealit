@@ -277,10 +277,10 @@ describe('Ring 0: lib/git.mjs', () => {
     assert.equal(isDocsOnlyDiff([]), false);
     assert.equal(isDocsOnlyDiff(['README.md', 'CHANGELOG.md', 'CONTRIBUTING.md', 'LICENSE', 'docs/guide.md', 'docs/logo-dark.svg']), true);
     for (const nonDoc of [
-      '.agent/skills/sdlc-gate/SKILL.md',
-      '.claude/skills/sdlc/SKILL.md',
-      '.cursor/rules/agentic-sdlc.mdc',
-      '.codex/skills/sdlc/SKILL.md',
+      '.agent/skills/sealit-gate/SKILL.md',
+      '.claude/skills/sealit/SKILL.md',
+      '.cursor/rules/sealit.mdc',
+      '.codex/skills/sealit/SKILL.md',
       '.github/PULL_REQUEST_TEMPLATE.md',
       '.github/copilot-instructions.md',
       'AGENTS.md',
@@ -321,7 +321,7 @@ describe('Ring 0: lib/git.mjs', () => {
     cleanups.push(cleanup);
 
     fs.mkdirSync(path.join(dir, '.agent'), { recursive: true });
-    fs.writeFileSync(path.join(dir, '.agent/.sdlc-session.json'), '{}', 'utf8');
+    fs.writeFileSync(path.join(dir, '.agent/.sealit-session.json'), '{}', 'utf8');
     assert.equal(hasDirtyNonGovernanceFiles(dir), false);
 
     fs.writeFileSync(path.join(dir, 'dirty.mjs'), 'export const x = 1;\n', 'utf8');

@@ -48,11 +48,11 @@ describe('Ring 0: lib/config.mjs', () => {
 
     fs.mkdirSync(path.join(dir, '.agent'), { recursive: true });
     fs.writeFileSync(
-      path.join(dir, '.agent/sdlc-config.json'),
+      path.join(dir, '.agent/sealit-config.json'),
       JSON.stringify(
         {
           version: '0.1.0',
-          ci: { runsOn: "${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}", checkName: DEFAULT_QUALITY_GATE_CHECK },
+          ci: { runsOn: "${{ vars.SEALIT_RUNS_ON || 'ubuntu-latest' }}", checkName: DEFAULT_QUALITY_GATE_CHECK },
           archlens: { enabled: true, policyPath: '.archlens/policy.json' },
           modules: [
             {
@@ -88,20 +88,20 @@ describe('Ring 0: lib/config.mjs', () => {
     const dir = makeTempDir();
     fs.mkdirSync(path.join(dir, '.agent'), { recursive: true });
 
-    fs.writeFileSync(path.join(dir, '.agent/sdlc-config.json'), '{bad-json', 'utf8');
+    fs.writeFileSync(path.join(dir, '.agent/sealit-config.json'), '{bad-json', 'utf8');
     assert.equal(validateConfigFile(dir).valid, false);
 
-    fs.writeFileSync(path.join(dir, '.agent/sdlc-config.json'), '[]', 'utf8');
+    fs.writeFileSync(path.join(dir, '.agent/sealit-config.json'), '[]', 'utf8');
     assert.equal(validateConfigFile(dir).valid, false);
 
-    fs.writeFileSync(path.join(dir, '.agent/sdlc-config.json'), JSON.stringify({ version: '', modules: [] }), 'utf8');
+    fs.writeFileSync(path.join(dir, '.agent/sealit-config.json'), JSON.stringify({ version: '', modules: [] }), 'utf8');
     const emptyRes = validateConfigFile(dir);
     assert.equal(emptyRes.valid, false);
     assert.ok(emptyRes.errors.some((e) => /version/i.test(e)));
     assert.ok(emptyRes.errors.some((e) => /at least one module/i.test(e)));
 
     fs.writeFileSync(
-      path.join(dir, '.agent/sdlc-config.json'),
+      path.join(dir, '.agent/sealit-config.json'),
       JSON.stringify({
         version: '0.1.0',
         modules: [
@@ -127,7 +127,7 @@ describe('Ring 0: lib/config.mjs', () => {
     assert.ok(badRes.errors.some((e) => /exemptions\[1\]/i.test(e)));
 
     fs.writeFileSync(
-      path.join(dir, '.agent/sdlc-config.json'),
+      path.join(dir, '.agent/sealit-config.json'),
       JSON.stringify({
         version: '0.1.0',
         ci: { checkName: 'Gate\nInjected: bad', runsOn: 'ubuntu\nbad' },
@@ -148,7 +148,7 @@ describe('Ring 0: lib/config.mjs', () => {
     const dir = makeTempDir();
     fs.mkdirSync(path.join(dir, '.agent'), { recursive: true });
     fs.writeFileSync(
-      path.join(dir, '.agent/sdlc-config.json'),
+      path.join(dir, '.agent/sealit-config.json'),
       JSON.stringify({
         version: '2.1.0',
         profile: 'standard',
@@ -171,7 +171,7 @@ describe('Ring 0: lib/config.mjs', () => {
     assert.equal(loaded.config.modules[0].thresholds.diffCoverage, 90);
     assert.equal(loaded.config.modules[0].thresholds.mutationScore, 65);
 
-    const upgraded = upgradeConfigToV010(JSON.parse(fs.readFileSync(path.join(dir, '.agent/sdlc-config.json'), 'utf8')));
+    const upgraded = upgradeConfigToV010(JSON.parse(fs.readFileSync(path.join(dir, '.agent/sealit-config.json'), 'utf8')));
     assert.equal(upgraded.version, '0.1.0');
     assert.equal(upgraded.lanes, undefined);
     assert.equal(upgraded.modules[0].thresholds.diffCoverage, 90);
@@ -241,7 +241,7 @@ describe('Ring 0: lib/config.mjs', () => {
   it('manages audited mutant exemptions atomically with stable identities, resolves report mutant ids, and upserts duplicates', () => {
     const dir = makeTempDir();
     fs.mkdirSync(path.join(dir, '.agent'), { recursive: true });
-    fs.writeFileSync(path.join(dir, '.agent/sdlc-config.json'), JSON.stringify(generateConfig(dir), null, 2), 'utf8');
+    fs.writeFileSync(path.join(dir, '.agent/sealit-config.json'), JSON.stringify(generateConfig(dir), null, 2), 'utf8');
 
     const idA = 'ConditionalExpression@10:4#a1b2c3d4';
     const idB = 'BooleanLiteral@22:8#deadbeef';
@@ -326,7 +326,7 @@ describe('Ring 0: lib/config.mjs', () => {
   });
 
   it('validator allow-lists match sdlc-config.schema.json properties and reject unknown keys at every level', () => {
-    const schemaPath = path.resolve('.agent/schemas/sdlc-config.schema.json');
+    const schemaPath = path.resolve('.agent/schemas/sealit-config.schema.json');
     const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf8'));
     const sort = (arr) => [...arr].sort();
 
@@ -348,7 +348,7 @@ describe('Ring 0: lib/config.mjs', () => {
       modules: [{ name: 'root', path: '.', commands: { test: 'npm test', coverage: 'npm run cov', mutation: 'stryker run' }, thresholds: { diffCoverage: 80, mutationScore: 60 } }],
       exemptions: [{ id: 'ConditionalExpression@1:0#a1b2c3d4', file: 'src/a.mjs', reason: 'Equivalent branch', addedAt: '2026-11-18T00:00:00Z' }]
     };
-    fs.writeFileSync(path.join(dir, '.agent/sdlc-config.json'), JSON.stringify(validBase), 'utf8');
+    fs.writeFileSync(path.join(dir, '.agent/sealit-config.json'), JSON.stringify(validBase), 'utf8');
     assert.equal(validateConfigFile(dir).valid, true);
 
     for (const [mutFn, expectedKey] of [
@@ -362,19 +362,19 @@ describe('Ring 0: lib/config.mjs', () => {
     ]) {
       const candidate = structuredClone(validBase);
       mutFn(candidate);
-      fs.writeFileSync(path.join(dir, '.agent/sdlc-config.json'), JSON.stringify(candidate), 'utf8');
+      fs.writeFileSync(path.join(dir, '.agent/sealit-config.json'), JSON.stringify(candidate), 'utf8');
       const r = validateConfigFile(dir);
       assert.equal(r.valid, false, `Expected ${expectedKey} to be rejected`);
       assert.ok(r.errors.some((e) => e.includes(expectedKey)), `Expected error mentioning ${expectedKey}, got: ${r.errors.join('; ')}`);
     }
 
     // Non-object ci/archlens, non-boolean archlens.enabled, legacy exemption warning without error
-    fs.writeFileSync(path.join(dir, '.agent/sdlc-config.json'), JSON.stringify({ ...validBase, ci: 'bad', archlens: [] }), 'utf8');
+    fs.writeFileSync(path.join(dir, '.agent/sealit-config.json'), JSON.stringify({ ...validBase, ci: 'bad', archlens: [] }), 'utf8');
     assert.equal(validateConfigFile(dir).valid, false);
-    fs.writeFileSync(path.join(dir, '.agent/sdlc-config.json'), JSON.stringify({ ...validBase, archlens: { enabled: 'yes' } }), 'utf8');
+    fs.writeFileSync(path.join(dir, '.agent/sealit-config.json'), JSON.stringify({ ...validBase, archlens: { enabled: 'yes' } }), 'utf8');
     assert.equal(validateConfigFile(dir).valid, false);
     fs.writeFileSync(
-      path.join(dir, '.agent/sdlc-config.json'),
+      path.join(dir, '.agent/sealit-config.json'),
       JSON.stringify({ ...validBase, exemptions: [{ id: 'legacy-12', file: 'src/a.mjs', reason: 'Legacy id warning only' }] }),
       'utf8'
     );
@@ -388,7 +388,7 @@ describe('Ring 0: lib/config.mjs', () => {
     fs.mkdirSync(path.join(dir, '.agent'), { recursive: true });
 
     fs.writeFileSync(
-      path.join(dir, '.agent/sdlc-config.json'),
+      path.join(dir, '.agent/sealit-config.json'),
       JSON.stringify({
         version: '0.1.0',
         modules: [{ name: 'root', path: '.', commands: { coverage: null, mutation: null }, thresholds: { diffCoverage: 85, mutationScore: 0 } }]
@@ -401,19 +401,19 @@ describe('Ring 0: lib/config.mjs', () => {
     assert.ok(res.errors.some((e) => /mutationScore requires .*commands\.mutation/i.test(e)));
 
     // Generic generated config (null thresholds + null commands) passes validation cleanly
-    fs.writeFileSync(path.join(dir, '.agent/sdlc-config.json'), JSON.stringify(generateConfig(dir), null, 2), 'utf8');
+    fs.writeFileSync(path.join(dir, '.agent/sealit-config.json'), JSON.stringify(generateConfig(dir), null, 2), 'utf8');
     assert.equal(validateConfigFile(dir).valid, true);
   });
 
   it('bootstrap repo gates on head policy with policySource bootstrap, and raising a threshold in the PR applies immediately', () => {
-    // 1. Bootstrap repo (base commit has no .agent/sdlc-config.json)
+    // 1. Bootstrap repo (base commit has no .agent/sealit-config.json)
     const boot = createTempGitRepo();
     cleanups.push(boot.cleanup);
     const baseSha = git(boot.dir, 'rev-parse', 'develop').stdout.trim();
     git(boot.dir, 'checkout', '-q', '-b', 'feat/bootstrap', 'develop');
     fs.mkdirSync(path.join(boot.dir, '.agent'), { recursive: true });
     fs.writeFileSync(
-      path.join(boot.dir, '.agent/sdlc-config.json'),
+      path.join(boot.dir, '.agent/sealit-config.json'),
       JSON.stringify({
         version: '0.1.0',
         archlens: { enabled: false, policyPath: '.archlens/policy.json' },
@@ -421,7 +421,7 @@ describe('Ring 0: lib/config.mjs', () => {
       }),
       'utf8'
     );
-    git(boot.dir, 'add', '.agent/sdlc-config.json');
+    git(boot.dir, 'add', '.agent/sealit-config.json');
     git(boot.dir, 'commit', '-q', '-m', 'chore: adopt sdlc config');
     const bootHead = git(boot.dir, 'rev-parse', 'HEAD').stdout.trim();
     const bootPol = loadEffectivePolicy({ repoRoot: boot.dir, baseSha, headSha: bootHead });
@@ -443,7 +443,7 @@ describe('Ring 0: lib/config.mjs', () => {
       'utf8'
     );
     fs.writeFileSync(
-      path.join(raise.dir, '.agent/sdlc-config.json'),
+      path.join(raise.dir, '.agent/sealit-config.json'),
       JSON.stringify({
         version: '0.1.0',
         archlens: { enabled: false, policyPath: '.archlens/policy.json' },
@@ -462,7 +462,7 @@ describe('Ring 0: lib/config.mjs', () => {
     fs.writeFileSync(path.join(raise.dir, 'src/a.mjs'), 'export const a = 1;\nexport const b = 2;\n', 'utf8');
     // Raise diffCoverage 40 -> 90 AND widen stryker mutate (add lib/**/*.mjs and drop !src/gen.mjs negation) -> 0 policyTriggers, 90% enforced immediately!
     fs.writeFileSync(
-      path.join(raise.dir, '.agent/sdlc-config.json'),
+      path.join(raise.dir, '.agent/sealit-config.json'),
       JSON.stringify({
         version: '0.1.0',
         archlens: { enabled: false, policyPath: '.archlens/policy.json' },
@@ -488,7 +488,7 @@ describe('Ring 0: lib/config.mjs', () => {
 
     // Removing a base module or deleting stryker.config.json keeps base module/stryker and emits GATE_POLICY_DRIFT
     fs.writeFileSync(
-      path.join(raise.dir, '.agent/sdlc-config.json'),
+      path.join(raise.dir, '.agent/sealit-config.json'),
       JSON.stringify({
         version: '0.1.0',
         archlens: { enabled: false, policyPath: '.archlens/policy.json' },
@@ -502,17 +502,17 @@ describe('Ring 0: lib/config.mjs', () => {
     const dropHead = git(raise.dir, 'rev-parse', 'HEAD').stdout.trim();
     const dropPol = loadEffectivePolicy({ repoRoot: raise.dir, baseSha: rBase, headSha: dropHead });
     assert.equal(dropPol.config.modules.length, 2);
-    assert.ok(dropPol.policyTriggers.some((t) => t.file === '.agent/sdlc-config.json' && t.type === 'GATE_POLICY_DRIFT'));
+    assert.ok(dropPol.policyTriggers.some((t) => t.file === '.agent/sealit-config.json' && t.type === 'GATE_POLICY_DRIFT'));
     assert.ok(dropPol.policyTriggers.some((t) => t.file === 'stryker.config.json' && t.type === 'GATE_POLICY_DRIFT'));
     assert.deepEqual(dropPol.stryker.mutate, ['src/**/*.mjs', '!src/gen.mjs']);
 
     // 3. Malformed head modules ("bad" or [null]) never throws TypeError and emits GATE_POLICY_DRIFT
-    fs.writeFileSync(path.join(raise.dir, '.agent/sdlc-config.json'), JSON.stringify({ version: '0.1.0', modules: 'bad' }), 'utf8');
+    fs.writeFileSync(path.join(raise.dir, '.agent/sealit-config.json'), JSON.stringify({ version: '0.1.0', modules: 'bad' }), 'utf8');
     const badModsPol = loadEffectivePolicy({ repoRoot: raise.dir, baseSha: rBase, headSha: null });
     assert.equal(badModsPol.config.modules.length, 1);
-    assert.ok(badModsPol.policyTriggers.some((t) => t.file === '.agent/sdlc-config.json'));
-    fs.writeFileSync(path.join(raise.dir, '.agent/sdlc-config.json'), JSON.stringify({ version: '0.1.0', modules: [null] }), 'utf8');
-    assert.ok(loadEffectivePolicy({ repoRoot: raise.dir, baseSha: rBase, headSha: null }).policyTriggers.some((t) => t.file === '.agent/sdlc-config.json'));
+    assert.ok(badModsPol.policyTriggers.some((t) => t.file === '.agent/sealit-config.json'));
+    fs.writeFileSync(path.join(raise.dir, '.agent/sealit-config.json'), JSON.stringify({ version: '0.1.0', modules: [null] }), 'utf8');
+    assert.ok(loadEffectivePolicy({ repoRoot: raise.dir, baseSha: rBase, headSha: null }).policyTriggers.some((t) => t.file === '.agent/sealit-config.json'));
 
     // 4. Polyglot repo without base package.json spoofing {"name":"@fmatar/agentic-sdlc"}, omitted-mutate -> explicit-mutate narrowing, submodule strykerByModule, and v0.1.0 commandless upgrade
     const mono = createTempGitRepo();
@@ -520,7 +520,7 @@ describe('Ring 0: lib/config.mjs', () => {
     fs.mkdirSync(path.join(mono.dir, '.agent/scripts'), { recursive: true });
     fs.mkdirSync(path.join(mono.dir, 'packages/api/src'), { recursive: true });
     fs.mkdirSync(path.join(mono.dir, 'packages/api/tests/helpers'), { recursive: true });
-    fs.writeFileSync(path.join(mono.dir, '.agent/scripts/sdlc-engine.mjs'), '// v1\n', 'utf8');
+    fs.writeFileSync(path.join(mono.dir, '.agent/scripts/sealit-engine.mjs'), '// v1\n', 'utf8');
     fs.writeFileSync(path.join(mono.dir, 'stryker.config.json'), JSON.stringify({ testRunner: 'vitest' }), 'utf8');
     fs.writeFileSync(path.join(mono.dir, 'packages/api/stryker.config.json'), JSON.stringify({ mutate: ['src/**/*.mjs'] }), 'utf8');
     fs.writeFileSync(
@@ -536,7 +536,7 @@ describe('Ring 0: lib/config.mjs', () => {
     );
     // Base has NO package.json, AND has legacy v0.1.0 commandless diffCoverage: 85 (commands.coverage: null)
     fs.writeFileSync(
-      path.join(mono.dir, '.agent/sdlc-config.json'),
+      path.join(mono.dir, '.agent/sealit-config.json'),
       JSON.stringify({
         version: '0.1.0',
         archlens: { enabled: false, policyPath: '.archlens/policy.json' },
@@ -552,7 +552,7 @@ describe('Ring 0: lib/config.mjs', () => {
     // Upgrade commandless diffCoverage: 85 -> null and edit packages/api/src/svc.mjs: runGate uses packages/api/stryker.config.json (never clobbered by root) and passes!
     fs.writeFileSync(path.join(mono.dir, 'packages/api/src/svc.mjs'), 'export const ok = true;\n', 'utf8');
     fs.writeFileSync(
-      path.join(mono.dir, '.agent/sdlc-config.json'),
+      path.join(mono.dir, '.agent/sealit-config.json'),
       JSON.stringify({
         version: '0.1.0',
         archlens: { enabled: false, policyPath: '.archlens/policy.json' },
@@ -565,9 +565,9 @@ describe('Ring 0: lib/config.mjs', () => {
     const cleanSubGate = runGate(mono.dir, { noCache: true });
     assert.equal(cleanSubGate.passed, true);
 
-    // Now spoof root package.json {"name":"@fmatar/agentic-sdlc"}, tamper .agent/scripts, add explicit mutate to root stryker (which omitted mutate at base), and narrow packages/api/stryker.config.json!
-    fs.writeFileSync(path.join(mono.dir, 'package.json'), JSON.stringify({ name: '@fmatar/agentic-sdlc', version: '0.1.0' }), 'utf8');
-    fs.writeFileSync(path.join(mono.dir, '.agent/scripts/sdlc-engine.mjs'), '// tampered\n', 'utf8');
+    // Now spoof root package.json {"name":"sealit"}, tamper .agent/scripts, add explicit mutate to root stryker (which omitted mutate at base), and narrow packages/api/stryker.config.json!
+    fs.writeFileSync(path.join(mono.dir, 'package.json'), JSON.stringify({ name: 'sealit', version: '0.0.1' }), 'utf8');
+    fs.writeFileSync(path.join(mono.dir, '.agent/scripts/sealit-engine.mjs'), '// tampered\n', 'utf8');
     fs.writeFileSync(path.join(mono.dir, 'stryker.config.json'), JSON.stringify({ testRunner: 'vitest', mutate: ['only-one.mjs'] }), 'utf8');
     fs.writeFileSync(path.join(mono.dir, 'packages/api/stryker.config.json'), JSON.stringify({ mutate: ['src/other.mjs', '!src/svc.mjs'] }), 'utf8');
     git(mono.dir, 'add', '-A');
@@ -576,38 +576,58 @@ describe('Ring 0: lib/config.mjs', () => {
     const evilPol = loadEffectivePolicy({ repoRoot: mono.dir, baseSha: mBase, headSha: mHead });
     assert.equal(evilPol.stryker.mutate, undefined, 'omitted mutate at base stays unrestricted');
     assert.deepEqual(evilPol.strykerByModule.api.mutate, ['src/**/*.mjs', 'src/other.mjs']);
-    assert.ok(evilPol.policyTriggers.some((t) => t.file === '.agent/scripts/sdlc-engine.mjs'));
+    assert.ok(evilPol.policyTriggers.some((t) => t.file === '.agent/scripts/sealit-engine.mjs'));
     assert.ok(evilPol.policyTriggers.some((t) => t.file === 'stryker.config.json'));
     assert.ok(evilPol.policyTriggers.some((t) => t.file === 'packages/api/stryker.config.json'));
   });
 
-  it('isEngineOwnerRepo reads the base package.json name and fails closed', () => {
+  it('isEngineOwnerRepo reads the base package.json name across sealit and legacy monikers and loadEffectivePolicy bridges legacy sdlc-config.json', () => {
     const r = createTempGitRepo();
     cleanups.push(r.cleanup);
-    fs.writeFileSync(path.join(r.dir, 'package.json'), JSON.stringify({ name: '@fmatar/agentic-sdlc', version: '0.1.0' }), 'utf8');
-    git(r.dir, 'add', 'package.json');
-    git(r.dir, 'commit', '-q', '-m', 'chore: owner pkg');
+    fs.mkdirSync(path.join(r.dir, '.agent'), { recursive: true });
+    fs.writeFileSync(path.join(r.dir, 'package.json'), JSON.stringify({ name: 'sealit', version: '0.0.1' }), 'utf8');
+    fs.writeFileSync(
+      path.join(r.dir, '.agent/sdlc-config.json'),
+      JSON.stringify({ version: '0.1.0', modules: [{ name: 'root', path: '.', commands: { coverage: 'npm run cov' }, thresholds: { diffCoverage: 85, mutationScore: null } }] }),
+      'utf8'
+    );
+    git(r.dir, 'add', 'package.json', '.agent/sdlc-config.json');
+    git(r.dir, 'commit', '-q', '-m', 'chore: owner pkg and legacy config');
     const sha1 = git(r.dir, 'rev-parse', 'HEAD').stdout.trim();
 
+    git(r.dir, 'rm', '-q', '.agent/sdlc-config.json');
+    fs.mkdirSync(path.join(r.dir, '.agent'), { recursive: true });
     fs.writeFileSync(path.join(r.dir, 'package.json'), JSON.stringify({ name: 'demo', version: '1.0.0' }), 'utf8');
-    git(r.dir, 'add', 'package.json');
-    git(r.dir, 'commit', '-q', '-m', 'chore: demo pkg');
+    fs.writeFileSync(
+      path.join(r.dir, '.agent/sealit-config.json'),
+      JSON.stringify({ version: '0.0.1', modules: [{ name: 'root', path: '.', commands: { coverage: 'npm run cov' }, thresholds: { diffCoverage: 40, mutationScore: null } }] }),
+      'utf8'
+    );
+    git(r.dir, 'add', 'package.json', '.agent/sealit-config.json');
+    git(r.dir, 'commit', '-q', '-m', 'chore: demo pkg and lowered sealit config');
     const sha2 = git(r.dir, 'rev-parse', 'HEAD').stdout.trim();
+
+    const bridged = loadEffectivePolicy({ repoRoot: r.dir, baseSha: sha1, headSha: sha2 });
+    assert.equal(bridged.policySource, 'base+head');
+    assert.equal(bridged.config.modules[0].thresholds.diffCoverage, 85, 'legacy base sdlc-config.json floor must still hold across rename');
+    assert.ok(bridged.policyTriggers.some((t) => t.file === '.agent/sealit-config.json'));
 
     assert.equal(isEngineOwnerRepo({ repoRoot: r.dir, baseSha: sha1 }), true);
     assert.equal(isEngineOwnerRepo({ repoRoot: r.dir, baseSha: sha2 }), false);
     assert.equal(isEngineOwnerRepo({ repoRoot: r.dir, baseSha: '4b825dc642cb6eb9a060e54bf8d69288fbee4904' }), false);
     assert.equal(isEngineOwnerRepo({ repoRoot: r.dir }), false);
 
-    fs.writeFileSync(path.join(r.dir, 'package.json'), JSON.stringify({ name: '@fmatar/agentic-sdlc' }), 'utf8');
-    assert.equal(isEngineOwnerRepo({ repoRoot: r.dir }), true);
+    for (const ownerName of ['sealit', '@fmatar/sealit', '@fmatar/agentic-sdlc']) {
+      fs.writeFileSync(path.join(r.dir, 'package.json'), JSON.stringify({ name: ownerName }), 'utf8');
+      assert.equal(isEngineOwnerRepo({ repoRoot: r.dir }), true, ownerName);
+    }
 
     fs.writeFileSync(path.join(r.dir, 'package.json'), '{bad', 'utf8');
     assert.equal(isEngineOwnerRepo({ repoRoot: r.dir }), false);
     fs.unlinkSync(path.join(r.dir, 'package.json'));
     assert.equal(isEngineOwnerRepo({ repoRoot: r.dir }), false);
 
-    assert.equal(isVendoredEnginePath('.agent/scripts/sdlc-engine.mjs'), true);
+    assert.equal(isVendoredEnginePath('.agent/scripts/sealit-engine.mjs'), true);
     assert.equal(isVendoredEnginePath('.\\.agent\\scripts\\lib\\git.mjs'), true);
     assert.equal(isVendoredEnginePath('packages/api/.agent/scripts/worker.mjs'), false);
     assert.equal(isVendoredEnginePath(''), false);

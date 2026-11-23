@@ -1,13 +1,13 @@
-# Software Requirements Specification (SRS): `@fmatar/agentic-sdlc` (v0.1.0)
+# Software Requirements Specification (SRS): `sealit` (v0.0.1)
 
 *Based on IEEE 29148 Standard*
 
 ## 1. Introduction
 ### 1.1 Purpose
-Defines the functional interfaces, 4-ring Concentric Clean Architecture boundaries, non-functional requirements, and capability traceability matrix for `@fmatar/agentic-sdlc` v0.1.0.
+Defines the functional interfaces, 4-ring Concentric Clean Architecture boundaries, non-functional requirements, and capability traceability matrix for `sealit` v0.0.1 ([sealit.dev](https://sealit.dev)).
 
 ### 1.2 Scope
-An 8-module, zero-dependency Node.js (`>= 22.0.0`) Alignment and Proof Kernel paired with 6 canonical `sdlc*` agent skills enforcing Git Flow session locks, spec/ADR drift checks, [Archlens](https://github.com/fmatar/archlens) concentric ring boundaries, measured diff coverage and mutation gates, and HMAC-SHA256 Stage 7 merge receipts.
+An 8-module, zero-dependency Node.js (`>= 22.0.0`) Alignment and Proof Kernel paired with 6 canonical `sealit*` agent skills enforcing Git Flow session locks, spec/ADR drift checks, [Archlens](https://github.com/fmatar/archlens) concentric ring boundaries, measured diff coverage and mutation gates, and HMAC-SHA256 Stage 7 merge receipts.
 
 ### 1.3 References & Traceability Matrix
 - **Product Constitution**: [`PRODUCT.md`](../PRODUCT.md)
@@ -17,32 +17,32 @@ An 8-module, zero-dependency Node.js (`>= 22.0.0`) Alignment and Proof Kernel pa
 
 | Capability ID | Capability Title | Detailed Functional Spec | Governing Ring & Module | Status |
 | :--- | :--- | :--- | :--- | :--- |
-| `CAP-01` | Git Flow, Linked-Worktree Hygiene & 4-Layer Guard | [`docs/specs/cap-01-git-and-worktree-guard.md`](./specs/cap-01-git-and-worktree-guard.md) | Ring 0 `git.mjs`, Ring 2 `guard.mjs` | `ACTIVE (ADR-019)` |
-| `CAP-02` | Schema-Validated Configuration & Shell-Free Execution | [`docs/specs/cap-02-config-and-shell-free-execution.md`](./specs/cap-02-config-and-shell-free-execution.md) | Ring 0 `config.mjs`, `git.mjs` | `ACTIVE (ADR-019)` |
-| `CAP-03` | Spec, ADR & Concentric Ring Alignment | [`docs/specs/cap-03-spec-adr-and-ring-alignment.md`](./specs/cap-03-spec-adr-and-ring-alignment.md) | Ring 1 `drift.mjs` | `ACTIVE (ADR-019)` |
-| `CAP-04` | Single-Path Measured Quality Gate | [`docs/specs/cap-04-single-path-measured-gate.md`](./specs/cap-04-single-path-measured-gate.md) | Ring 2 `measure.mjs`, `guard.mjs` | `ACTIVE (ADR-019)` |
-| `CAP-05` | Cryptographic HMAC-SHA256 Merge Receipts & Audit Chain | [`docs/specs/cap-05-cryptographic-merge-receipts.md`](./specs/cap-05-cryptographic-merge-receipts.md) | Ring 1 `receipt.mjs` | `ACTIVE (ADR-019)` |
-| `CAP-06` | Canonical 6-Skill Suite, Multi-Agent Installer & Doctor | [`docs/specs/cap-06-canonical-skills-and-installer.md`](./specs/cap-06-canonical-skills-and-installer.md) | Ring 2 `install.mjs`, Ring 3 `sdlc-engine.mjs` | `ACTIVE (ADR-019)` |
+| `CAP-01` | Git Flow, Linked-Worktree Hygiene & 4-Layer Guard | [`docs/specs/cap-01-git-and-worktree-guard.md`](./specs/cap-01-git-and-worktree-guard.md) | Ring 0 `git.mjs`, Ring 2 `guard.mjs` | `ACTIVE (ADR-026)` |
+| `CAP-02` | Schema-Validated Configuration & Shell-Free Execution | [`docs/specs/cap-02-config-and-shell-free-execution.md`](./specs/cap-02-config-and-shell-free-execution.md) | Ring 0 `config.mjs`, `git.mjs` | `ACTIVE (ADR-026)` |
+| `CAP-03` | Spec, ADR & Concentric Ring Alignment | [`docs/specs/cap-03-spec-adr-and-ring-alignment.md`](./specs/cap-03-spec-adr-and-ring-alignment.md) | Ring 1 `drift.mjs` | `ACTIVE (ADR-026)` |
+| `CAP-04` | Single-Path Measured Quality Gate | [`docs/specs/cap-04-single-path-measured-gate.md`](./specs/cap-04-single-path-measured-gate.md) | Ring 2 `measure.mjs`, `guard.mjs` | `ACTIVE (ADR-026)` |
+| `CAP-05` | Cryptographic HMAC-SHA256 Merge Receipts & Audit Chain | [`docs/specs/cap-05-cryptographic-merge-receipts.md`](./specs/cap-05-cryptographic-merge-receipts.md) | Ring 1 `receipt.mjs` | `ACTIVE (ADR-026)` |
+| `CAP-06` | Canonical 6-Skill Suite, Multi-Agent Installer & Doctor | [`docs/specs/cap-06-canonical-skills-and-installer.md`](./specs/cap-06-canonical-skills-and-installer.md) | Ring 2 `install.mjs`, Ring 3 `sealit-engine.mjs` | `ACTIVE (ADR-026)` |
 
 ## 2. Overall Description & Concentric Ring Architecture
 ### 2.1 System Architecture (4 Concentric Rings, 8 Modules)
 ```mermaid
 flowchart TD
-    Skills["6 Canonical Skills (.agent/skills/sdlc*)"] --> CLI["Ring 3 (cli-entrypoints): sdlc-engine.mjs"]
+    Skills["6 Canonical Skills (.agent/skills/sealit*)"] --> CLI["Ring 3 (cli-entrypoints): sealit-engine.mjs"]
     CLI --> Adapters["Ring 2 (adapters-orchestrators): measure.mjs, guard.mjs, install.mjs"]
     Adapters --> Governance["Ring 1 (governance-models): receipt.mjs, drift.mjs"]
     Governance --> Core["Ring 0 (domain-core): git.mjs, config.mjs"]
 ```
 
 ### 2.2 Operating Environment & Constraints
-- **Runtime**: Node.js `>= 22.0.0` (ES Modules), Git `>= 2.30`.
-- **Persisted State**: Exactly 3 files: git-tracked `docs/AUDIT_CHAIN.jsonl`, gitignored `.agent/.sdlc-session.json` (`0600`), and gitignored `.agent/.receipt-key` (`0600`).
+- **Runtime**: Node.js `>= 22.0.0` (ES Modules), Git `>= 2.38`.
+- **Persisted State**: Exactly 3 files: git-tracked `docs/AUDIT_CHAIN.jsonl`, gitignored `.agent/.sealit-session.json` (`0600`), and gitignored `.agent/.receipt-key` (`0600`).
 - **Module Complexity Cap**: Every file under `.agent/scripts/` stays `<= 850` lines of code with zero outward ring imports and zero circular dependencies.
 
 ## 3. Specific Requirements (IEEE 29148)
 ### 3.1 External Interfaces
-- **3.1.1 CLI Interface (`sdlc-engine.mjs`)**: Declarative command registry supporting `init`, `doctor`, `config`, `hooks`, `protect`, `begin`, `status`, `end`, `drift`, `adr`, `test`, `coverage`, `mutation`, `gate`, `review`, `receipt`, `verify`, `skill-audit`, and `help` (`--json` supported across commands; unknown commands exit `2`; failing checks exit `1`).
-- **3.1.2 Agent Skills Interface (`.agent/skills/`)**: 6 canonical skills (`sdlc`, `sdlc-spec`, `sdlc-adr`, `sdlc-tdd`, `sdlc-gate`, `sdlc-flow`), isolated to the `sdlc*` namespace and adapted at install time for Antigravity, Claude Code, Cursor, Codex, and GitHub Copilot.
+- **3.1.1 CLI Interface (`sealit-engine.mjs`)**: Declarative command registry supporting `init`, `doctor`, `config`, `hooks`, `protect`, `begin`, `status`, `end`, `drift`, `adr`, `test`, `coverage`, `mutation`, `gate`, `review`, `pr-body`, `receipt`, `verify`, `skill-audit`, and `help` (`--json` supported across commands; unknown commands exit `2`; failing checks exit `1`).
+- **3.1.2 Agent Skills Interface (`.agent/skills/`)**: 6 canonical skills (`sealit`, `sealit-spec`, `sealit-adr`, `sealit-tdd`, `sealit-gate`, `sealit-flow`), isolated to the `sealit*` namespace (pruning retired `sdlc*` skills) and adapted at install time for Antigravity, Claude Code, Cursor, Codex, and GitHub Copilot.
 
 ### 3.2 Non-Functional & Security Requirements (`INV-01` .. `INV-04`)
 - **INV-01**: Protected branch lock on `main` and `develop`; PRs to `main` originate exclusively from `develop`.

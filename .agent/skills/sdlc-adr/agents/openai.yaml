@@ -1,3 +1,0 @@
-interface:
-  display_name: "SDLC ADR & Drift Governance"
-  short_description: "Compare architectural trade-offs, record ADRs (ADR-NNN or MADR NNNN), and satisfy INV-03 spec drift."

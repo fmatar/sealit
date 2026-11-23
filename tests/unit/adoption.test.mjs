@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createTempGitRepo, git } from '../helpers/test-harness.mjs';
+import { createTempGitRepo, git, withoutReceiptEnv } from '../helpers/test-harness.mjs';
 import { installFramework } from '../../.agent/scripts/lib/install.mjs';
-import { runCLI } from '../../.agent/scripts/sdlc-engine.mjs';
+import { runCLI } from '../../.agent/scripts/sealit-engine.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -19,12 +19,8 @@ describe('End-to-End First Adoption Flow', () => {
     const { dir, cleanup } = createTempGitRepo();
     cleanups.push(cleanup);
 
-    const hadEnv = Object.prototype.hasOwnProperty.call(process.env, 'SDLC_RECEIPT_KEY');
-    const prevEnv = process.env.SDLC_RECEIPT_KEY;
-    delete process.env.SDLC_RECEIPT_KEY;
-
-    try {
-      // Seed a realistic fresh JS repo with bare .gitignore (no pre-populated SDLC entries)
+    await withoutReceiptEnv(async () => {
+      // Seed a realistic fresh JS repo with bare .gitignore (no pre-populated Sealit entries)
       fs.writeFileSync(path.join(dir, '.gitignore'), 'node_modules/\n', 'utf8');
       fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'demo', version: '1.0.0', type: 'module' }, null, 2) + '\n', 'utf8');
       fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
@@ -45,7 +41,7 @@ describe('End-to-End First Adoption Flow', () => {
 
       const doc = await runCLI(['doctor'], null, dir);
       assert.equal(doc.success, true);
-      assert.ok(doc.doctor.receiptKey.ciSecretHint?.includes('gh secret set SDLC_RECEIPT_KEY'));
+      assert.ok(doc.doctor.receiptKey.ciSecretHint?.includes('gh secret set SEALIT_RECEIPT_KEY'));
 
       const begun = await runCLI(['begin', '--title', 'adopt', '--type', 'chore', '--checkout'], null, dir);
       assert.equal(begun.success, true);
@@ -54,7 +50,7 @@ describe('End-to-End First Adoption Flow', () => {
       const adrCreated = await runCLI(
         [
           'adr', 'create',
-          '--title', 'Adopt agentic-sdlc',
+          '--title', 'Adopt sealit',
           '--scope', 'architectural',
           '--ticket', issueId,
           '--context', 'Onboard Alignment and Proof Kernel',
@@ -73,7 +69,7 @@ describe('End-to-End First Adoption Flow', () => {
       assert.equal(adrDecided.success, true);
 
       git(dir, 'add', '-A');
-      assert.equal(git(dir, 'commit', '-qm', 'chore: adopt agentic-sdlc').status, 0);
+      assert.equal(git(dir, 'commit', '-qm', 'chore: adopt sealit').status, 0);
 
       const gate = await runCLI(['gate', '--no-cache'], null, dir);
       assert.equal(gate.success, true, JSON.stringify(gate.gate));
@@ -86,9 +82,6 @@ describe('End-to-End First Adoption Flow', () => {
 
       const ver = await runCLI(['verify'], null, dir);
       assert.equal(ver.success, true, ver.error || '');
-    } finally {
-      if (hadEnv) process.env.SDLC_RECEIPT_KEY = prevEnv;
-      else delete process.env.SDLC_RECEIPT_KEY;
-    }
+    });
   });
 });

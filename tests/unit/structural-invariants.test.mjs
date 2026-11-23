@@ -8,12 +8,12 @@ import { checkArchRings } from '../../.agent/scripts/lib/drift.mjs';
 import { auditSkills, CANONICAL_SKILLS } from '../../.agent/scripts/lib/install.mjs';
 import { validateConfigFile } from '../../.agent/scripts/lib/config.mjs';
 import { verifyAuditChain } from '../../.agent/scripts/lib/receipt.mjs';
-import { runCLI, readPackageVersion } from '../../.agent/scripts/sdlc-engine.mjs';
+import { runCLI, readPackageVersion } from '../../.agent/scripts/sealit-engine.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 const EXPECTED_RUNTIME_FILES = [
-  '.agent/scripts/sdlc-engine.mjs',
+  '.agent/scripts/sealit-engine.mjs',
   '.agent/scripts/lib/config.mjs',
   '.agent/scripts/lib/drift.mjs',
   '.agent/scripts/lib/git.mjs',
@@ -33,8 +33,8 @@ function walkJsFiles(dir, base = dir) {
   return out.sort();
 }
 
-describe('v0.1.0 Structural & Governance Invariants', () => {
-  it('Invariant 1: Exact 8-file runtime kernel, every file < 850 LOC, and 0 Archlens ring or cycle violations', () => {
+describe('sealit v0.0.1 Structural & Governance Invariants', () => {
+  it('Invariant 1: Exact 8-file runtime kernel, every file <= 850 LOC, and 0 Archlens ring or cycle violations', () => {
     const actualFiles = walkJsFiles(path.join(REPO_ROOT, '.agent/scripts'), REPO_ROOT);
     assert.deepEqual(actualFiles, [...EXPECTED_RUNTIME_FILES].sort());
     assert.equal(fs.existsSync(path.join(REPO_ROOT, '.agent/scripts/workbench-assets')), false);
@@ -50,8 +50,10 @@ describe('v0.1.0 Structural & Governance Invariants', () => {
 
   it('Invariant 2: Package metadata, Node >=22 floor, zero runtime deps, valid dogfood config, and Claude plugin packaging', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'));
-    assert.equal(pkg.version, '0.3.0');
-    assert.equal(readPackageVersion('/nonexistent/sdlc-missing/scripts'), pkg.version);
+    assert.equal(pkg.name, 'sealit');
+    assert.equal(pkg.version, '0.0.1');
+    assert.equal(pkg.homepage, 'https://sealit.dev');
+    assert.equal(readPackageVersion('/nonexistent/sealit-missing/scripts'), pkg.version);
     assert.equal(pkg.engines?.node, '>=22.0.0');
     assert.deepEqual(pkg.dependencies || {}, {});
     assert.match(pkg.scripts.test, /tests\/\*\*\/\*\.test\.mjs/);
@@ -61,7 +63,8 @@ describe('v0.1.0 Structural & Governance Invariants', () => {
     }
 
     const pluginJson = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, '.claude-plugin/plugin.json'), 'utf8'));
-    assert.equal(pluginJson.version, '0.3.0');
+    assert.equal(pluginJson.name, 'sealit');
+    assert.equal(pluginJson.version, '0.0.1');
     assert.deepEqual(pluginJson.skills, CANONICAL_SKILLS.map((s) => `./.agent/skills/${s}`));
     for (const s of CANONICAL_SKILLS) {
       assert.equal(fs.existsSync(path.join(REPO_ROOT, `.agent/skills/${s}/agents/openai.yaml`)), true, `Missing openai.yaml for ${s}`);
@@ -81,9 +84,9 @@ describe('v0.1.0 Structural & Governance Invariants', () => {
       const raw = fs.readFileSync(path.join(REPO_ROOT, `.agent/skills/${s}/SKILL.md`), 'utf8');
       assert.doesNotMatch(raw, /^tools:/m, `Unexpected non-portable tools: frontmatter in ${s}`);
       assert.doesNotMatch(raw, /invoke_subagent/, `Unexpected Antigravity-only invoke_subagent token in ${s}`);
-      assert.match(raw, /\.agent\/sdlc-config\.json/, `Expected kernel check on .agent/sdlc-config.json in ${s}`);
-      if (s === 'sdlc-gate' || s === 'sdlc-flow') {
-        assert.match(raw, /\/sdlc init/, `Expected /sdlc init stop-and-offer in ${s}`);
+      assert.match(raw, /\.agent\/sealit-config\.json/, `Expected kernel check on .agent/sealit-config.json in ${s}`);
+      if (s === 'sealit-gate' || s === 'sealit-flow') {
+        assert.match(raw, /\/sealit init/, `Expected /sealit init stop-and-offer in ${s}`);
       }
     }
 
@@ -94,6 +97,12 @@ describe('v0.1.0 Structural & Governance Invariants', () => {
     const forbiddenPrefixes = [
       '.agent/skills/impeccable/',
       '.agent/workbench/',
+      '.agent/skills/sdlc/',
+      '.agent/skills/sdlc-spec/',
+      '.agent/skills/sdlc-adr/',
+      '.agent/skills/sdlc-tdd/',
+      '.agent/skills/sdlc-gate/',
+      '.agent/skills/sdlc-flow/',
       '.agent/skills/sdlc-doctor/',
       '.agent/skills/sdlc-product/',
       '.agent/skills/sdlc-release/',
@@ -113,7 +122,8 @@ describe('v0.1.0 Structural & Governance Invariants', () => {
       'docs/DECISION_MAP.md',
       'docs/ARCH_TRACE.md',
       '.github/workflows/enforce-branch-flow.yml',
-      '.github/workflows/publish-wiki.yml'
+      '.github/workflows/publish-wiki.yml',
+      '.github/workflows/sdlc-quality-gate.yml'
     ];
     for (const t of tracked) {
       for (const bad of forbiddenPrefixes) {
@@ -123,12 +133,12 @@ describe('v0.1.0 Structural & Governance Invariants', () => {
   });
 
   it('Invariant 4: Workflows enforce self-hosted runner policy, main-branch release receipt guard, and env-isolated tests', async () => {
-    const qg = fs.readFileSync(path.join(REPO_ROOT, '.github/workflows/sdlc-quality-gate.yml'), 'utf8');
-    const cfg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, '.agent/sdlc-config.json'), 'utf8'));
+    const qg = fs.readFileSync(path.join(REPO_ROOT, '.github/workflows/sealit-quality-gate.yml'), 'utf8');
+    const cfg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, '.agent/sealit-config.json'), 'utf8'));
     assert.equal(qg.includes(`runs-on: ${cfg.ci.runsOn}`), true);
     assert.match(qg, /runner\.environment == 'github-hosted'/);
     assert.match(qg, /--branch "\$GITHUB_HEAD_REF"/);
-    assert.match(qg, /SDLC_RECEIPT_KEY: ci-dummy-test-key/);
+    assert.match(qg, /SEALIT_RECEIPT_KEY: ci-dummy-test-key/);
     assert.match(qg, /git archive "origin\/\$BASE_REF"/);
     const { buildQualityGateWorkflow } = await import('../../.agent/scripts/lib/install.mjs');
     assert.equal(qg, buildQualityGateWorkflow({ runsOn: cfg.ci.runsOn, checkName: cfg.ci.checkName, repoRoot: REPO_ROOT }), 'repo workflow must equal the generator output');
@@ -137,7 +147,7 @@ describe('v0.1.0 Structural & Governance Invariants', () => {
     assert.equal(rel.includes(`runs-on: ${cfg.ci.runsOn}`), true);
     assert.match(rel, /runner\.environment == 'github-hosted'/);
     assert.match(rel, /refs\/heads\/main/);
-    assert.match(rel, /sdlc-engine\.mjs verify/);
+    assert.match(rel, /sealit-engine\.mjs verify/);
 
     // Audit #10: Active docs/skills/specs never claim Audit Ledger is a Merkle tree
     for (const docRel of ['README.md', 'PRODUCT.md', 'CONTRIBUTING.md', 'docs/PRD.md']) {

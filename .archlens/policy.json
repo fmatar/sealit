@@ -1,5 +1,5 @@
 {
-  "title": "agentic-sdlc-framework",
+  "title": "sealit",
   "src": ".agent/scripts",
   "prefix": "",
   "hierarchical": true,
@@ -24,7 +24,7 @@
       ".agent/scripts/lib/install.mjs"
     ],
     [
-      ".agent/scripts/sdlc-engine.mjs"
+      ".agent/scripts/sealit-engine.mjs"
     ]
   ],
   "foreign": [

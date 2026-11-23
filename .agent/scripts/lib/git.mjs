@@ -785,8 +785,8 @@ export function normalizeCanonicalAdrId(raw, fallback = '') {
 
 export function parseAdrFilenameId(relOrBase = '') {
   const baseName = path.posix.basename(String(relOrBase || '').replace(/\\/g, '/'));
-  const sdlcMatch = baseName.match(/^ADR-(\d+)/i);
-  if (sdlcMatch) return { id: normalizeCanonicalAdrId(sdlcMatch[1]), num: Number(sdlcMatch[1]), isMadr: false };
+  const adrPrefixMatch = baseName.match(/^ADR-(\d+)/i);
+  if (adrPrefixMatch) return { id: normalizeCanonicalAdrId(adrPrefixMatch[1]), num: Number(adrPrefixMatch[1]), isMadr: false };
   const madrMatch = baseName.match(/^(\d+)-[^/]+\.md$/i);
   if (madrMatch) return { id: normalizeCanonicalAdrId(madrMatch[1]), num: Number(madrMatch[1]), isMadr: true };
   return { id: baseName.replace(/\.md$/i, '').toUpperCase(), num: null, isMadr: false };

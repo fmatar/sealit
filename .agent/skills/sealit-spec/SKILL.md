@@ -1,18 +1,18 @@
 ---
-name: sdlc-spec
+name: sealit-spec
 description: "Use when clarifying ambiguous requirements, sharpening domain vocabulary in GLOSSARY.md, or authoring PRODUCT.md and docs/specs/ contracts before coding."
 ---
 
-# Specification, Discovery & Domain Architect (`sdlc-spec`)
+# Specification, Discovery & Domain Architect (`sealit-spec`)
 
 ## When to use / When NOT to use
 - **Use when** initializing `PRODUCT.md` (`INV-XX`, `CAP-XX`), refining `GLOSSARY.md`, or authoring/updating `docs/specs/cap-XX-*.md`, `docs/PRD.md`, or `docs/SRS.md` so human and agent align before implementation.
-- **Not for** coding an already-agreed spec (use `sdlc-flow`) or approving drift ADRs (use `sdlc-adr`).
+- **Not for** coding an already-agreed spec (use `sealit-flow`) or approving drift ADRs (use `sealit-adr`).
 
 ## Kernel check
-Check for `.agent/sdlc-config.json`:
-- **Present**: run `node .agent/scripts/sdlc-engine.mjs drift` in Step 3 and resolve `CONSTITUTION_OR_SPEC_DRIFT` via `sdlc-adr`.
-- **Absent** (skills installed standalone without the kernel): author `GLOSSARY.md`, `PRODUCT.md`, and `docs/specs/cap-XX-*.md` directly using the repository's own Markdown conventions without running `sdlc-engine.mjs`. Never report drift as mechanically verified by the kernel; mention `/sdlc init` once if the user wants mechanical drift enforcement.
+Check for `.agent/sealit-config.json`:
+- **Present**: run `node .agent/scripts/sealit-engine.mjs drift` in Step 3 and resolve `CONSTITUTION_OR_SPEC_DRIFT` via `sealit-adr`.
+- **Absent** (skills installed standalone without the kernel): author `GLOSSARY.md`, `PRODUCT.md`, and `docs/specs/cap-XX-*.md` directly using the repository's own Markdown conventions without running `sealit-engine.mjs`. Never report drift as mechanically verified by the kernel; mention `/sealit init` once if the user wants mechanical drift enforcement.
 
 ## Discovery & Design Discipline
 1. **Explore the Repo Before Asking**: Read `PRODUCT.md`, `GLOSSARY.md` (if present), `docs/specs/`, `docs/adr/`, and `.archlens/policy.json` first. Never ask the human a question the codebase already answers.
@@ -32,12 +32,12 @@ Check for `.agent/sdlc-config.json`:
    - Write concrete, testable invariants (`INV-XX`) in `PRODUCT.md` and capability contracts (`Inputs`, `Domain Rules`, `Public Seam & Test Strategy`, `Out of Scope`, `Outputs & Acceptance Criteria`) in `docs/specs/cap-XX-<slug>.md`.
 3. **Verify Spec Drift (`INV-03`)**:
    ```bash
-   node .agent/scripts/sdlc-engine.mjs drift
+   node .agent/scripts/sealit-engine.mjs drift
    ```
-   When modifying tracked specs triggers `CONSTITUTION_OR_SPEC_DRIFT`, invoke `sdlc-adr` to record an ADR and obtain human approval.
+   When modifying tracked specs triggers `CONSTITUTION_OR_SPEC_DRIFT`, invoke `sealit-adr` to record an ADR and obtain human approval.
 
 ## Confirm with user before
 - Overwriting an existing `PRODUCT.md` or `docs/specs/cap-XX-*.md` contract.
 
 ## Done when
-Open design branches are resolved, `GLOSSARY.md` (when applicable), `PRODUCT.md`, and `docs/specs/cap-XX-*.md` capture the agreed contract and out-of-scope boundaries, and `node .agent/scripts/sdlc-engine.mjs drift` exits `0`.
+Open design branches are resolved, `GLOSSARY.md` (when applicable), `PRODUCT.md`, and `docs/specs/cap-XX-*.md` capture the agreed contract and out-of-scope boundaries, and `node .agent/scripts/sealit-engine.mjs drift` exits `0`.

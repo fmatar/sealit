@@ -195,7 +195,7 @@ export function getSessionStatus(repoRoot = '.') {
 
 export function recordReviewVerdict({
   verdict,
-  reviewer = '@sdlc-gate',
+  reviewer = '@sealit-gate',
   prNumber = null,
   notes = '',
   peerReview = '',
@@ -228,7 +228,7 @@ export function recordReviewVerdict({
   const combinedNotes = [notes, peerReview, archReview].map((s) => String(s || '').trim()).filter(Boolean).join('\n\n');
   const reviewObj = {
     verdict: normVerdict,
-    reviewer: String(reviewer || '@sdlc-gate').trim(),
+    reviewer: String(reviewer || '@sealit-gate').trim(),
     headSha,
     notes: combinedNotes || null,
     recordedAt: new Date().toISOString()
@@ -254,7 +254,7 @@ export function recordReviewVerdict({
   let prCommented = false;
   if (prNumber) {
     const summaryBody = [
-      `### SDLC Gate Review (${normVerdict.toUpperCase()})`,
+      `### Sealit Gate Review (${normVerdict.toUpperCase()})`,
       `- **Ticket**: \`${active.issueId}\` | **Branch**: \`${branch}\` | **Commit**: \`${headSha?.slice(0, 8) || 'unknown'}\``,
       `- **Reviewer**: \`${reviewObj.reviewer}\``,
       ...(receiptRes?.receipt ? [`- **Signed Receipt**: \`${receiptRes.receipt.receiptId}\``] : []),
@@ -341,7 +341,7 @@ export function verifyCommitGuard({ repoRoot = '.' } = {}) {
       allowed: false,
       layer: 'LAYER_1_PROTECTED_BRANCH',
       branch,
-      message: `Direct commits to '${branch}' are forbidden (INV-01). Run 'sdlc begin --checkout' to work on a feature branch.`
+      message: `Direct commits to '${branch}' are forbidden (INV-01). Run 'sealit begin --checkout' to work on a feature branch.`
     };
   }
   const session = readActiveSession(repoRoot, branch);
@@ -350,7 +350,7 @@ export function verifyCommitGuard({ repoRoot = '.' } = {}) {
       allowed: false,
       layer: 'LAYER_2_MISSING_SESSION',
       branch,
-      message: `No active SDLC session bound to branch '${branch}' (INV-02). Run 'sdlc begin --title "<desc>"' first.`
+      message: `No active Sealit session bound to branch '${branch}' (INV-02). Run 'sealit begin --title "<desc>"' first.`
     };
   }
   return { allowed: true, layer: 'PASSED', branch, issueId: session.issueId };
@@ -573,16 +573,16 @@ export function postMergeCleanup({ repoRoot = '.' } = {}) {
 }
 
 const HOOK_RUNNER_SNIPPET = (sub) => `#!/usr/bin/env bash
-# @fmatar/agentic-sdlc v0.1.0 4-Layer Git Guard (${sub})
+# sealit v0.0.1 4-Layer Git Guard (${sub})
 set -e
-if [ -f ".agent/scripts/sdlc-engine.mjs" ]; then
-  node .agent/scripts/sdlc-engine.mjs guard ${sub}
-elif [ -f "$HOME/.agentic-sdlc/scripts/sdlc-engine.mjs" ]; then
-  node "$HOME/.agentic-sdlc/scripts/sdlc-engine.mjs" guard ${sub}
-elif command -v sdlc >/dev/null 2>&1; then
-  sdlc guard ${sub}
+if [ -f ".agent/scripts/sealit-engine.mjs" ]; then
+  node .agent/scripts/sealit-engine.mjs guard ${sub}
+elif [ -f "$HOME/.sealit/scripts/sealit-engine.mjs" ]; then
+  node "$HOME/.sealit/scripts/sealit-engine.mjs" guard ${sub}
+elif command -v sealit >/dev/null 2>&1; then
+  sealit guard ${sub}
 else
-  echo "SDLC Git Guard (${sub}): missing sdlc-engine.mjs; failing closed." >&2
+  echo "Sealit Git Guard (${sub}): missing sealit-engine.mjs; failing closed." >&2
   exit 1
 fi
 `;
@@ -660,7 +660,7 @@ export function applyBranchProtection({
   const hookRes = installHooks({ repoRoot });
   const { config } = loadConfig(repoRoot);
   const checkName = config?.ci?.checkName || DEFAULT_QUALITY_GATE_CHECK;
-  const hasWorkflow = fileExists(path.resolve(repoRoot, '.github/workflows/sdlc-quality-gate.yml'));
+  const hasWorkflow = fileExists(path.resolve(repoRoot, '.github/workflows/sealit-quality-gate.yml')) || fileExists(path.resolve(repoRoot, '.github/workflows/sdlc-quality-gate.yml'));
   const checks = Array.isArray(requiredChecks) ? requiredChecks.filter(Boolean) : hasWorkflow ? [checkName] : [DEFAULT_QUALITY_GATE_CHECK];
 
   const payload = {

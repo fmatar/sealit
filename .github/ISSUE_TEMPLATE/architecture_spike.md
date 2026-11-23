@@ -5,12 +5,12 @@ title: "spike: "
 labels: spike, status:ready
 ---
 
-### 🏛️ Architectural Context & Problem
+### Architectural Context & Problem
 A clear and concise description of what the problem is.
 
-### ⚖️ Candidate Options & Exit Criteria
+### Candidate Options & Exit Criteria
 A clear and concise description of what you want to happen.
 
-### 📋 Deliverables
-- [ ] Mint ADR via `/sdlc-adr` (`docs/adr/ADR-00X.md`)
-- [ ] Update `PRODUCT.md` and `docs/DECISION_MAP.md`
+### Deliverables
+- [ ] Record ADR via `/sealit-adr` (`docs/adr/ADR-00X.md`)
+- [ ] Update `PRODUCT.md`

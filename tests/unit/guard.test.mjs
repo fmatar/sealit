@@ -102,7 +102,7 @@ describe('Ring 2: lib/guard.mjs', () => {
     beginSession({ issueId: '32', title: 'Custom Push', branch: 'feat/custom-push', repoRoot: dir });
     const store = readSessionStore(dir);
     store.sessions['32'].baseBranch = 'custom-base';
-    fs.writeFileSync(path.join(dir, '.agent/.sdlc-session.json'), JSON.stringify(store, null, 2), 'utf8');
+    fs.writeFileSync(path.join(dir, '.agent/.sealit-session.json'), JSON.stringify(store, null, 2), 'utf8');
     fs.writeFileSync(path.join(dir, 'PRODUCT.md'), '# Undeclared drift on feat/custom-push\n', 'utf8');
     git(dir, 'add', 'PRODUCT.md');
     git(dir, 'commit', '-q', '-m', 'docs: drift on feat/custom-push');
@@ -174,7 +174,7 @@ describe('Ring 2: lib/guard.mjs', () => {
         'utf8'
       );
       fs.writeFileSync(
-        path.join(dir, '.agent/sdlc-config.json'),
+        path.join(dir, '.agent/sealit-config.json'),
         JSON.stringify({
           version: '0.1.0',
           archlens: { enabled: false },
@@ -192,7 +192,7 @@ describe('Ring 2: lib/guard.mjs', () => {
         }),
         'utf8'
       );
-      git(dir, 'add', '.agent/sdlc-config.json', 'tests/basic.test.mjs');
+      git(dir, 'add', '.agent/sealit-config.json', 'tests/basic.test.mjs');
       git(dir, 'commit', '-q', '-m', 'chore: setup config');
       git(dir, 'branch', '-f', 'main', 'HEAD');
 
@@ -311,7 +311,7 @@ describe('Ring 2: lib/guard.mjs', () => {
       beginSession({ issueId: '77', title: 'Release Fix', branch: 'fix/on-release', repoRoot: customBaseRepo.dir });
       const storeCustom = readSessionStore(customBaseRepo.dir);
       storeCustom.sessions['77'].baseBranch = 'release/v1';
-      fs.writeFileSync(path.join(customBaseRepo.dir, '.agent/.sdlc-session.json'), JSON.stringify(storeCustom, null, 2), 'utf8');
+      fs.writeFileSync(path.join(customBaseRepo.dir, '.agent/.sealit-session.json'), JSON.stringify(storeCustom, null, 2), 'utf8');
       assert.equal(verifyPushGuard({ repoRoot: customBaseRepo.dir }).allowed, true);
 
       const localSess = beginSession({ title: 'Auto Local ID', checkout: true, repoRoot: dir });
@@ -453,7 +453,7 @@ describe('Ring 2: lib/guard.mjs', () => {
   it('two concurrent begin --worktree without --issue get distinct L ids and both sessions persist', async () => {
     const { dir, cleanup } = createTempGitRepo();
     cleanups.push(cleanup);
-    const engine = fileURLToPath(new URL('../../.agent/scripts/sdlc-engine.mjs', import.meta.url));
+    const engine = fileURLToPath(new URL('../../.agent/scripts/sealit-engine.mjs', import.meta.url));
     const wtRoot = path.dirname(dir);
     const wtName = (name) => `${path.basename(dir)}-${name}`;
     cleanups.push(() => {
@@ -568,15 +568,15 @@ describe('Ring 2: lib/guard.mjs', () => {
     // An explicit --issue that names an in-flight reservation is refused instead of hijacking it
     const store = readSessionStore(dir);
     store.sessions['L-9'] = { active: false, reserved: true, issueId: 'L-9', startedAt: new Date().toISOString() };
-    fs.writeFileSync(path.join(dir, '.agent/.sdlc-session.json'), JSON.stringify(store, null, 2), 'utf8');
+    fs.writeFileSync(path.join(dir, '.agent/.sealit-session.json'), JSON.stringify(store, null, 2), 'utf8');
     const hijack = beginSession({ issueId: 'L-9', branch: 'feat/hijack', repoRoot: dir });
     assert.equal(hijack.success, false);
     assert.match(hijack.error, /being created by another/);
     assert.equal(readSessionStore(dir).sessions['L-9'].reserved, true);
   });
 
-  it('buildReviewPlan dispatches Architecture & Security Reviewer when .agent/sdlc-config.json or stryker.config.json changes', () => {
-    for (const govFile of ['.agent/sdlc-config.json', 'stryker.config.json']) {
+  it('buildReviewPlan dispatches Architecture & Security Reviewer when .agent/sealit-config.json or stryker.config.json changes', () => {
+    for (const govFile of ['.agent/sealit-config.json', 'stryker.config.json']) {
       const { dir, cleanup } = createTempGitRepo();
       cleanups.push(cleanup);
       git(dir, 'checkout', '-q', '-b', 'feat/cfg-rev', 'develop');
@@ -710,11 +710,11 @@ describe('Ring 2: lib/guard.mjs', () => {
       cleanups.push(docRepo.cleanup);
       fs.mkdirSync(path.join(docRepo.dir, '.agent'), { recursive: true });
       fs.writeFileSync(
-        path.join(docRepo.dir, '.agent/sdlc-config.json'),
+        path.join(docRepo.dir, '.agent/sealit-config.json'),
         JSON.stringify({ version: '0.1.0', archlens: { enabled: false }, modules: [{ name: 'root', path: '.', commands: { test: 'node --version' }, thresholds: { diffCoverage: null, mutationScore: null } }] }),
         'utf8'
       );
-      git(docRepo.dir, 'add', '.agent/sdlc-config.json');
+      git(docRepo.dir, 'add', '.agent/sealit-config.json');
       git(docRepo.dir, 'commit', '-q', '-m', 'chore: seed config');
       git(docRepo.dir, 'branch', '-f', 'main', 'HEAD');
       beginSession({ issueId: '73', title: 'Docs Receipt PR', checkout: true, repoRoot: docRepo.dir });
@@ -722,7 +722,7 @@ describe('Ring 2: lib/guard.mjs', () => {
       git(docRepo.dir, 'add', 'README.md');
       git(docRepo.dir, 'commit', '-q', '-m', 'docs: update readme');
       assert.equal(runGate(docRepo.dir, { noCache: true }).passed, true);
-      const rec = recordReviewVerdict({ verdict: 'approve', reviewer: '@sdlc-gate', repoRoot: docRepo.dir });
+      const rec = recordReviewVerdict({ verdict: 'approve', reviewer: '@sealit-gate', repoRoot: docRepo.dir });
       assert.equal(rec.success, true);
       git(docRepo.dir, 'add', 'docs/AUDIT_CHAIN.jsonl');
       git(docRepo.dir, 'commit', '-q', '-m', 'chore(audit): record receipt');
@@ -742,11 +742,11 @@ describe('Ring 2: lib/guard.mjs', () => {
         'utf8'
       );
       fs.writeFileSync(
-        path.join(codeRepo.dir, '.agent/sdlc-config.json'),
+        path.join(codeRepo.dir, '.agent/sealit-config.json'),
         JSON.stringify({ version: '0.1.0', archlens: { enabled: false }, modules: [{ name: 'root', path: '.', commands: { coverage: `${process.execPath} tests/c.test.mjs`, coverageFile: 'coverage/lcov.info' }, thresholds: { diffCoverage: 85, mutationScore: null } }] }),
         'utf8'
       );
-      git(codeRepo.dir, 'add', '.agent/sdlc-config.json', 'tests/c.test.mjs');
+      git(codeRepo.dir, 'add', '.agent/sealit-config.json', 'tests/c.test.mjs');
       git(codeRepo.dir, 'commit', '-q', '-m', 'chore: base');
       git(codeRepo.dir, 'branch', '-f', 'main', 'HEAD');
       beginSession({ issueId: '74', title: 'Code Receipt PR', checkout: true, repoRoot: codeRepo.dir });
@@ -754,7 +754,7 @@ describe('Ring 2: lib/guard.mjs', () => {
       git(codeRepo.dir, 'add', 'mod.mjs');
       git(codeRepo.dir, 'commit', '-q', '-m', 'feat: add mod');
       assert.equal(runGate(codeRepo.dir, { noCache: true }).passed, true);
-      assert.equal(recordReviewVerdict({ verdict: 'approve', reviewer: '@sdlc-gate', repoRoot: codeRepo.dir }).success, true);
+      assert.equal(recordReviewVerdict({ verdict: 'approve', reviewer: '@sealit-gate', repoRoot: codeRepo.dir }).success, true);
       git(codeRepo.dir, 'add', 'docs/AUDIT_CHAIN.jsonl');
       git(codeRepo.dir, 'commit', '-q', '-m', 'chore(audit): sign code receipt');
       const codePostRecPr = buildPrSummary(codeRepo.dir);

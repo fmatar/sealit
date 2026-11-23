@@ -320,4 +320,7 @@ export class SdlcNodeTestRunner {
   }
 }
 
-export const strykerPlugins = [declareClassPlugin(PluginKind.TestRunner, 'sdlc-node', SdlcNodeTestRunner)];
+export const strykerPlugins = [
+  declareClassPlugin(PluginKind.TestRunner, 'sealit-node', SdlcNodeTestRunner),
+  declareClassPlugin(PluginKind.TestRunner, 'sdlc-node', SdlcNodeTestRunner)
+];

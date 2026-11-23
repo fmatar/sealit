@@ -1,19 +1,19 @@
 ---
-name: sdlc-gate
-description: "Use when running 2-axis cold code review on a branch or PR, executing sdlc gate, signing a Stage 7 merge receipt, or generating PR evidence."
+name: sealit-gate
+description: "Use when running 2-axis cold code review on a branch or PR, executing sealit gate, signing a Stage 7 merge receipt, or generating PR evidence."
 ---
 
-# Two-Axis Cold Review, Single Gate & Signed Receipt (`sdlc-gate`)
+# Two-Axis Cold Review, Single Gate & Signed Receipt (`sealit-gate`)
 
 ## When to use / When NOT to use
-- **Use when** auditing a branch diff along Spec Fidelity and Architecture/Security axes, executing `sdlc gate`, signing the `HEAD`-bound Stage 7 receipt in `docs/AUDIT_CHAIN.jsonl`, and generating structured PR proof.
-- **Not for** writing initial feature slices (use `sdlc-tdd` or `sdlc-flow`).
+- **Use when** auditing a branch diff along Spec Fidelity and Architecture/Security axes, executing `sealit gate`, signing the `HEAD`-bound Stage 7 receipt in `docs/AUDIT_CHAIN.jsonl`, and generating structured PR proof.
+- **Not for** writing initial feature slices (use `sealit-tdd` or `sealit-flow`).
 
 ## Kernel check
-Check for `.agent/sdlc-config.json` first. Without it, **stop**: `sdlc gate`, Stage 7 review receipts, and `sdlc verify` require the Proof Kernel—never simulate or claim a passed gate or receipt without it, and offer to run `/sdlc init`.
+Check for `.agent/sealit-config.json` first. Without it, **stop**: `sealit gate`, Stage 7 review receipts, and `sealit verify` require the Proof Kernel—never simulate or claim a passed gate or receipt without it, and offer to run `/sealit init`.
 
 ## Why Two Orthogonal Cold Axes
-`sdlc review plan` emits two independent subagent briefs backed by repo context pointers (`PRODUCT.md`, `docs/specs/*`, `docs/adr/*`, `GLOSSARY.md`, `CONTRIBUTING.md`, session ticket):
+`sealit review plan` emits two independent subagent briefs backed by repo context pointers (`PRODUCT.md`, `docs/specs/*`, `docs/adr/*`, `GLOSSARY.md`, `CONTRIBUTING.md`, session ticket):
 1. **Spec Fidelity & Peer Reviewer**: Checks missing/partial spec requirements, unrequested scope creep, and public-seam TDD quality.
 2. **Architecture & Security Reviewer**: Checks `.archlens/policy.json` Concentric Rings, fail-closed security, shell-free `INV-04` execution, documented repo standards, and deep-module vs. Fowler code-smell heuristics (`Feature Envy`, `Shotgun Surgery`, `Divergent Change`, `Primitive Obsession`, `Speculative Generality`).
 
@@ -23,9 +23,9 @@ Run both reviewers in parallel with fresh contexts and **keep their findings sep
 
 1. **Build & Dispatch the Two-Axis Review Plan**:
    ```bash
-   node .agent/scripts/sdlc-engine.mjs review plan --json
+   node .agent/scripts/sealit-engine.mjs review plan --json
    ```
-   - In `docs-only` mode: run `sdlc gate --no-cache` and `sdlc receipt --docs-only`.
+   - In `docs-only` mode: run `sealit gate --no-cache` and `sealit receipt --docs-only`.
    - In `code` mode: spawn two isolated read-only subagents (your harness's subagent tool, e.g. Claude Code's `Task`) in parallel for `reviewPlan.reviewers`, instructing each to return `verdict: approve | request-changes`, `blockers: []`, and `notes`.
 
 2. **Remediate Blockers & Commit Refactors Before Gating**:
@@ -33,21 +33,21 @@ Run both reviewers in parallel with fresh contexts and **keep their findings sep
 
 3. **Run Single-Path Gate, Sign Receipt & Emit PR Proof**:
    ```bash
-   node .agent/scripts/sdlc-engine.mjs gate --no-cache
+   node .agent/scripts/sealit-engine.mjs gate --no-cache
 
-   node .agent/scripts/sdlc-engine.mjs review record \
+   node .agent/scripts/sealit-engine.mjs review record \
      --verdict <approve|request-changes> \
-     --reviewer "@sdlc-gate" \
+     --reviewer "@sealit-gate" \
      --peer-review "<spec_axis_notes>" \
      --arch-review "<arch_security_axis_notes>"
 
    git add docs/AUDIT_CHAIN.jsonl && git commit -m "chore(audit): record Stage 7 gate receipt"
-   node .agent/scripts/sdlc-engine.mjs verify
-   node .agent/scripts/sdlc-engine.mjs pr-body
+   node .agent/scripts/sealit-engine.mjs verify
+   node .agent/scripts/sealit-engine.mjs pr-body
    ```
 
 ## Confirm with user before
 - Dismissing any security, architectural, or spec-fidelity blocker, or recording an approving Stage 7 receipt when required by repo policy.
 
 ## Done when
-Both review axes report `0` blockers, `sdlc gate --no-cache` exits `0`, `docs/AUDIT_CHAIN.jsonl` is committed with a valid `GATE-RECEIPT-*`, `sdlc verify` exits `0`, and `sdlc pr-body` summarizes proof and merge danger.
+Both review axes report `0` blockers, `sealit gate --no-cache` exits `0`, `docs/AUDIT_CHAIN.jsonl` is committed with a valid `GATE-RECEIPT-*`, `sealit verify` exits `0`, and `sealit pr-body` summarizes proof and merge danger.

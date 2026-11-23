@@ -3,27 +3,35 @@ node_modules/
 coverage/
 .nyc_output/
 
-# Agentic SDLC Ephemeral Cache, Local Locks & Secrets
+# Sealit Ephemeral Cache, Local Locks & Secrets
 .env
 .env.*
 !.env.example
 .agent/.cache/
+.agent/.sealit-session.json
+.agent/.sealit-session.lock
+.agent/.sealit-config.lock
 .agent/.sdlc-session.json
 .agent/.sdlc-session.lock
 .agent/.sdlc-config.lock
 .agent/.receipt-key
 .agent/.audit-chain.lock
+.agent/sealit-config.json.bak
 .agent/sdlc-config.json.bak
 .archlens/to-agent.json
 .archlens/to-viewer.json
 *.lcov
 
 # Generated Local Agent Mirrors (provisioned at install time from .agent/skills)
+.claude/skills/sealit*/
 .claude/skills/sdlc*/
 .claude/cowork/
+.cursor/skills/sealit*/
 .cursor/skills/sdlc*/
+.cursor/rules/sealit*.mdc
 .cursor/rules/sdlc*.mdc
 .cursor/rules/agentic-sdlc.mdc
+.codex/skills/sealit*/
 .codex/skills/sdlc*/
 .cursorrules
 .windsurfrules

@@ -27,7 +27,7 @@
 - **Failure Modes**: Expected diagnostics when checks fail.
 
 ## 5. Quality & Guardrail Metrics
-- **Verification Thresholds**: Diff coverage and mutation score floors in `.agent/sdlc-config.json`.
+- **Verification Thresholds**: Diff coverage and mutation score floors in `.agent/sealit-config.json`.
 - **Architectural Boundaries**: Concentric Clean Architecture policy in `.archlens/policy.json`.
 
 ## 6. Open Questions

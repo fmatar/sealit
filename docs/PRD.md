@@ -1,8 +1,8 @@
-# Product Requirements Document (PRD): `@fmatar/agentic-sdlc` (v0.1.0)
+# Product Requirements Document (PRD): `sealit` (v0.0.1)
 
 ## 1. Meta & Traceability
-- **Product Title**: Agentic SDLC Alignment + Proof Kernel (`@fmatar/agentic-sdlc`)
-- **Version**: `0.1.0`
+- **Product Title**: Sealit Alignment + Proof Kernel (`sealit` · [sealit.dev](https://sealit.dev))
+- **Version**: `0.0.1`
 - **Constitutional Source of Truth**: [`PRODUCT.md`](../PRODUCT.md)
 - **Companion System Specification**: [`docs/SRS.md`](./SRS.md)
 - **Status**: `ACTIVE`
@@ -15,20 +15,20 @@
 ## 3. Scope & Product Capabilities (`CAP-01` .. `CAP-06`)
 ### In Scope
 - **CAP-01**: Git Flow branch protection, linked `git worktree` support, and 4-Layer Git hooks ([`docs/specs/cap-01-git-and-worktree-guard.md`](./specs/cap-01-git-and-worktree-guard.md)).
-- **CAP-02**: Schema-validated `.agent/sdlc-config.json` and shell-free `execFileSync` command execution ([`docs/specs/cap-02-config-and-shell-free-execution.md`](./specs/cap-02-config-and-shell-free-execution.md)).
+- **CAP-02**: Schema-validated `.agent/sealit-config.json` and shell-free `execFileSync` command execution ([`docs/specs/cap-02-config-and-shell-free-execution.md`](./specs/cap-02-config-and-shell-free-execution.md)).
 - **CAP-03**: Spec/manifest/contract drift detection, human-approved ADRs, and [Archlens](https://github.com/fmatar/archlens) concentric ring & cycle governance ([`docs/specs/cap-03-spec-adr-and-ring-alignment.md`](./specs/cap-03-spec-adr-and-ring-alignment.md)).
 - **CAP-04**: Single-path (`docs-only` vs `code`) quality gate measuring real coverage/mutation reports and scanning diffs for leaked secrets ([`docs/specs/cap-04-single-path-measured-gate.md`](./specs/cap-04-single-path-measured-gate.md)).
 - **CAP-05**: Append-only SHA-256 hash chain (`docs/AUDIT_CHAIN.jsonl`) and multi-topology HMAC-SHA256 Stage 7 merge receipts ([`docs/specs/cap-05-cryptographic-merge-receipts.md`](./specs/cap-05-cryptographic-merge-receipts.md)).
-- **CAP-06**: 6 canonical `sdlc*` skills (`sdlc`, `sdlc-spec`, `sdlc-adr`, `sdlc-tdd`, `sdlc-gate`, `sdlc-flow`), symlink-safe local/global installer, and read-only `doctor` ([`docs/specs/cap-06-canonical-skills-and-installer.md`](./specs/cap-06-canonical-skills-and-installer.md)).
+- **CAP-06**: 6 canonical `sealit*` skills (`sealit`, `sealit-spec`, `sealit-adr`, `sealit-tdd`, `sealit-gate`, `sealit-flow`), symlink-safe local/global installer, and read-only `doctor` ([`docs/specs/cap-06-canonical-skills-and-installer.md`](./specs/cap-06-canonical-skills-and-installer.md)).
 
 ### Out of Scope (Non-Goals in OSS Kernel)
 - Embedded HTTP UI servers or visual dashboards (delegated to [Archlens](https://github.com/fmatar/archlens) or commercial cloud telemetry).
 - Issue-tracker synchronization, local Kanban Markdown mirrors, or automated prose/wiki generators.
-- Bundling or modifying third-party skills outside the `sdlc*` namespace.
+- Bundling or modifying third-party skills outside the `sealit*` (and retired `sdlc*`) namespace.
 
 ## 4. Core User Flows
-1. **Onboarding (`sdlc init`)**: `npx @fmatar/agentic-sdlc init` detects project stacks, generates `.agent/sdlc-config.json` and `.archlens/policy.json`, installs SHA-256 verified Git hooks and `.github/workflows/sdlc-quality-gate.yml`, and provisions selected agent skills.
-2. **Branch Delivery (`sdlc-flow`)**: `sdlc begin --checkout` -> `sdlc-spec` / `sdlc-adr` (`sdlc drift`) -> `sdlc-tdd` (`test`, `coverage`, `mutation`) -> `sdlc-gate` (`gate`, independent review, `review record --verdict approve`, `verify`) -> `sdlc end`.
+1. **Onboarding (`sealit init`)**: `npx --yes github:fmatar/sealit init` (or `npx sealit init`) detects project stacks, generates `.agent/sealit-config.json` and `.archlens/policy.json`, installs SHA-256 verified Git hooks and `.github/workflows/sealit-quality-gate.yml`, and provisions selected agent skills.
+2. **Branch Delivery (`sealit-flow`)**: `sealit begin --checkout` -> `sealit-spec` / `sealit-adr` (`sealit drift`) -> `sealit-tdd` (`test`, `coverage`, `mutation`) -> `sealit-gate` (`gate`, independent review, `review record --verdict approve`, `verify`) -> `sealit end`.
 
 ## 5. Quality & Security Guardrails
 - **Runtime Floor**: Node.js `>= 22.0.0`, zero runtime npm dependencies, package tarball `< 120 kB`, and `<= 850` LOC per kernel module.

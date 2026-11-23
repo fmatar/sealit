@@ -1,8 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="400" height="68" viewBox="0 0 400 68" role="img" aria-label="Agentic SDLC Framework">
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="68" viewBox="0 0 400 68" role="img" aria-label="sealit">
   <rect x="4" y="8" width="52" height="52" rx="14" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
   <circle cx="30" cy="34" r="18" fill="none" stroke="#6366f1" stroke-width="2" stroke-dasharray="4 2"/>
   <circle cx="30" cy="34" r="11" fill="none" stroke="#0d9488" stroke-width="2"/>
-  <circle cx="30" cy="34" r="4.5" fill="#4f46e5"/>
-  <text x="70" y="36" fill="#0f172a" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="21" font-weight="700" letter-spacing="-0.4">Agentic SDLC Framework</text>
-  <text x="70" y="53" fill="#475569" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="600">DETERMINISTIC ENGINEERING FOR AI AGENTS</text>
+  <path d="M25.5 34.2L28.6 37.3L34.8 31.1" fill="none" stroke="#4f46e5" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="70" y="36" fill="#0f172a" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="22" font-weight="700" letter-spacing="-0.5">sealit</text>
+  <text x="70" y="53" fill="#475569" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="600">ALIGNMENT &amp; PROOF KERNEL · SEALIT.DEV</text>
 </svg>

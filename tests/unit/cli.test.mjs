@@ -3,14 +3,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createTempGitRepo, git, withoutReceiptEnv } from '../helpers/test-harness.mjs';
-import { runCLI, formatCLIResult, cliExitCode, readPackageVersion } from '../../.agent/scripts/sdlc-engine.mjs';
+import { runCLI, formatCLIResult, cliExitCode, readPackageVersion } from '../../.agent/scripts/sealit-engine.mjs';
 
 const cleanups = [];
 afterEach(() => {
   while (cleanups.length > 0) cleanups.pop()();
 });
 
-describe('Ring 3: sdlc-engine.mjs CLI registry', () => {
+describe('Ring 3: sealit-engine.mjs CLI registry', () => {
   it('supports position-independent global flags, =-containing flag values, zero-arg help, and exitCode:2 on unknown commands/flags', async () => {
     const { dir, cleanup } = createTempGitRepo();
     cleanups.push(cleanup);
@@ -56,7 +56,7 @@ describe('Ring 3: sdlc-engine.mjs CLI registry', () => {
       );
       fs.writeFileSync(path.join(dir, 'app.mjs'), 'export const val = 7;\n', 'utf8');
       fs.writeFileSync(
-        path.join(dir, '.agent/sdlc-config.json'),
+        path.join(dir, '.agent/sealit-config.json'),
         JSON.stringify({
           version: '0.1.0',
           archlens: { enabled: false },
@@ -75,7 +75,7 @@ describe('Ring 3: sdlc-engine.mjs CLI registry', () => {
         }),
         'utf8'
       );
-      git(dir, 'add', '.agent/sdlc-config.json', 'app.mjs', 'tests/app.test.mjs');
+      git(dir, 'add', '.agent/sealit-config.json', 'app.mjs', 'tests/app.test.mjs');
       git(dir, 'commit', '-q', '-m', 'chore: base setup');
       git(dir, 'branch', '-f', 'main', 'HEAD');
 
@@ -112,7 +112,7 @@ describe('Ring 3: sdlc-engine.mjs CLI registry', () => {
 
       const exAdd = await runCLI(['exemption', 'add', '--mutant', 'ConditionalExpression@1:14#a1b2c3d4', '--file', 'app.mjs', '--reason', 'Equivalent guard'], null, dir);
       assert.equal(exAdd.success, true);
-      git(dir, 'add', '.agent/sdlc-config.json');
+      git(dir, 'add', '.agent/sealit-config.json');
       git(dir, 'commit', '-q', '-m', 'chore: record exemption');
 
       const exList = await runCLI(['exemption', 'list'], null, dir);
@@ -151,7 +151,7 @@ describe('Ring 3: sdlc-engine.mjs CLI registry', () => {
       assert.equal(planRes.success, true);
 
       const recRes = await runCLI(
-        ['review', 'record', '--verdict', 'approve', '--reviewer', '@sdlc-gate', '--peer-review', 'LGTM'],
+        ['review', 'record', '--verdict', 'approve', '--reviewer', '@sealit-gate', '--peer-review', 'LGTM'],
         null,
         dir
       );
@@ -174,7 +174,7 @@ describe('Ring 3: sdlc-engine.mjs CLI registry', () => {
 
       // Human formatters produce clear, non-empty output across commands
       const docFmt = formatCLIResult('doctor', await runCLI(['doctor'], null, dir));
-      assert.match(docFmt, /SDLC Doctor:/);
+      assert.match(docFmt, /Sealit Doctor:/);
       assert.match(docFmt, /Gitignore\s*:\s*Missing \d+:/);
       assert.match(formatCLIResult('status', await runCLI(['status'], null, dir)), /Branch:.*\(advisory: includes uncommitted changes\)/);
       assert.match(formatCLIResult('drift', driftPass), /Spec drift verified.*ADR-001.*\(advisory: includes uncommitted changes\)/i);
@@ -202,17 +202,20 @@ describe('Ring 3: sdlc-engine.mjs CLI registry', () => {
       assert.notEqual(ver.version, '0.1.0');
       assert.match(formatCLIResult('version', ver), /^\d+\.\d+\.\d+/);
 
-      fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: '@fmatar/agentic-sdlc', version: '9.8.7' }), 'utf8');
+      fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'sealit', version: '9.8.7' }), 'utf8');
       assert.equal(readPackageVersion(path.join(dir, '.agent/scripts')), '9.8.7');
       fs.mkdirSync(path.join(dir, 'global-home'), { recursive: true });
-      fs.writeFileSync(path.join(dir, 'global-home/package.json'), JSON.stringify({ name: '@fmatar/agentic-sdlc', version: '8.7.6' }), 'utf8');
+      fs.writeFileSync(path.join(dir, 'global-home/package.json'), JSON.stringify({ name: '@fmatar/sealit', version: '8.7.6' }), 'utf8');
       assert.equal(readPackageVersion(path.join(dir, 'global-home/scripts')), '8.7.6');
+      fs.mkdirSync(path.join(dir, 'legacy-home'), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'legacy-home/package.json'), JSON.stringify({ name: '@fmatar/agentic-sdlc', version: '7.6.5' }), 'utf8');
+      assert.equal(readPackageVersion(path.join(dir, 'legacy-home/scripts')), '7.6.5');
       assert.equal(readPackageVersion(path.join(dir, 'no-pkg/scripts')), expectedPkgVer);
       fs.mkdirSync(path.join(dir, 'consumer'), { recursive: true });
       fs.writeFileSync(path.join(dir, 'consumer/package.json'), JSON.stringify({ name: 'consumer-app', version: '4.5.6' }), 'utf8');
       assert.equal(readPackageVersion(path.join(dir, 'consumer/.agent/scripts')), expectedPkgVer);
       fs.mkdirSync(path.join(dir, 'empty-ver'), { recursive: true });
-      fs.writeFileSync(path.join(dir, 'empty-ver/package.json'), JSON.stringify({ name: '@fmatar/agentic-sdlc', version: '' }), 'utf8');
+      fs.writeFileSync(path.join(dir, 'empty-ver/package.json'), JSON.stringify({ name: 'sealit', version: '' }), 'utf8');
       assert.equal(readPackageVersion(path.join(dir, 'empty-ver/.agent/scripts')), expectedPkgVer);
 
       const hlp = await runCLI(['--help'], null, dir);
