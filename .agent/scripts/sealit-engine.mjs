@@ -711,13 +711,14 @@ export function formatCLIResult(cmd, res = {}) {
 }
 
 export async function runCliEntrypoint({
-  argv = process.argv.slice(2),
+  argv = null,
   stdout = process.stdout,
   stderr = process.stderr,
   exit = (c) => process.exit(c),
   runner = runCLI
 } = {}) {
-  const jsonMode = argv.includes('--json');
+  const effectiveArgv = Array.isArray(argv) ? argv : process.argv.slice(2);
+  const jsonMode = effectiveArgv.includes('--json');
   const onProgress = jsonMode ? null : (msg) => stderr.write(`${msg}\n`);
   try {
     const res = await runner(argv, null, '.', { onProgress });

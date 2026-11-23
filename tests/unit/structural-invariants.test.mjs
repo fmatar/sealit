@@ -71,6 +71,15 @@ describe('sealit v0.0.1 Structural & Governance Invariants', () => {
       () => execFileSync(process.execPath, [binPath, 'nonexistent-cmd'], { cwd: REPO_ROOT, stdio: 'pipe' }),
       (err) => err.status === 2 && /Unknown command/.test(String(err.stderr))
     );
+    assert.throws(
+      () =>
+        execFileSync(process.execPath, [binPath, 'guard', 'pre-push'], {
+          cwd: REPO_ROOT,
+          input: 'refs/heads/feat/x 1111111111111111111111111111111111111111 refs/heads/main 0000000000000000000000000000000000000000\n',
+          stdio: 'pipe'
+        }),
+      (err) => err.status === 1 && /Direct pushes to 'main'/.test(String(err.stderr))
+    );
 
     const pluginJson = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, '.claude-plugin/plugin.json'), 'utf8'));
     assert.equal(pluginJson.name, 'sealit');

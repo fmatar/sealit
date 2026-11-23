@@ -334,7 +334,10 @@ describe('Ring 3: sealit-engine.mjs CLI registry', () => {
     assert.equal(verRes.out.trim(), '0.0.1');
     assert.equal(verRes.err, '');
 
-    const jsonRes = await capture(['config', 'check', '--json']);
+    const jsonRes = await capture(['config', 'check', '--json'], async (_argv, _cfg, _root, opts) => {
+      opts.onProgress?.('[gate] suppressed in json');
+      return { success: true, command: 'config', warnings: ['ignored in json'] };
+    });
     assert.equal(jsonRes.code, 0);
     assert.equal(JSON.parse(jsonRes.out).success, true);
     assert.equal(jsonRes.err, '');
