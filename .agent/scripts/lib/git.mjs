@@ -425,27 +425,29 @@ export function resolveDefaultBaseBranch(repoRoot = '.', refsMap = null) {
   return 'main';
 }
 
+export const CI_BRANCH_ENV_KEYS = Object.freeze([
+  'GITHUB_BASE_REF', 'GITHUB_REF', 'GITHUB_REF_NAME', 'GITHUB_REF_TYPE', 'GITHUB_HEAD_REF',
+  'CI_MERGE_REQUEST_TARGET_BRANCH_NAME', 'CI_MERGE_REQUEST_SOURCE_BRANCH_NAME', 'CI_COMMIT_BRANCH', 'CI_COMMIT_REF_NAME', 'CI_COMMIT_TAG',
+  'BITBUCKET_PR_DESTINATION_BRANCH', 'BITBUCKET_BRANCH',
+  'SYSTEM_PULLREQUEST_TARGETBRANCH', 'SYSTEM_PULLREQUEST_SOURCEBRANCH', 'BUILD_SOURCEBRANCH', 'BUILD_SOURCEBRANCHNAME'
+]);
+
+function cleanCiBranchRef(raw) {
+  const cleaned = String(raw || '').trim().replace(/^refs\/heads\//, '').trim();
+  return !cleaned || cleaned.startsWith('refs/') || cleaned.startsWith('-') ? '' : cleaned;
+}
+
 function readCiTargetBranch(env = process.env) {
-  const raw =
-    env.GITHUB_BASE_REF ||
-    env.CI_MERGE_REQUEST_TARGET_BRANCH_NAME ||
-    env.BITBUCKET_PR_DESTINATION_BRANCH ||
-    env.SYSTEM_PULLREQUEST_TARGETBRANCH ||
-    '';
-  return String(raw).replace(/^refs\/heads\//, '').trim();
+  return cleanCiBranchRef(env.GITHUB_BASE_REF || env.CI_MERGE_REQUEST_TARGET_BRANCH_NAME || env.BITBUCKET_PR_DESTINATION_BRANCH || env.SYSTEM_PULLREQUEST_TARGETBRANCH);
 }
 
 function readCiCurrentBranch(env = process.env) {
-  const raw =
-    env.GITHUB_REF_NAME ||
-    env.GITHUB_REF ||
-    env.CI_MERGE_REQUEST_SOURCE_BRANCH_NAME ||
-    env.CI_COMMIT_REF_NAME ||
-    env.BITBUCKET_BRANCH ||
-    env.BUILD_SOURCEBRANCHNAME ||
-    '';
-  const cleaned = String(raw).replace(/^refs\/heads\//, '').trim();
-  return cleaned.startsWith('refs/') ? '' : cleaned;
+  if (env.GITHUB_REF) return cleanCiBranchRef(env.GITHUB_REF);
+  if (env.GITHUB_REF_TYPE === 'tag' || env.CI_COMMIT_TAG) return '';
+  return cleanCiBranchRef(
+    env.GITHUB_REF_NAME || env.CI_MERGE_REQUEST_SOURCE_BRANCH_NAME || env.CI_COMMIT_BRANCH ||
+    env.CI_COMMIT_REF_NAME || env.BITBUCKET_BRANCH || env.SYSTEM_PULLREQUEST_SOURCEBRANCH || env.BUILD_SOURCEBRANCH
+  );
 }
 
 export function resolveEffectiveDiffBase(baseBranch = null, repoRoot = '.', refsMap = null, curBranchOverride = null) {
@@ -465,7 +467,8 @@ export function resolveEffectiveDiffBase(baseBranch = null, repoRoot = '.', refs
 
 export function resolveRange({ baseBranch = null, head = 'HEAD', branchHint = null, repoRoot = '.' } = {}) {
   const refs = readGitRefsMap(repoRoot);
-  const curBranch = branchHint !== null ? String(branchHint).trim() : head === 'HEAD' ? getCurrentGitBranch(repoRoot) : '';
+  const rawBranch = branchHint !== null ? String(branchHint).trim() : head === 'HEAD' ? getCurrentGitBranch(repoRoot) : '';
+  const curBranch = rawBranch === 'HEAD' ? readCiCurrentBranch() || 'HEAD' : rawBranch;
   const effectiveBase = resolveEffectiveDiffBase(baseBranch, repoRoot, refs, curBranch);
   const headSha =
     head === 'HEAD'
@@ -478,7 +481,7 @@ export function resolveRange({ baseBranch = null, head = 'HEAD', branchHint = nu
       refSha = (gitOutput(['rev-parse', '--verify', '-q', '--end-of-options', `${candidate}^{commit}`], repoRoot) || '').trim();
     }
     if (!refSha) continue;
-    const isPushOnBase = refSha === headSha && head === 'HEAD' && (curBranch === effectiveBase || (curBranch === 'HEAD' && !readCiTargetBranch()));
+    const isPushOnBase = refSha === headSha && head === 'HEAD' && !readCiTargetBranch() && (curBranch === effectiveBase || curBranch === 'HEAD');
     if (isPushOnBase) {
       const parentSha = (gitOutput(['rev-parse', '--verify', '-q', `${headSha}~1^{commit}`], repoRoot) || '').trim();
       return { effectiveBase, baseSha: parentSha || EMPTY_TREE_SHA, headSha };

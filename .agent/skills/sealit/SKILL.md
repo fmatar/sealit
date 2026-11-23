@@ -1,6 +1,6 @@
 ---
 name: sealit
-description: "Direct 1:1 router for explicit /sealit CLI subcommands (init, doctor, begin, status, drift, adr, test, coverage, mutation, gate, review, pr-body, receipt, verify, end)."
+description: "Direct 1:1 router for explicit /sealit CLI subcommands (init, doctor, config, skill-audit, begin, status, drift, adr, test, coverage, mutation, exemption, gate, review, pr-body, receipt, verify, end)."
 disable-model-invocation: true
 ---
 
@@ -22,6 +22,8 @@ Check whether `.agent/sealit-config.json` exists in the repository:
 | `/sealit init [flags]` | `node .agent/scripts/sealit-engine.mjs init [flags]` |
 | `/sealit doctor` | `node .agent/scripts/sealit-engine.mjs doctor` |
 | `/sealit doctor fix` | `node .agent/scripts/sealit-engine.mjs doctor --fix` |
+| `/sealit config check` | `node .agent/scripts/sealit-engine.mjs config check` |
+| `/sealit skill-audit` | `node .agent/scripts/sealit-engine.mjs skill-audit` |
 | `/sealit begin <#id-or-title>` | `node .agent/scripts/sealit-engine.mjs begin --issue <id> --checkout` (supports `--base <branch>` and `--worktree <dir>`) |
 | `/sealit status` | `node .agent/scripts/sealit-engine.mjs status` |
 | `/sealit drift` | `node .agent/scripts/sealit-engine.mjs drift` |
@@ -29,6 +31,7 @@ Check whether `.agent/sealit-config.json` exists in the repository:
 | `/sealit test` | `node .agent/scripts/sealit-engine.mjs test --affected-only` |
 | `/sealit coverage` | `node .agent/scripts/sealit-engine.mjs coverage` |
 | `/sealit mutation` | `node .agent/scripts/sealit-engine.mjs mutation` |
+| `/sealit exemption <list\|add>` | `node .agent/scripts/sealit-engine.mjs exemption <subcommand> [flags]` |
 | `/sealit gate` | `node .agent/scripts/sealit-engine.mjs gate` |
 | `/sealit review` | Dispatch `sealit-gate` (`review plan` -> spawn two isolated read-only subagents -> `review record`) |
 | `/sealit pr-body` | `node .agent/scripts/sealit-engine.mjs pr-body` |

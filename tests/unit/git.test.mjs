@@ -217,7 +217,7 @@ describe('Ring 0: lib/git.mjs', () => {
     assert.throws(() => resolveInsideRepo(dir, 'sym-out/secret.txt'), /symlink|outside/i);
   });
 
-  it('resolveEffectiveDiffBase and resolveRange support GitLab, Bitbucket, and Azure DevOps CI branch variables', () => {
+  it('resolveEffectiveDiffBase and resolveRange support GitLab, Bitbucket, and Azure DevOps CI branch variables without tag or leaf-name spoofing', () => {
     const { dir, cleanup } = createTempGitRepo();
     cleanups.push(cleanup);
 
@@ -225,12 +225,17 @@ describe('Ring 0: lib/git.mjs', () => {
       'GITHUB_BASE_REF',
       'GITHUB_REF_NAME',
       'GITHUB_REF',
+      'GITHUB_REF_TYPE',
       'CI_MERGE_REQUEST_TARGET_BRANCH_NAME',
       'CI_MERGE_REQUEST_SOURCE_BRANCH_NAME',
+      'CI_COMMIT_BRANCH',
       'CI_COMMIT_REF_NAME',
+      'CI_COMMIT_TAG',
       'BITBUCKET_PR_DESTINATION_BRANCH',
       'BITBUCKET_BRANCH',
       'SYSTEM_PULLREQUEST_TARGETBRANCH',
+      'SYSTEM_PULLREQUEST_SOURCEBRANCH',
+      'BUILD_SOURCEBRANCH',
       'BUILD_SOURCEBRANCHNAME'
     ];
     const saved = Object.fromEntries(envKeys.map((k) => [k, process.env[k]]));
@@ -250,27 +255,77 @@ describe('Ring 0: lib/git.mjs', () => {
       assert.equal(resolveEffectiveDiffBase(null, dir), 'main');
       delete process.env.BITBUCKET_PR_DESTINATION_BRANCH;
 
-      // Azure DevOps PR targeting refs/heads/main (strips refs/heads/)
-      process.env.SYSTEM_PULLREQUEST_TARGETBRANCH = 'refs/heads/main';
+      // Azure DevOps PR targeting whitespace-padded refs/heads/main (trims before stripping refs/heads/)
+      process.env.SYSTEM_PULLREQUEST_TARGETBRANCH = '  refs/heads/main  ';
       assert.equal(resolveEffectiveDiffBase(null, dir), 'main');
       delete process.env.SYSTEM_PULLREQUEST_TARGETBRANCH;
 
-      // Detached HEAD on GitHub/GitLab/Azure push pipelines for develop compares against main (ignores non-branch refs/pull/*)
+      // Rejects non-branch refs/* and leading '-' flags in target branch env vars
+      for (const badTarget of ['refs/tags/v1', '-oProxyCommand=bad']) {
+        process.env.GITHUB_BASE_REF = badTarget;
+        assert.equal(resolveEffectiveDiffBase(null, dir), 'develop');
+        delete process.env.GITHUB_BASE_REF;
+      }
+
+      // Detached HEAD on GitHub/GitLab/Azure branch pipelines for develop compares against main
       git(dir, 'checkout', '-q', '--detach', 'develop');
       for (const [k, v] of [
-        ['GITHUB_REF_NAME', 'develop'],
         ['GITHUB_REF', 'refs/heads/develop'],
+        ['GITHUB_REF_NAME', 'develop'],
         ['CI_MERGE_REQUEST_SOURCE_BRANCH_NAME', 'develop'],
+        ['CI_COMMIT_BRANCH', 'develop'],
         ['CI_COMMIT_REF_NAME', 'develop'],
-        ['BUILD_SOURCEBRANCHNAME', 'develop']
+        ['SYSTEM_PULLREQUEST_SOURCEBRANCH', 'refs/heads/develop'],
+        ['BUILD_SOURCEBRANCH', 'refs/heads/develop']
       ]) {
         process.env[k] = v;
         assert.equal(resolveEffectiveDiffBase(null, dir), 'main', `Expected ${k}=${v} to resolve base 'main'`);
         delete process.env[k];
       }
-      process.env.GITHUB_REF = 'refs/pull/12/merge';
+
+      // GitHub tag/PR refs do NOT spoof branch 'develop' even when GITHUB_REF_NAME='develop' or '12/merge'
+      process.env.GITHUB_REF = 'refs/tags/develop';
+      process.env.GITHUB_REF_NAME = 'develop';
       assert.equal(resolveEffectiveDiffBase(null, dir), 'develop');
       delete process.env.GITHUB_REF;
+      delete process.env.GITHUB_REF_NAME;
+
+      process.env.GITHUB_REF_TYPE = 'tag';
+      process.env.GITHUB_REF_NAME = 'develop';
+      assert.equal(resolveEffectiveDiffBase(null, dir), 'develop');
+      delete process.env.GITHUB_REF_TYPE;
+      delete process.env.GITHUB_REF_NAME;
+
+      process.env.GITHUB_REF = 'refs/pull/12/merge';
+      process.env.GITHUB_REF_NAME = '12/merge';
+      assert.equal(resolveEffectiveDiffBase(null, dir), 'develop');
+      delete process.env.GITHUB_REF;
+      delete process.env.GITHUB_REF_NAME;
+
+      // GitLab tag pipeline with CI_COMMIT_TAG='develop' + CI_COMMIT_REF_NAME='develop' does NOT spoof 'develop'
+      process.env.CI_COMMIT_TAG = 'develop';
+      process.env.CI_COMMIT_REF_NAME = 'develop';
+      assert.equal(resolveEffectiveDiffBase(null, dir), 'develop');
+      delete process.env.CI_COMMIT_TAG;
+      delete process.env.CI_COMMIT_REF_NAME;
+
+      // Azure slash branch 'feat/develop' has BUILD_SOURCEBRANCHNAME='develop' — full BUILD_SOURCEBRANCH prevents spoofing
+      process.env.BUILD_SOURCEBRANCH = 'refs/heads/feat/develop';
+      process.env.BUILD_SOURCEBRANCHNAME = 'develop';
+      assert.equal(resolveEffectiveDiffBase(null, dir), 'develop');
+      delete process.env.BUILD_SOURCEBRANCH;
+      delete process.env.BUILD_SOURCEBRANCHNAME;
+
+      // Detached HEAD on a newly branched 'feat/aligned' still at develop tip returns 0-commit range (not develop~1..develop)
+      fs.writeFileSync(path.join(dir, 'dev-extra.txt'), 'dev\n', 'utf8');
+      git(dir, 'checkout', '-q', 'develop');
+      git(dir, 'add', 'dev-extra.txt');
+      git(dir, 'commit', '-q', '-m', 'chore: advance develop');
+      git(dir, 'checkout', '-q', '--detach', 'develop');
+      process.env.BITBUCKET_BRANCH = 'feat/aligned';
+      const alignedFeatRange = resolveRange({ repoRoot: dir });
+      assert.equal(alignedFeatRange.baseSha, alignedFeatRange.headSha);
+      delete process.env.BITBUCKET_BRANCH;
 
       // Detached HEAD on Bitbucket push pipeline for main uses HEAD~1..HEAD unless PR destination is set
       git(dir, 'checkout', '-q', 'main');

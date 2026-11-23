@@ -83,14 +83,30 @@ tr -d '\r\n' < .agent/.receipt-key | gh secret set SEALIT_RECEIPT_KEY
 # .gitlab-ci.yml example
 sealit-verify:
   image: node:22-alpine
+  variables:
+    GIT_DEPTH: 0
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   script:
     - apk add --no-cache git
-    - git fetch origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
-    - mkdir -p /tmp/trusted-sealit
-    - git archive "origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" .agent/scripts .agent/schemas .agent/sealit-config.json | tar -x -C /tmp/trusted-sealit
-    - node /tmp/trusted-sealit/.agent/scripts/sealit-engine.mjs verify --sha "$CI_COMMIT_SHA" --branch "$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME"
+    - git fetch origin "+refs/heads/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME:refs/remotes/origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" "+refs/heads/develop:refs/remotes/origin/develop" || git fetch origin "+refs/heads/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME:refs/remotes/origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
+    - |
+      if [ "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" = "main" ] && git show-ref --verify --quiet refs/remotes/origin/develop && [ "$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME" != "develop" ]; then
+        echo "Merge requests targeting main must originate from develop." && exit 1
+      fi
+      TRUSTED_DIR="/tmp/trusted-sealit" && mkdir -p "$TRUSTED_DIR"
+      if git cat-file -e "origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME:.agent/scripts/sealit-engine.mjs" 2>/dev/null; then
+        git archive "origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" .agent/scripts | tar -x -C "$TRUSTED_DIR"
+        ENGINE_BIN="$TRUSTED_DIR/.agent/scripts/sealit-engine.mjs"
+      else
+        ENGINE_BIN=".agent/scripts/sealit-engine.mjs"
+      fi
+      MR_SHA="${CI_MERGE_REQUEST_SOURCE_BRANCH_SHA:-$CI_COMMIT_SHA}"
+      if [ "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" = "main" ]; then
+        node "$ENGINE_BIN" verify --sha "$MR_SHA"
+      else
+        node "$ENGINE_BIN" verify --sha "$MR_SHA" --branch "$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME"
+      fi
 ```
 
 </details>
