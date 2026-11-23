@@ -7,6 +7,7 @@ import { createTempGitRepo, git } from '../helpers/test-harness.mjs';
 import {
   DEFAULT_QUALITY_THRESHOLDS,
   DEFAULT_QUALITY_GATE_CHECK,
+  DEFAULT_CI_RUNS_ON,
   CONFIG_SCHEMA_KEYS,
   migrateConfigObject,
   loadConfig,
@@ -41,6 +42,7 @@ describe('Ring 0: lib/config.mjs', () => {
     assert.equal(DEFAULT_QUALITY_THRESHOLDS.diffCoverage, 85);
     assert.equal(DEFAULT_QUALITY_THRESHOLDS.mutationScore, null);
     assert.equal(DEFAULT_QUALITY_GATE_CHECK, 'Universal Quality Gate, Spec-Drift & Merkle Receipt Defense');
+    assert.equal(DEFAULT_CI_RUNS_ON, "${{ vars.SEALIT_RUNS_ON || vars.SDLC_RUNS_ON || 'ubuntu-latest' }}");
 
     const dir = makeTempDir();
     assert.equal(validateConfigFile(dir).valid, false);
@@ -175,6 +177,13 @@ describe('Ring 0: lib/config.mjs', () => {
     assert.equal(upgraded.version, '0.1.0');
     assert.equal(upgraded.lanes, undefined);
     assert.equal(upgraded.modules[0].thresholds.diffCoverage, 90);
+    assert.equal(upgraded.ci.runsOn, DEFAULT_CI_RUNS_ON);
+    const upgradedLegacyRunsOn = upgradeConfigToV010({
+      version: '0.1.0',
+      ci: { runsOn: "${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}" },
+      modules: [{ name: 'root', path: '.', commands: {} }]
+    });
+    assert.equal(upgradedLegacyRunsOn.ci.runsOn, DEFAULT_CI_RUNS_ON);
     assert.equal(upgradeConfigToV010(null), null);
   });
 

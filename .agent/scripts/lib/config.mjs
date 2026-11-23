@@ -19,6 +19,8 @@ export const DEFAULT_QUALITY_THRESHOLDS = Object.freeze({
 });
 
 export const DEFAULT_QUALITY_GATE_CHECK = 'Universal Quality Gate, Spec-Drift & Merkle Receipt Defense';
+export const DEFAULT_CI_RUNS_ON = "${{ vars.SEALIT_RUNS_ON || vars.SDLC_RUNS_ON || 'ubuntu-latest' }}";
+const LEGACY_CI_RUNS_ON = new Set(["${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}", "${{ vars.SEALIT_RUNS_ON || 'ubuntu-latest' }}"]);
 export const STABLE_MUTANT_ID_RE = /^[A-Za-z0-9_-]+@\d+:\d+#[0-9a-f]{8}$/;
 
 const LEGACY_TOP_KEYS = ['gates', 'testing', 'lanes', 'projectManagement', 'profile', 'generatedAt'];
@@ -113,7 +115,7 @@ export function migrateConfigObject(rawCfg) {
   }
 
   clone.ci = {
-    runsOn: clone.ci?.runsOn || "${{ vars.SEALIT_RUNS_ON || 'ubuntu-latest' }}",
+    runsOn: clone.ci?.runsOn || DEFAULT_CI_RUNS_ON,
     checkName: clone.ci?.checkName || DEFAULT_QUALITY_GATE_CHECK
   };
   clone.archlens = {
@@ -406,7 +408,7 @@ export function generateConfig(repoRoot = '.') {
     $schema: './schemas/sealit-config.schema.json',
     version: '0.1.0',
     ci: {
-      runsOn: "${{ vars.SEALIT_RUNS_ON || 'ubuntu-latest' }}",
+      runsOn: DEFAULT_CI_RUNS_ON,
       checkName: DEFAULT_QUALITY_GATE_CHECK
     },
     archlens: {
@@ -438,11 +440,12 @@ export function upgradeConfigToV010(rawCfg) {
       mutationScore: mod.commands?.mutation ? (mod.thresholds?.mutationScore ?? 80) : null
     }
   }));
+  const rawRunsOn = config.ci?.runsOn;
   return {
     $schema: './schemas/sealit-config.schema.json',
     version: '0.1.0',
     ci: {
-      runsOn: config.ci?.runsOn || "${{ vars.SEALIT_RUNS_ON || 'ubuntu-latest' }}",
+      runsOn: !rawRunsOn || LEGACY_CI_RUNS_ON.has(rawRunsOn) ? DEFAULT_CI_RUNS_ON : rawRunsOn,
       checkName: config.ci?.checkName || DEFAULT_QUALITY_GATE_CHECK
     },
     archlens: {
@@ -624,7 +627,7 @@ export function isVendoredEnginePath(relPath = '') {
   return String(relPath || '').replace(/\\/g, '/').replace(/^\.\//, '').startsWith('.agent/scripts/');
 }
 
-const ENGINE_OWNER_NAMES = new Set(['sealit', '@fmatar/sealit', '@fmatar/agentic-sdlc']);
+export const ENGINE_OWNER_NAMES = Object.freeze(new Set(['sealit', '@fmatar/sealit', '@fmatar/agentic-sdlc']));
 
 export function isEngineOwnerRepo({ repoRoot = '.', baseSha = null } = {}) {
   if (baseSha === EMPTY_TREE_SHA) return false;
@@ -650,7 +653,7 @@ export function loadEffectivePolicy({ repoRoot = '.', baseSha = null, headSha = 
 
   const baseCfgParsed = parseJsonSafe(getBaseRaw('.agent/sealit-config.json') ?? getBaseRaw('.agent/sdlc-config.json'));
   const headCfgParsed = parseJsonSafe(getHeadRaw('.agent/sealit-config.json') ?? getHeadRaw('.agent/sdlc-config.json'));
-  const headCfgLabel = (headSha ? getHeadRaw('.agent/sealit-config.json') : safeReadWorktree('.agent/sealit-config.json')) !== null || !fileExists(path.resolve(repoRoot, '.agent/sdlc-config.json'))
+  const headCfgLabel = getHeadRaw('.agent/sealit-config.json') !== null || getHeadRaw('.agent/sdlc-config.json') === null
     ? '.agent/sealit-config.json'
     : '.agent/sdlc-config.json';
   const baseRootStryker = parseJsonSafe(getBaseRaw('stryker.config.json'));

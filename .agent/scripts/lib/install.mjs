@@ -4,7 +4,7 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { assertNoSymlinkAncestors, fileExists, gitOutput, parseFrontmatter, readFileSafe, resolveGitCommonRepoRoot, writeFileAtomic } from './git.mjs';
-import { DEFAULT_QUALITY_GATE_CHECK, generateConfig, loadConfig, upgradeConfigToV010, validateConfigFile } from './config.mjs';
+import { DEFAULT_CI_RUNS_ON, DEFAULT_QUALITY_GATE_CHECK, generateConfig, loadConfig, upgradeConfigToV010, validateConfigFile } from './config.mjs';
 import { inspectReceiptKeyStatus, loadReceiptKey, verifyAuditChain } from './receipt.mjs';
 import { inspectHooks, installHooks } from './guard.mjs';
 
@@ -314,7 +314,7 @@ function detectNodeCache(repoRoot = null) {
 }
 
 export function buildQualityGateWorkflow({
-  runsOn = "${{ vars.SEALIT_RUNS_ON || 'ubuntu-latest' }}",
+  runsOn = DEFAULT_CI_RUNS_ON,
   checkName = DEFAULT_QUALITY_GATE_CHECK,
   repoRoot = null
 } = {}) {
@@ -501,7 +501,7 @@ export function installCIWorkflow({ repoRoot = '.', force = false, upgradeLegacy
     config = null; // malformed config: fall back to workflow defaults; `config check` reports the error
   }
   const content = buildQualityGateWorkflow({
-    runsOn: config?.ci?.runsOn || "${{ vars.SEALIT_RUNS_ON || 'ubuntu-latest' }}",
+    runsOn: config?.ci?.runsOn || DEFAULT_CI_RUNS_ON,
     checkName: config?.ci?.checkName || DEFAULT_QUALITY_GATE_CHECK,
     repoRoot
   });
@@ -547,47 +547,44 @@ export function runDoctor({ repoRoot = '.', fix = false, gitVersionRaw = null } 
       cfgCheck = validateConfigFile(absRoot);
     } else if (cfgCheck.valid && (cfgCheck.warnings.length > 0 || (!fileExists(cfgPath) && fileExists(legacyCfgPath)))) {
       const srcCfg = fileExists(cfgPath) ? cfgPath : legacyCfgPath;
-      const raw = JSON.parse(fs.readFileSync(srcCfg, 'utf8'));
-      const upgraded = upgradeConfigToV010(raw);
+      const upgraded = upgradeConfigToV010(JSON.parse(fs.readFileSync(srcCfg, 'utf8')));
       if (upgraded) writeFileAtomic(cfgPath, JSON.stringify(upgraded, null, 2) + '\n');
       if (srcCfg === legacyCfgPath) { try { fs.unlinkSync(legacyCfgPath); } catch {} }
       cfgCheck = validateConfigFile(absRoot);
     }
+    for (const d of ['.agent/skills', '.claude/skills', '.cursor/skills', '.codex/skills']) {
+      pruneRetiredSkillsInDir(path.join(absRoot, d), absRoot);
+    }
+    const rb = buildRulesBlock();
+    for (const rf of ['AGENTS.md', 'CLAUDE.md', '.github/copilot-instructions.md']) {
+      const rp = path.join(absRoot, rf);
+      if (fileExists(rp) && /AGENTIC-SDLC-RULES:START/.test(readFileSafe(rp) || '')) upsertMarkedRulesFile(rp, rb, absRoot);
+    }
   }
+  const legacyCfgOnly = !fileExists(cfgPath) && fileExists(legacyCfgPath);
+  cfgCheck = { ...cfgCheck, legacyNeedsMigration: legacyCfgOnly };
 
   const policyPath = path.join(absRoot, '.archlens/policy.json');
-  if (fix && !fileExists(policyPath)) {
-    scaffoldArchlensPolicy(absRoot, { force: false });
-  }
+  if (fix && !fileExists(policyPath)) scaffoldArchlensPolicy(absRoot, { force: false });
   const policyOk = fileExists(policyPath);
 
-  if (fix) {
-    upsertGitignore(absRoot);
-  }
+  if (fix) upsertGitignore(absRoot);
   const gitignore = inspectGitignore(absRoot);
 
-  if (fix && fileExists(path.join(absRoot, '.git'))) {
-    installHooks({ repoRoot: absRoot });
-  }
+  if (fix && fileExists(path.join(absRoot, '.git'))) installHooks({ repoRoot: absRoot });
   const hooks = inspectHooks(absRoot);
 
   const wfPath = path.join(absRoot, '.github/workflows/sealit-quality-gate.yml');
   const legacyWfPath = path.join(absRoot, '.github/workflows/sdlc-quality-gate.yml');
-  if (fix) {
-    installCIWorkflow({ repoRoot: absRoot, force: false, upgradeLegacy: true });
-  }
+  if (fix) installCIWorkflow({ repoRoot: absRoot, force: false, upgradeLegacy: true });
   const activeWfPath = fileExists(wfPath) ? wfPath : fileExists(legacyWfPath) ? legacyWfPath : null;
   const wfExists = Boolean(activeWfPath);
   const wfLegacy = wfExists && (activeWfPath === legacyWfPath || workflowNeedsUpgrade(readFileSafe(activeWfPath) || '', absRoot));
 
   if (fix && process.platform !== 'win32') {
     const commonRoot = resolveGitCommonRepoRoot(absRoot);
-    const keyPath = fileExists(path.join(absRoot, '.agent/.receipt-key'))
-      ? path.join(absRoot, '.agent/.receipt-key')
-      : path.join(commonRoot, '.agent/.receipt-key');
-    if (fileExists(keyPath)) {
-      try { fs.chmodSync(keyPath, 0o600); } catch {}
-    }
+    const keyPath = fileExists(path.join(absRoot, '.agent/.receipt-key')) ? path.join(absRoot, '.agent/.receipt-key') : path.join(commonRoot, '.agent/.receipt-key');
+    if (fileExists(keyPath)) { try { fs.chmodSync(keyPath, 0o600); } catch {} }
   }
   const keyInfo = inspectReceiptKeyStatus(absRoot);
   const ciSecretHint = wfExists && keyInfo.source === 'file' && keyInfo.usable
@@ -598,7 +595,7 @@ export function runDoctor({ repoRoot = '.', fix = false, gitVersionRaw = null } 
   const auditChain = verifyAuditChain(absRoot);
 
   const passed =
-    nodeOk && gitOk && cfgCheck.valid && policyOk && gitignore.criticalOk &&
+    nodeOk && gitOk && cfgCheck.valid && !legacyCfgOnly && policyOk && gitignore.criticalOk &&
     hooks.upToDate && wfExists && !wfLegacy && !keyInfo.committed && !keyInfo.error && skills.passed && auditChain.valid;
 
   return {
@@ -653,18 +650,17 @@ function updateClaudeSettingsJson(settingsPath, warnings, baseRoot = null, { for
     return;
   }
   const allow = parsed?.permissions?.allow;
-  const matchedWildcard = Array.isArray(allow) ? allow.find((r) => LEGACY_CLAUDE_WILDCARDS.has(r)) : null;
+  const isLegacySdlcRule = (r) => LEGACY_CLAUDE_WILDCARDS.has(r) || String(r).startsWith('Bash(node .agent/scripts/sdlc-engine.mjs ');
+  const matchedLegacy = Array.isArray(allow) ? allow.find(isLegacySdlcRule) : null;
   const missingAllowArray = allow === undefined || allow === null;
-  if (!matchedWildcard && !missingAllowArray && !force) return;
+  if (!matchedLegacy && !missingAllowArray && !force) return;
   const target = resolveUserFileTarget(settingsPath, baseRoot, warnings, { onOutside: 'skip' });
   if (!target) return;
-  const kept = Array.isArray(allow)
-    ? allow.filter((r) => !LEGACY_CLAUDE_WILDCARDS.has(r) && (!force || !String(r).startsWith('Bash(node .agent/scripts/sdlc-engine.mjs ')))
-    : [];
+  const kept = Array.isArray(allow) ? allow.filter((r) => !isLegacySdlcRule(r)) : [];
   parsed.permissions = { ...(parsed.permissions || {}), allow: [...kept, ...CLAUDE_SEALIT_ALLOW_RULES.filter((r) => !kept.includes(r))] };
   writeFileAtomic(target, JSON.stringify(parsed, null, 2) + '\n');
-  if (matchedWildcard) {
-    warnings.push(`Replaced legacy '${matchedWildcard}' in '${settingsPath}' with read/measure-only rules; approvals now prompt.`);
+  if (matchedLegacy && LEGACY_CLAUDE_WILDCARDS.has(matchedLegacy)) {
+    warnings.push(`Replaced legacy '${matchedLegacy}' in '${settingsPath}' with read/measure-only rules; approvals now prompt.`);
   }
 }
 
@@ -684,6 +680,7 @@ export async function installFramework({
     const globalRoot = path.join(resolvedHome, '.sealit');
     safeCopyDir(path.join(absSource, '.agent/scripts'), path.join(globalRoot, 'scripts'), { chmodExecutable: true, errors, fsImpl, baseRoot: resolvedHome });
     safeCopyDir(path.join(absSource, '.agent/schemas'), path.join(globalRoot, 'schemas'), { chmodExecutable: false, errors, fsImpl, baseRoot: resolvedHome });
+    for (const rel of ['scripts/sdlc-engine.mjs', 'schemas/sdlc-config.schema.json']) safeRemoveDir(path.join(globalRoot, rel), resolvedHome);
 
     const defaultHome = path.resolve(os.homedir());
     const globalEnginePath =
@@ -731,6 +728,7 @@ export async function installFramework({
     safeCopyDir(path.join(absSource, '.agent/scripts'), path.join(absTarget, '.agent/scripts'), { chmodExecutable: true, errors, fsImpl, baseRoot: absTarget });
     safeCopyDir(path.join(absSource, '.agent/schemas'), path.join(absTarget, '.agent/schemas'), { chmodExecutable: false, errors, fsImpl, baseRoot: absTarget });
     safeCopyDir(path.join(absSource, 'docs/templates'), path.join(absTarget, 'docs/templates'), { chmodExecutable: false, errors, fsImpl, baseRoot: absTarget });
+    for (const rel of ['.agent/scripts/sdlc-engine.mjs', '.agent/schemas/sdlc-config.schema.json']) safeRemoveDir(path.join(absTarget, rel), absTarget);
   }
 
   pruneRetiredSkillsInDir(path.join(absTarget, '.agent/skills'), absTarget);
@@ -766,6 +764,10 @@ export async function installFramework({
     writeFileAtomic(cfgPath, JSON.stringify(generateConfig(absTarget), null, 2) + '\n');
   } else if (!cfgCheck.valid) {
     warnings.push(`Invalid .agent/sealit-config.json left untouched: ${cfgCheck.errors.join('; ')}; fix it or rerun with --force to regenerate (a .bak copy is kept).`);
+  } else if (!fileExists(cfgPath) && fileExists(legacyCfgPath) && !fs.lstatSync(legacyCfgPath).isSymbolicLink()) {
+    const upgraded = upgradeConfigToV010(JSON.parse(fs.readFileSync(legacyCfgPath, 'utf8')));
+    if (upgraded) writeFileAtomic(cfgPath, JSON.stringify(upgraded, null, 2) + '\n');
+    try { fs.unlinkSync(legacyCfgPath); } catch {}
   }
   upsertGitignore(absTarget, { warnings });
 

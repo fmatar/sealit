@@ -135,6 +135,8 @@ describe('sealit v0.0.1 Structural & Governance Invariants', () => {
   it('Invariant 4: Workflows enforce self-hosted runner policy, main-branch release receipt guard, and env-isolated tests', async () => {
     const qg = fs.readFileSync(path.join(REPO_ROOT, '.github/workflows/sealit-quality-gate.yml'), 'utf8');
     const cfg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, '.agent/sealit-config.json'), 'utf8'));
+    assert.match(cfg.ci.runsOn, /vars\.SEALIT_RUNS_ON/);
+    assert.match(cfg.ci.runsOn, /vars\.SDLC_RUNS_ON/);
     assert.equal(qg.includes(`runs-on: ${cfg.ci.runsOn}`), true);
     assert.match(qg, /runner\.environment == 'github-hosted'/);
     assert.match(qg, /--branch "\$GITHUB_HEAD_REF"/);

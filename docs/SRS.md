@@ -12,7 +12,7 @@ An 8-module, zero-dependency Node.js (`>= 22.0.0`) Alignment and Proof Kernel pa
 ### 1.3 References & Traceability Matrix
 - **Product Constitution**: [`PRODUCT.md`](../PRODUCT.md)
 - **Product Requirements Document**: [`docs/PRD.md`](./PRD.md)
-- **Active Architectural Decision**: [`docs/adr/ADR-019-v0-1-0-alignment-and-proof-kernel-simplification.md`](./adr/ADR-019-v0-1-0-alignment-and-proof-kernel-simplification.md)
+- **Active Architectural Decisions**: [`docs/adr/ADR-019-v0-1-0-alignment-and-proof-kernel-simplification.md`](./adr/ADR-019-v0-1-0-alignment-and-proof-kernel-simplification.md), [`docs/adr/ADR-026-rebrand-to-sealit-sealit-dev-and-reset-version-b.md`](./adr/ADR-026-rebrand-to-sealit-sealit-dev-and-reset-version-b.md)
 - **Clean Architecture Policy**: [`.archlens/policy.json`](../.archlens/policy.json)
 
 | Capability ID | Capability Title | Detailed Functional Spec | Governing Ring & Module | Status |

@@ -16,7 +16,7 @@ concurrency:
 jobs:
   quality-gate:
     name: "Universal Quality Gate, Spec-Drift & Merkle Receipt Defense"
-    runs-on: ${{ vars.SEALIT_RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ${{ vars.SEALIT_RUNS_ON || vars.SDLC_RUNS_ON || 'ubuntu-latest' }}
 
     steps:
       - name: Require Self-Hosted Runner Policy

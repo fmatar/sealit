@@ -107,28 +107,31 @@ describe('Ring 2: lib/install.mjs', () => {
     assert.equal(auditSkills(srcDir).findings.some((f) => f.rule === 'RP1'), true);
   });
 
-  it('runDoctor reports receipt key status and doctor --fix migrates legacy sdlc-config.json/sdlc-quality-gate.yml while preserving custom thresholds', () => {
+  it('runDoctor reports receipt key status and doctor --fix / init migrate legacy sdlc-config.json, workflows, rules, and Claude allowlists while preserving custom thresholds', async () => {
     const { dir, cleanup } = createTempGitRepo();
     cleanups.push(cleanup);
     const src = createSourceBundleFixture();
     cleanups.push(src.cleanup);
 
-    withoutReceiptEnv(() => {
+    await withoutReceiptEnv(async () => {
       // Copy canonical skills into dir so auditSkills passes
       fs.cpSync(path.join(src.srcDir, '.agent/skills'), path.join(dir, '.agent/skills'), { recursive: true });
       fs.writeFileSync(path.join(dir, '.agent/.receipt-key'), 'secret-key-hex\n', { mode: 0o600 });
 
-      // Write custom threshold (diffCoverage: 93) in legacy .agent/sdlc-config.json (with lanes key to trigger upgrade) and legacy sdlc-quality-gate.yml
+      // Write custom threshold (diffCoverage: 93) in clean v0.1.0 legacy .agent/sdlc-config.json (0 deprecated keys!) and legacy sdlc-quality-gate.yml
       fs.writeFileSync(
         path.join(dir, '.agent/sdlc-config.json'),
         JSON.stringify({
           version: '0.1.0',
-          lanes: { trivialMaxLines: 25 },
+          ci: { runsOn: "${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}", checkName: 'Gate' },
           archlens: { enabled: true, policyPath: '.archlens/policy.json' },
           modules: [{ name: 'custom', path: '.', commands: { test: 'node --test "tests/**/*.test.mjs"', coverage: 'npm run test:coverage' }, thresholds: { diffCoverage: 93, mutationScore: null } }]
         }),
         'utf8'
       );
+      fs.writeFileSync(path.join(dir, 'AGENTS.md'), '# Rules\n\n<!-- AGENTIC-SDLC-RULES:START -->\nOld\n<!-- AGENTIC-SDLC-RULES:END -->\n', 'utf8');
+      fs.mkdirSync(path.join(dir, '.agent/skills/sdlc'), { recursive: true });
+      fs.writeFileSync(path.join(dir, '.agent/skills/sdlc/SKILL.md'), 'old', 'utf8');
       fs.mkdirSync(path.join(dir, '.github/workflows'), { recursive: true });
       fs.writeFileSync(
         path.join(dir, '.github/workflows/sdlc-quality-gate.yml'),
@@ -137,6 +140,8 @@ describe('Ring 2: lib/install.mjs', () => {
       );
 
       const diagBefore = runDoctor({ repoRoot: dir, fix: false });
+      assert.equal(diagBefore.passed, false);
+      assert.equal(diagBefore.config.legacyNeedsMigration, true);
       assert.equal(diagBefore.receiptKey.source, 'file');
       assert.equal(diagBefore.receiptKey.usable, true);
       assert.ok(diagBefore.receiptKey.ciSecretHint.includes('gh secret set SEALIT_RECEIPT_KEY'));
@@ -145,22 +150,72 @@ describe('Ring 2: lib/install.mjs', () => {
 
       const healed = runDoctor({ repoRoot: dir, fix: true });
       assert.equal(healed.passed, true);
+      assert.equal(healed.config.legacyNeedsMigration, false);
       assert.equal(healed.hooks.upToDate, true);
+      assert.equal(fs.existsSync(path.join(dir, '.agent/skills/sdlc')), false);
+      assert.match(fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'), /SEALIT-RULES:START/);
 
-      // Legacy config migrated to .agent/sealit-config.json with custom threshold 93 preserved and legacy file removed!
+      // Legacy config migrated to .agent/sealit-config.json with custom threshold 93 preserved, runsOn upgraded, and legacy file removed!
       assert.equal(fs.existsSync(path.join(dir, '.agent/sdlc-config.json')), false);
       const preservedCfg = JSON.parse(fs.readFileSync(path.join(dir, '.agent/sealit-config.json'), 'utf8'));
       assert.equal(preservedCfg.modules[0].name, 'custom');
       assert.equal(preservedCfg.modules[0].thresholds.diffCoverage, 93);
+      assert.equal(preservedCfg.ci.runsOn, "${{ vars.SEALIT_RUNS_ON || vars.SDLC_RUNS_ON || 'ubuntu-latest' }}");
+
+      // If .agent/sealit-config.json is renamed back to .agent/sdlc-config.json while all other checks are green, read-only runDoctor STILL fails!
+      fs.renameSync(path.join(dir, '.agent/sealit-config.json'), path.join(dir, '.agent/sdlc-config.json'));
+      const onlyLegacyCfgDoc = runDoctor({ repoRoot: dir, fix: false });
+      assert.equal(onlyLegacyCfgDoc.config.legacyNeedsMigration, true);
+      assert.equal(onlyLegacyCfgDoc.passed, false);
+      assert.equal(runDoctor({ repoRoot: dir, fix: true }).passed, true);
 
       // Legacy workflow upgraded to sealit-quality-gate.yml and sdlc-quality-gate.yml unlinked
       assert.equal(fs.existsSync(path.join(dir, '.github/workflows/sdlc-quality-gate.yml')), false);
       const wf = fs.readFileSync(path.join(dir, '.github/workflows/sealit-quality-gate.yml'), 'utf8');
       assert.match(wf, /runner\.environment == 'github-hosted'/);
+      assert.match(wf, /vars\.SEALIT_RUNS_ON \|\| vars\.SDLC_RUNS_ON/);
       assert.match(wf, /guard verify --sha "\$PR_HEAD_SHA" --branch "\$GITHUB_HEAD_REF"/);
       assert.match(wf, /guard verify --sha "\$PR_HEAD_SHA"$/m);
       assert.match(wf, /SEALIT_RECEIPT_KEY: ci-dummy-test-key/);
       assert.match(wf, /git archive "origin\/\$BASE_REF"/);
+
+      // Non-force installFramework on a v0.3.0 adopter repo migrates .agent/sdlc-config.json, granular Claude allow rules, and prunes legacy engine/schema files!
+      const adopter = createTempGitRepo();
+      cleanups.push(adopter.cleanup);
+      fs.mkdirSync(path.join(adopter.dir, '.agent/scripts'), { recursive: true });
+      fs.mkdirSync(path.join(adopter.dir, '.agent/schemas'), { recursive: true });
+      fs.mkdirSync(path.join(adopter.dir, '.claude'), { recursive: true });
+      fs.writeFileSync(path.join(adopter.dir, '.agent/scripts/sdlc-engine.mjs'), '// legacy\n', 'utf8');
+      fs.writeFileSync(path.join(adopter.dir, '.agent/schemas/sdlc-config.schema.json'), '{}', 'utf8');
+      fs.writeFileSync(
+        path.join(adopter.dir, '.agent/sdlc-config.json'),
+        JSON.stringify({
+          version: '0.1.0',
+          ci: { runsOn: "${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}", checkName: 'Gate' },
+          modules: [{ name: 'app', path: '.', commands: { coverage: 'npm run cov' }, thresholds: { diffCoverage: 93, mutationScore: null } }]
+        }),
+        'utf8'
+      );
+      fs.writeFileSync(
+        path.join(adopter.dir, '.claude/settings.json'),
+        JSON.stringify({ permissions: { allow: ['Bash(npm test)', 'Bash(node .agent/scripts/sdlc-engine.mjs status)', 'Bash(node .agent/scripts/sdlc-engine.mjs gate *)'] } }, null, 2),
+        'utf8'
+      );
+      git(adopter.dir, 'add', '.agent/sdlc-config.json');
+      git(adopter.dir, 'commit', '-qm', 'chore: v0.3.0 adopter');
+      const migRes = await installFramework({ targetDir: adopter.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+      assert.equal(migRes.success, true);
+      assert.equal(migRes.receiptKeyCreated, false);
+      assert.equal(fs.existsSync(path.join(adopter.dir, '.agent/sdlc-config.json')), false);
+      assert.equal(fs.existsSync(path.join(adopter.dir, '.agent/scripts/sdlc-engine.mjs')), false);
+      assert.equal(fs.existsSync(path.join(adopter.dir, '.agent/schemas/sdlc-config.schema.json')), false);
+      const migCfg = JSON.parse(fs.readFileSync(path.join(adopter.dir, '.agent/sealit-config.json'), 'utf8'));
+      assert.equal(migCfg.modules[0].thresholds.diffCoverage, 93);
+      assert.equal(migCfg.ci.runsOn, "${{ vars.SEALIT_RUNS_ON || vars.SDLC_RUNS_ON || 'ubuntu-latest' }}");
+      const migClaude = JSON.parse(fs.readFileSync(path.join(adopter.dir, '.claude/settings.json'), 'utf8'));
+      assert.ok(migClaude.permissions.allow.includes('Bash(npm test)'));
+      assert.equal(migClaude.permissions.allow.some((r) => r.includes('sdlc-engine.mjs')), false);
+      for (const rule of CLAUDE_SEALIT_ALLOW_RULES) assert.ok(migClaude.permissions.allow.includes(rule));
 
       // 0-byte .agent/.receipt-key fails runDoctor instead of reporting HEALTHY
       fs.writeFileSync(path.join(dir, '.agent/.receipt-key'), '', { mode: 0o600 });

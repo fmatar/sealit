@@ -33,11 +33,6 @@ export const AUDIT_LEDGER_FILE = 'docs/AUDIT_CHAIN.jsonl';
 export const GENESIS_HASH = '0000000000000000000000000000000000000000000000000000000000000000';
 export const RECEIPT_KEY_FILE = '.agent/.receipt-key';
 
-const CACHE_EXCLUDED_PATHS = new Set([
-  'docs/AUDIT_CHAIN.jsonl', '.agent/.sealit-session.json', '.agent/.sealit-session.lock', '.agent/.sealit-config.lock',
-  '.agent/.sdlc-session.json', '.agent/.sdlc-session.lock', '.agent/.receipt-key', '.agent/.audit-chain.lock', '.agent/.sdlc-config.lock'
-]);
-
 export function calculateRecordHash({ index, timestamp, event, metadata, previousHash }) {
   const payload = JSON.stringify({ index, timestamp, event, metadata, previousHash });
   return crypto.createHash('sha256').update(payload).digest('hex');
