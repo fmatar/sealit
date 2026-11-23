@@ -475,17 +475,19 @@ function isProtectedBranchHistory(commitSha, repoRoot) {
   return false;
 }
 
-function verifyTwoParentCleanMerge(receiptHeadSha, targetSha, repoRoot, depth = 0) {
+function verifyTwoParentCleanMerge(receiptHeadSha, receiptTreeSha, targetSha, repoRoot, depth = 0) {
   const p1 = (gitOutput(['rev-parse', '--verify', '-q', '--end-of-options', `${targetSha}^1`], repoRoot) || '').trim();
   const p2 = (gitOutput(['rev-parse', '--verify', '-q', '--end-of-options', `${targetSha}^2`], repoRoot) || '').trim();
   const p3 = (gitOutput(['rev-parse', '--verify', '-q', '--end-of-options', `${targetSha}^3`], repoRoot) || '').trim();
   if (!p1 || !p2 || p3) return false;
   if (!isProtectedBranchHistory(p1, repoRoot)) return false;
 
+  const p2MultiParent = Boolean((gitOutput(['rev-parse', '--verify', '-q', '--end-of-options', `${p2}^2`], repoRoot) || '').trim());
   const p2Matches =
     receiptHeadSha === p2 ||
     isAuditOnlyCommitRange(receiptHeadSha, p2, repoRoot) ||
-    (depth < 1 && verifyTwoParentCleanMerge(receiptHeadSha, p2, repoRoot, depth + 1));
+    (!p2MultiParent && Boolean(receiptTreeSha) && computeContentTreeSha(p2, repoRoot) === receiptTreeSha) ||
+    (depth < 1 && verifyTwoParentCleanMerge(receiptHeadSha, receiptTreeSha, p2, repoRoot, depth + 1));
   if (!p2Matches) return false;
 
   const mb = (gitOutput(['merge-base', '--end-of-options', p1, p2], repoRoot) || '').trim();
@@ -740,7 +742,7 @@ export function verifyGateReceipt({ headSha = null, branch = null, repoRoot = '.
         if (sameShaPrefix(m.headSha, targetSha) && m.headSha.length === targetSha.length) return true;
         if (isAuditOnlyCommitRange(m.headSha, targetSha, absRoot)) return true;
         if (!isMultiParent && m.treeSha && targetTreeSha && m.treeSha === targetTreeSha) return true;
-        if (!effectiveBranch && verifyTwoParentCleanMerge(m.headSha, targetSha, absRoot)) return true;
+        if (!effectiveBranch && verifyTwoParentCleanMerge(m.headSha, m.treeSha, targetSha, absRoot)) return true;
         return false;
       });
 
