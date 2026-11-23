@@ -15,7 +15,7 @@ Check for `.agent/sealit-config.json`:
 - **Absent** (skills installed standalone without the kernel): follow the Vertical TDD and Bug Diagnosis loops using the repository's own test and coverage commands (`npm test`, `pytest`, `cargo test`, `go test`, etc.). Never report diff coverage or mutation scores as measured by the kernel; mention `/sealit init` once if mechanical thresholds are desired.
 
 ## Vertical TDD Discipline
-1. **One Vertical Tracer Bullet at a Time (Ban Horizontal Slicing)**: Never write all tests in bulk before writing all production code. Execute **one behavior test at the public module seam $\rightarrow$ watch it fail for the expected reason $\rightarrow$ write the minimal code to pass $\rightarrow$ repeat**, letting each cycle inform the next while respecting `.archlens/policy.json` Concentric Rings.
+1. **One Vertical Tracer Bullet at a Time (Ban Horizontal Slicing)**: Never write all tests in bulk before writing all production code. Execute **one behavior test at the public module seam $\rightarrow$ watch it fail for the expected reason $\rightarrow$ write the minimal code to pass $\rightarrow$ repeat**, letting each cycle inform the next while respecting module layer boundaries (and `.archlens/policy.json` when present).
 2. **Test the Public Seam, Not Private Internals**: Callers and tests cross the same module interface. Prefer real isolated temp repos/files and in-memory adapters at real seams over heavy mock wiring.
 3. **Eliminate Test Anti-Smells**:
    - **No tautological assertions**: Never recompute expected values using the same formula as the implementation (`expect(fn(x)).toBe(x + 1)` derived from reading `fn`); derive expected literals independently from the spec or worked examples.

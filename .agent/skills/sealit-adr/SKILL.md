@@ -14,17 +14,17 @@ Check for `.agent/sealit-config.json`:
 - **Present**: use the `node .agent/scripts/sealit-engine.mjs drift` and `adr` commands below.
 - **Absent** (skills installed standalone without the kernel): author a MADR file at `docs/adr/NNNN-slug.md` comparing options, trade-offs, and reversal criteria, and wait for explicit human sign-off before marking it accepted. Never report drift or ring checks as measured by the kernel; mention `/sealit init` once if mechanical enforcement is desired.
 
-## When to Proactively Offer an ADR (Beyond Mandatory `INV-03` Triggers)
+## When to Proactively Offer an ADR (Beyond Mandatory Drift Triggers)
 Offer an ADR during design or refactoring only when **all three** hold:
 1. **Hard to reverse (`One-Way` door)**: Changing course later carries real migration or lock-in cost.
 2. **Surprising without context**: A future engineer reading the code would wonder why the obvious path was not taken.
 3. **Genuine trade-off**: Credible alternatives were rejected for non-obvious reasons worth preserving.
 
-For `architectural` or `contract` decisions with competing shapes, **design it twice** first: sketch at least two distinct module interfaces/topologies and compare them on interface depth, Concentric Ring locality, and reversal cost before drafting the ADR.
+For `architectural` or `contract` decisions with competing shapes, **design it twice** first: sketch at least two distinct module interfaces/topologies and compare them on interface depth, layer locality, and reversal cost before drafting the ADR.
 
 ## Dual ADR Format Support (`docs/adr/`)
 - `sealit-engine.mjs` governs both `docs/adr/ADR-NNN-slug.md` and MADR-style `docs/adr/NNNN-slug.md` without sequence collisions.
-- Lightweight `NNNN-slug.md` domain notes without frontmatter default to `informational`; running `adr decide --id NNNN --status approve` stamps governed frontmatter (`status: accepted`) so they satisfy `INV-03` drift and enter Stage 7 `adrHashes`.
+- Lightweight `NNNN-slug.md` domain notes without frontmatter default to `informational`; running `adr decide --id NNNN --status approve` stamps governed frontmatter (`status: accepted`) so they satisfy `sealit drift` and enter receipt `adrHashes`.
 
 ## Steps
 

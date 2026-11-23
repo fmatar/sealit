@@ -2,11 +2,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { CI_BRANCH_ENV_KEYS } from '../../.agent/scripts/lib/git.mjs';
 
-delete process.env.GITHUB_BASE_REF;
-delete process.env.GITHUB_REF;
-delete process.env.GITHUB_REF_NAME;
-delete process.env.GITHUB_HEAD_REF;
+for (const k of CI_BRANCH_ENV_KEYS) delete process.env[k];
 
 export function cleanTestGitEnv(extraEnv = {}) {
   const env = { ...process.env, ...extraEnv };
@@ -16,10 +14,7 @@ export function cleanTestGitEnv(extraEnv = {}) {
   delete env.GIT_COMMON_DIR;
   delete env.GIT_OBJECT_DIRECTORY;
   delete env.GIT_ALTERNATE_OBJECT_DIRECTORIES;
-  delete env.GITHUB_BASE_REF;
-  delete env.GITHUB_REF;
-  delete env.GITHUB_REF_NAME;
-  delete env.GITHUB_HEAD_REF;
+  for (const k of CI_BRANCH_ENV_KEYS) delete env[k];
   delete env.SEALIT_RECEIPT_KEY;
   delete env.SDLC_RECEIPT_KEY;
   return env;

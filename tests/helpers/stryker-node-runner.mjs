@@ -149,10 +149,14 @@ export class SdlcNodeTestRunner {
 
   async init() {
     process.env.GIT_CEILING_DIRECTORIES = path.dirname(process.cwd());
-    delete process.env.GITHUB_BASE_REF;
-    delete process.env.GITHUB_REF;
-    delete process.env.GITHUB_REF_NAME;
-    delete process.env.GITHUB_HEAD_REF;
+    for (const k of [
+      'GITHUB_BASE_REF', 'GITHUB_REF', 'GITHUB_REF_NAME', 'GITHUB_REF_TYPE', 'GITHUB_HEAD_REF',
+      'CI_MERGE_REQUEST_TARGET_BRANCH_NAME', 'CI_MERGE_REQUEST_SOURCE_BRANCH_NAME', 'CI_COMMIT_BRANCH', 'CI_COMMIT_REF_NAME', 'CI_COMMIT_TAG',
+      'BITBUCKET_PR_DESTINATION_BRANCH', 'BITBUCKET_BRANCH',
+      'SYSTEM_PULLREQUEST_TARGETBRANCH', 'SYSTEM_PULLREQUEST_SOURCEBRANCH', 'BUILD_SOURCEBRANCH', 'BUILD_SOURCEBRANCHNAME'
+    ]) {
+      delete process.env[k];
+    }
     ensureLoaderRegistered();
     const ns = this.getNs();
     ns.activeMutant = undefined;
