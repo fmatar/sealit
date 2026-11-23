@@ -1,3 +1,3 @@
 interface:
   display_name: "Sealit Two-Axis Review & Receipt Gate"
-  short_description: "Run orthogonal Spec Fidelity and Architecture/Security reviews, execute sealit gate, and sign Stage 7 merge receipts."
+  short_description: "Run orthogonal Spec Fidelity and Architecture/Security reviews, execute sealit gate, and sign HMAC-SHA256 merge receipts."

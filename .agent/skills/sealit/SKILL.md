@@ -37,7 +37,7 @@ Check whether `.agent/sealit-config.json` exists in the repository:
 | `/sealit end` | `node .agent/scripts/sealit-engine.mjs end --issue <id>` |
 
 ## CI Signing Key Walkthrough (`init` / `doctor`)
-First-time local `sealit init` automatically generates an untracked `0600` `.agent/.receipt-key`; sync it to GitHub Actions via `tr -d '\r\n' < .agent/.receipt-key | gh secret set SEALIT_RECEIPT_KEY`. On an already-adopted repository where `doctor` reports `Receipt Key: none`, ask the teammate to load the team's shared `SEALIT_RECEIPT_KEY` (into `.agent/.receipt-key` or `.env`) rather than overwriting the repository secret. Never print or log the key value in chat.
+First-time local `sealit init` automatically generates an untracked `0600` `.agent/.receipt-key`; upload it as secret `SEALIT_RECEIPT_KEY` in your CI provider (e.g., `tr -d '\r\n' < .agent/.receipt-key | gh secret set SEALIT_RECEIPT_KEY` on GitHub Actions, or masked CI/CD variable `SEALIT_RECEIPT_KEY` on GitLab/Bitbucket). On an already-adopted repository where `doctor` reports `Receipt Key: none`, ask the teammate to load the team's shared `SEALIT_RECEIPT_KEY` (into `.agent/.receipt-key` or `.env`) rather than overwriting the repository secret. Never print or log the key value in chat.
 
 ## Confirm with user before
 - Running `doctor --fix` when the user only asked for a read-only check, or running `init --global`.

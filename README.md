@@ -2,7 +2,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="./docs/logo-dark.svg" />
     <source media="(prefers-color-scheme: light)" srcset="./docs/logo-light.svg" />
-    <img alt="sealit" src="./docs/logo-light.svg" width="400" height="68" />
+    <img alt="sealit" src="./docs/logo-light.svg" width="228" height="76" />
   </picture>
 
   <p><strong>AI coding agents love saying <em>"all tests pass."</em> <code>sealit</code> makes them prove it before merge.</strong></p>
@@ -10,9 +10,8 @@
   <p>
     <a href="https://github.com/fmatar/sealit/actions/workflows/sealit-quality-gate.yml"><img src="https://github.com/fmatar/sealit/actions/workflows/sealit-quality-gate.yml/badge.svg" alt="Sealit Quality Gate" /></a>
     <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D22.0.0-0d9488.svg" alt="Node >= 22" /></a>
-    <a href="./package.json"><img src="https://img.shields.io/badge/dependencies-0-6366f1.svg" alt="Zero Dependencies" /></a>
+    <a href="./package.json"><img src="https://img.shields.io/badge/dependencies-0-dc2626.svg" alt="Zero Dependencies" /></a>
     <a href="./LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-475569.svg" alt="License: Apache-2.0" /></a>
-    <a href="https://sealit.dev"><img src="https://img.shields.io/badge/docs-sealit.dev-0f172a.svg" alt="sealit.dev" /></a>
   </p>
 </div>
 
@@ -40,9 +39,9 @@ flowchart LR
     D --> E["4. 2-Axis Review + HMAC Receipt"]
     E --> F["5. CI Pre-Install Verify → Merge"]
 
-    classDef step fill:#0f172a,stroke:#6366f1,stroke-width:1.5px,color:#f8fafc
-    classDef human fill:#134e4a,stroke:#2dd4bf,stroke-width:1.5px,color:#f0fdfa
-    classDef seal fill:#1e1b4b,stroke:#818cf8,stroke-width:2px,color:#eef2ff
+    classDef step fill:#0f172a,stroke:#475569,stroke-width:1.5px,color:#f8fafc
+    classDef human fill:#1e293b,stroke:#94a3b8,stroke-width:1.5px,color:#f8fafc
+    classDef seal fill:#450a0a,stroke:#ef4444,stroke-width:2px,color:#fef2f2
     class A,D,F step
     class B,C human
     class E seal
@@ -52,7 +51,7 @@ flowchart LR
 2. **Align** — If specs, dependencies, or contracts changed, `sealit drift` pauses until a human approves an ADR (`sealit adr`).
 3. **Measure** — `sealit gate` runs secret scanning, lint, build, unit tests, diff line coverage, and diff-scoped mutation testing in a single pass.
 4. **Seal** — Two fresh-context reviewers audit Spec Fidelity and Architecture/Security, and `sealit` appends a signed HMAC-SHA256 receipt to `docs/AUDIT_CHAIN.jsonl`.
-5. **Verify in CI** — GitHub Actions extracts the trusted verifier from the base branch and validates the receipt **before** installing dependencies or executing PR code.
+5. **Verify in CI** — GitHub Actions, GitLab CI, or any Git pipeline extracts the trusted verifier from the base branch and validates the receipt **before** installing dependencies or executing PR code.
 
 ---
 
@@ -68,18 +67,65 @@ npx --yes github:fmatar/sealit init
 
 The interactive setup detects your language stack, scaffolds `.agent/sealit-config.json`, installs Git hooks and `.github/workflows/sealit-quality-gate.yml`, configures skills for your selected coding agents, and generates `.agent/.receipt-key` (gitignored).
 
-Upload the signing key to GitHub Actions once so CI can verify receipts:
+Upload the signing key to your CI secret store (`SEALIT_RECEIPT_KEY`) once so pipelines can verify receipts:
 
 ```bash
+# GitHub Actions
 tr -d '\r\n' < .agent/.receipt-key | gh secret set SEALIT_RECEIPT_KEY
 ```
+
+<details>
+<summary><strong>Using GitLab CI, Bitbucket Pipelines, or self-hosted CI?</strong></summary>
+
+`sealit` works with any Git host and auto-detects target/source branch variables across GitHub (`GITHUB_BASE_REF`), GitLab (`CI_MERGE_REQUEST_TARGET_BRANCH_NAME`), Bitbucket (`BITBUCKET_PR_DESTINATION_BRANCH`), and Azure DevOps (`SYSTEM_PULLREQUEST_TARGETBRANCH`). Store `.agent/.receipt-key` as masked secret `SEALIT_RECEIPT_KEY` and verify the merge receipt from the trusted base branch **before** installing dependencies:
+
+```yaml
+# .gitlab-ci.yml example
+sealit-verify:
+  image: node:22-alpine
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  script:
+    - apk add --no-cache git
+    - git fetch origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
+    - mkdir -p /tmp/trusted-sealit
+    - git archive "origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" .agent/scripts .agent/schemas .agent/sealit-config.json | tar -x -C /tmp/trusted-sealit
+    - node /tmp/trusted-sealit/.agent/scripts/sealit-engine.mjs verify --sha "$CI_COMMIT_SHA" --branch "$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME"
+```
+
+</details>
 
 > [!IMPORTANT]
 > Only the first initialization creates `.agent/.receipt-key`. Teammates cloning an already-initialized repo should place the shared team key in `.agent/.receipt-key` or `.env`—do not overwrite `SEALIT_RECEIPT_KEY` in CI with a new key.
 
-### 2. Ship a feature (with your agent or CLI)
+### 2. Prompt your coding agent
 
-In Claude Code, Cursor, Codex, Antigravity, or Copilot, run **`/sealit-flow`** and let the agent drive the branch end-to-end—or run the underlying CLI directly:
+Open **Claude Code**, **Cursor**, **Codex**, **Antigravity**, or **GitHub Copilot** and invoke a `/sealit-*` skill directly—or ask in plain English:
+
+```text
+# Ship a feature end-to-end (branch → TDD → gate → 2-axis review → signed receipt)
+/sealit-flow Add token-bucket rate limiting to POST /api/login
+
+# Clarify edge cases and write or update a capability spec before coding
+/sealit-spec Define retry, backoff, and dead-letter rules for webhook delivery
+
+# Fix a bug with a failing test first and diff coverage/mutation proof
+/sealit-tdd Fix timezone boundary bug in monthly billing rollover
+
+# Run a 2-axis cold review and seal your current branch before opening a PR
+/sealit-gate
+
+# Run an explicit kernel check
+/sealit doctor
+/sealit status
+```
+
+- **Slash or natural language**: `sealit-flow`, `sealit-spec`, `sealit-adr`, `sealit-tdd`, and `sealit-gate` work via slash commands (`/sealit-flow ...` in Claude Code, Cursor, Antigravity; `$sealit-flow` in Codex) **and** auto-trigger from plain-English requests (*"Implement rate limiting on `/api/login` with TDD and seal the PR"*).
+- **Manual-only CLI router**: `/sealit` sets `disable-model-invocation: true`, so the model only runs direct CLI subcommands when you explicitly invoke `/sealit <command>`.
+- **Human-in-the-loop checkpoints**: Your agent handles branching, Red-Green-Refactor TDD, `gate`, and cold-review dispatch autonomously, pausing for your sign-off only when an ADR needs `approve` or when signing the merge receipt.
+
+<details>
+<summary><strong>Prefer running the CLI directly?</strong></summary>
 
 ```bash
 # Start a feature branch & session
@@ -95,6 +141,8 @@ npx sealit review record --verdict approve --reviewer "@you" --notes "LGTM"
 git add docs/AUDIT_CHAIN.jsonl && git commit -m "chore: seal PR receipt"
 npx sealit verify
 ```
+
+</details>
 
 ### Skills-only mode (no hooks or CI gate)
 
@@ -179,7 +227,6 @@ Every command supports `--json` for structured machine output. In Claude Code, r
 
 ## Documentation & License
 
-- **Website**: [sealit.dev](https://sealit.dev)
 - **Contributing**: [CONTRIBUTING.md](./CONTRIBUTING.md)
 - **Product Specification & ADR Index**: [PRODUCT.md](./PRODUCT.md)
 - **LLM Context Map**: [llms.txt](./llms.txt)

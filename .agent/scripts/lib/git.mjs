@@ -425,15 +425,37 @@ export function resolveDefaultBaseBranch(repoRoot = '.', refsMap = null) {
   return 'main';
 }
 
+function readCiTargetBranch(env = process.env) {
+  const raw =
+    env.GITHUB_BASE_REF ||
+    env.CI_MERGE_REQUEST_TARGET_BRANCH_NAME ||
+    env.BITBUCKET_PR_DESTINATION_BRANCH ||
+    env.SYSTEM_PULLREQUEST_TARGETBRANCH ||
+    '';
+  return String(raw).replace(/^refs\/heads\//, '').trim();
+}
+
+function readCiCurrentBranch(env = process.env) {
+  const raw =
+    env.GITHUB_REF_NAME ||
+    env.GITHUB_REF ||
+    env.CI_MERGE_REQUEST_SOURCE_BRANCH_NAME ||
+    env.CI_COMMIT_REF_NAME ||
+    env.BITBUCKET_BRANCH ||
+    env.BUILD_SOURCEBRANCHNAME ||
+    '';
+  const cleaned = String(raw).replace(/^refs\/heads\//, '').trim();
+  return cleaned.startsWith('refs/') ? '' : cleaned;
+}
+
 export function resolveEffectiveDiffBase(baseBranch = null, repoRoot = '.', refsMap = null, curBranchOverride = null) {
   if (baseBranch && String(baseBranch).trim()) return String(baseBranch).trim();
-  if (process.env.GITHUB_BASE_REF && String(process.env.GITHUB_BASE_REF).trim()) {
-    return String(process.env.GITHUB_BASE_REF).trim();
-  }
+  const ciTarget = readCiTargetBranch();
+  if (ciTarget) return ciTarget;
   let curBranch = curBranchOverride !== null ? String(curBranchOverride).trim() : getCurrentGitBranch(repoRoot);
   if (curBranch === 'HEAD') {
-    const ghRef = String(process.env.GITHUB_REF_NAME || '').trim() || String(process.env.GITHUB_REF || '').replace(/^refs\/heads\//, '').trim();
-    if (ghRef && !ghRef.startsWith('refs/')) curBranch = ghRef;
+    const ciBranch = readCiCurrentBranch();
+    if (ciBranch) curBranch = ciBranch;
   }
   const refs = refsMap || readGitRefsMap(repoRoot);
   if (curBranch === 'develop' && hasBranch('main', repoRoot, refs)) return 'main';
@@ -456,7 +478,7 @@ export function resolveRange({ baseBranch = null, head = 'HEAD', branchHint = nu
       refSha = (gitOutput(['rev-parse', '--verify', '-q', '--end-of-options', `${candidate}^{commit}`], repoRoot) || '').trim();
     }
     if (!refSha) continue;
-    const isPushOnBase = refSha === headSha && head === 'HEAD' && (curBranch === effectiveBase || (curBranch === 'HEAD' && !process.env.GITHUB_BASE_REF));
+    const isPushOnBase = refSha === headSha && head === 'HEAD' && (curBranch === effectiveBase || (curBranch === 'HEAD' && !readCiTargetBranch()));
     if (isPushOnBase) {
       const parentSha = (gitOutput(['rev-parse', '--verify', '-q', `${headSha}~1^{commit}`], repoRoot) || '').trim();
       return { effectiveBase, baseSha: parentSha || EMPTY_TREE_SHA, headSha };
