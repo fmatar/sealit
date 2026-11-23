@@ -1,0 +1,3 @@
+interface:
+  display_name: "Sealit ADR & Drift Alignment"
+  short_description: "Record and govern Architecture Decision Records (ADR-NNN and MADR) when resolving spec, policy, dependency, or contract drift."

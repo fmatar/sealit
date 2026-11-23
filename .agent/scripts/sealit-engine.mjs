@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { fileExists, resolveInsideRepo, runConfiguredCommand } from './lib/git.mjs';
-import { addExemption, listExemptions, loadConfig, validateConfigFile } from './lib/config.mjs';
+import { ENGINE_OWNER_NAMES, addExemption, listExemptions, loadConfig, validateConfigFile } from './lib/config.mjs';
 import { issueGateReceipt, readActiveSession, verifyAuditChain, verifyGateReceipt } from './lib/receipt.mjs';
 import { checkArchRings, checkSpecDrift, createADR, decideADR, listADRs } from './lib/drift.mjs';
 import {
@@ -29,29 +29,29 @@ import {
 import { auditSkills, installCIWorkflow, installFramework, runDoctor } from './lib/install.mjs';
 
 const ENGINE_FILE = fileURLToPath(import.meta.url);
-const ENGINE_VERSION = '0.3.0';
+const ENGINE_VERSION = '0.0.1';
 const ENGINE_DIR = path.dirname(ENGINE_FILE);
 
 export function readPackageVersion(engineDir = ENGINE_DIR) {
   const pkgRoot = path.basename(path.dirname(engineDir)) === '.agent' ? path.resolve(engineDir, '../..') : path.resolve(engineDir, '..');
   try {
     const pkg = JSON.parse(fs.readFileSync(path.join(pkgRoot, 'package.json'), 'utf8'));
-    return pkg.name === '@fmatar/agentic-sdlc' && pkg.version ? pkg.version : ENGINE_VERSION;
+    return ENGINE_OWNER_NAMES.has(pkg.name) && pkg.version ? pkg.version : ENGINE_VERSION;
   } catch {
     return ENGINE_VERSION;
   }
 }
 
 export function buildHelpText() {
-  return `Agentic SDLC Alignment + Proof Kernel v${readPackageVersion()}
+  return `Sealit Alignment + Proof Kernel v${readPackageVersion()}
 
 Usage:
-  sdlc <command> [flags] [--json] [--verbose]
+  sealit <command> [flags] [--json] [--verbose]
 
 Onboarding & Health:
   init [--agents antigravity,claude,cursor,codex,copilot] [--global] [--yes] [--force]
   doctor [--fix]                                        Verify Node >=22, config, hooks, key & skills
-  config check                                          Validate .agent/sdlc-config.json
+  config check                                          Validate .agent/sealit-config.json
   skill-audit                                           Audit canonical skills in .agent/skills/
 
 Branch & Alignment:
@@ -151,7 +151,7 @@ export async function runCLI(customArgs = null, customConfigPath = null, repoRoo
   }
 
   if (rest.length === 0) {
-    const cfgExists = fileExists(path.resolve(repoRoot, '.agent/sdlc-config.json'));
+    const cfgExists = fileExists(path.resolve(repoRoot, '.agent/sealit-config.json')) || fileExists(path.resolve(repoRoot, '.agent/sdlc-config.json'));
     if (!cfgExists && isTTY) {
       const initRes = await installFramework({ targetDir: repoRoot, yes: false });
       return { command: 'init', success: initRes.success, init: initRes, warnings: initRes.warnings };
@@ -464,7 +464,7 @@ export async function runCLI(customArgs = null, customConfigPath = null, repoRoo
         if (p.error) return failInvalid(result, p.error, p.exitCode);
         const rec = recordReviewVerdict({
           verdict: p.flags['--verdict'],
-          reviewer: p.flags['--reviewer'] || '@sdlc-gate',
+          reviewer: p.flags['--reviewer'] || '@sealit-gate',
           prNumber: p.flags['--pr'] || null,
           notes: p.flags['--notes'] || '',
           peerReview: p.flags['--peer-review'] || '',
@@ -613,7 +613,7 @@ export async function runCLI(customArgs = null, customConfigPath = null, repoRoo
     }
 
     default:
-      return failInvalid(result, `Unknown command '${rawCmd}'. Run 'sdlc --help' for usage.`, 2);
+      return failInvalid(result, `Unknown command '${rawCmd}'. Run 'sealit --help' for usage.`, 2);
   }
 }
 
@@ -631,18 +631,18 @@ export function formatCLIResult(cmd, res = {}) {
   switch (res.command || cmd) {
     case 'init':
     case 'install':
-      return `Initialized @fmatar/agentic-sdlc (${(res.init?.agents || []).join(', ')})${res.init?.receiptKeyCreated ? '; created .agent/.receipt-key (gitignored). Store it as CI secret SDLC_RECEIPT_KEY.' : ''}`;
+      return `Initialized sealit (${(res.init?.agents || []).join(', ')})${res.init?.receiptKeyCreated ? '; created .agent/.receipt-key (gitignored). Store it as CI secret SEALIT_RECEIPT_KEY.' : ''}`;
     case 'doctor': {
       const d = res.doctor;
       return [
-        `SDLC Doctor: ${d.passed ? 'HEALTHY' : 'ISSUES FOUND'}`,
+        `Sealit Doctor: ${d.passed ? 'HEALTHY' : 'ISSUES FOUND'}`,
         `  Node Runtime  : ${d.nodeVersion} (${d.nodeOk ? 'OK' : 'Requires >=22.0.0'})`,
         `  Git Runtime   : ${d.gitVersion || 'missing'} (${d.gitOk ? 'OK' : 'Requires >=2.38'})`,
-        `  Config        : ${d.config.valid ? 'Valid' : `Invalid (${d.config.errors.join('; ')})`}`,
+        `  Config        : ${d.config.valid ? (d.config.legacyNeedsMigration ? 'Valid (Needs migration --fix)' : 'Valid') : `Invalid (${d.config.errors.join('; ')})`}`,
         `  Archlens Rings: ${d.policyOk ? 'Present' : 'Missing'}`,
         `  Gitignore     : ${d.gitignore?.upToDate ? 'Up to date' : `Missing ${d.gitignore?.missing?.length || 0}: ${(d.gitignore?.missing || []).join(', ')}`}`,
         `  4-Layer Hooks : ${d.hooks.upToDate ? 'Up to date' : `Missing/Outdated [${[...d.hooks.missingHooks, ...d.hooks.outdatedHooks].join(', ')}]`}`,
-        `  CI Workflow   : ${d.workflow.exists ? (d.workflow.legacyNeedsUpgrade ? 'Needs v0.1.0 upgrade (--fix)' : 'Up to date') : 'Missing'}`,
+        `  CI Workflow   : ${d.workflow.exists ? (d.workflow.legacyNeedsUpgrade ? 'Needs upgrade (--fix)' : 'Up to date') : 'Missing'}`,
         `  Receipt Key   : ${d.receiptKey.source} (${d.receiptKey.usable ? `usable${d.receiptKey.mode !== null ? `, mode 0${d.receiptKey.mode.toString(8)}, untracked` : ''}` : d.receiptKey.error || 'not provisioned'})`,
         ...(d.receiptKey.ciSecretHint ? [`                  ${d.receiptKey.ciSecretHint}`] : []),
         `  Skills Audit  : ${d.skills.passed ? `Passed (${d.skills.skillsCount}/6)` : `${d.skills.findings.length} finding(s)`}`,

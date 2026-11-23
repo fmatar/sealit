@@ -368,7 +368,7 @@ export function extractChangedHunkRanges(diffText = '', { maxGapLines = 5, maxRa
 
 function mapSourceToUnitTest(modRelSource, modCwd) {
   const norm = modRelSource.replace(/\\/g, '/');
-  if (norm === '.agent/scripts/sdlc-engine.mjs') {
+  if (norm === '.agent/scripts/sealit-engine.mjs' || norm === '.agent/scripts/sdlc-engine.mjs') {
     const cand = 'tests/unit/cli.test.mjs';
     return fileExists(path.join(modCwd, cand)) ? cand : null;
   }
@@ -380,7 +380,7 @@ function mapSourceToUnitTest(modRelSource, modCwd) {
 function mapUnitTestToSource(modRelTest, explicitMutateFiles) {
   const m = modRelTest.replace(/\\/g, '/').match(/^tests\/unit\/(.+?)\.test\.[cm]?[jt]s$/);
   if (!m) return null;
-  if (m[1] === 'cli') return explicitMutateFiles.find((f) => f.endsWith('sdlc-engine.mjs')) || null;
+  if (m[1] === 'cli') return explicitMutateFiles.find((f) => f.endsWith('sealit-engine.mjs')) || explicitMutateFiles.find((f) => f.endsWith('sdlc-engine.mjs')) || null;
   return explicitMutateFiles.find((f) => path.basename(f).replace(/\.[cm]?[jt]sx?$/i, '') === m[1]) || null;
 }
 
@@ -399,12 +399,13 @@ export function buildMutationPlan(repoRoot = '.', mod = {}, { full = false, noCa
   const strykerCfgPath = path.join(modCwd, 'stryker.config.json');
   const strykerCfg = strykerConfig || (fileExists(strykerCfgPath) ? JSON.parse(readFileSafe(strykerCfgPath) || '{}') : {});
   const explicitMutate = Array.isArray(strykerCfg.mutate) ? strykerCfg.mutate.map((f) => f.replace(/^\.\//, '')) : [];
-  const concreteMutate = explicitMutate.filter((f) => !f.startsWith('!') && !/[?*[\]{}]/.test(f) && matchesMutatePatterns(f, explicitMutate));
+  const concreteMutate = explicitMutate.filter((f) => !f.startsWith('!') && !/[?*[\]{}]/.test(f) && matchesMutatePatterns(f, explicitMutate) && fileExists(path.join(modCwd, f)));
   const defaultIncFile = strykerCfg.incrementalFile || 'reports/stryker-incremental.json';
   const extraFlags = noCache ? ['--force'] : [];
   const runIdx = baseTokens.indexOf('run');
   const hasPositionalCfg = runIdx >= 0 && baseTokens.slice(runIdx + 1).some((t) => !t.startsWith('-'));
-  const canScopeTap = runIdx >= 0 && !hasPositionalCfg && (fileExists(strykerCfgPath) || Boolean(strykerConfig)) && (!strykerCfg.testRunner || strykerCfg.testRunner === 'tap' || strykerCfg.testRunner === 'sdlc-node') && Array.isArray(strykerCfg?.tap?.testFiles);
+  const isInProcNodeRunner = strykerCfg.testRunner === 'sealit-node' || strykerCfg.testRunner === 'sdlc-node';
+  const canScopeTap = runIdx >= 0 && !hasPositionalCfg && (fileExists(strykerCfgPath) || Boolean(strykerConfig)) && (!strykerCfg.testRunner || strykerCfg.testRunner === 'tap' || isInProcNodeRunner) && Array.isArray(strykerCfg?.tap?.testFiles);
   const modSlug = String(mod.name || 'root').replace(/[^a-zA-Z0-9_-]/g, '_');
   const scopedReporters = [...new Set([...(Array.isArray(strykerCfg.reporters) ? strykerCfg.reporters : ['clear-text', 'progress']), 'json'])];
   const jsonRepArgs = !Array.isArray(strykerCfg.reporters) || !strykerCfg.reporters.includes('json') ? ['--reporters', scopedReporters.join(',')] : [];
@@ -414,7 +415,7 @@ export function buildMutationPlan(repoRoot = '.', mod = {}, { full = false, noCa
     return path.relative(modCwd, absCfg).replace(/\\/g, '/');
   };
 
-  const orderTests = (primary) => (strykerCfg.testRunner === 'sdlc-node' ? [primary, ...strykerCfg.tap.testFiles.filter((f) => f !== primary)] : [primary]);
+  const orderTests = (primary) => (isInProcNodeRunner ? [primary, ...strykerCfg.tap.testFiles.filter((f) => f !== primary)] : [primary]);
   const makeShards = (sources, targetsBySource = null) => {
     const stems = sources.map((s) => path.basename(s).replace(/\.[cm]?[jt]sx?$/i, ''));
     if (sources.length <= 1 || !canScopeTap || new Set(stems).size !== sources.length) return null;

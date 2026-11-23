@@ -1,13 +1,13 @@
 {
-  "name": "agentic-sdlc",
-  "version": "0.3.0",
-  "description": "Agentic SDLC Alignment + Proof Kernel: 6 canonical skills for spec/ADR alignment, vertical TDD coverage/mutation gates, 2-axis cold review, and signed merge receipts",
+  "name": "sealit",
+  "version": "0.0.1",
+  "description": "Sealit Alignment + Proof Kernel: 6 canonical skills for spec/ADR alignment, vertical TDD coverage/mutation gates, 2-axis cold review, and signed merge receipts",
   "skills": [
-    "./.agent/skills/sdlc",
-    "./.agent/skills/sdlc-spec",
-    "./.agent/skills/sdlc-adr",
-    "./.agent/skills/sdlc-tdd",
-    "./.agent/skills/sdlc-gate",
-    "./.agent/skills/sdlc-flow"
+    "./.agent/skills/sealit",
+    "./.agent/skills/sealit-spec",
+    "./.agent/skills/sealit-adr",
+    "./.agent/skills/sealit-tdd",
+    "./.agent/skills/sealit-gate",
+    "./.agent/skills/sealit-flow"
   ]
 }

@@ -33,15 +33,6 @@ export const AUDIT_LEDGER_FILE = 'docs/AUDIT_CHAIN.jsonl';
 export const GENESIS_HASH = '0000000000000000000000000000000000000000000000000000000000000000';
 export const RECEIPT_KEY_FILE = '.agent/.receipt-key';
 
-const CACHE_EXCLUDED_PATHS = new Set([
-  'docs/AUDIT_CHAIN.jsonl',
-  '.agent/.sdlc-session.json',
-  '.agent/.sdlc-session.lock',
-  '.agent/.receipt-key',
-  '.agent/.audit-chain.lock',
-  '.agent/.sdlc-config.lock'
-]);
-
 export function calculateRecordHash({ index, timestamp, event, metadata, previousHash }) {
   const payload = JSON.stringify({ index, timestamp, event, metadata, previousHash });
   return crypto.createHash('sha256').update(payload).digest('hex');
@@ -75,19 +66,27 @@ function makeUnusableKeyError(state, relFile = RECEIPT_KEY_FILE) {
   return err;
 }
 
-export function loadReceiptKey(repoRoot = '.', { create = false } = {}) {
-  if (Object.prototype.hasOwnProperty.call(process.env, 'SDLC_RECEIPT_KEY') && process.env.SDLC_RECEIPT_KEY !== undefined) {
-    const procVal = String(process.env.SDLC_RECEIPT_KEY).trim();
-    if (procVal) return Buffer.from(procVal, 'utf8');
+function readKeyFromObj(obj = {}) {
+  for (const k of ['SEALIT_RECEIPT_KEY', 'SDLC_RECEIPT_KEY']) {
+    if (Object.prototype.hasOwnProperty.call(obj, k) && obj[k] !== undefined) {
+      const val = String(obj[k]).trim();
+      if (val) return val;
+    }
   }
+  return null;
+}
+
+export function loadReceiptKey(repoRoot = '.', { create = false } = {}) {
+  const procVal = readKeyFromObj(process.env);
+  if (procVal) return Buffer.from(procVal, 'utf8');
 
   const absRoot = path.resolve(repoRoot);
   const commonRoot = resolveGitCommonRepoRoot(absRoot);
-  const dotEnv = parseEnvFile(absRoot);
-  if (dotEnv.SDLC_RECEIPT_KEY && String(dotEnv.SDLC_RECEIPT_KEY).trim()) {
+  const dotEnvVal = readKeyFromObj(parseEnvFile(absRoot));
+  if (dotEnvVal) {
     const envState = keyFileCommitState(absRoot, '.env');
     if (envState !== 'clean') throw makeUnusableKeyError(envState, '.env');
-    return Buffer.from(String(dotEnv.SDLC_RECEIPT_KEY).trim(), 'utf8');
+    return Buffer.from(dotEnvVal, 'utf8');
   }
   const localKeyPath = path.resolve(absRoot, RECEIPT_KEY_FILE);
   const sharedKeyPath = path.resolve(commonRoot, RECEIPT_KEY_FILE);
@@ -127,12 +126,11 @@ export function loadReceiptKey(repoRoot = '.', { create = false } = {}) {
 }
 
 export function inspectReceiptKeyStatus(repoRoot = '.') {
-  if (Object.prototype.hasOwnProperty.call(process.env, 'SDLC_RECEIPT_KEY') && String(process.env.SDLC_RECEIPT_KEY || '').trim()) {
+  if (readKeyFromObj(process.env)) {
     return { source: 'env', usable: true, committed: false, mode: null, error: null };
   }
   const absRoot = path.resolve(repoRoot);
-  const dotEnv = parseEnvFile(absRoot);
-  if (dotEnv.SDLC_RECEIPT_KEY && String(dotEnv.SDLC_RECEIPT_KEY).trim()) {
+  if (readKeyFromObj(parseEnvFile(absRoot))) {
     const envState = keyFileCommitState(absRoot, '.env');
     if (envState !== 'clean') {
       return { source: 'dotenv', usable: false, committed: envState === 'committed', mode: null, error: makeUnusableKeyError(envState, '.env').message };
@@ -339,8 +337,8 @@ export function appendAuditRecord({ event, metadata = {}, repoRoot = '.' } = {})
 function resolveSessionPaths(repoRoot = '.') {
   const commonRoot = resolveGitCommonRepoRoot(repoRoot);
   return {
-    sessionPath: path.join(commonRoot, '.agent', '.sdlc-session.json'),
-    lockPath: path.join(commonRoot, '.agent', '.sdlc-session.lock')
+    sessionPath: path.join(commonRoot, '.agent', '.sealit-session.json'),
+    lockPath: path.join(commonRoot, '.agent', '.sealit-session.lock')
   };
 }
 
@@ -512,7 +510,7 @@ export function issueGateReceipt({ repoRoot = '.', docsOnly = false, reviewerOve
   if (!session) {
     return {
       success: false,
-      reason: `Refusing to issue gate receipt: no active session found for branch '${branch}'. Run 'sdlc begin' and 'sdlc gate' first.`
+      reason: `Refusing to issue gate receipt: no active session found for branch '${branch}'. Run 'sealit begin' and 'sealit gate' first.`
     };
   }
 
@@ -530,14 +528,14 @@ export function issueGateReceipt({ repoRoot = '.', docsOnly = false, reviewerOve
   if (!lastGate || lastGate.passed !== true) {
     return {
       success: false,
-      reason: 'Refusing to issue gate receipt: no passing sdlc gate measurement recorded for this session.'
+      reason: 'Refusing to issue gate receipt: no passing sealit gate measurement recorded for this session.'
     };
   }
 
   if (lastGate.headSha !== headSha && !isAuditOnlyCommitRange(lastGate.headSha, headSha, repoRoot)) {
     return {
       success: false,
-      reason: `Refusing to issue gate receipt: lastGate measurement (${lastGate.headSha}) does not match current HEAD (${headSha}). Re-run 'sdlc gate'.`
+      reason: `Refusing to issue gate receipt: lastGate measurement (${lastGate.headSha}) does not match current HEAD (${headSha}). Re-run 'sealit gate'.`
     };
   }
 
@@ -545,7 +543,7 @@ export function issueGateReceipt({ repoRoot = '.', docsOnly = false, reviewerOve
   if (!lastGate.specHash || lastGate.specHash !== liveHashes.specHash || lastGate.adrHashes !== liveHashes.adrHashes) {
     return {
       success: false,
-      reason: 'Refusing to issue gate receipt: specHash or adrHashes changed since lastGate measurement. Re-run sdlc gate.'
+      reason: 'Refusing to issue gate receipt: specHash or adrHashes changed since lastGate measurement. Re-run sealit gate.'
     };
   }
 
@@ -584,7 +582,7 @@ export function issueGateReceipt({ repoRoot = '.', docsOnly = false, reviewerOve
     if (!pr || pr.verdict !== 'approve') {
       return {
         success: false,
-        reason: "Refusing to issue gate receipt: code changes require an approved peer review ('sdlc review record --verdict approve')."
+        reason: "Refusing to issue gate receipt: code changes require an approved peer review ('sealit review record --verdict approve')."
       };
     }
     if (pr.headSha !== headSha && !isAuditOnlyCommitRange(pr.headSha, headSha, repoRoot)) {
@@ -593,7 +591,7 @@ export function issueGateReceipt({ repoRoot = '.', docsOnly = false, reviewerOve
         reason: `Refusing to issue gate receipt: peer review was recorded for ${pr.headSha}, which does not match HEAD ${headSha}.`
       };
     }
-    reviewer = reviewer || pr.reviewer || '@sdlc-gate';
+    reviewer = reviewer || pr.reviewer || '@sealit-gate';
   } else {
     reviewer = reviewer || session.peerReview?.reviewer || '@docs-only-gate';
   }
@@ -705,7 +703,7 @@ export function verifyGateReceipt({ headSha = null, branch = null, repoRoot = '.
       valid: false,
       targetSha,
       branch,
-      reason: `No receipt signing key (${RECEIPT_KEY_FILE} or SDLC_RECEIPT_KEY); cannot verify receipts.`
+      reason: `No receipt signing key (${RECEIPT_KEY_FILE} or SEALIT_RECEIPT_KEY); cannot verify receipts.`
     };
   }
 

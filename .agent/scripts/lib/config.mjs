@@ -19,6 +19,8 @@ export const DEFAULT_QUALITY_THRESHOLDS = Object.freeze({
 });
 
 export const DEFAULT_QUALITY_GATE_CHECK = 'Universal Quality Gate, Spec-Drift & Merkle Receipt Defense';
+export const DEFAULT_CI_RUNS_ON = "${{ vars.SEALIT_RUNS_ON || vars.SDLC_RUNS_ON || 'ubuntu-latest' }}";
+const LEGACY_CI_RUNS_ON = new Set(["${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}", "${{ vars.SEALIT_RUNS_ON || 'ubuntu-latest' }}"]);
 export const STABLE_MUTANT_ID_RE = /^[A-Za-z0-9_-]+@\d+:\d+#[0-9a-f]{8}$/;
 
 const LEGACY_TOP_KEYS = ['gates', 'testing', 'lanes', 'projectManagement', 'profile', 'generatedAt'];
@@ -62,7 +64,7 @@ export function migrateConfigObject(rawCfg) {
   for (const legacyKey of LEGACY_TOP_KEYS) {
     if (Object.prototype.hasOwnProperty.call(clone, legacyKey)) {
       migrated = true;
-      warnings.push(`Deprecated config key '${legacyKey}' detected; run 'sdlc doctor --fix' to upgrade to v0.1.0 schema.`);
+      warnings.push(`Deprecated config key '${legacyKey}' detected; run 'sealit doctor --fix' to upgrade to v0.1.0 schema.`);
     }
   }
 
@@ -113,7 +115,7 @@ export function migrateConfigObject(rawCfg) {
   }
 
   clone.ci = {
-    runsOn: clone.ci?.runsOn || "${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}",
+    runsOn: clone.ci?.runsOn || DEFAULT_CI_RUNS_ON,
     checkName: clone.ci?.checkName || DEFAULT_QUALITY_GATE_CHECK
   };
   clone.archlens = {
@@ -128,7 +130,9 @@ export function resolveConfigPath(repoRoot = '.', customConfigPath = null) {
   if (customConfigPath) {
     return path.isAbsolute(customConfigPath) ? customConfigPath : resolveInsideRepo(repoRoot, customConfigPath);
   }
-  return path.resolve(repoRoot, '.agent/sdlc-config.json');
+  const primary = path.resolve(repoRoot, '.agent/sealit-config.json');
+  const legacy = path.resolve(repoRoot, '.agent/sdlc-config.json');
+  return fileExists(primary) || !fileExists(legacy) ? primary : legacy;
 }
 
 export function loadConfig(repoRoot = '.', customConfigPath = null) {
@@ -401,10 +405,10 @@ export function detectStack(repoRoot = '.') {
 export function generateConfig(repoRoot = '.') {
   const detected = detectStack(repoRoot);
   return {
-    $schema: './schemas/sdlc-config.schema.json',
+    $schema: './schemas/sealit-config.schema.json',
     version: '0.1.0',
     ci: {
-      runsOn: "${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}",
+      runsOn: DEFAULT_CI_RUNS_ON,
       checkName: DEFAULT_QUALITY_GATE_CHECK
     },
     archlens: {
@@ -436,11 +440,12 @@ export function upgradeConfigToV010(rawCfg) {
       mutationScore: mod.commands?.mutation ? (mod.thresholds?.mutationScore ?? 80) : null
     }
   }));
+  const rawRunsOn = config.ci?.runsOn;
   return {
-    $schema: './schemas/sdlc-config.schema.json',
+    $schema: './schemas/sealit-config.schema.json',
     version: '0.1.0',
     ci: {
-      runsOn: config.ci?.runsOn || "${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}",
+      runsOn: !rawRunsOn || LEGACY_CI_RUNS_ON.has(rawRunsOn) ? DEFAULT_CI_RUNS_ON : rawRunsOn,
       checkName: config.ci?.checkName || DEFAULT_QUALITY_GATE_CHECK
     },
     archlens: {
@@ -536,7 +541,7 @@ export function addExemption({ id, file, reason, repoRoot = '.' } = {}) {
   }
 
   const cfgPath = resolveConfigPath(repoRoot);
-  const lockPath = path.resolve(repoRoot, '.agent/.sdlc-config.lock');
+  const lockPath = path.resolve(repoRoot, '.agent/.sealit-config.lock');
   return withFileLock(lockPath, () => {
     const base = fileExists(cfgPath) ? JSON.parse(fs.readFileSync(cfgPath, 'utf8')) : generateConfig(repoRoot);
     const list = Array.isArray(base.exemptions) ? [...base.exemptions] : [];
@@ -622,20 +627,22 @@ export function isVendoredEnginePath(relPath = '') {
   return String(relPath || '').replace(/\\/g, '/').replace(/^\.\//, '').startsWith('.agent/scripts/');
 }
 
+export const ENGINE_OWNER_NAMES = Object.freeze(new Set(['sealit', '@fmatar/sealit', '@fmatar/agentic-sdlc']));
+
 export function isEngineOwnerRepo({ repoRoot = '.', baseSha = null } = {}) {
   if (baseSha === EMPTY_TREE_SHA) return false;
   const raw = baseSha
     ? readBlobs([`${baseSha}:package.json`], repoRoot).get(`${baseSha}:package.json`) ?? null
     : (() => { try { return readFileSafe(resolveInsideRepo(repoRoot, 'package.json')); } catch { return null; } })();
   const parsed = parseJsonSafe(raw);
-  return parsed.ok && parsed.value.name === '@fmatar/agentic-sdlc';
+  return parsed.ok && ENGINE_OWNER_NAMES.has(parsed.value.name);
 }
 
 export function loadEffectivePolicy({ repoRoot = '.', baseSha = null, headSha = null, changedPaths = null } = {}) {
   const hasBase = Boolean(baseSha && baseSha !== EMPTY_TREE_SHA);
   const specs = [
-    ...(hasBase ? ['.agent/sdlc-config.json', 'stryker.config.json'].map((f) => `${baseSha}:${f}`) : []),
-    ...(headSha ? ['.agent/sdlc-config.json', 'stryker.config.json'].map((f) => `${headSha}:${f}`) : [])
+    ...(hasBase ? ['.agent/sealit-config.json', '.agent/sdlc-config.json', 'stryker.config.json'].map((f) => `${baseSha}:${f}`) : []),
+    ...(headSha ? ['.agent/sealit-config.json', '.agent/sdlc-config.json', 'stryker.config.json'].map((f) => `${headSha}:${f}`) : [])
   ];
   const blobs = specs.length > 0 ? readBlobs(specs, repoRoot) : new Map();
   const safeReadWorktree = (f) => {
@@ -644,8 +651,11 @@ export function loadEffectivePolicy({ repoRoot = '.', baseSha = null, headSha = 
   const getBaseRaw = (f) => (hasBase ? blobs.get(`${baseSha}:${f}`) ?? null : null);
   const getHeadRaw = (f) => (headSha ? blobs.get(`${headSha}:${f}`) ?? null : safeReadWorktree(f));
 
-  const baseCfgParsed = parseJsonSafe(getBaseRaw('.agent/sdlc-config.json'));
-  const headCfgParsed = parseJsonSafe(getHeadRaw('.agent/sdlc-config.json'));
+  const baseCfgParsed = parseJsonSafe(getBaseRaw('.agent/sealit-config.json') ?? getBaseRaw('.agent/sdlc-config.json'));
+  const headCfgParsed = parseJsonSafe(getHeadRaw('.agent/sealit-config.json') ?? getHeadRaw('.agent/sdlc-config.json'));
+  const headCfgLabel = getHeadRaw('.agent/sealit-config.json') !== null || getHeadRaw('.agent/sdlc-config.json') === null
+    ? '.agent/sealit-config.json'
+    : '.agent/sdlc-config.json';
   const baseRootStryker = parseJsonSafe(getBaseRaw('stryker.config.json'));
   const headRootStryker = parseJsonSafe(getHeadRaw('stryker.config.json'));
   const validMods = (arr) =>
@@ -680,7 +690,7 @@ export function loadEffectivePolicy({ repoRoot = '.', baseSha = null, headSha = 
   const baseCfg = migrateConfigObject(baseCfgParsed.value).config;
   let headCfg = baseCfg;
   if (!headCfgParsed.present || !headCfgParsed.ok) {
-    addTrigger('.agent/sdlc-config.json');
+    addTrigger(headCfgLabel);
   } else {
     headCfg = migrateConfigObject(headCfgParsed.value).config;
   }
@@ -689,12 +699,12 @@ export function loadEffectivePolicy({ repoRoot = '.', baseSha = null, headSha = 
   const headArchEn = headCfg.archlens?.enabled !== false;
   const basePolPath = baseCfg.archlens?.policyPath || '.archlens/policy.json';
   const headPolPath = headCfg.archlens?.policyPath || '.archlens/policy.json';
-  if (baseArchEn && (!headArchEn || headPolPath !== basePolPath)) addTrigger('.agent/sdlc-config.json');
+  if (baseArchEn && (!headArchEn || headPolPath !== basePolPath)) addTrigger(headCfgLabel);
 
   const baseModList = validMods(baseCfg.modules);
   const headModList = validMods(headCfg.modules);
   if (!Array.isArray(headCfg.modules) || headModList.length !== headCfg.modules.length || headModList.length === 0) {
-    addTrigger('.agent/sdlc-config.json');
+    addTrigger(headCfgLabel);
   }
   const baseByName = new Map(baseModList.map((m) => [m.name, m]));
   const headByName = new Map(headModList.map((m) => [m.name, m]));
@@ -713,17 +723,17 @@ export function loadEffectivePolicy({ repoRoot = '.', baseSha = null, headSha = 
       effModules.push(structuredClone(hMod));
       continue;
     }
-    if (normModDir(hMod.path) !== normModDir(bMod.path)) addTrigger('.agent/sdlc-config.json');
+    if (normModDir(hMod.path) !== normModDir(bMod.path)) addTrigger(headCfgLabel);
     for (const ck of CONFIG_SCHEMA_KEYS.commands) {
       if (stableJson(hMod.commands?.[ck] ?? null) !== stableJson(bMod.commands?.[ck] ?? null)) {
-        addTrigger('.agent/sdlc-config.json');
+        addTrigger(headCfgLabel);
       }
     }
     const bActiveCov = bMod.commands?.coverage ? bMod.thresholds?.diffCoverage : null;
     const bActiveMut = bMod.commands?.mutation ? bMod.thresholds?.mutationScore : null;
     const covM = mergeFloor(bActiveCov, hMod.thresholds?.diffCoverage);
     const mutM = mergeFloor(bActiveMut, hMod.thresholds?.mutationScore);
-    if (covM.loosened || mutM.loosened) addTrigger('.agent/sdlc-config.json');
+    if (covM.loosened || mutM.loosened) addTrigger(headCfgLabel);
     effModules.push({
       ...structuredClone(hMod),
       thresholds: { diffCoverage: covM.value, mutationScore: mutM.value }
@@ -731,7 +741,7 @@ export function loadEffectivePolicy({ repoRoot = '.', baseSha = null, headSha = 
   }
   for (const bMod of baseModList) {
     if (!headByName.has(bMod.name)) {
-      addTrigger('.agent/sdlc-config.json');
+      addTrigger(headCfgLabel);
       effModules.push(structuredClone(bMod));
     }
   }

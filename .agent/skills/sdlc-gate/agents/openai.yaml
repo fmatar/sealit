@@ -1,3 +1,0 @@
-interface:
-  display_name: "SDLC 2-Axis Review, Gate & Receipt"
-  short_description: "Dispatch orthogonal Spec and Architecture/Security cold reviewers, run sdlc gate, sign Stage 7 receipts, and emit PR proof."

@@ -69,7 +69,7 @@ function seedPassingSession(dir, branch, headSha, mode = 'code') {
 }
 
 describe('Ring 1: lib/receipt.mjs', () => {
-  it('trims SDLC_RECEIPT_KEY identically across process.env, .env, and .agent/.receipt-key', () => {
+  it('trims SEALIT_RECEIPT_KEY (and legacy SDLC_RECEIPT_KEY fallback) identically across process.env, .env, and .agent/.receipt-key', () => {
     const { dir, cleanup } = createTempGitRepo();
     cleanups.push(cleanup);
 
@@ -78,16 +78,25 @@ describe('Ring 1: lib/receipt.mjs', () => {
       fs.writeFileSync(path.join(dir, RECEIPT_KEY_FILE), 'my-secret-key\n', { mode: 0o600 });
       const fromFile = loadReceiptKey(dir);
 
-      fs.writeFileSync(path.join(dir, '.env'), 'SDLC_RECEIPT_KEY=my-secret-key\r\n', 'utf8');
+      fs.writeFileSync(path.join(dir, '.env'), 'SEALIT_RECEIPT_KEY=my-secret-key\r\n', 'utf8');
       const fromDotEnv = loadReceiptKey(dir);
 
-      process.env.SDLC_RECEIPT_KEY = '  my-secret-key\r\n';
+      fs.writeFileSync(path.join(dir, '.env'), 'SDLC_RECEIPT_KEY=my-secret-key\r\n', 'utf8');
+      const fromLegacyDotEnv = loadReceiptKey(dir);
+
+      process.env.SEALIT_RECEIPT_KEY = '  my-secret-key\r\n';
       const fromEnv = loadReceiptKey(dir);
+      delete process.env.SEALIT_RECEIPT_KEY;
+
+      process.env.SDLC_RECEIPT_KEY = '  my-secret-key\r\n';
+      const fromLegacyEnv = loadReceiptKey(dir);
       delete process.env.SDLC_RECEIPT_KEY;
 
       assert.deepEqual(fromFile, Buffer.from('my-secret-key', 'utf8'));
       assert.deepEqual(fromDotEnv, fromFile);
+      assert.deepEqual(fromLegacyDotEnv, fromFile);
       assert.deepEqual(fromEnv, fromFile);
+      assert.deepEqual(fromLegacyEnv, fromFile);
 
       fs.unlinkSync(path.join(dir, '.env'));
       const status = inspectReceiptKeyStatus(dir);
@@ -171,15 +180,15 @@ describe('Ring 1: lib/receipt.mjs', () => {
     writeGateCache(dir, 'root', 'hash1', { passed: true });
     assert.equal(readGateCache(dir, 'root', 'hash1')?.passed, true);
 
-    fs.writeFileSync(path.join(dir, '.agent/.sdlc-session.json'), '{not-valid-json', 'utf8');
+    fs.writeFileSync(path.join(dir, '.agent/.sealit-session.json'), '{not-valid-json', 'utf8');
     assert.throws(() => writeActiveSession(dir, (s) => s), (err) => err?.code === 'SESSION_CORRUPT');
     assert.throws(() => readActiveSession(dir), (err) => err?.code === 'SESSION_CORRUPT');
 
-    // Committed .env containing SDLC_RECEIPT_KEY fails closed with RECEIPT_KEY_UNUSABLE
+    // Committed .env containing SEALIT_RECEIPT_KEY fails closed with RECEIPT_KEY_UNUSABLE
     const envCommitRepo = createTempGitRepo();
     cleanups.push(envCommitRepo.cleanup);
     withoutReceiptEnv(() => {
-      fs.writeFileSync(path.join(envCommitRepo.dir, '.env'), 'SDLC_RECEIPT_KEY=committed-secret\n', 'utf8');
+      fs.writeFileSync(path.join(envCommitRepo.dir, '.env'), 'SEALIT_RECEIPT_KEY=committed-secret\n', 'utf8');
       git(envCommitRepo.dir, 'add', '-f', '.env');
       git(envCommitRepo.dir, 'commit', '-q', '-m', 'bad: commit .env');
       assert.throws(() => loadReceiptKey(envCommitRepo.dir), (err) => err?.code === 'RECEIPT_KEY_UNUSABLE');
@@ -313,14 +322,14 @@ describe('Ring 1: lib/receipt.mjs', () => {
       appendAuditRecord({ event: 'BASELINE_2', metadata: { n: 2 }, repoRoot: dir });
       fs.mkdirSync(path.join(dir, '.agent'), { recursive: true });
       fs.writeFileSync(
-        path.join(dir, '.agent/sdlc-config.json'),
+        path.join(dir, '.agent/sealit-config.json'),
         JSON.stringify({
           version: '0.1.0',
           modules: [{ name: 'root', path: '.', commands: { coverage: 'npm run cov', mutation: './node_modules/.bin/stryker run' }, thresholds: { diffCoverage: 85, mutationScore: 60 } }]
         }),
         'utf8'
       );
-      git(dir, 'add', 'docs/AUDIT_CHAIN.jsonl', '.agent/sdlc-config.json');
+      git(dir, 'add', 'docs/AUDIT_CHAIN.jsonl', '.agent/sealit-config.json');
       git(dir, 'commit', '-q', '-m', 'chore: baseline ledger and config on develop');
       git(dir, 'branch', '-f', 'main', 'HEAD');
 
@@ -385,14 +394,14 @@ describe('Ring 1: lib/receipt.mjs', () => {
       git(genRepo.dir, 'checkout', '-q', '-b', 'feat/gen', 'develop');
       fs.mkdirSync(path.join(genRepo.dir, '.agent'), { recursive: true });
       fs.writeFileSync(
-        path.join(genRepo.dir, '.agent/sdlc-config.json'),
+        path.join(genRepo.dir, '.agent/sealit-config.json'),
         JSON.stringify({
           version: '0.1.0',
           modules: [{ name: 'root', path: '.', commands: { coverage: null, mutation: null }, thresholds: { diffCoverage: null, mutationScore: null } }]
         }),
         'utf8'
       );
-      git(genRepo.dir, 'add', '.agent/sdlc-config.json');
+      git(genRepo.dir, 'add', '.agent/sealit-config.json');
       git(genRepo.dir, 'commit', '-q', '-m', 'feat: generic config');
       const genSha = git(genRepo.dir, 'rev-parse', 'HEAD').stdout.trim();
       seedPassingSession(genRepo.dir, 'feat/gen', genSha, 'code');
@@ -408,25 +417,25 @@ describe('Ring 1: lib/receipt.mjs', () => {
       cleanups.push(monoRecRepo.cleanup);
       fs.mkdirSync(path.join(monoRecRepo.dir, '.agent'), { recursive: true });
       fs.writeFileSync(
-        path.join(monoRecRepo.dir, '.agent/sdlc-config.json'),
+        path.join(monoRecRepo.dir, '.agent/sealit-config.json'),
         JSON.stringify({
           version: '0.1.0',
           modules: [{ name: 'root', path: '.', commands: { coverage: 'npm run cov', mutation: null }, thresholds: { diffCoverage: 85, mutationScore: null } }]
         }),
         'utf8'
       );
-      git(monoRecRepo.dir, 'add', '.agent/sdlc-config.json');
+      git(monoRecRepo.dir, 'add', '.agent/sealit-config.json');
       git(monoRecRepo.dir, 'commit', '-q', '-m', 'chore: base cov 85');
       git(monoRecRepo.dir, 'checkout', '-q', '-b', 'feat/lower-floor', 'develop');
       fs.writeFileSync(
-        path.join(monoRecRepo.dir, '.agent/sdlc-config.json'),
+        path.join(monoRecRepo.dir, '.agent/sealit-config.json'),
         JSON.stringify({
           version: '0.1.0',
           modules: [{ name: 'root', path: '.', commands: { coverage: null, mutation: null }, thresholds: { diffCoverage: null, mutationScore: null } }]
         }),
         'utf8'
       );
-      git(monoRecRepo.dir, 'add', '.agent/sdlc-config.json');
+      git(monoRecRepo.dir, 'add', '.agent/sealit-config.json');
       git(monoRecRepo.dir, 'commit', '-q', '-m', 'evil: drop coverage floor');
       const lowerSha = git(monoRecRepo.dir, 'rev-parse', 'HEAD').stdout.trim();
       seedPassingSession(monoRecRepo.dir, 'feat/lower-floor', lowerSha, 'code');
@@ -470,9 +479,9 @@ describe('Ring 1: lib/receipt.mjs', () => {
       assert.equal(verifyGateReceipt({ repoRoot: dir }).valid, false);
 
       // Env key -> source: 'env'
-      process.env.SDLC_RECEIPT_KEY = 'env-key-val';
+      process.env.SEALIT_RECEIPT_KEY = 'env-key-val';
       assert.equal(inspectReceiptKeyStatus(dir).source, 'env');
-      delete process.env.SDLC_RECEIPT_KEY;
+      delete process.env.SEALIT_RECEIPT_KEY;
 
       // canonicalJSON array signing & verifyReceiptSignature edge cases
       const key = Buffer.from('test-hmac-key', 'utf8');
@@ -490,7 +499,7 @@ describe('Ring 1: lib/receipt.mjs', () => {
 
       // Legacy flat session store format ({ issueId, branch })
       fs.mkdirSync(path.join(dir, '.agent'), { recursive: true });
-      fs.writeFileSync(path.join(dir, '.agent/.sdlc-session.json'), JSON.stringify({ issueId: '#15', branch: 'develop', active: true }), 'utf8');
+      fs.writeFileSync(path.join(dir, '.agent/.sealit-session.json'), JSON.stringify({ issueId: '#15', branch: 'develop', active: true }), 'utf8');
       const legacyStore = readSessionStore(dir);
       assert.equal(legacyStore.activeSessionId, '15');
       assert.equal(readActiveSession(dir, 'develop')?.issueId, '#15');
@@ -508,7 +517,7 @@ describe('Ring 1: lib/receipt.mjs', () => {
       git(dir, 'add', 'code.mjs');
       git(dir, 'commit', '-q', '-m', 'feat: code');
       assert.match(issueGateReceipt({ repoRoot: dir, docsOnly: true }).reason, /Refusing --docs-only/);
-      assert.match(issueGateReceipt({ repoRoot: dir }).reason, /no passing sdlc gate/i);
+      assert.match(issueGateReceipt({ repoRoot: dir }).reason, /no passing sealit gate/i);
 
       const codeHead = git(dir, 'rev-parse', 'HEAD').stdout.trim();
       seedPassingSession(dir, 'feat/no-sess', codeHead, 'code');

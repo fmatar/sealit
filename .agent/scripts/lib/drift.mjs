@@ -427,7 +427,7 @@ export function checkSpecDrift({ ticketId = null, baseBranch = null, changeSet =
       triggers,
       linkedADRs: acceptedAdrs.map((a) => a.id),
       blockingADRs: blockingAdrs.map((a) => a.id),
-      remediationCommand: 'Fix malformed API contract syntax before running sdlc drift.',
+      remediationCommand: 'Fix malformed API contract syntax before running sealit drift.',
       message: `CONTRACT_PARSE_ERROR: ${contractErrors.join('; ')}`
     };
   }
@@ -438,7 +438,7 @@ export function checkSpecDrift({ ticketId = null, baseBranch = null, changeSet =
       triggers,
       linkedADRs: acceptedAdrs.map((a) => a.id),
       blockingADRs: blockingAdrs.map((a) => a.id),
-      remediationCommand: 'Renumber colliding ADR files using sdlc adr create.',
+      remediationCommand: 'Renumber colliding ADR files using sealit adr create.',
       message: collisionMessages.join('; ')
     };
   }
@@ -450,7 +450,7 @@ export function checkSpecDrift({ ticketId = null, baseBranch = null, changeSet =
         triggers: [],
         linkedADRs: [],
         blockingADRs: blockingAdrs.map((a) => a.id),
-        remediationCommand: `node .agent/scripts/sdlc-engine.mjs adr decide --id ${blockingAdrs[0].id} --status approve --by "@reviewer" --reason "<rationale>"`,
+        remediationCommand: `node .agent/scripts/sealit-engine.mjs adr decide --id ${blockingAdrs[0].id} --status approve --by "@reviewer" --reason "<rationale>"`,
         message: `UNAPPROVED_ADR_DRIFT: ADR(s) ${blockingAdrs.map((a) => `${a.id} (${a.status})`).join(', ')} require approval.`
       };
     }
@@ -472,8 +472,8 @@ export function checkSpecDrift({ ticketId = null, baseBranch = null, changeSet =
     blockingADRs: blockingAdrs.map((a) => a.id),
     remediationCommand:
       blockingAdrs.length > 0
-        ? `node .agent/scripts/sdlc-engine.mjs adr decide --id ${blockingAdrs[0].id} --status approve --by "@reviewer" --reason "<rationale>"`
-        : `node .agent/scripts/sdlc-engine.mjs adr create --title "<decision>" --scope ${triggers[0].scope || 'technical'} --ticket ${normTicket || '<id>'}`,
+        ? `node .agent/scripts/sealit-engine.mjs adr decide --id ${blockingAdrs[0].id} --status approve --by "@reviewer" --reason "<rationale>"`
+        : `node .agent/scripts/sealit-engine.mjs adr create --title "<decision>" --scope ${triggers[0].scope || 'technical'} --ticket ${normTicket || '<id>'}`,
     message: passed
       ? `Spec drift verified and governed by ${acceptedAdrs.map((a) => a.id).join(', ')}.`
       : blockingAdrs.length > 0

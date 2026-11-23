@@ -1,0 +1,3 @@
+interface:
+  display_name: "Sealit Vertical TDD & Mutation Runner"
+  short_description: "Implement tracer-bullet Red-Green TDD slices, reproduce-first bug fixes, and measured diff coverage and mutation checks."
