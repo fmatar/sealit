@@ -61,6 +61,12 @@ describe('sealit v0.0.1 Structural & Governance Invariants', () => {
     for (const f of pkg.files) {
       assert.equal(fs.existsSync(path.join(REPO_ROOT, f)), true, `package.json files entry missing on disk: ${f}`);
     }
+    assert.equal(typeof pkg.bin?.sealit, 'string');
+    assert.doesNotMatch(pkg.bin.sealit, /^\.?\/?\./, 'package.json bin.sealit must not reside in a dot-directory (npm publish strips dot-prefixed bin paths)');
+    const binPath = path.join(REPO_ROOT, pkg.bin.sealit);
+    assert.equal(execFileSync(process.execPath, [binPath, '--version'], { cwd: REPO_ROOT, encoding: 'utf8' }).trim(), pkg.version);
+    assert.equal(JSON.parse(execFileSync(process.execPath, [binPath, 'config', 'check', '--json'], { cwd: REPO_ROOT, encoding: 'utf8' })).success, true);
+    assert.throws(() => execFileSync(process.execPath, [binPath, 'nonexistent-cmd'], { cwd: REPO_ROOT, stdio: 'pipe' }));
 
     const pluginJson = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, '.claude-plugin/plugin.json'), 'utf8'));
     assert.equal(pluginJson.name, 'sealit');

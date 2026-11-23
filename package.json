@@ -16,7 +16,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/fmatar/sealit.git"
+    "url": "git+https://github.com/fmatar/sealit.git"
   },
   "homepage": "https://sealit.dev",
   "bugs": {
@@ -30,9 +30,10 @@
     "./package.json": "./package.json"
   },
   "bin": {
-    "sealit": "./.agent/scripts/sealit-engine.mjs"
+    "sealit": "bin/sealit.mjs"
   },
   "files": [
+    "bin",
     ".agent/skills/sealit",
     ".agent/skills/sealit-spec",
     ".agent/skills/sealit-adr",
@@ -41,6 +42,8 @@
     ".agent/skills/sealit-flow",
     ".agent/scripts",
     ".agent/schemas",
+    "docs/logo-dark.svg",
+    "docs/logo-light.svg",
     "docs/templates",
     "README.md",
     "LICENSE",
