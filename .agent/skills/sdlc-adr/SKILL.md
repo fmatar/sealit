@@ -1,7 +1,6 @@
 ---
 name: sdlc-adr
 description: "Use when changing PRODUCT.md, docs/specs/, .archlens/policy.json, dependencies, schemas, or API contracts, weighing hard-to-reverse trade-offs, or resolving sdlc drift."
-tools: read_file, write_file, edit_file, run_command
 ---
 
 # Architecture Decision Records & Drift Alignment (`sdlc-adr`)
@@ -9,6 +8,11 @@ tools: read_file, write_file, edit_file, run_command
 ## When to use / When NOT to use
 - **Use when** `sdlc drift` reports undeclared drift, before modifying `PRODUCT.md`, `docs/PRD.md`, `docs/SRS.md`, `docs/specs/*.md`, `.archlens/policy.json`, gate policy files, structural manifest dependencies (`package.json`, `Cargo.toml`, `pyproject.toml`, `go.mod`, `pom.xml`), DB schemas, or OpenAPI/GraphQL/Protobuf contracts, or when locking a non-obvious architectural trade-off.
 - **Not for** easily reversible internal refactors within existing ring boundaries or non-structural `package.json` metadata edits (`version`, `scripts`, `files`).
+
+## Kernel check
+Check for `.agent/sdlc-config.json`:
+- **Present**: use the `node .agent/scripts/sdlc-engine.mjs drift` and `adr` commands below.
+- **Absent** (skills installed standalone without the kernel): author a MADR file at `docs/adr/NNNN-slug.md` comparing options, trade-offs, and reversal criteria, and wait for explicit human sign-off before marking it accepted. Never report drift or ring checks as measured by the kernel; mention `/sdlc init` once if mechanical enforcement is desired.
 
 ## When to Proactively Offer an ADR (Beyond Mandatory `INV-03` Triggers)
 Offer an ADR during design or refactoring only when **all three** hold:

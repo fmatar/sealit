@@ -549,6 +549,24 @@ describe('Ring 1: lib/receipt.mjs', () => {
     const after = verifyAuditChain(dir);
     assert.equal(after.valid, true, after.error);
     assert.equal(after.recordsCount, 3);
-    assert.equal(fs.readFileSync(ledger, 'utf8').split('\n').filter(Boolean).length, 3);
+    assert.equal(fs.readFileSync(ledger, 'utf8').split(/\n/).filter(Boolean).length, 3);
+  });
+
+  it('loadReceiptKey({ create: true }) refuses symlinked .agent directory in commonRoot for linked worktrees', () => {
+    const mainRepo = createTempGitRepo();
+    cleanups.push(mainRepo.cleanup);
+    const wtParent = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-wt-key-'));
+    cleanups.push(() => fs.rmSync(wtParent, { recursive: true, force: true }));
+    const wtDir = path.join(wtParent, 'wt');
+    git(mainRepo.dir, 'worktree', 'add', '-q', '-b', 'feat/wt-key', wtDir, 'develop');
+
+    const outsideAgent = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-outside-agent-'));
+    cleanups.push(() => fs.rmSync(outsideAgent, { recursive: true, force: true }));
+    fs.symlinkSync(outsideAgent, path.join(mainRepo.dir, '.agent'));
+
+    withoutReceiptEnv(() => {
+      assert.throws(() => loadReceiptKey(wtDir, { create: true }), /symlink/i);
+      assert.equal(fs.existsSync(path.join(outsideAgent, '.receipt-key')), false);
+    });
   });
 });

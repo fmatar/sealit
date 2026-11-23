@@ -29,7 +29,7 @@ import {
 import { auditSkills, installCIWorkflow, installFramework, runDoctor } from './lib/install.mjs';
 
 const ENGINE_FILE = fileURLToPath(import.meta.url);
-const ENGINE_VERSION = '0.2.0';
+const ENGINE_VERSION = '0.3.0';
 const ENGINE_DIR = path.dirname(ENGINE_FILE);
 
 export function readPackageVersion(engineDir = ENGINE_DIR) {
@@ -631,7 +631,7 @@ export function formatCLIResult(cmd, res = {}) {
   switch (res.command || cmd) {
     case 'init':
     case 'install':
-      return `Initialized @fmatar/agentic-sdlc (${(res.init?.agents || []).join(', ')})`;
+      return `Initialized @fmatar/agentic-sdlc (${(res.init?.agents || []).join(', ')})${res.init?.receiptKeyCreated ? '; created .agent/.receipt-key (gitignored). Store it as CI secret SDLC_RECEIPT_KEY.' : ''}`;
     case 'doctor': {
       const d = res.doctor;
       return [

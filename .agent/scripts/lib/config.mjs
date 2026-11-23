@@ -618,10 +618,23 @@ function mergeStrykerPolicy(baseParsed, headParsed, relPath, addTrigger) {
   return eff;
 }
 
+export function isVendoredEnginePath(relPath = '') {
+  return String(relPath || '').replace(/\\/g, '/').replace(/^\.\//, '').startsWith('.agent/scripts/');
+}
+
+export function isEngineOwnerRepo({ repoRoot = '.', baseSha = null } = {}) {
+  if (baseSha === EMPTY_TREE_SHA) return false;
+  const raw = baseSha
+    ? readBlobs([`${baseSha}:package.json`], repoRoot).get(`${baseSha}:package.json`) ?? null
+    : (() => { try { return readFileSafe(resolveInsideRepo(repoRoot, 'package.json')); } catch { return null; } })();
+  const parsed = parseJsonSafe(raw);
+  return parsed.ok && parsed.value.name === '@fmatar/agentic-sdlc';
+}
+
 export function loadEffectivePolicy({ repoRoot = '.', baseSha = null, headSha = null, changedPaths = null } = {}) {
   const hasBase = Boolean(baseSha && baseSha !== EMPTY_TREE_SHA);
   const specs = [
-    ...(hasBase ? ['.agent/sdlc-config.json', 'stryker.config.json', 'package.json'].map((f) => `${baseSha}:${f}`) : []),
+    ...(hasBase ? ['.agent/sdlc-config.json', 'stryker.config.json'].map((f) => `${baseSha}:${f}`) : []),
     ...(headSha ? ['.agent/sdlc-config.json', 'stryker.config.json'].map((f) => `${headSha}:${f}`) : [])
   ];
   const blobs = specs.length > 0 ? readBlobs(specs, repoRoot) : new Map();
@@ -635,7 +648,6 @@ export function loadEffectivePolicy({ repoRoot = '.', baseSha = null, headSha = 
   const headCfgParsed = parseJsonSafe(getHeadRaw('.agent/sdlc-config.json'));
   const baseRootStryker = parseJsonSafe(getBaseRaw('stryker.config.json'));
   const headRootStryker = parseJsonSafe(getHeadRaw('stryker.config.json'));
-  const basePkgParsed = parseJsonSafe(getBaseRaw('package.json'));
   const validMods = (arr) =>
     Array.isArray(arr) ? arr.filter((m) => m && typeof m === 'object' && !Array.isArray(m) && typeof m.name === 'string' && Boolean(m.name.trim())) : [];
 
@@ -749,13 +761,12 @@ export function loadEffectivePolicy({ repoRoot = '.', baseSha = null, headSha = 
     strykerByModule[mod.name] = strykerByDir.get(normModDir(mod.path)) ?? null;
   }
 
-  const ownerPkgName = basePkgParsed.ok ? basePkgParsed.value.name : null;
-  if (ownerPkgName !== '@fmatar/agentic-sdlc') {
+  if (!isEngineOwnerRepo({ repoRoot, baseSha })) {
     const diffPaths = Array.isArray(changedPaths)
       ? changedPaths
       : readChangeSet({ baseSha, headSha, source: headSha ? 'commit' : 'worktree', repoRoot }).paths;
     for (const p of diffPaths) {
-      if (/^\.agent\/scripts\//.test(p)) addTrigger(p);
+      if (isVendoredEnginePath(p)) addTrigger(p);
     }
   }
 

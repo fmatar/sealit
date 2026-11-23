@@ -231,7 +231,7 @@ describe('Ring 3: sdlc-engine.mjs CLI registry', () => {
       // Local init provisions config, policy, hooks, and skills; commit baseline on develop so feature branch is pure docs-only
       const initRes = await runCLI(['init', '--yes', '--agents=claude,cursor', '--with-hooks'], null, dir);
       assert.equal(initRes.success, true);
-      assert.match(formatCLIResult('init', initRes), /Initialized/);
+      assert.match(formatCLIResult('init', initRes), /Initialized.*\.agent\/\.receipt-key/);
       assert.equal((await runCLI(['config', 'check'], null, dir)).success, true);
       assert.match(formatCLIResult('doctor', await runCLI(['doctor'], null, dir)), /Gitignore\s*:\s*Up to date/);
       fs.appendFileSync(path.join(dir, '.gitignore'), '.claude/\n.cursor/\n', 'utf8');
@@ -304,6 +304,10 @@ describe('Ring 3: sdlc-engine.mjs CLI registry', () => {
       assert.equal((await runCLI(['pr-body'], null, dir)).prBody.baseBranch, integBranch);
       assert.equal((await runCLI(['pr-body', '--base', 'develop'], null, dir)).prBody.baseBranch, 'develop');
       assert.equal((await runCLI(['review', 'pr-body', '--base', 'develop'], null, dir)).prBody.baseBranch, 'develop');
+      assert.match(
+        formatCLIResult('init', { command: 'init', init: { agents: ['claude'], receiptKeyCreated: true } }),
+        /\.agent\/\.receipt-key/
+      );
     });
   });
 });

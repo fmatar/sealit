@@ -6,6 +6,7 @@ import path from 'node:path';
 import { PassThrough } from 'node:stream';
 import { createTempGitRepo, git, withoutReceiptEnv } from '../helpers/test-harness.mjs';
 import { hasDirtyNonGovernanceFiles } from '../../.agent/scripts/lib/git.mjs';
+import { checkArchRings } from '../../.agent/scripts/lib/drift.mjs';
 import { beginSession } from '../../.agent/scripts/lib/guard.mjs';
 import {
   CANONICAL_SKILLS,
@@ -89,6 +90,20 @@ describe('Ring 2: lib/install.mjs', () => {
     assert.ok(badAudit.findings.some((f) => f.rule === 'FM2'));
     assert.ok(badAudit.findings.some((f) => f.rule === 'RP1'));
     assert.ok(badAudit.findings.some((f) => f.rule === 'AS3'));
+
+    // Canonical github:fmatar/agentic-sdlc-framework specifier produces zero RP1 findings while npx cowsay still triggers RP1
+    fs.writeFileSync(
+      path.join(srcDir, '.agent/skills/sdlc/SKILL.md'),
+      '---\nname: sdlc\ndescription: "Use when routing /sdlc commands."\n---\nRun `npx --yes github:fmatar/agentic-sdlc-framework init` and `npx @scope/pkg@1.2.3` and `npx github:fmatar/agentic-sdlc-framework#v0.2.0`.\n',
+      'utf8'
+    );
+    assert.equal(auditSkills(srcDir).findings.some((f) => f.rule === 'RP1'), false);
+    fs.writeFileSync(
+      path.join(srcDir, '.agent/skills/sdlc/SKILL.md'),
+      '---\nname: sdlc\ndescription: "Use when routing /sdlc commands."\n---\nRun `npx cowsay hello`.\n',
+      'utf8'
+    );
+    assert.equal(auditSkills(srcDir).findings.some((f) => f.rule === 'RP1'), true);
   });
 
   it('runDoctor reports receipt key status and doctor --fix preserves custom config while upgrading legacy v0.0.x CI workflow', () => {
@@ -271,14 +286,15 @@ describe('Ring 2: lib/install.mjs', () => {
     assert.equal(fs.existsSync(path.join(dir, '.claude/skills/sdlc-flow/SKILL.md')), true);
     assert.equal(fs.existsSync(path.join(dir, '.agent/skills/sdlc-flow/SKILL.md')), true);
 
-    // Second install updates marked rules block in-place (zero duplication), skips up-to-date workflow/policy unless --force, and preserves tools: only on antigravity
+    // Second install updates marked rules block in-place (zero duplication), skips up-to-date workflow/policy unless --force, and keeps skill output byte-identical to canonical source
     fs.writeFileSync(path.join(dir, 'AGENTS.md'), `# Custom Header\n\n${fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8')}`, 'utf8');
     await installFramework({ targetDir: dir, sourceRoot: src.srcDir, agents: ['all'], yes: true });
     const agentsMd = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
     assert.ok(agentsMd.startsWith('# Custom Header'));
     assert.equal((agentsMd.match(/AGENTIC-SDLC-RULES:START/g) || []).length, 1);
-    assert.match(fs.readFileSync(path.join(dir, '.claude/skills/sdlc/SKILL.md'), 'utf8'), /\bTask\b/);
-    assert.match(fs.readFileSync(path.join(dir, '.cursor/skills/sdlc/SKILL.md'), 'utf8'), /\bsubagent\b/);
+    const canonicalSdlc = fs.readFileSync(path.join(dir, '.agent/skills/sdlc/SKILL.md'), 'utf8').replace(/\r\n/g, '\n');
+    assert.equal(fs.readFileSync(path.join(dir, '.claude/skills/sdlc/SKILL.md'), 'utf8'), canonicalSdlc);
+    assert.equal(fs.readFileSync(path.join(dir, '.cursor/skills/sdlc/SKILL.md'), 'utf8'), canonicalSdlc);
 
     const wfSkip = installCIWorkflow({ repoRoot: dir, force: false });
     assert.equal(wfSkip.skipped, true);
@@ -756,5 +772,198 @@ describe('Ring 2: lib/install.mjs', () => {
       'utf8'
     );
     assert.ok(auditSkills(src.srcDir).findings.some((f) => f.rule === 'FM3'));
+  });
+
+  it('scaffolds a ring policy only when ring directories exist and gitignores coverage output', () => {
+    assert.ok(SDLC_GITIGNORE_ENTRIES.includes('coverage/') && SDLC_GITIGNORE_ENTRIES.includes('reports/'));
+
+    // Repo A: src/add.mjs only (no domain/application/adapters/entrypoints dirs)
+    const a = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-pol-a-'));
+    cleanups.push(() => fs.rmSync(a, { recursive: true, force: true }));
+    fs.mkdirSync(path.join(a, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(a, 'src/add.mjs'), 'export const add = (x, y) => x + y;\n', 'utf8');
+    scaffoldArchlensPolicy(a);
+    const pa = JSON.parse(fs.readFileSync(path.join(a, '.archlens/policy.json'), 'utf8'));
+    assert.deepEqual(pa.levels, []);
+    assert.deepEqual(pa.order, []);
+    assert.equal(pa.src, 'src');
+    assert.ok(pa.omit.includes('.agent'));
+    assert.equal(checkArchRings({ repoRoot: a }).passed, true);
+
+    // Repo B: index.mjs at root, no src/, plus .agent/scripts/x.mjs
+    const b = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-pol-b-'));
+    cleanups.push(() => fs.rmSync(b, { recursive: true, force: true }));
+    fs.mkdirSync(path.join(b, '.agent/scripts'), { recursive: true });
+    fs.writeFileSync(path.join(b, 'index.mjs'), 'export const ok = 1;\n', 'utf8');
+    fs.writeFileSync(path.join(b, '.agent/scripts/x.mjs'), 'export const x = 1;\n', 'utf8');
+    scaffoldArchlensPolicy(b);
+    const pb = JSON.parse(fs.readFileSync(path.join(b, '.archlens/policy.json'), 'utf8'));
+    assert.equal(pb.src, '.');
+    assert.deepEqual(pb.levels, []);
+    assert.deepEqual(pb.order, []);
+    assert.ok(pb.omit.includes('.agent'));
+    const bRings = checkArchRings({ repoRoot: b });
+    assert.equal(bRings.passed, true);
+    assert.equal(bRings.filesChecked, 1);
+
+    // Repo C: src/domain/x.mjs exists -> classic 4-ring scaffold
+    const c = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-pol-c-'));
+    cleanups.push(() => fs.rmSync(c, { recursive: true, force: true }));
+    fs.mkdirSync(path.join(c, 'src/domain'), { recursive: true });
+    fs.writeFileSync(path.join(c, 'src/domain/x.mjs'), 'export const d = 1;\n', 'utf8');
+    scaffoldArchlensPolicy(c);
+    const pc = JSON.parse(fs.readFileSync(path.join(c, '.archlens/policy.json'), 'utf8'));
+    assert.deepEqual(pc.order, ['domain', 'application', 'adapters', 'entrypoints']);
+    assert.equal(pc.levels.length, 4);
+  });
+
+  it('init creates a receipt key only on first adoption', async () => {
+    const src = createSourceBundleFixture();
+    cleanups.push(src.cleanup);
+    const hadEnv = Object.prototype.hasOwnProperty.call(process.env, 'SDLC_RECEIPT_KEY');
+    const prevEnv = process.env.SDLC_RECEIPT_KEY;
+    delete process.env.SDLC_RECEIPT_KEY;
+
+    try {
+      const fresh = createTempGitRepo();
+      cleanups.push(fresh.cleanup);
+      const r1 = await installFramework({ targetDir: fresh.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+      assert.equal(r1.receiptKeyCreated, true);
+      const key = path.join(fresh.dir, '.agent/.receipt-key');
+      if (process.platform !== 'win32') assert.equal(fs.statSync(key).mode & 0o777, 0o600);
+      assert.equal(git(fresh.dir, 'check-ignore', '-q', '.agent/.receipt-key').status, 0);
+      const before = fs.readFileSync(key, 'utf8');
+      assert.ok(before.trim().length >= 32);
+
+      const r2 = await installFramework({ targetDir: fresh.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+      assert.equal(r2.receiptKeyCreated, false);
+      assert.equal(fs.readFileSync(key, 'utf8'), before);
+
+      // Teammate repo with committed .agent/sdlc-config.json and no local key
+      const team = createTempGitRepo();
+      cleanups.push(team.cleanup);
+      fs.mkdirSync(path.join(team.dir, '.agent'), { recursive: true });
+      fs.writeFileSync(
+        path.join(team.dir, '.agent/sdlc-config.json'),
+        JSON.stringify({ version: '0.1.0', modules: [{ name: 'root', path: '.', commands: {}, thresholds: { diffCoverage: null, mutationScore: null } }] }),
+        'utf8'
+      );
+      git(team.dir, 'add', '.agent/sdlc-config.json');
+      git(team.dir, 'commit', '-qm', 'chore: existing config');
+      const rTeam = await installFramework({ targetDir: team.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+      assert.equal(rTeam.receiptKeyCreated, false);
+      assert.equal(fs.existsSync(path.join(team.dir, '.agent/.receipt-key')), false);
+      assert.equal(runDoctor({ repoRoot: team.dir }).receiptKey.ciSecretHint, null);
+
+      // Corrupt line 1 in docs/AUDIT_CHAIN.jsonl without .agent/sdlc-config.json -> no key file created
+      const corrupt = createTempGitRepo();
+      cleanups.push(corrupt.cleanup);
+      fs.mkdirSync(path.join(corrupt.dir, 'docs'), { recursive: true });
+      fs.writeFileSync(path.join(corrupt.dir, 'docs/AUDIT_CHAIN.jsonl'), '{corrupt-line-1\n', 'utf8');
+      const rCorrupt = await installFramework({ targetDir: corrupt.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+      assert.equal(rCorrupt.receiptKeyCreated, false);
+      assert.equal(fs.existsSync(path.join(corrupt.dir, '.agent/.receipt-key')), false);
+
+      // Env key present during first adoption -> no key file created
+      process.env.SDLC_RECEIPT_KEY = 'env-provided-secret';
+      const envRepo = createTempGitRepo();
+      cleanups.push(envRepo.cleanup);
+      const rEnv = await installFramework({ targetDir: envRepo.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+      assert.equal(rEnv.receiptKeyCreated, false);
+      assert.equal(fs.existsSync(path.join(envRepo.dir, '.agent/.receipt-key')), false);
+      assert.equal(runDoctor({ repoRoot: envRepo.dir }).receiptKey.ciSecretHint, null);
+    } finally {
+      if (hadEnv) process.env.SDLC_RECEIPT_KEY = prevEnv;
+      else delete process.env.SDLC_RECEIPT_KEY;
+    }
+  });
+
+  it('init skips npx-managed skills, never writes through their symlinks, and targets loaded agent paths', async () => {
+    const src = createSourceBundleFixture();
+    cleanups.push(src.cleanup);
+
+    // 1. npx skills layout: .agents/skills/sdlc/SKILL.md ("NPX") + .claude/skills/sdlc -> ../../.agents/skills/sdlc
+    const r1 = createTempGitRepo();
+    cleanups.push(r1.cleanup);
+    fs.mkdirSync(path.join(r1.dir, '.agents/skills/sdlc'), { recursive: true });
+    fs.mkdirSync(path.join(r1.dir, '.claude/skills'), { recursive: true });
+    fs.writeFileSync(path.join(r1.dir, '.agents/skills/sdlc/SKILL.md'), 'NPX', 'utf8');
+    fs.symlinkSync('../../.agents/skills/sdlc', path.join(r1.dir, '.claude/skills/sdlc'));
+
+    const res = await installFramework({ targetDir: r1.dir, sourceRoot: src.srcDir, agents: ['claude', 'copilot'], yes: true });
+    assert.equal(res.success, true);
+    assert.equal(fs.lstatSync(path.join(r1.dir, '.claude/skills/sdlc')).isSymbolicLink(), true);
+    assert.equal(fs.readFileSync(path.join(r1.dir, '.agents/skills/sdlc/SKILL.md'), 'utf8'), 'NPX');
+    assert.ok(res.warnings.some((w) => /npx skills/.test(w) && /\bsdlc\b/.test(w)));
+    assert.ok(res.warnings.some((w) => /\.agent\/skills/.test(w) && /\.agents\/skills/.test(w)));
+    assert.ok(fs.existsSync(path.join(r1.dir, '.claude/skills/sdlc-gate/SKILL.md')));
+    assert.ok(fs.existsSync(path.join(r1.dir, '.github/copilot-instructions.md')));
+
+    // 2. Copilot-only local install provisions .claude/skills/sdlc* alongside .github/copilot-instructions.md
+    const copRepo = createTempGitRepo();
+    cleanups.push(copRepo.cleanup);
+    await installFramework({ targetDir: copRepo.dir, sourceRoot: src.srcDir, agents: ['copilot'], yes: true });
+    assert.ok(fs.existsSync(path.join(copRepo.dir, '.claude/skills/sdlc/SKILL.md')));
+    assert.ok(fs.existsSync(path.join(copRepo.dir, '.github/copilot-instructions.md')));
+
+    // 3. Outside directory symlink at .claude/skills/sdlc when NOT npx-managed -> still refused
+    const r2 = createTempGitRepo();
+    cleanups.push(r2.cleanup);
+    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-outside-skill-dir-'));
+    cleanups.push(() => fs.rmSync(outsideDir, { recursive: true, force: true }));
+    fs.mkdirSync(path.join(r2.dir, '.claude/skills'), { recursive: true });
+    fs.symlinkSync(outsideDir, path.join(r2.dir, '.claude/skills/sdlc'));
+    await assert.rejects(
+      () => installFramework({ targetDir: r2.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true }),
+      /symlink/i
+    );
+    assert.equal(fs.existsSync(path.join(outsideDir, 'SKILL.md')), false);
+
+    // 4. Global Antigravity targets ~/.gemini/config/skills and prunes legacy ~/.gemini/antigravity/skills/sdlc* while keeping user skills
+    const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-agy-home-'));
+    cleanups.push(() => fs.rmSync(fakeHome, { recursive: true, force: true }));
+    fs.mkdirSync(path.join(fakeHome, '.gemini/antigravity/skills/sdlc'), { recursive: true });
+    fs.writeFileSync(path.join(fakeHome, '.gemini/antigravity/skills/sdlc/SKILL.md'), 'legacy', 'utf8');
+    fs.mkdirSync(path.join(fakeHome, '.gemini/antigravity/skills/design-system-builder'), { recursive: true });
+    fs.writeFileSync(path.join(fakeHome, '.gemini/antigravity/skills/design-system-builder/SKILL.md'), 'keep', 'utf8');
+
+    const gRes = await installFramework({ targetDir: r1.dir, sourceRoot: src.srcDir, agents: ['antigravity'], globalMode: true, homeDir: fakeHome, yes: true });
+    assert.equal(gRes.success, true);
+    assert.ok(fs.existsSync(path.join(fakeHome, '.gemini/config/skills/sdlc/SKILL.md')));
+    assert.equal(fs.existsSync(path.join(fakeHome, '.gemini/antigravity/skills/sdlc')), false);
+    assert.ok(fs.existsSync(path.join(fakeHome, '.gemini/antigravity/skills/design-system-builder/SKILL.md')));
+
+    // 5. Global mode skips ~/.agents/skills/<id>/SKILL.md (npx skills -g) and refuses outside symlinks under homeDir
+    fs.mkdirSync(path.join(fakeHome, '.agents/skills/sdlc'), { recursive: true });
+    fs.mkdirSync(path.join(fakeHome, '.claude/skills'), { recursive: true });
+    fs.writeFileSync(path.join(fakeHome, '.agents/skills/sdlc/SKILL.md'), 'GLOBAL_NPX', 'utf8');
+    fs.symlinkSync('../../.agents/skills/sdlc', path.join(fakeHome, '.claude/skills/sdlc'));
+    const gCoexist = await installFramework({ targetDir: r1.dir, sourceRoot: src.srcDir, agents: ['claude'], globalMode: true, homeDir: fakeHome, yes: true });
+    assert.equal(gCoexist.success, true);
+    assert.equal(fs.readFileSync(path.join(fakeHome, '.agents/skills/sdlc/SKILL.md'), 'utf8'), 'GLOBAL_NPX');
+    assert.ok(fs.existsSync(path.join(fakeHome, '.claude/skills/sdlc-gate/SKILL.md')));
+
+    const badHome = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-bad-home-'));
+    cleanups.push(() => fs.rmSync(badHome, { recursive: true, force: true }));
+    fs.mkdirSync(path.join(badHome, '.claude/skills'), { recursive: true });
+    fs.symlinkSync(outsideDir, path.join(badHome, '.claude/skills/sdlc'));
+    await assert.rejects(
+      () => installFramework({ targetDir: r1.dir, sourceRoot: src.srcDir, agents: ['claude'], globalMode: true, homeDir: badHome, yes: true }),
+      /symlink/i
+    );
+    assert.equal(fs.existsSync(path.join(outsideDir, 'SKILL.md')), false);
+
+    // 6. Planted external symlink at .agents -> outsideAgentsDir never acts as an npxManaged oracle
+    const outsideAgents = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-outside-agents-'));
+    cleanups.push(() => fs.rmSync(outsideAgents, { recursive: true, force: true }));
+    fs.mkdirSync(path.join(outsideAgents, 'skills/sdlc'), { recursive: true });
+    fs.writeFileSync(path.join(outsideAgents, 'skills/sdlc/SKILL.md'), 'OUTSIDE', 'utf8');
+    const rOracle = createTempGitRepo();
+    cleanups.push(rOracle.cleanup);
+    fs.symlinkSync(outsideAgents, path.join(rOracle.dir, '.agents'));
+    const oracleRes = await installFramework({ targetDir: rOracle.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
+    assert.equal(oracleRes.success, true);
+    assert.equal(oracleRes.warnings.some((w) => /npx skills/.test(w)), false);
+    assert.ok(fs.existsSync(path.join(rOracle.dir, '.claude/skills/sdlc/SKILL.md')));
   });
 });
