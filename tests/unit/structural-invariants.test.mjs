@@ -50,7 +50,7 @@ describe('v0.1.0 Structural & Governance Invariants', () => {
 
   it('Invariant 2: Package metadata, Node >=22 floor, zero runtime deps, valid dogfood config, and Claude plugin packaging', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'));
-    assert.equal(pkg.version, '0.2.0');
+    assert.equal(pkg.version, '0.3.0');
     assert.equal(readPackageVersion('/nonexistent/sdlc-missing/scripts'), pkg.version);
     assert.equal(pkg.engines?.node, '>=22.0.0');
     assert.deepEqual(pkg.dependencies || {}, {});
@@ -61,7 +61,7 @@ describe('v0.1.0 Structural & Governance Invariants', () => {
     }
 
     const pluginJson = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, '.claude-plugin/plugin.json'), 'utf8'));
-    assert.equal(pluginJson.version, '0.2.0');
+    assert.equal(pluginJson.version, '0.3.0');
     assert.deepEqual(pluginJson.skills, CANONICAL_SKILLS.map((s) => `./.agent/skills/${s}`));
     for (const s of CANONICAL_SKILLS) {
       assert.equal(fs.existsSync(path.join(REPO_ROOT, `.agent/skills/${s}/agents/openai.yaml`)), true, `Missing openai.yaml for ${s}`);
