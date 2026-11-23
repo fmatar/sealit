@@ -309,6 +309,121 @@ describe('Ring 1: lib/receipt.mjs', () => {
       git(sqRepo.dir, 'commit', '-q', '-m', 'feat: squashed PR');
       const squashedSha = git(sqRepo.dir, 'rev-parse', 'HEAD').stdout.trim();
       assert.equal(verifyGateReceipt({ headSha: squashedSha, branch: 'develop', repoRoot: sqRepo.dir }).valid, true);
+
+      // 5. Squash merge into develop followed by clean 2-parent --no-ff promotion into main verifies cleanly (and rejects tampered merges)
+      git(sqRepo.dir, 'checkout', '-q', 'main');
+      fs.writeFileSync(path.join(sqRepo.dir, 'README.md'), '# Main note\n', 'utf8');
+      git(sqRepo.dir, 'add', 'README.md');
+      git(sqRepo.dir, 'commit', '-q', '-m', 'docs: main readme');
+      assert.equal(git(sqRepo.dir, 'merge', '--no-ff', '-q', '-m', 'chore(release): promote squashed develop to main', 'develop').status, 0);
+      const sqMainMergeSha = git(sqRepo.dir, 'rev-parse', 'HEAD').stdout.trim();
+      assert.equal(verifyGateReceipt({ headSha: sqMainMergeSha, branch: 'main', repoRoot: sqRepo.dir }).valid, true);
+
+      git(sqRepo.dir, 'reset', '--hard', 'HEAD~1');
+      git(sqRepo.dir, 'merge', '--no-ff', '--no-commit', 'develop');
+      fs.writeFileSync(path.join(sqRepo.dir, 'a.mjs'), 'export const a = 999;\n', 'utf8');
+      git(sqRepo.dir, 'add', 'a.mjs');
+      git(sqRepo.dir, 'commit', '-q', '-m', 'evil: tamper during merge to main');
+      const tamperedSqMainSha = git(sqRepo.dir, 'rev-parse', 'HEAD').stdout.trim();
+      assert.equal(verifyGateReceipt({ headSha: tamperedSqMainSha, branch: 'main', repoRoot: sqRepo.dir }).valid, false);
+
+      // Evil 2-parent p2 on develop that deletes a post-branch develop file to match feat/sq treeSha is rejected via !p2MultiParent
+      git(sqRepo.dir, 'reset', '--hard', 'HEAD~1');
+      git(sqRepo.dir, 'checkout', '-q', 'develop');
+      git(sqRepo.dir, 'reset', '--hard', 'HEAD~1');
+      fs.writeFileSync(path.join(sqRepo.dir, 'dev-only.mjs'), 'export const d = 1;\n', 'utf8');
+      git(sqRepo.dir, 'add', 'dev-only.mjs');
+      git(sqRepo.dir, 'commit', '-q', '-m', 'feat: concurrent develop file');
+      git(sqRepo.dir, 'merge', '--no-ff', '--no-commit', 'feat/sq');
+      git(sqRepo.dir, 'rm', '-f', '-q', 'dev-only.mjs');
+      git(sqRepo.dir, 'commit', '-q', '-m', 'evil: 2-parent develop merge matching feat/sq treeSha');
+      git(sqRepo.dir, 'checkout', '-q', 'main');
+      git(sqRepo.dir, 'merge', '--no-ff', '-q', '-m', 'promote evil 2-parent develop to main', 'develop');
+      const evilP2MainSha = git(sqRepo.dir, 'rev-parse', 'HEAD').stdout.trim();
+      assert.equal(verifyGateReceipt({ headSha: evilP2MainSha, branch: 'main', repoRoot: sqRepo.dir }).valid, false);
+
+      // R1: Evil 1-parent squash on develop dropping concurrent dev-only.mjs is ALSO rejected
+      git(sqRepo.dir, 'reset', '--hard', 'HEAD~1');
+      git(sqRepo.dir, 'checkout', '-q', 'develop');
+      git(sqRepo.dir, 'reset', '--hard', 'HEAD~1');
+      git(sqRepo.dir, 'merge', '--squash', 'feat/sq');
+      git(sqRepo.dir, 'rm', '-f', '-q', 'dev-only.mjs');
+      git(sqRepo.dir, 'commit', '-q', '-m', 'evil: 1-parent squash dropping dev-only.mjs');
+      git(sqRepo.dir, 'checkout', '-q', 'main');
+      git(sqRepo.dir, 'merge', '--no-ff', '-q', '-m', 'promote evil 1-parent squash to main', 'develop');
+      const evil1ParentSqMainSha = git(sqRepo.dir, 'rev-parse', 'HEAD').stdout.trim();
+      assert.equal(verifyGateReceipt({ headSha: evil1ParentSqMainSha, branch: 'main', repoRoot: sqRepo.dir }).valid, false);
+
+      // R2 & R3 & R4: Replay of already-merged squash receipt, unprotected feature-branch p2, and p2 audit-record stripping are all rejected
+      const secSqRepo = createTempGitRepo();
+      cleanups.push(secSqRepo.cleanup);
+      git(secSqRepo.dir, 'checkout', '-q', '-b', 'feat/sq1', 'develop');
+      fs.writeFileSync(path.join(secSqRepo.dir, 'x.mjs'), 'export const x = 1;\n', 'utf8');
+      git(secSqRepo.dir, 'add', 'x.mjs');
+      git(secSqRepo.dir, 'commit', '-q', '-m', 'feat: x');
+      const sq1Head = git(secSqRepo.dir, 'rev-parse', 'HEAD').stdout.trim();
+      seedPassingSession(secSqRepo.dir, 'feat/sq1', sq1Head, 'code');
+      appendAuditRecord({ event: 'INTERMEDIATE_DEV_NOTE', metadata: { step: 'mid' }, repoRoot: secSqRepo.dir });
+      assert.equal(issueGateReceipt({ repoRoot: secSqRepo.dir }).success, true);
+      git(secSqRepo.dir, 'add', 'docs/AUDIT_CHAIN.jsonl');
+      git(secSqRepo.dir, 'commit', '-q', '-m', 'chore: sq1 receipt');
+
+      // R3: 2-parent merge on an unmerged branch (p1 = develop, p2 = 1-parent squash outside protected history) rejected even without --branch
+      git(secSqRepo.dir, 'checkout', '-q', '-b', 'feat/unprotected-p2', 'develop');
+      git(secSqRepo.dir, 'merge', '--squash', 'feat/sq1');
+      git(secSqRepo.dir, 'commit', '-q', '-m', 'unprotected squash');
+      git(secSqRepo.dir, 'checkout', '-q', '-b', 'feat/fake-2p', 'develop');
+      git(secSqRepo.dir, 'merge', '--no-ff', '-q', '-m', 'fake 2-parent on feature branch', 'feat/unprotected-p2');
+      const fake2pSha = git(secSqRepo.dir, 'rev-parse', 'HEAD').stdout.trim();
+      assert.equal(verifyGateReceipt({ headSha: fake2pSha, repoRoot: secSqRepo.dir }).valid, false);
+
+      // Valid squash onto develop -> R4: stripping INTERMEDIATE_DEV_NOTE during --no-ff merge to main is rejected
+      git(secSqRepo.dir, 'checkout', '-q', 'develop');
+      git(secSqRepo.dir, 'merge', '--squash', 'feat/sq1');
+      git(secSqRepo.dir, 'commit', '-q', '-m', 'feat: valid sq1 on develop');
+      git(secSqRepo.dir, 'checkout', '-q', 'main');
+      fs.writeFileSync(path.join(secSqRepo.dir, 'README.md'), '# Main\n', 'utf8');
+      git(secSqRepo.dir, 'add', 'README.md');
+      git(secSqRepo.dir, 'commit', '-q', '-m', 'docs: main');
+      git(secSqRepo.dir, 'merge', '--no-ff', '--no-commit', 'develop');
+      const fullChainLines = fs.readFileSync(path.join(secSqRepo.dir, 'docs/AUDIT_CHAIN.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+      const onlyLastReceipt = { ...fullChainLines[fullChainLines.length - 1], index: 0, previousHash: '0'.repeat(64) };
+      onlyLastReceipt.currentHash = calculateRecordHash(onlyLastReceipt);
+      fs.writeFileSync(path.join(secSqRepo.dir, 'docs/AUDIT_CHAIN.jsonl'), `${JSON.stringify(onlyLastReceipt)}\n`, 'utf8');
+      git(secSqRepo.dir, 'add', 'docs/AUDIT_CHAIN.jsonl');
+      git(secSqRepo.dir, 'commit', '-q', '-m', 'evil: strip intermediate p2 audit record');
+      const strippedMainSha = git(secSqRepo.dir, 'rev-parse', 'HEAD').stdout.trim();
+      assert.equal(verifyGateReceipt({ headSha: strippedMainSha, branch: 'main', repoRoot: secSqRepo.dir }).valid, false);
+
+      // Clean promote to main succeeds -> R2: replaying already-merged sq1 treeSha to delete a new file on develop/main is rejected!
+      git(secSqRepo.dir, 'reset', '--hard', 'HEAD~1');
+      git(secSqRepo.dir, 'merge', '--no-ff', '-q', '-m', 'chore(release): clean promote sq1', 'develop');
+      const cleanMain1 = git(secSqRepo.dir, 'rev-parse', 'HEAD').stdout.trim();
+      assert.equal(verifyGateReceipt({ headSha: cleanMain1, branch: 'main', repoRoot: secSqRepo.dir }).valid, true);
+
+      git(secSqRepo.dir, 'checkout', '-q', '-b', 'feat/sq2', 'develop');
+      fs.writeFileSync(path.join(secSqRepo.dir, 'y.mjs'), 'export const y = 2;\n', 'utf8');
+      git(secSqRepo.dir, 'add', 'y.mjs');
+      git(secSqRepo.dir, 'commit', '-q', '-m', 'feat: y');
+      const sq2Head = git(secSqRepo.dir, 'rev-parse', 'HEAD').stdout.trim();
+      seedPassingSession(secSqRepo.dir, 'feat/sq2', sq2Head, 'code');
+      assert.equal(issueGateReceipt({ repoRoot: secSqRepo.dir }).success, true);
+      git(secSqRepo.dir, 'add', 'docs/AUDIT_CHAIN.jsonl');
+      git(secSqRepo.dir, 'commit', '-q', '-m', 'chore: sq2 receipt');
+      git(secSqRepo.dir, 'checkout', '-q', 'develop');
+      git(secSqRepo.dir, 'merge', '--squash', 'feat/sq2');
+      git(secSqRepo.dir, 'commit', '-q', '-m', 'feat: sq2 on develop');
+      git(secSqRepo.dir, 'checkout', '-q', 'main');
+      git(secSqRepo.dir, 'merge', '--no-ff', '-q', '-m', 'chore(release): promote sq2', 'develop');
+
+      // Keyless attacker on develop deletes y.mjs (restoring sq1's exact treeSha!) and --no-ff merges into main
+      git(secSqRepo.dir, 'checkout', '-q', 'develop');
+      git(secSqRepo.dir, 'rm', '-f', '-q', 'y.mjs');
+      git(secSqRepo.dir, 'commit', '-q', '-m', 'evil: keyless replay of sq1 treeSha deleting y.mjs');
+      git(secSqRepo.dir, 'checkout', '-q', 'main');
+      git(secSqRepo.dir, 'merge', '--no-ff', '-q', '-m', 'evil: merge replayed sq1 tree to main', 'develop');
+      const replayedMainSha = git(secSqRepo.dir, 'rev-parse', 'HEAD').stdout.trim();
+      assert.equal(verifyGateReceipt({ headSha: replayedMainSha, branch: 'main', repoRoot: secSqRepo.dir }).valid, false);
     });
   });
 

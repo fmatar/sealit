@@ -475,17 +475,68 @@ function isProtectedBranchHistory(commitSha, repoRoot) {
   return false;
 }
 
-function verifyTwoParentCleanMerge(receiptHeadSha, targetSha, repoRoot, depth = 0) {
+function readCommitChain(commitSha, repoRoot) {
+  if (!commitSha) return { present: false, valid: true, records: [], recordsCount: 0, chainHead: GENESIS_HASH };
+  const raw = readBlobs([`${commitSha}:${AUDIT_LEDGER_FILE}`], repoRoot).get(`${commitSha}:${AUDIT_LEDGER_FILE}`);
+  if (raw === null || raw === undefined) return { present: false, valid: true, records: [], recordsCount: 0, chainHead: GENESIS_HASH };
+  return { present: true, ...verifyAuditChainContent(raw) };
+}
+
+function hasReceiptSig(chainObj, sigValue) {
+  return Boolean(sigValue && chainObj?.valid && (chainObj.records || []).some((r) => r.metadata?.signature?.value === sigValue));
+}
+
+function extendsLedgerStrict(activeChain, baseChain) {
+  if (!baseChain?.present) return true;
+  if (!baseChain.valid) return false;
+  return baseChain.recordsCount === 0 || (activeChain.recordsCount >= baseChain.recordsCount && activeChain.records[baseChain.recordsCount - 1]?.currentHash === baseChain.chainHead);
+}
+
+function preservesLedgerRecords(activeChain, otherChain) {
+  if (extendsLedgerStrict(activeChain, otherChain)) return true;
+  if (!otherChain?.valid || activeChain.recordsCount < otherChain.recordsCount) return false;
+  const activeSet = new Set((activeChain.records || []).map((r) => `${r.event}:${canonicalJSON(r.metadata)}`));
+  return (otherChain.records || []).every((r) => activeSet.has(`${r.event}:${canonicalJSON(r.metadata)}`));
+}
+
+function verifySquashedProtectedParent(receipt, p1, p2, repoRoot) {
+  if (!receipt?.treeSha || !isProtectedBranchHistory(p2, repoRoot) || computeContentTreeSha(p2, repoRoot) !== receipt.treeSha) return false;
+  const sigVal = receipt.signature?.value;
+  const p2Chain = readCommitChain(p2, repoRoot);
+  if (!p2Chain.present || !p2Chain.valid || !hasReceiptSig(p2Chain, sigVal) || hasReceiptSig(readCommitChain(p1, repoRoot), sigVal)) return false;
+  let sqCommit = p2;
+  while (true) {
+    const prev = (gitOutput(['rev-parse', '--verify', '-q', '--end-of-options', `${sqCommit}^1`], repoRoot) || '').trim();
+    const prev2 = prev ? (gitOutput(['rev-parse', '--verify', '-q', '--end-of-options', `${sqCommit}^2`], repoRoot) || '').trim() : '';
+    if (!prev || prev2 || !isAuditOnlyCommitRange(prev, sqCommit, repoRoot)) break;
+    sqCommit = prev;
+  }
+  const sqParent = (gitOutput(['rev-parse', '--verify', '-q', '--end-of-options', `${sqCommit}^1`], repoRoot) || '').trim();
+  if (sqParent) {
+    const sqParentChain = readCommitChain(sqParent, repoRoot);
+    if (hasReceiptSig(sqParentChain, sigVal) || !preservesLedgerRecords(p2Chain, sqParentChain)) return false;
+    const resolvedHead = receipt.headSha ? (gitOutput(['rev-parse', '--verify', '-q', '--end-of-options', `${receipt.headSha}^{commit}`], repoRoot) || '').trim() : '';
+    if (resolvedHead) {
+      const sqMb = (gitOutput(['merge-base', '--end-of-options', sqParent, resolvedHead], repoRoot) || '').trim();
+      if (!verifyCleanThreeWayMergeTrees({ mbSha: sqMb, p1Ref: sqParent, p2Ref: resolvedHead, targetRef: sqCommit, repoRoot })) return false;
+    }
+  }
+  return true;
+}
+
+function verifyTwoParentCleanMerge(receipt, targetSha, repoRoot, depth = 0) {
+  const receiptHeadSha = receipt?.headSha;
   const p1 = (gitOutput(['rev-parse', '--verify', '-q', '--end-of-options', `${targetSha}^1`], repoRoot) || '').trim();
   const p2 = (gitOutput(['rev-parse', '--verify', '-q', '--end-of-options', `${targetSha}^2`], repoRoot) || '').trim();
   const p3 = (gitOutput(['rev-parse', '--verify', '-q', '--end-of-options', `${targetSha}^3`], repoRoot) || '').trim();
-  if (!p1 || !p2 || p3) return false;
-  if (!isProtectedBranchHistory(p1, repoRoot)) return false;
+  if (!p1 || !p2 || p3 || !isProtectedBranchHistory(p1, repoRoot)) return false;
 
+  const p2MultiParent = Boolean((gitOutput(['rev-parse', '--verify', '-q', '--end-of-options', `${p2}^2`], repoRoot) || '').trim());
   const p2Matches =
     receiptHeadSha === p2 ||
     isAuditOnlyCommitRange(receiptHeadSha, p2, repoRoot) ||
-    (depth < 1 && verifyTwoParentCleanMerge(receiptHeadSha, p2, repoRoot, depth + 1));
+    (depth === 0 && !p2MultiParent && verifySquashedProtectedParent(receipt, p1, p2, repoRoot)) ||
+    (depth < 1 && p2MultiParent && verifyTwoParentCleanMerge(receipt, p2, repoRoot, depth + 1));
   if (!p2Matches) return false;
 
   const mb = (gitOutput(['merge-base', '--end-of-options', p1, p2], repoRoot) || '').trim();
@@ -693,35 +744,14 @@ export function verifyGateReceipt({ headSha = null, branch = null, repoRoot = '.
   }
 
   let key;
-  try {
-    key = loadReceiptKey(absRoot, { create: false });
-  } catch (err) {
-    return { valid: false, targetSha, branch, reason: err.message };
-  }
-  if (!key) {
-    return {
-      valid: false,
-      targetSha,
-      branch,
-      reason: `No receipt signing key (${RECEIPT_KEY_FILE} or SEALIT_RECEIPT_KEY); cannot verify receipts.`
-    };
-  }
-
-  if (!targetSha) {
-    return {
-      valid: false,
-      targetSha: null,
-      branch,
-      reason: 'No target commit SHA or branch ref resolved for receipt verification.'
-    };
-  }
-
+  try { key = loadReceiptKey(absRoot, { create: false }); } catch (err) { return { valid: false, targetSha, branch, reason: err.message }; }
+  if (!key) return { valid: false, targetSha, branch, reason: `No receipt signing key (${RECEIPT_KEY_FILE} or SEALIT_RECEIPT_KEY); cannot verify receipts.` };
+  if (!targetSha) return { valid: false, targetSha: null, branch, reason: 'No target commit SHA or branch ref resolved for receipt verification.' };
   if (keyFileCommitState(absRoot, RECEIPT_KEY_FILE, targetSha) === 'committed') {
     return { valid: false, targetSha, branch, reason: makeUnusableKeyError('committed', RECEIPT_KEY_FILE).message };
   }
 
-  const effectiveBranch =
-    branch && !['HEAD', 'develop', 'main', 'master'].includes(branch) ? String(branch).trim() : null;
+  const effectiveBranch = branch && !['HEAD', 'develop', 'main', 'master'].includes(branch) ? String(branch).trim() : null;
   const targetTreeSha = computeContentTreeSha(targetSha, absRoot);
   const isMultiParent = Boolean((gitOutput(['rev-parse', '--verify', '-q', '--end-of-options', `${targetSha}^2`], absRoot) || '').trim());
 
@@ -734,37 +764,32 @@ export function verifyGateReceipt({ headSha = null, branch = null, repoRoot = '.
         const m = r.metadata;
         if (effectiveBranch && m.branch !== effectiveBranch) return false;
         const driftOk = m.driftPassed === true || m.driftCheckPassed === true;
-        if (m.peerReviewApproved !== true || !driftOk || !verifyReceiptSignature(m, key)) {
-          return false;
-        }
+        if (m.peerReviewApproved !== true || !driftOk || !verifyReceiptSignature(m, key)) return false;
         if (sameShaPrefix(m.headSha, targetSha) && m.headSha.length === targetSha.length) return true;
         if (isAuditOnlyCommitRange(m.headSha, targetSha, absRoot)) return true;
         if (!isMultiParent && m.treeSha && targetTreeSha && m.treeSha === targetTreeSha) return true;
-        if (!effectiveBranch && verifyTwoParentCleanMerge(m.headSha, targetSha, absRoot)) return true;
+        if (!effectiveBranch && verifyTwoParentCleanMerge(m, targetSha, absRoot)) return true;
         return false;
       });
 
-  let matched = findMatchingReceipt(activeChain.records);
-  if (!matched && targetSha) {
-    const commitLedgerRaw = readBlobs([`${targetSha}:${AUDIT_LEDGER_FILE}`], absRoot).get(`${targetSha}:${AUDIT_LEDGER_FILE}`);
-    if (commitLedgerRaw) {
-      const commitChain = verifyAuditChainContent(commitLedgerRaw);
-      if (!commitChain.valid) {
-        return { valid: false, targetSha, branch, reason: `Audit hash chain in ${targetSha} corrupted: ${commitChain.error}` };
+  let matched = null;
+  if (isMultiParent) {
+    const commitChain = readCommitChain(targetSha, absRoot);
+    if (!commitChain.present || !commitChain.valid) return { valid: false, targetSha, branch, reason: `Missing or corrupted committed audit hash chain in merge commit ${targetSha}.` };
+    activeChain = commitChain;
+    matched = findMatchingReceipt(commitChain.records);
+  } else {
+    matched = findMatchingReceipt(activeChain.records);
+    if (!matched && targetSha) {
+      const commitChain = readCommitChain(targetSha, absRoot);
+      if (commitChain.present) {
+        if (!commitChain.valid) return { valid: false, targetSha, branch, reason: `Audit hash chain in ${targetSha} corrupted: ${commitChain.error}` };
+        matched = findMatchingReceipt(commitChain.records);
+        if (matched) activeChain = commitChain;
       }
-      matched = findMatchingReceipt(commitChain.records);
-      if (matched) activeChain = commitChain;
     }
   }
-
-  if (!matched) {
-    return {
-      valid: false,
-      targetSha,
-      branch,
-      reason: `No valid signed Stage 7 gate receipt found for ${targetSha}.`
-    };
-  }
+  if (!matched) return { valid: false, targetSha, branch, reason: `No valid signed Stage 7 gate receipt found for ${targetSha}.` };
 
   let baseCommit = isMultiParent ? (gitOutput(['rev-parse', '--verify', '-q', '--end-of-options', `${targetSha}^1`], absRoot) || '').trim() : '';
   if (!baseCommit) {
@@ -778,21 +803,14 @@ export function verifyGateReceipt({ headSha = null, branch = null, repoRoot = '.
       if (baseCommit) break;
     }
   }
-  if (baseCommit) {
-    const baseLedgerRaw = readBlobs([`${baseCommit}:${AUDIT_LEDGER_FILE}`], absRoot).get(`${baseCommit}:${AUDIT_LEDGER_FILE}`);
-    if (baseLedgerRaw) {
-      const baseChain = verifyAuditChainContent(baseLedgerRaw);
-      if (baseChain.valid && baseChain.recordsCount > 0 && (activeChain.recordsCount < baseChain.recordsCount || activeChain.records[baseChain.recordsCount - 1]?.currentHash !== baseChain.chainHead)) {
-        return { valid: false, targetSha, branch, reason: 'Audit ledger continuity broken: historical records from base commit were truncated or rewritten.' };
-      }
+  if (baseCommit && !extendsLedgerStrict(activeChain, readCommitChain(baseCommit, absRoot))) {
+    return { valid: false, targetSha, branch, reason: 'Audit ledger continuity broken: historical records from base commit were truncated or rewritten.' };
+  }
+  if (isMultiParent) {
+    const p2Commit = (gitOutput(['rev-parse', '--verify', '-q', '--end-of-options', `${targetSha}^2`], absRoot) || '').trim();
+    if (p2Commit && !preservesLedgerRecords(activeChain, readCommitChain(p2Commit, absRoot))) {
+      return { valid: false, targetSha, branch, reason: 'Audit ledger continuity broken: records from merged branch were truncated or omitted.' };
     }
   }
-
-  return {
-    valid: true,
-    targetSha,
-    receipt: matched.metadata,
-    chainHash: matched.currentHash,
-    chainHead: activeChain.chainHead
-  };
+  return { valid: true, targetSha, receipt: matched.metadata, chainHash: matched.currentHash, chainHead: activeChain.chainHead };
 }
