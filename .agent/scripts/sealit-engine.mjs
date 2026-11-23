@@ -710,6 +710,34 @@ export function formatCLIResult(cmd, res = {}) {
   }
 }
 
+export async function runCliEntrypoint({
+  argv = process.argv.slice(2),
+  stdout = process.stdout,
+  stderr = process.stderr,
+  exit = (c) => process.exit(c),
+  runner = runCLI
+} = {}) {
+  const jsonMode = argv.includes('--json');
+  const onProgress = jsonMode ? null : (msg) => stderr.write(`${msg}\n`);
+  try {
+    const res = await runner(argv, null, '.', { onProgress });
+    const code = cliExitCode(res);
+    if (jsonMode) {
+      stdout.write(`${JSON.stringify(res, null, 2)}\n`);
+    } else {
+      for (const w of res.warnings || []) stderr.write(`Warning: ${w}\n`);
+      const text = formatCLIResult(res.command, res);
+      if (code === 0) stdout.write(`${text}\n`);
+      else stderr.write(`${text}\n`);
+    }
+    exit(code);
+  } catch (err) {
+    if (jsonMode) stdout.write(`${JSON.stringify({ success: false, error: err.message }, null, 2)}\n`);
+    else stderr.write(`Error: ${err.message}\n`);
+    exit(1);
+  }
+}
+
 const isDirectRun =
   process.argv[1] &&
   (() => {
@@ -721,27 +749,5 @@ const isDirectRun =
   })();
 
 if (isDirectRun) {
-  const jsonMode = process.argv.includes('--json');
-  const onProgress = jsonMode ? null : (msg) => process.stderr.write(`${msg}\n`);
-  runCLI(null, null, '.', { onProgress })
-    .then((res) => {
-      const code = cliExitCode(res);
-      if (jsonMode) {
-        process.stdout.write(JSON.stringify(res, null, 2) + '\n');
-      } else {
-        for (const w of res.warnings || []) process.stderr.write(`Warning: ${w}\n`);
-        const text = formatCLIResult(res.command, res);
-        if (code === 0) process.stdout.write(`${text}\n`);
-        else process.stderr.write(`${text}\n`);
-      }
-      process.exit(code);
-    })
-    .catch((err) => {
-      if (jsonMode) {
-        process.stdout.write(JSON.stringify({ success: false, error: err.message }, null, 2) + '\n');
-      } else {
-        process.stderr.write(`Error: ${err.message}\n`);
-      }
-      process.exit(1);
-    });
+  runCliEntrypoint();
 }

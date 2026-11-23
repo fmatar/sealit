@@ -24,6 +24,7 @@
     "forceBail": true
   },
   "mutate": [
+    "bin/sealit.mjs",
     ".agent/scripts/lib/git.mjs",
     ".agent/scripts/lib/config.mjs",
     ".agent/scripts/lib/receipt.mjs",

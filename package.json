@@ -50,7 +50,7 @@
     "llms.txt"
   ],
   "scripts": {
-    "lint": "node --check .agent/scripts/sealit-engine.mjs .agent/scripts/lib/*.mjs tests/helpers/*.mjs tests/unit/*.mjs",
+    "lint": "node --check bin/sealit.mjs .agent/scripts/sealit-engine.mjs .agent/scripts/lib/*.mjs tests/helpers/*.mjs tests/unit/*.mjs",
     "test": "node --test --test-reporter=dot \"tests/**/*.test.mjs\"",
     "test:unit": "node --test --test-reporter=dot \"tests/unit/*.test.mjs\"",
     "test:affected": "node .agent/scripts/sealit-engine.mjs test --affected-only",
