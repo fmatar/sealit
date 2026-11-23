@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/fmatar/agentic-sdlc-framework/main/.agent/schemas/sdlc-config.schema.json",
-  "title": "Agentic SDLC Alignment + Proof Kernel Configuration (v0.1.0)",
-  "description": "Repository configuration for @fmatar/agentic-sdlc v0.1.0 modules, test/coverage/mutation commands, thresholds, CI checks, Archlens ring policy, and audited mutant exemptions.",
+  "$id": "https://sealit.dev/schemas/sealit-config.schema.json",
+  "title": "Sealit Alignment + Proof Kernel Configuration (v0.1.0)",
+  "description": "Repository configuration for sealit modules, test/coverage/mutation commands, thresholds, CI checks, Archlens ring policy, and audited mutant exemptions.",
   "type": "object",
   "required": ["version", "modules"],
   "properties": {

@@ -217,6 +217,138 @@ describe('Ring 0: lib/git.mjs', () => {
     assert.throws(() => resolveInsideRepo(dir, 'sym-out/secret.txt'), /symlink|outside/i);
   });
 
+  it('resolveEffectiveDiffBase and resolveRange support GitLab, Bitbucket, and Azure DevOps CI branch variables without tag or leaf-name spoofing', () => {
+    const { dir, cleanup } = createTempGitRepo();
+    cleanups.push(cleanup);
+
+    const envKeys = [
+      'GITHUB_BASE_REF',
+      'GITHUB_REF_NAME',
+      'GITHUB_REF',
+      'GITHUB_REF_TYPE',
+      'CI_MERGE_REQUEST_TARGET_BRANCH_NAME',
+      'CI_MERGE_REQUEST_SOURCE_BRANCH_NAME',
+      'CI_COMMIT_BRANCH',
+      'CI_COMMIT_REF_NAME',
+      'CI_COMMIT_TAG',
+      'BITBUCKET_PR_DESTINATION_BRANCH',
+      'BITBUCKET_BRANCH',
+      'SYSTEM_PULLREQUEST_TARGETBRANCH',
+      'SYSTEM_PULLREQUEST_SOURCEBRANCH',
+      'BUILD_SOURCEBRANCH',
+      'BUILD_SOURCEBRANCHNAME'
+    ];
+    const saved = Object.fromEntries(envKeys.map((k) => [k, process.env[k]]));
+    for (const k of envKeys) delete process.env[k];
+
+    try {
+      git(dir, 'checkout', '-q', '-b', 'feat/gitlab-mr', 'develop');
+      assert.equal(resolveEffectiveDiffBase(null, dir), 'develop');
+
+      // GitLab MR targeting main
+      process.env.CI_MERGE_REQUEST_TARGET_BRANCH_NAME = 'main';
+      assert.equal(resolveEffectiveDiffBase(null, dir), 'main');
+      delete process.env.CI_MERGE_REQUEST_TARGET_BRANCH_NAME;
+
+      // Bitbucket PR targeting main
+      process.env.BITBUCKET_PR_DESTINATION_BRANCH = 'main';
+      assert.equal(resolveEffectiveDiffBase(null, dir), 'main');
+      delete process.env.BITBUCKET_PR_DESTINATION_BRANCH;
+
+      // Azure DevOps PR targeting whitespace-padded refs/heads/main (trims before stripping refs/heads/)
+      process.env.SYSTEM_PULLREQUEST_TARGETBRANCH = '  refs/heads/main  ';
+      assert.equal(resolveEffectiveDiffBase(null, dir), 'main');
+      delete process.env.SYSTEM_PULLREQUEST_TARGETBRANCH;
+
+      // Rejects non-branch refs/* and leading '-' flags in target branch env vars
+      for (const badTarget of ['refs/tags/v1', '-oProxyCommand=bad']) {
+        process.env.GITHUB_BASE_REF = badTarget;
+        assert.equal(resolveEffectiveDiffBase(null, dir), 'develop');
+        delete process.env.GITHUB_BASE_REF;
+      }
+
+      // Detached HEAD on GitHub/GitLab/Azure branch pipelines for develop compares against main
+      git(dir, 'checkout', '-q', '--detach', 'develop');
+      for (const [k, v] of [
+        ['GITHUB_REF', 'refs/heads/develop'],
+        ['GITHUB_REF_NAME', 'develop'],
+        ['CI_MERGE_REQUEST_SOURCE_BRANCH_NAME', 'develop'],
+        ['CI_COMMIT_BRANCH', 'develop'],
+        ['CI_COMMIT_REF_NAME', 'develop'],
+        ['SYSTEM_PULLREQUEST_SOURCEBRANCH', 'refs/heads/develop'],
+        ['BUILD_SOURCEBRANCH', 'refs/heads/develop']
+      ]) {
+        process.env[k] = v;
+        assert.equal(resolveEffectiveDiffBase(null, dir), 'main', `Expected ${k}=${v} to resolve base 'main'`);
+        delete process.env[k];
+      }
+
+      // GitHub tag/PR refs do NOT spoof branch 'develop' even when GITHUB_REF_NAME='develop' or '12/merge'
+      process.env.GITHUB_REF = 'refs/tags/develop';
+      process.env.GITHUB_REF_NAME = 'develop';
+      assert.equal(resolveEffectiveDiffBase(null, dir), 'develop');
+      delete process.env.GITHUB_REF;
+      delete process.env.GITHUB_REF_NAME;
+
+      process.env.GITHUB_REF_TYPE = 'tag';
+      process.env.GITHUB_REF_NAME = 'develop';
+      assert.equal(resolveEffectiveDiffBase(null, dir), 'develop');
+      delete process.env.GITHUB_REF_TYPE;
+      delete process.env.GITHUB_REF_NAME;
+
+      process.env.GITHUB_REF = 'refs/pull/12/merge';
+      process.env.GITHUB_REF_NAME = '12/merge';
+      assert.equal(resolveEffectiveDiffBase(null, dir), 'develop');
+      delete process.env.GITHUB_REF;
+      delete process.env.GITHUB_REF_NAME;
+
+      // GitLab tag pipeline with CI_COMMIT_TAG='develop' + CI_COMMIT_REF_NAME='develop' does NOT spoof 'develop'
+      process.env.CI_COMMIT_TAG = 'develop';
+      process.env.CI_COMMIT_REF_NAME = 'develop';
+      assert.equal(resolveEffectiveDiffBase(null, dir), 'develop');
+      delete process.env.CI_COMMIT_TAG;
+      delete process.env.CI_COMMIT_REF_NAME;
+
+      // Azure slash branch 'feat/develop' has BUILD_SOURCEBRANCHNAME='develop' — full BUILD_SOURCEBRANCH prevents spoofing
+      process.env.BUILD_SOURCEBRANCH = 'refs/heads/feat/develop';
+      process.env.BUILD_SOURCEBRANCHNAME = 'develop';
+      assert.equal(resolveEffectiveDiffBase(null, dir), 'develop');
+      delete process.env.BUILD_SOURCEBRANCH;
+      delete process.env.BUILD_SOURCEBRANCHNAME;
+
+      // Detached HEAD on a newly branched 'feat/aligned' still at develop tip returns 0-commit range (not develop~1..develop)
+      fs.writeFileSync(path.join(dir, 'dev-extra.txt'), 'dev\n', 'utf8');
+      git(dir, 'checkout', '-q', 'develop');
+      git(dir, 'add', 'dev-extra.txt');
+      git(dir, 'commit', '-q', '-m', 'chore: advance develop');
+      git(dir, 'checkout', '-q', '--detach', 'develop');
+      process.env.BITBUCKET_BRANCH = 'feat/aligned';
+      const alignedFeatRange = resolveRange({ repoRoot: dir });
+      assert.equal(alignedFeatRange.baseSha, alignedFeatRange.headSha);
+      delete process.env.BITBUCKET_BRANCH;
+
+      // Detached HEAD on Bitbucket push pipeline for main uses HEAD~1..HEAD unless PR destination is set
+      git(dir, 'checkout', '-q', 'main');
+      fs.writeFileSync(path.join(dir, 'ci-host.txt'), 'host\n', 'utf8');
+      git(dir, 'add', 'ci-host.txt');
+      git(dir, 'commit', '-q', '-m', 'chore: ci host commit on main');
+      git(dir, 'checkout', '-q', '--detach', 'main');
+
+      process.env.BITBUCKET_BRANCH = 'main';
+      const pushRange = resolveRange({ repoRoot: dir });
+      assert.notEqual(pushRange.baseSha, pushRange.headSha);
+
+      process.env.BITBUCKET_PR_DESTINATION_BRANCH = 'main';
+      const prAtBaseRange = resolveRange({ repoRoot: dir });
+      assert.equal(prAtBaseRange.baseSha, prAtBaseRange.headSha);
+    } finally {
+      for (const k of envKeys) {
+        if (saved[k] === undefined) delete process.env[k];
+        else process.env[k] = saved[k];
+      }
+    }
+  });
+
   it('gitOutput 64 MiB maxBuffer survives >2 MiB lockfile diffs and handles C-quoted and NUL-padded files', () => {
     const { dir, cleanup } = createTempGitRepo();
     cleanups.push(cleanup);
@@ -277,10 +409,10 @@ describe('Ring 0: lib/git.mjs', () => {
     assert.equal(isDocsOnlyDiff([]), false);
     assert.equal(isDocsOnlyDiff(['README.md', 'CHANGELOG.md', 'CONTRIBUTING.md', 'LICENSE', 'docs/guide.md', 'docs/logo-dark.svg']), true);
     for (const nonDoc of [
-      '.agent/skills/sdlc-gate/SKILL.md',
-      '.claude/skills/sdlc/SKILL.md',
-      '.cursor/rules/agentic-sdlc.mdc',
-      '.codex/skills/sdlc/SKILL.md',
+      '.agent/skills/sealit-gate/SKILL.md',
+      '.claude/skills/sealit/SKILL.md',
+      '.cursor/rules/sealit.mdc',
+      '.codex/skills/sealit/SKILL.md',
       '.github/PULL_REQUEST_TEMPLATE.md',
       '.github/copilot-instructions.md',
       'AGENTS.md',
@@ -321,7 +453,7 @@ describe('Ring 0: lib/git.mjs', () => {
     cleanups.push(cleanup);
 
     fs.mkdirSync(path.join(dir, '.agent'), { recursive: true });
-    fs.writeFileSync(path.join(dir, '.agent/.sdlc-session.json'), '{}', 'utf8');
+    fs.writeFileSync(path.join(dir, '.agent/.sealit-session.json'), '{}', 'utf8');
     assert.equal(hasDirtyNonGovernanceFiles(dir), false);
 
     fs.writeFileSync(path.join(dir, 'dirty.mjs'), 'export const x = 1;\n', 'utf8');

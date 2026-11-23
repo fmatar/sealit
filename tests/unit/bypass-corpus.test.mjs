@@ -46,7 +46,7 @@ function getOrBuildCorpusTemplate() {
   fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
 
   fs.writeFileSync(
-    path.join(dir, '.agent/sdlc-config.json'),
+    path.join(dir, '.agent/sealit-config.json'),
     JSON.stringify({
       version: '0.1.0',
       archlens: { enabled: false, policyPath: '.archlens/policy.json' },
@@ -331,7 +331,7 @@ const CASES = [
           'utf8'
         );
         fs.writeFileSync(
-          path.join(d, '.agent/sdlc-config.json'),
+          path.join(d, '.agent/sealit-config.json'),
           JSON.stringify({
             version: '0.1.0',
             archlens: { enabled: false, policyPath: '.archlens/policy.json' },
@@ -342,7 +342,7 @@ const CASES = [
       });
       fs.writeFileSync(path.join(dir, 'src/low.mjs'), 'export const a = 1;\nexport const b = 2;\n', 'utf8');
       fs.writeFileSync(
-        path.join(dir, '.agent/sdlc-config.json'),
+        path.join(dir, '.agent/sealit-config.json'),
         JSON.stringify({
           version: '0.1.0',
           archlens: { enabled: false, policyPath: '.archlens/policy.json' },
@@ -374,7 +374,7 @@ const CASES = [
           'utf8'
         );
         fs.writeFileSync(
-          path.join(d, '.agent/sdlc-config.json'),
+          path.join(d, '.agent/sealit-config.json'),
           JSON.stringify({
             version: '0.1.0',
             archlens: { enabled: true, policyPath: '.archlens/policy.json' },
@@ -388,7 +388,7 @@ const CASES = [
       fs.writeFileSync(path.join(dir, 'src/adapters/out.mjs'), 'export const out = 1;\n', 'utf8');
       fs.writeFileSync(path.join(dir, 'src/core/bad.mjs'), "import { out } from '../adapters/out.mjs';\nexport const x = out;\n", 'utf8');
       fs.writeFileSync(
-        path.join(dir, '.agent/sdlc-config.json'),
+        path.join(dir, '.agent/sealit-config.json'),
         JSON.stringify({
           version: '0.1.0',
           archlens: { enabled: false, policyPath: '.archlens/policy.json' },
@@ -433,7 +433,7 @@ const CASES = [
         );
         fs.writeFileSync(path.join(d, 'stryker.config.json'), JSON.stringify({ mutate: ['src/**/*.mjs'] }) + '\n', 'utf8');
         fs.writeFileSync(
-          path.join(d, '.agent/sdlc-config.json'),
+          path.join(d, '.agent/sealit-config.json'),
           JSON.stringify({
             version: '0.1.0',
             archlens: { enabled: false, policyPath: '.archlens/policy.json' },
@@ -477,7 +477,7 @@ const CASES = [
         );
         fs.writeFileSync(path.join(d, 'stryker.config.json'), JSON.stringify({ mutate: ['src/**/*.mjs'] }) + '\n', 'utf8');
         fs.writeFileSync(
-          path.join(d, '.agent/sdlc-config.json'),
+          path.join(d, '.agent/sealit-config.json'),
           JSON.stringify({
             version: '0.1.0',
             archlens: { enabled: false, policyPath: '.archlens/policy.json' },
@@ -489,7 +489,7 @@ const CASES = [
       });
       fs.writeFileSync(path.join(dir, 'src/app.mjs'), 'export const v = true ? 1 : 0;\n', 'utf8');
       fs.writeFileSync(
-        path.join(dir, '.agent/sdlc-config.json'),
+        path.join(dir, '.agent/sealit-config.json'),
         JSON.stringify({
           version: '0.1.0',
           archlens: { enabled: false, policyPath: '.archlens/policy.json' },
@@ -521,9 +521,9 @@ const CASES = [
     setup() {
       const dir = seedBaselineRepo((d) => {
         fs.mkdirSync(path.join(d, '.agent/scripts'), { recursive: true });
-        fs.writeFileSync(path.join(d, '.agent/scripts/sdlc-engine.mjs'), '// vendored engine\n', 'utf8');
+        fs.writeFileSync(path.join(d, '.agent/scripts/sealit-engine.mjs'), '// vendored engine\n', 'utf8');
         fs.writeFileSync(
-          path.join(d, '.agent/sdlc-config.json'),
+          path.join(d, '.agent/sealit-config.json'),
           JSON.stringify({
             version: '0.1.0',
             archlens: { enabled: false, policyPath: '.archlens/policy.json' },
@@ -532,11 +532,11 @@ const CASES = [
           'utf8'
         );
       });
-      // Attempt to weaken commands.test, tamper with vendored engine, AND spoof package.json name to @fmatar/agentic-sdlc!
-      fs.writeFileSync(path.join(dir, '.agent/scripts/sdlc-engine.mjs'), '// tampered engine\n', 'utf8');
-      fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: '@fmatar/agentic-sdlc', version: '0.1.0', dependencies: {} }, null, 2) + '\n', 'utf8');
+      // Attempt to weaken commands.test, tamper with vendored engine, AND spoof package.json name to sealit!
+      fs.writeFileSync(path.join(dir, '.agent/scripts/sealit-engine.mjs'), '// tampered engine\n', 'utf8');
+      fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'sealit', version: '0.0.1', dependencies: {} }, null, 2) + '\n', 'utf8');
       fs.writeFileSync(
-        path.join(dir, '.agent/sdlc-config.json'),
+        path.join(dir, '.agent/sealit-config.json'),
         JSON.stringify({
           version: '0.1.0',
           archlens: { enabled: false, policyPath: '.archlens/policy.json' },
@@ -553,8 +553,8 @@ const CASES = [
       prepush: false,
       driftCheck: (d) =>
         d.passed === false &&
-        d.triggers.some((t) => t.type === 'GATE_POLICY_DRIFT' && t.file === '.agent/sdlc-config.json') &&
-        d.triggers.some((t) => t.type === 'GATE_POLICY_DRIFT' && t.file === '.agent/scripts/sdlc-engine.mjs')
+        d.triggers.some((t) => t.type === 'GATE_POLICY_DRIFT' && t.file === '.agent/sealit-config.json') &&
+        d.triggers.some((t) => t.type === 'GATE_POLICY_DRIFT' && t.file === '.agent/scripts/sealit-engine.mjs')
     }
   }
 ];

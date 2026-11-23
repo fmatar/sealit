@@ -1,7 +1,7 @@
 # Product Constitution: [Product Name]
 
 > **Single Source of Truth (`PRODUCT.md`)**
-> Governed by **@fmatar/agentic-sdlc (`sdlc-spec` & `sdlc-adr`)**.
+> Governed by **sealit (`sealit-spec` & `sealit-adr` · https://sealit.dev)**.
 > Any architectural, dependency, or contract deviation from this constitution requires an accepted **ADR (`docs/adr/ADR-00X.md`)**.
 
 ---
@@ -13,7 +13,7 @@
 
 ## 2. Hard Domain & System Invariants (`INV-XX`)
 - **INV-01**: Zero direct commits, merges, or pushes to `main` or `develop` (enforced by 4-Layer Git Guard and Stage 7 HMAC-SHA256 Gate Receipts).
-- **INV-02**: Code changes require an active SDLC session and single-path measured verification (`sdlc gate`) meeting `.agent/sdlc-config.json` diff coverage and mutation thresholds.
+- **INV-02**: Code changes require an active Sealit session and single-path measured verification (`sealit gate`) meeting `.agent/sealit-config.json` diff coverage and mutation thresholds.
 - **INV-03**: Spec, architecture policy, dependency, schema, and contract changes require an accepted ADR synchronized with `PRODUCT.md`.
 - **INV-04**: Configured verification commands execute via `execFileSync` argument arrays without shell string interpolation.
 

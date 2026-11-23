@@ -1,26 +1,22 @@
-# @fmatar/agentic-sdlc (v0.3.0)
+# sealit (v0.0.1)
 
-> Zero-dependency Alignment and Proof Kernel for AI coding agents (Antigravity, Claude Code, Cursor, Codex, GitHub Copilot) enforcing Git Flow session guards, Spec/ADR alignment, [Archlens](https://github.com/fmatar/archlens) Concentric Clean Architecture rings, measured diff coverage & mutation gates, and HMAC-SHA256 merge receipts.
+> Zero-dependency verification CLI and agent skill suite for AI coding agents (Claude Code, Cursor, Codex, Antigravity, GitHub Copilot) across GitHub, GitLab, Bitbucket, and self-hosted Git—enforcing branch/worktree session isolation, Spec/ADR drift alignment, measured diff coverage & mutation gates, and HMAC-SHA256 merge receipts.
 
 ## Core Documentation
 
-- [README.md](./README.md): Quickstart, 8-module Concentric Kernel architecture, and 6-skill suite overview
-- [PRODUCT.md](./PRODUCT.md): Constitutional invariants (`INV-01`..`INV-04`), capability matrix (`CAP-01`..`CAP-06`), and ADR index
-- [GLOSSARY.md](./GLOSSARY.md): Ubiquitous domain vocabulary for Proof Kernel, sessions, seams, and receipts
-- [docs/PRD.md](./docs/PRD.md): Product Requirements Document (`v0.1.0`)
-- [docs/SRS.md](./docs/SRS.md): IEEE 29148 Software Requirements Specification & compacted ADR lineage
+- [README.md](./README.md): PR lifecycle, two-track installation, agent prompt guide, and 18-command CLI reference
+- [PRODUCT.md](./PRODUCT.md): Constitutional invariants, capability matrix (`CAP-01`..`CAP-06`), and ADR index
+- [GLOSSARY.md](./GLOSSARY.md): Domain vocabulary for sessions, public seams, drift, and merge receipts
+- [docs/PRD.md](./docs/PRD.md): Product Requirements Document (`v0.0.1`)
+- [docs/SRS.md](./docs/SRS.md): Software Requirements Specification & compacted ADR lineage
 - [CONTRIBUTING.md](./CONTRIBUTING.md): Local setup, TDD workflow, and pull request verification checklist
 - [CHANGELOG.md](./CHANGELOG.md): Semantic Versioning release history
 
 ## Capability Specifications (`docs/specs/`)
 
-- [docs/specs/cap-01-git-and-worktree-guard.md](./docs/specs/cap-01-git-and-worktree-guard.md): Git Flow, linked-worktree hygiene & 4-Layer Git Guard
-- [docs/specs/cap-02-config-and-shell-free-execution.md](./docs/specs/cap-02-config-and-shell-free-execution.md): Schema-validated `.agent/sdlc-config.json` & shell-free `execFileSync` execution
-- [docs/specs/cap-03-spec-adr-and-ring-alignment.md](./docs/specs/cap-03-spec-adr-and-ring-alignment.md): Spec/manifest/OpenAPI drift, human-approved ADRs & Concentric Ring checker
+- [docs/specs/cap-01-git-and-worktree-guard.md](./docs/specs/cap-01-git-and-worktree-guard.md): Protected-branch Git Flow, linked-worktree hygiene & Git hooks
+- [docs/specs/cap-02-config-and-shell-free-execution.md](./docs/specs/cap-02-config-and-shell-free-execution.md): Schema-validated `.agent/sealit-config.json` & shell-free `execFileSync` execution
+- [docs/specs/cap-03-spec-adr-and-ring-alignment.md](./docs/specs/cap-03-spec-adr-and-ring-alignment.md): Spec/manifest/OpenAPI drift, human-approved ADRs & optional layer boundary checks
 - [docs/specs/cap-04-single-path-measured-gate.md](./docs/specs/cap-04-single-path-measured-gate.md): Single-path (`docs-only` vs `code`) coverage, mutation & secret-scan gate
-- [docs/specs/cap-05-cryptographic-merge-receipts.md](./docs/specs/cap-05-cryptographic-merge-receipts.md): Append-only SHA-256 hash chain & multi-topology HMAC-SHA256 Stage 7 receipts
+- [docs/specs/cap-05-cryptographic-merge-receipts.md](./docs/specs/cap-05-cryptographic-merge-receipts.md): Append-only SHA-256 hash chain & multi-topology HMAC-SHA256 merge receipts
 - [docs/specs/cap-06-canonical-skills-and-installer.md](./docs/specs/cap-06-canonical-skills-and-installer.md): Canonical 6-skill suite, symlink-safe multi-agent installer & `doctor`
-
-## Companion Ecosystem
-
-- [Archlens (`https://github.com/fmatar/archlens`)](https://github.com/fmatar/archlens): Dynamic Clean Architecture Workbench, `.archlens/policy.json` concentric ring policy engine, and MCP server (`@fmatar/archlens-skill`)

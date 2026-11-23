@@ -1,136 +1,249 @@
-# `@fmatar/agentic-sdlc` (v0.3.0)
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./docs/logo-dark.svg" />
+    <source media="(prefers-color-scheme: light)" srcset="./docs/logo-light.svg" />
+    <img alt="sealit" src="./docs/logo-light.svg" width="228" height="76" />
+  </picture>
 
-**Alignment and Proof Kernel for AI Coding Agents**: mechanical specification & ADR drift checks, [Archlens](https://github.com/fmatar/archlens) Concentric Clean Architecture ring checks, measured diff coverage & mutation gates, and HMAC-SHA256 cryptographic merge receipts.
+  <p><strong>AI coding agents love saying <em>"all tests pass."</em> <code>sealit</code> makes them prove it before merge.</strong></p>
 
-[![SDLC Quality Gate](https://github.com/fmatar/agentic-sdlc-framework/actions/workflows/sdlc-quality-gate.yml/badge.svg)](https://github.com/fmatar/agentic-sdlc-framework/actions/workflows/sdlc-quality-gate.yml)
-[![Node >= 22](https://img.shields.io/badge/node-%3E%3D22.0.0-brightgreen.svg)](https://nodejs.org)
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
-
----
-
-## Why `@fmatar/agentic-sdlc`?
-
-AI coding agents write code quickly while making it easy to drift from specifications, leave diff lines untested, violate layer boundaries, or assert tests passed without fresh execution proof.
-
-`@fmatar/agentic-sdlc` is a zero-dependency Node.js CLI and 6-skill suite (`< 120 kB` packed) enforcing four mechanical guarantees on every pull request:
-
-1. **Git Flow & Session Guard (`INV-01`)**: Blocks direct commits, pushes, or unverified merges to `main` and `develop` via SHA-256 verified Git hooks and linked-worktree-aware session locks.
-2. **Spec, ADR & Architecture Alignment (`INV-03`)**: Detects changes to `PRODUCT.md`, `docs/specs/*.md`, `.archlens/policy.json`, structural dependency manifests, schemas, and OpenAPI contracts, requiring a human-approved (`accepted`) ADR and zero inward ring or cycle violations.
-3. **Single-Path Measured Proof (`INV-02` & `INV-04`)**: Parses real coverage and diff-scoped mutation reports via shell-free `execFileSync` execution, failing closed on stale reports, unimported `0%` source files, or leaked secrets.
-4. **Cryptographic Merge Receipts**: Signs `headSha`, `treeSha`, `specHash`, `adrHashes`, measured `diffCoverage`, measured `mutationScore`, and reviewer sign-off into an append-only SHA-256 hash chain (`docs/AUDIT_CHAIN.jsonl`), verified across Squash, `--no-ff`, and fast-forward merges.
-
-**Prerequisites**: **Node.js `>= 22.0.0`** and **Git `>= 2.38`**.
+  <p>
+    <a href="https://github.com/fmatar/sealit/actions/workflows/sealit-quality-gate.yml"><img src="https://github.com/fmatar/sealit/actions/workflows/sealit-quality-gate.yml/badge.svg" alt="Sealit Quality Gate" /></a>
+    <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D22.0.0-0d9488.svg" alt="Node >= 22" /></a>
+    <a href="./package.json"><img src="https://img.shields.io/badge/dependencies-0-dc2626.svg" alt="Zero Dependencies" /></a>
+    <a href="./LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-475569.svg" alt="License: Apache-2.0" /></a>
+  </p>
+</div>
 
 ---
 
-## Two-Track Installation
+`sealit` is a zero-dependency verification CLI and agent skill suite for **Claude Code**, **Cursor**, **Codex**, **Antigravity**, and **GitHub Copilot**. It wraps AI-authored pull requests in mechanical checks and seals every verified branch with an HMAC-SHA256 merge receipt that CI validates **before** `npm ci` or untrusted PR code ever runs.
 
-### Track 1: Install Skills Only (No Repo Hooks or CI)
-Install the 6 workflow skills across **Antigravity**, **Claude Code**, **Cursor**, **Codex**, **GitHub Copilot**, and 30+ coding harnesses via [`vercel-labs/skills`](https://github.com/vercel-labs/skills):
+## What `sealit` Enforces
 
-```bash
-# Project-local (.agents/skills + harness links)
-npx skills add fmatar/agentic-sdlc-framework
-
-# Machine-global across all installed coding agents
-npx skills add fmatar/agentic-sdlc-framework -g
-```
-
-- **Alternatives**: Load directly as a **Claude Code Plugin** (`.claude-plugin/plugin.json`), or install globally with zero third-party tooling via `npx --yes github:fmatar/agentic-sdlc-framework init --global --agents all --yes`.
-- **Standalone behavior (no `.agent/sdlc-config.json`)**: `sdlc-spec`, `sdlc-adr`, and `sdlc-tdd` run non-invasively using the repository's native test runners and Markdown ADRs without claiming kernel measurements; `sdlc-gate` and `sdlc-flow` stop and offer `/sdlc init`.
-
-### Track 2: Add the Proof Kernel to a Repository (`sdlc init`)
-Provision `.agent/scripts/`, `.agent/sdlc-config.json`, a layout-aware `.archlens/policy.json`, 4-Layer Git hooks, `.github/workflows/sdlc-quality-gate.yml`, and agent skills (automatically skipping skills already managed in `.agents/skills/` by `npx skills`):
-
-```bash
-npx --yes github:fmatar/agentic-sdlc-framework init --agents antigravity,claude,cursor,codex,copilot --yes
-```
+- **Protected branches stay clean** — Git hooks block direct commits or pushes to `main` and `develop` and isolate concurrent agent sessions across branches and git worktrees.
+- **Specs, dependencies, and contracts don't drift silently** — Edits to `PRODUCT.md`, `docs/specs/*`, dependency manifests, schemas, OpenAPI specs, or optional layer boundary rules require a human-approved ADR before the gate passes.
+- **Diffs are actually tested, not rubber-stamped** — Parses fresh coverage and diff-scoped mutation reports directly on changed hunks, failing closed on stale reports, unimported `0%` files, shell metacharacters, or leaked secrets.
+- **Every PR carries a cryptographic merge receipt** — Signs `HEAD`, the content tree hash, spec/ADR hashes, measured diff coverage & mutation scores, and reviewer sign-off into an append-only hash chain (`docs/AUDIT_CHAIN.jsonl`) that survives Squash, `--no-ff`, and fast-forward merges.
 
 ---
 
-## 90-Second Quickstart (Full Proof Kernel)
-
-```bash
-# 1. Scaffold Proof Kernel, hooks, CI workflow, skills, and first-adoption .agent/.receipt-key
-npx --yes github:fmatar/agentic-sdlc-framework init --agents antigravity,claude,cursor --yes
-
-# 2. Verify environment health and sync the signing secret to GitHub Actions
-node .agent/scripts/sdlc-engine.mjs doctor
-tr -d '\r\n' < .agent/.receipt-key | gh secret set SDLC_RECEIPT_KEY
-
-# 3. Start an onboarding branch & session from develop (or main)
-node .agent/scripts/sdlc-engine.mjs begin --title "adopt" --type chore --checkout
-
-# 4. Record & approve ADR-001 for the initial architecture policy, then commit
-node .agent/scripts/sdlc-engine.mjs adr create --title "Adopt agentic-sdlc" --scope architectural \
-  --context "Onboard Proof Kernel" --decision "Adopt .archlens/policy.json and gate" --consequences "PRs verify proof"
-node .agent/scripts/sdlc-engine.mjs adr decide --id ADR-001 --status approve --by "@lead" --reason "Approved onboarding"
-git add -A && git commit -m "chore: adopt agentic-sdlc"
-
-# 5. Run the single-path gate, sign the Stage 7 receipt, commit AUDIT_CHAIN.jsonl, and verify
-node .agent/scripts/sdlc-engine.mjs gate --no-cache
-node .agent/scripts/sdlc-engine.mjs review record --verdict approve --reviewer "@lead" --notes "Verified onboarding"
-git add docs/AUDIT_CHAIN.jsonl && git commit -m "chore(audit): record Stage 7 receipt"
-node .agent/scripts/sdlc-engine.mjs verify
-```
-
-> **Teammate onboarding note**: Only the first adoption generates `.agent/.receipt-key`. Teammates cloning an already-adopted repository must get the shared team key (into `.agent/.receipt-key` or `.env`)—never run `gh secret set SDLC_RECEIPT_KEY` with a new key, or existing CI receipts will fail verification.
-
----
-
-## Canonical 6-Skill Suite
-
-All skills live in `.agent/skills/` alongside `agents/openai.yaml` metadata:
-
-| Skill | With Proof Kernel (`.agent/sdlc-config.json`) | Standalone (`npx skills` without kernel) |
-| :--- | :--- | :--- |
-| `sdlc` | 1:1 router for `init`, `doctor`, `begin`, `status`, `drift`, `adr`, `test`, `coverage`, `mutation`, `gate`, `review`, `pr-body`, `receipt`, `verify`, `end` | Runs `init` / `doctor` via `npx`; stops and offers `/sdlc init` for repo-governed commands |
-| `sdlc-spec` | Decision-tree discovery, `GLOSSARY.md`, `PRODUCT.md` / `docs/specs/cap-XX-*.md` contracts + `sdlc drift` | Authors specs & `GLOSSARY.md` with repo Markdown conventions without claiming kernel drift proof |
-| `sdlc-adr` | Creates `ADR-NNN` / MADR `NNNN-slug.md` records, awaits human `approve`, and clears `INV-03` drift | Authors MADR `docs/adr/NNNN-slug.md` with human sign-off |
-| `sdlc-tdd` | Public-seam vertical Red-Green TDD, bug diagnosis, and measured `coverage` / `mutation` checks | Runs Red-Green TDD & bug diagnosis with native test/coverage runners |
-| `sdlc-gate` | Dispatches 2-axis cold reviewers, runs `sdlc gate`, signs Stage 7 receipts, and emits `pr-body` | Stops and offers `/sdlc init` (never claims unverified gate proof) |
-| `sdlc-flow` | Orchestrates `begin -> align -> tdd -> gate -> receipt -> pr-body -> end` (including `--base` worktrees) | Stops and offers `/sdlc init` |
-
----
-
-## Polyglot Coverage & Mutation Support
-
-| Ecosystem | Coverage Reports Parsed | Diff-Scoped / Module Mutation Reports |
-| :--- | :--- | :--- |
-| **JavaScript / TypeScript** | `coverage/lcov.info`, `coverage/coverage-summary.json` | Stryker (`reports/mutation/mutation.json`) |
-| **Java / Kotlin (Maven & Gradle)** | `jacoco.xml`, `jacoco.csv`, `jacocoTestReport.xml` | PITest (`mutations.xml`) |
-| **Python** | Cobertura `coverage/coverage.xml`, `lcov.info` | `mutmut` (`.mutmut-results.json`, `.mutmut-results.txt`) |
-| **Rust** | `coverage/lcov.info`, Cobertura `cobertura-coverage.xml` | `cargo-mutants` (`mutants.out/outcomes.json`) |
-| **Go** | `coverage/cover.out` | `go-mutesting` (`reports/mutation/go-mutesting.txt`) |
-
----
-
-## Architecture (8-Module Concentric Kernel)
+## How a Pull Request Gets Sealed
 
 ```mermaid
-flowchart TD
-    Skills["6 Canonical Skills (.agent/skills/sdlc*)"] --> Ring3["Ring 3 (cli-entrypoints): sdlc-engine.mjs"]
-    Ring3 --> Ring2["Ring 2 (adapters-orchestrators): measure.mjs, guard.mjs, install.mjs"]
-    Ring2 --> Ring1["Ring 1 (governance-models): receipt.mjs, drift.mjs"]
-    Ring1 --> Ring0["Ring 0 (domain-core): git.mjs, config.mjs"]
+flowchart LR
+    A["1. Isolate (sealit begin)"] --> B{"2. Spec or dep drift?"}
+    B -- "Yes" --> C["Human-approved ADR"]
+    B -- "No" --> D["3. Measure Diff (sealit gate)"]
+    C --> D
+    D --> E["4. 2-Axis Review + HMAC Receipt"]
+    E --> F["5. CI Pre-Install Verify → Merge"]
+
+    classDef step fill:#0f172a,stroke:#475569,stroke-width:1.5px,color:#f8fafc
+    classDef human fill:#1e293b,stroke:#94a3b8,stroke-width:1.5px,color:#f8fafc
+    classDef seal fill:#450a0a,stroke:#ef4444,stroke-width:2px,color:#fef2f2
+    class A,D,F step
+    class B,C human
+    class E seal
 ```
 
-| Ring | Module | Responsibility |
-| :--- | :--- | :--- |
-| **Ring 0** (`domain-core`) | `.agent/scripts/lib/git.mjs` | Sanitized `git` plumbing, linked-worktree resolution, shell-free `runConfiguredCommand`, atomic file locks |
-| **Ring 0** (`domain-core`) | `.agent/scripts/lib/config.mjs` | Polyglot stack auto-detection, `.agent/sdlc-config.json` validation, monotonic effective policy, `isEngineOwnerRepo` |
-| **Ring 1** (`governance-models`) | `.agent/scripts/lib/receipt.mjs` | Session persistence, SHA-256 gate cache, append-only `AUDIT_CHAIN.jsonl`, multi-topology HMAC-SHA256 Stage 7 receipts |
-| **Ring 1** (`governance-models`) | `.agent/scripts/lib/drift.mjs` | Spec/manifest/OpenAPI drift detection, dual ADR/MADR lifecycle, [Archlens](https://github.com/fmatar/archlens) ring & cycle checker |
-| **Ring 2** (`adapters-orchestrators`) | `.agent/scripts/lib/measure.mjs` | Single-path `runGate` (`docs-only` vs `code`), diff secret scanner, polyglot coverage/mutation parsers |
-| **Ring 2** (`adapters-orchestrators`) | `.agent/scripts/lib/guard.mjs` | Session lifecycle (`begin` `--base` / `end`), 4-Layer Git hooks, 2-axis `buildReviewPlan`, `buildPrSummary` |
-| **Ring 2** (`adapters-orchestrators`) | `.agent/scripts/lib/install.mjs` | `npx skills`-aware multi-agent installer, layout-aware Archlens scaffold, `skill-audit`, `doctor`, CI workflow generator |
-| **Ring 3** (`cli-entrypoints`) | `.agent/scripts/sdlc-engine.mjs` | Declarative CLI command registry, `--json` output, and fail-closed exit codes |
+1. **Isolate** — The agent starts an isolated branch or worktree session (`sealit begin`).
+2. **Align** — If specs, dependencies, or contracts changed, `sealit drift` pauses until a human approves an ADR (`sealit adr`).
+3. **Measure** — `sealit gate` runs secret scanning, lint, build, unit tests, diff line coverage, and diff-scoped mutation testing in a single pass.
+4. **Seal** — Two fresh-context reviewers audit Spec Fidelity and Architecture/Security, and `sealit` appends a signed HMAC-SHA256 receipt to `docs/AUDIT_CHAIN.jsonl`.
+5. **Verify in CI** — GitHub Actions, GitLab CI, or any Git pipeline extracts the trusted verifier from the base branch and validates the receipt **before** installing dependencies or executing PR code.
 
 ---
 
-## Further Documentation & License
+## Quickstart
 
-- [PRODUCT.md](./PRODUCT.md) — Constitutional invariants (`INV-01`..`INV-04`), capability matrix (`CAP-01`..`CAP-06`), and ADR index
-- [CONTRIBUTING.md](./CONTRIBUTING.md) — Local setup, TDD workflow, and pull request verification checklist
-- [llms.txt](./llms.txt) — Machine-readable documentation map for AI coding agents
-- **License**: Apache-2.0. See [LICENSE](./LICENSE).
+Requires **Node.js `>= 22`** and **Git `>= 2.38`**.
+
+### 1. Initialize your repository (one-time)
+
+```bash
+npx --yes github:fmatar/sealit init
+```
+
+The interactive setup detects your language stack, scaffolds `.agent/sealit-config.json`, installs Git hooks and `.github/workflows/sealit-quality-gate.yml`, configures skills for your selected coding agents, and generates `.agent/.receipt-key` (gitignored).
+
+Upload the signing key to your CI secret store (`SEALIT_RECEIPT_KEY`) once so pipelines can verify receipts:
+
+```bash
+# GitHub Actions
+tr -d '\r\n' < .agent/.receipt-key | gh secret set SEALIT_RECEIPT_KEY
+```
+
+<details>
+<summary><strong>Using GitLab CI, Bitbucket Pipelines, or self-hosted CI?</strong></summary>
+
+`sealit` works with any Git host and auto-detects target/source branch variables across GitHub (`GITHUB_BASE_REF`), GitLab (`CI_MERGE_REQUEST_TARGET_BRANCH_NAME`), Bitbucket (`BITBUCKET_PR_DESTINATION_BRANCH`), and Azure DevOps (`SYSTEM_PULLREQUEST_TARGETBRANCH`). Store `.agent/.receipt-key` as masked secret `SEALIT_RECEIPT_KEY` and verify the merge receipt from the trusted base branch **before** installing dependencies:
+
+```yaml
+# .gitlab-ci.yml example
+sealit-verify:
+  image: node:22-alpine
+  variables:
+    GIT_DEPTH: 0
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  script:
+    - apk add --no-cache git
+    - git fetch origin "+refs/heads/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME:refs/remotes/origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" "+refs/heads/develop:refs/remotes/origin/develop" || git fetch origin "+refs/heads/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME:refs/remotes/origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
+    - |
+      if [ "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" = "main" ] && git show-ref --verify --quiet refs/remotes/origin/develop && [ "$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME" != "develop" ]; then
+        echo "Merge requests targeting main must originate from develop." && exit 1
+      fi
+      TRUSTED_DIR="/tmp/trusted-sealit" && mkdir -p "$TRUSTED_DIR"
+      if git cat-file -e "origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME:.agent/scripts/sealit-engine.mjs" 2>/dev/null; then
+        git archive "origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" .agent/scripts | tar -x -C "$TRUSTED_DIR"
+        ENGINE_BIN="$TRUSTED_DIR/.agent/scripts/sealit-engine.mjs"
+      else
+        ENGINE_BIN=".agent/scripts/sealit-engine.mjs"
+      fi
+      MR_SHA="${CI_MERGE_REQUEST_SOURCE_BRANCH_SHA:-$CI_COMMIT_SHA}"
+      if [ "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" = "main" ]; then
+        node "$ENGINE_BIN" verify --sha "$MR_SHA"
+      else
+        node "$ENGINE_BIN" verify --sha "$MR_SHA" --branch "$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME"
+      fi
+```
+
+</details>
+
+> [!IMPORTANT]
+> Only the first initialization creates `.agent/.receipt-key`. Teammates cloning an already-initialized repo should place the shared team key in `.agent/.receipt-key` or `.env`—do not overwrite `SEALIT_RECEIPT_KEY` in CI with a new key.
+
+### 2. Prompt your coding agent
+
+Open **Claude Code**, **Cursor**, **Codex**, **Antigravity**, or **GitHub Copilot** and invoke a `/sealit-*` skill directly—or ask in plain English:
+
+```text
+# Ship a feature end-to-end (branch → TDD → gate → 2-axis review → signed receipt)
+/sealit-flow Add token-bucket rate limiting to POST /api/login
+
+# Clarify edge cases and write or update a capability spec before coding
+/sealit-spec Define retry, backoff, and dead-letter rules for webhook delivery
+
+# Fix a bug with a failing test first and diff coverage/mutation proof
+/sealit-tdd Fix timezone boundary bug in monthly billing rollover
+
+# Run a 2-axis cold review and seal your current branch before opening a PR
+/sealit-gate
+
+# Run an explicit kernel check
+/sealit doctor
+/sealit status
+```
+
+- **Slash or natural language**: `sealit-flow`, `sealit-spec`, `sealit-adr`, `sealit-tdd`, and `sealit-gate` work via slash commands (`/sealit-flow ...` in Claude Code, Cursor, Antigravity; `$sealit-flow` in Codex) **and** auto-trigger from plain-English requests (*"Implement rate limiting on `/api/login` with TDD and seal the PR"*).
+- **Manual-only CLI router**: `/sealit` sets `disable-model-invocation: true`, so the model only runs direct CLI subcommands when you explicitly invoke `/sealit <command>`.
+- **Human-in-the-loop checkpoints**: Your agent handles branching, Red-Green-Refactor TDD, `gate`, and cold-review dispatch autonomously, pausing for your sign-off only when an ADR needs `approve` or when signing the merge receipt.
+
+<details>
+<summary><strong>Prefer running the CLI directly?</strong></summary>
+
+```bash
+# Start a feature branch & session
+npx sealit begin --title "add rate limiter" --type feat --checkout
+
+# ... write tests and implementation ...
+
+# Run drift check, secret scan, lint, tests, diff coverage, and diff mutation
+npx sealit gate
+
+# Record review approval, sign the merge receipt, commit, and verify
+npx sealit review record --verdict approve --reviewer "@you" --notes "LGTM"
+git add docs/AUDIT_CHAIN.jsonl && git commit -m "chore: seal PR receipt"
+npx sealit verify
+```
+
+</details>
+
+### Skills-only mode (no hooks or CI gate)
+
+If you want the spec, ADR, and TDD agent workflows without adding hooks or CI to a repository:
+
+```bash
+npx skills add fmatar/sealit        # current project (.agents/skills)
+npx skills add fmatar/sealit -g     # global across all coding agents
+```
+
+---
+
+## Agent Skills
+
+All 6 skills ship in `.agent/skills/` (with Codex `agents/openai.yaml` metadata and Claude Code `.claude-plugin/plugin.json` support):
+
+| Skill | What it does (with `sealit init`) | Standalone (`npx skills` only) |
+| :--- | :--- | :--- |
+| `/sealit-flow` | Orchestrates a feature or fix end-to-end: `begin` → `drift` → `tdd` → `gate` → 2-axis review → signed receipt → `pr-body` | Stops and offers `sealit init` |
+| `/sealit-spec` | Resolves ambiguous requirements, updates `GLOSSARY.md`, and writes pure-Markdown `PRODUCT.md` & `docs/specs/*` contracts | Authors specs & `GLOSSARY.md` using repo conventions |
+| `/sealit-adr` | Drafts an ADR when specs, dependencies, or contracts change and pauses for human approval | Authors MADR `docs/adr/NNNN-slug.md` with human sign-off |
+| `/sealit-tdd` | Drives Red-Green-Refactor TDD at public module seams and checks diff coverage & mutation scores | Runs Red-Green TDD with the repo's native test runner |
+| `/sealit-gate` | Spawns two cold read-only reviewers (Spec Fidelity + Architecture & Security), runs `sealit gate`, and signs the receipt | Stops and offers `sealit init` |
+| `/sealit` | Explicit user-invoked 1:1 slash router for every CLI command in the reference table below | Runs `init` and `doctor`; prompts `init` for repo commands |
+
+---
+
+## Command Reference (`npx sealit <command>` or `/sealit <command>`)
+
+Every command supports `--json` for structured machine output. In Claude Code, read/measure commands are allowlisted while approval, signing, exemption, and setup commands always prompt a human.
+
+### Setup & Repository Health
+
+| Command | What it does | Common flags |
+| :--- | :--- | :--- |
+| `init` | Scaffolds `.agent/sealit-config.json`, Git hooks, CI workflow, agent skills, and initial `.agent/.receipt-key` | `--agents`, `--global`, `--yes`, `--force` |
+| `doctor` | Audits Node/Git versions, config validity, `.gitignore`, hooks, CI workflow, receipt key, skills, and ledger continuity | `--fix` (repairs & migrates in place) |
+| `config check` | Validates `.agent/sealit-config.json` schema, thresholds, shell-free commands, and path confinement | `--json` |
+| `skill-audit` | Checks all 6 canonical skills for frontmatter rules, line budgets, pinned `npx` packages, and plugin version parity | `--json` |
+
+### Branch Sessions & Spec Alignment
+
+| Command | What it does | Common flags |
+| :--- | :--- | :--- |
+| `begin` | Starts a tracked session and creates/checks out a feature, fix, or chore branch (or linked git worktree) | `--title`, `--type`, `--issue`, `--base`, `--checkout`, `--worktree` |
+| `status` | Shows active branch, session ticket, diff classification (`docs-only` vs `code`), drift status, and receipt readiness | `--json` |
+| `drift` | Verifies that changes to specs, manifests, schemas, contracts, or layer rules are covered by an approved ADR | `--base <branch>` |
+| `adr` | Lists ADRs (`adr list`), scaffolds a pending ADR (`adr create`), or records human approval/rejection (`adr decide`) | `--title`, `--scope`, `--id`, `--status approve\|reject`, `--reviewer` |
+| `end` | Closes a completed session after merge and prunes clean linked worktrees without touching unsaved files | `--issue <id>` |
+
+### Testing, Quality Gate & Signed Receipts
+
+| Command | What it does | Common flags |
+| :--- | :--- | :--- |
+| `test` | Runs configured module test suites, or only unit tests mapped to modified files | `--affected-only` |
+| `coverage` | Executes the coverage command and calculates line coverage strictly across changed diff hunks | `--no-cache` |
+| `mutation` | Runs diff-scoped mutation testing on modified lines (or the full module) and evaluates the kill score | `--full`, `--no-cache` |
+| `exemption` | Lists (`exemption list`) or records (`exemption add`) an audited waiver for an equivalent mutant (active only after merge) | `--mutant`, `--file`, `--reason` |
+| `gate` | Executes drift, secret scan, lint, build, tests, diff coverage, and diff mutation in one pass and updates session state | `--no-cache`, `--online` |
+| `review` | Emits 2-axis cold reviewer prompts (`review plan`) or records review sign-off and signs the receipt (`review record`) | `--verdict approve\|request-changes`, `--reviewer`, `--pr` |
+| `pr-body` | Generates a structured PR description with measured coverage/mutation proof and One-Way vs. Two-Way door blast radius | `--base <branch>` |
+| `receipt` | Signs a standalone HMAC-SHA256 merge receipt into `docs/AUDIT_CHAIN.jsonl` (e.g., for `docs-only` branches) | `--docs-only` |
+| `verify` | Verifies `docs/AUDIT_CHAIN.jsonl` hash continuity and validates the HMAC-SHA256 merge receipt for `HEAD` or a target commit | `--sha`, `--branch`, `--chain-only` |
+
+---
+
+## Language & Runner Support
+
+`sealit init` auto-detects your stack from repository manifests and parses native coverage and mutation reports with zero plugins:
+
+| Ecosystem | Manifests Detected | Coverage Formats | Mutation Formats |
+| :--- | :--- | :--- | :--- |
+| **JavaScript / TypeScript** | `package.json`, `tsconfig.json` | LCOV (`lcov.info`), `coverage-summary.json` | Stryker (`mutation.json`) |
+| **Python** | `pyproject.toml`, `requirements.txt` | Cobertura (`coverage.xml`), `lcov.info` | `mutmut` (`.mutmut-results.json`, `.txt`) |
+| **Go** | `go.mod` | `go test -coverprofile` (`cover.out`) | `go-mutesting` (`go-mutesting.txt`) |
+| **Rust** | `Cargo.toml` | LCOV (`lcov.info`), Cobertura XML | `cargo-mutants` (`outcomes.json`) |
+| **Java / Kotlin** | `pom.xml`, `build.gradle(.kts)` | JaCoCo (`jacoco.xml`, `jacoco.csv`) | PITest (`mutations.xml`) |
+
+**Monotonic PR policy**: Raising coverage or mutation thresholds in `.agent/sealit-config.json` takes effect immediately on that PR. Lowering thresholds, altering gate commands, narrowing mutation globs, or adding mutant exemptions is evaluated against the base branch's floor until reviewed and merged, preventing an agent from weakening its own gate. Optional architectural layer rules can also be configured in `.archlens/policy.json` when desired.
+
+---
+
+## Documentation & License
+
+- **Contributing**: [CONTRIBUTING.md](./CONTRIBUTING.md)
+- **Product Specification & ADR Index**: [PRODUCT.md](./PRODUCT.md)
+- **LLM Context Map**: [llms.txt](./llms.txt)
+- **License**: [Apache-2.0](./LICENSE)

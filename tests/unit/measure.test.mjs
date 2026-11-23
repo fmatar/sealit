@@ -245,7 +245,7 @@ describe('Ring 2: lib/measure.mjs', () => {
 
     fs.mkdirSync(path.join(dir, '.agent'), { recursive: true });
     fs.writeFileSync(
-      path.join(dir, '.agent/sdlc-config.json'),
+      path.join(dir, '.agent/sealit-config.json'),
       JSON.stringify({
         version: '0.1.0',
         modules: [{ name: 'root', path: '.', commands: { mutation: 'stryker run' }, thresholds: { diffCoverage: null, mutationScore: 80 } }],
@@ -402,10 +402,11 @@ describe('Ring 2: lib/measure.mjs', () => {
       }),
       'utf8'
     );
+    fs.writeFileSync(path.join(dir, '.agent/scripts/lib/drift.mjs'), 'export const dr = 1;\n', 'utf8');
     fs.writeFileSync(path.join(dir, 'tests/unit/config.test.mjs'), '// unit test\n', 'utf8');
     fs.writeFileSync(path.join(dir, 'tests/unit/git.test.mjs'), '// unit test\n', 'utf8');
     fs.writeFileSync(path.join(dir, 'tests/unit/drift.test.mjs'), '// unit test\n', 'utf8');
-    git(dir, 'add', 'stryker.config.json', 'tests/unit');
+    git(dir, 'add', 'stryker.config.json', '.agent/scripts/lib/drift.mjs', 'tests/unit');
     git(dir, 'commit', '-q', '-m', 'chore: add stryker baseline');
     git(dir, 'checkout', '-q', '-b', 'feat/stryker-plan', 'develop');
     fs.writeFileSync(path.join(dir, '.agent/scripts/lib/git.mjs'), 'export const msg = "Binary files a and b differ";\n', 'utf8');
@@ -609,7 +610,7 @@ describe('Ring 2: lib/measure.mjs', () => {
       'utf8'
     );
     fs.writeFileSync(
-      path.join(dir, '.agent/sdlc-config.json'),
+      path.join(dir, '.agent/sealit-config.json'),
       JSON.stringify({
         version: '0.1.0',
         archlens: { enabled: false, policyPath: '.archlens/policy.json' },
@@ -632,7 +633,7 @@ describe('Ring 2: lib/measure.mjs', () => {
       }),
       'utf8'
     );
-    git(dir, 'add', '.agent/sdlc-config.json', 'tests/emit-cov.mjs');
+    git(dir, 'add', '.agent/sealit-config.json', 'tests/emit-cov.mjs');
     git(dir, 'commit', '-q', '-m', 'feat: add sample test and config');
 
     writeActiveSession(dir, (s) => {
@@ -652,7 +653,7 @@ describe('Ring 2: lib/measure.mjs', () => {
 
     // Dirty edit is refused upfront by runGate before running any configured command (ADR-020)
     fs.writeFileSync(
-      path.join(dir, '.agent/sdlc-config.json'),
+      path.join(dir, '.agent/sealit-config.json'),
       JSON.stringify({
         version: '0.1.0',
         archlens: { enabled: false },
@@ -665,7 +666,7 @@ describe('Ring 2: lib/measure.mjs', () => {
     assert.equal(dirtyGate.stage, 'dirty');
     assert.match(dirtyGate.reason, /DIRTY_WORKING_TREE/);
     assert.equal(fs.existsSync(path.join(dir, 'ran-on-dirty.txt')), false, 'dirty gate must refuse before running any command');
-    git(dir, 'checkout', '--', '.agent/sdlc-config.json');
+    git(dir, 'checkout', '--', '.agent/sealit-config.json');
 
     // Advisory sdlc coverage on uncommitted work still measures the uncommitted lines
     fs.writeFileSync(path.join(dir, 'uncommitted-mod.mjs'), 'export const u = 1;\nexport const u2 = 2;\n', 'utf8');
@@ -695,8 +696,8 @@ describe('Ring 2: lib/measure.mjs', () => {
       })
     );
 
-    // Corrupt .agent/.sdlc-session.json throws SESSION_CORRUPT during runGate without writeSessionFn
-    fs.writeFileSync(path.join(dir, '.agent/.sdlc-session.json'), '{corrupt-session-json', 'utf8');
+    // Corrupt .agent/.sealit-session.json throws SESSION_CORRUPT during runGate without writeSessionFn
+    fs.writeFileSync(path.join(dir, '.agent/.sealit-session.json'), '{corrupt-session-json', 'utf8');
     assert.throws(() => runGate(dir, { noCache: true }), (err) => err?.code === 'SESSION_CORRUPT');
 
     // Docs-only branch runs docs-only mode
@@ -705,11 +706,11 @@ describe('Ring 2: lib/measure.mjs', () => {
     git(docRepo.dir, 'checkout', '-q', '-b', 'docs/readme', 'develop');
     fs.mkdirSync(path.join(docRepo.dir, '.agent'), { recursive: true });
     fs.writeFileSync(
-      path.join(docRepo.dir, '.agent/sdlc-config.json'),
+      path.join(docRepo.dir, '.agent/sealit-config.json'),
       JSON.stringify({ version: '0.1.0', archlens: { enabled: false }, modules: [{ name: 'root', path: '.', commands: {} }] }),
       'utf8'
     );
-    git(docRepo.dir, 'add', '.agent/sdlc-config.json');
+    git(docRepo.dir, 'add', '.agent/sealit-config.json');
     git(docRepo.dir, 'commit', '-q', '-m', 'chore: config');
     git(docRepo.dir, 'branch', '-f', 'develop', 'HEAD');
     fs.writeFileSync(path.join(docRepo.dir, 'README.md'), '# Pure docs update\n', 'utf8');
@@ -745,17 +746,17 @@ describe('Ring 2: lib/measure.mjs', () => {
     git(dir, 'checkout', '-q', '-b', 'feat/steps', 'develop');
     fs.mkdirSync(path.join(dir, '.agent/scripts/lib'), { recursive: true });
     fs.mkdirSync(path.join(dir, 'tests/unit'), { recursive: true });
-    fs.writeFileSync(path.join(dir, '.agent/scripts/sdlc-engine.mjs'), 'export const cli = 1;\n', 'utf8');
+    fs.writeFileSync(path.join(dir, '.agent/scripts/sealit-engine.mjs'), 'export const cli = 1;\n', 'utf8');
     fs.writeFileSync(path.join(dir, 'tests/unit/cli.test.mjs'), '// cli test\n', 'utf8');
     assert.deepEqual(resolveAffectedTests(dir), ['tests/unit/cli.test.mjs']);
 
     const writeAndCommitCfg = (commands, thresholds = { diffCoverage: null, mutationScore: null }) => {
       fs.writeFileSync(
-        path.join(dir, '.agent/sdlc-config.json'),
+        path.join(dir, '.agent/sealit-config.json'),
         JSON.stringify({ version: '0.1.0', archlens: { enabled: false }, modules: [{ name: 'root', path: '.', commands, thresholds }] }),
         'utf8'
       );
-      git(dir, 'add', '.agent/sdlc-config.json', '.agent/scripts/sdlc-engine.mjs', 'tests/unit/cli.test.mjs');
+      git(dir, 'add', '.agent/sealit-config.json', '.agent/scripts/sealit-engine.mjs', 'tests/unit/cli.test.mjs');
       git(dir, 'commit', '-q', '-m', 'chore: update cfg');
     };
 
@@ -779,7 +780,7 @@ describe('Ring 2: lib/measure.mjs', () => {
     assert.equal(warm.modules[0].cached, true);
 
     // Diff-scoped Stryker run with 0 mutants in target range returns diff-zero-mutants (passed: true, skipped: true)
-    fs.writeFileSync(path.join(dir, 'stryker.config.json'), JSON.stringify({ mutate: ['.agent/scripts/sdlc-engine.mjs'] }), 'utf8');
+    fs.writeFileSync(path.join(dir, 'stryker.config.json'), JSON.stringify({ mutate: ['.agent/scripts/sealit-engine.mjs'] }), 'utf8');
     fs.writeFileSync(
       path.join(dir, 'emit-empty-mut.mjs'),
       `import fs from 'node:fs'; fs.mkdirSync('reports/mutation', { recursive: true }); fs.writeFileSync('reports/mutation/mutation.json', JSON.stringify({ files: {} }));`,
@@ -788,7 +789,7 @@ describe('Ring 2: lib/measure.mjs', () => {
     git(dir, 'add', 'stryker.config.json', 'emit-empty-mut.mjs');
     git(dir, 'commit', '-q', '-m', 'chore: empty mut fixture');
     git(dir, 'checkout', '-q', '-b', 'feat/zero-mut', 'feat/steps');
-    fs.writeFileSync(path.join(dir, '.agent/scripts/sdlc-engine.mjs'), '// comment-only edit\nexport const cli = 1;\n', 'utf8');
+    fs.writeFileSync(path.join(dir, '.agent/scripts/sealit-engine.mjs'), '// comment-only edit\nexport const cli = 1;\n', 'utf8');
     const zeroMut = measureModuleMutation(
       dir,
       { name: 'root', path: '.', commands: { mutation: `${process.execPath} emit-empty-mut.mjs stryker` }, thresholds: { mutationScore: 80 } },
@@ -892,7 +893,7 @@ describe('Ring 2: lib/measure.mjs', () => {
     fs.mkdirSync(path.join(gateModeRepo.dir, '.archlens'), { recursive: true });
     fs.mkdirSync(path.join(gateModeRepo.dir, 'docs'), { recursive: true });
     fs.writeFileSync(
-      path.join(gateModeRepo.dir, '.agent/sdlc-config.json'),
+      path.join(gateModeRepo.dir, '.agent/sealit-config.json'),
       JSON.stringify({
         version: '0.1.0',
         archlens: { enabled: true, policyPath: '.archlens/policy.json' },
@@ -945,7 +946,7 @@ describe('Ring 2: lib/measure.mjs', () => {
 
       fs.mkdirSync(path.join(repo.dir, '.agent/scripts'), { recursive: true });
       fs.writeFileSync(
-        path.join(repo.dir, '.agent/scripts/sdlc-engine.mjs'),
+        path.join(repo.dir, '.agent/scripts/sealit-engine.mjs'),
         'export const e1 = 1;\nexport const e2 = 2;\nexport const e3 = 3;\nexport const e4 = 4;\nexport const e5 = 5;\n',
         'utf8'
       );
@@ -990,11 +991,11 @@ describe('Ring 2: lib/measure.mjs', () => {
 
     // Synthetic changeSet with baseSha: null never falls back to worktree package.json
     const synthOwnerWorktree = setupFixture('demo');
-    fs.writeFileSync(path.join(synthOwnerWorktree, 'package.json'), JSON.stringify({ name: '@fmatar/agentic-sdlc' }), 'utf8');
+    fs.writeFileSync(path.join(synthOwnerWorktree, 'package.json'), JSON.stringify({ name: 'sealit' }), 'utf8');
     const synthCs = {
       baseSha: null,
-      entries: [{ status: 'A', newMode: '100644', path: '.agent/scripts/sdlc-engine.mjs' }],
-      patches: new Map([['.agent/scripts/sdlc-engine.mjs', '@@ -0,0 +1,2 @@\n+export const x = 1;\n+export const y = 2;\n']])
+      entries: [{ status: 'A', newMode: '100644', path: '.agent/scripts/sealit-engine.mjs' }],
+      patches: new Map([['.agent/scripts/sealit-engine.mjs', '@@ -0,0 +1,2 @@\n+export const x = 1;\n+export const y = 2;\n']])
     };
     const synthCov = parseCoverageReport(
       synthOwnerWorktree,
@@ -1010,7 +1011,7 @@ describe('Ring 2: lib/measure.mjs', () => {
     assert.equal(synthPlan.skip, true);
     assert.equal(synthPlan.reason, 'diff-no-mutated-sources');
 
-    const ownerDir = setupFixture('@fmatar/agentic-sdlc');
+    const ownerDir = setupFixture('sealit');
     fs.writeFileSync(path.join(ownerDir, 'src/a.mjs'), 'export const a1 = 1;\nexport const a2 = 2;\n', 'utf8');
     fs.writeFileSync(
       path.join(ownerDir, 'coverage/lcov.info'),
@@ -1022,6 +1023,6 @@ describe('Ring 2: lib/measure.mjs', () => {
     assert.ok(ownerCov.diffLineCoverage < 85);
     const ownerPlan = buildMutationPlan(ownerDir, { name: 'root', path: '.', commands: { mutation: 'npx stryker run' } });
     assert.equal(ownerPlan.status, 'diff-unmutated-sources');
-    assert.ok(ownerPlan.unmutatedSources.includes('.agent/scripts/sdlc-engine.mjs'));
+    assert.ok(ownerPlan.unmutatedSources.includes('.agent/scripts/sealit-engine.mjs'));
   });
 });

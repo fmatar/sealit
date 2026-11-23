@@ -1,8 +1,31 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="400" height="68" viewBox="0 0 400 68" role="img" aria-label="Agentic SDLC Framework">
-  <rect x="4" y="8" width="52" height="52" rx="14" fill="#0f172a" stroke="#334155" stroke-width="1.5"/>
-  <circle cx="30" cy="34" r="18" fill="none" stroke="#818cf8" stroke-width="2" stroke-dasharray="4 2"/>
-  <circle cx="30" cy="34" r="11" fill="none" stroke="#2dd4bf" stroke-width="2"/>
-  <circle cx="30" cy="34" r="4.5" fill="#a5b4fc"/>
-  <text x="70" y="36" fill="#f8fafc" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="21" font-weight="700" letter-spacing="-0.4">Agentic SDLC Framework</text>
-  <text x="70" y="53" fill="#94a3b8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="600">DETERMINISTIC ENGINEERING FOR AI AGENTS</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="100" viewBox="0 0 300 100" role="img" aria-labelledby="sealit-dark-title">
+  <title id="sealit-dark-title">sealit</title>
+  <g id="symbol">
+    <polygon fill="#E03131" points="35.1,13 40.4,13 21.4,32 57.4,68 38.4,87 35.1,87 13,64.9 13,35.1" />
+    <polygon fill="#FFFFFF" points="33,8 52.5,8 40.4,13 35.1,13" />
+    <polygon fill="#FFFFFF" points="28.5,32 64.5,68 57.4,68 21.4,32" />
+    <polygon fill="#C92A2A" points="8,33 33,8 35.1,13 13,35.1" />
+    <polygon fill="#C92A2A" points="8,67 8,33 13,35.1 13,64.9" />
+    <polygon fill="#7F1D1D" points="52.5,8 28.5,32 21.4,32 40.4,13" />
+    <polygon fill="#7F1D1D" points="64.5,68 40.5,92 38.4,87 57.4,68" />
+    <polygon fill="#7F1D1D" points="40.5,92 33,92 35.1,87 38.4,87" />
+    <polygon fill="#7F1D1D" points="33,92 8,67 13,64.9 35.1,87" />
+    <polygon fill="#E03131" points="64.9,87 59.6,87 78.6,68 42.6,32 61.6,13 64.9,13 87,35.1 87,64.9" />
+    <polygon fill="#FFFFFF" points="59.5,8 67,8 64.9,13 61.6,13" />
+    <polygon fill="#FFFFFF" points="35.5,32 59.5,8 61.6,13 42.6,32" />
+    <polygon fill="#FFFFFF" points="47.5,92 71.5,68 78.6,68 59.6,87" />
+    <polygon fill="#FF6B6B" points="67,8 92,33 87,35.1 64.9,13" />
+    <polygon fill="#7F1D1D" points="71.5,68 35.5,32 42.6,32 78.6,68" />
+    <polygon fill="#7F1D1D" points="92,33 92,67 87,64.9 87,35.1" />
+    <polygon fill="#7F1D1D" points="92,67 67,92 64.9,87 87,64.9" />
+    <polygon fill="#7F1D1D" points="67,92 47.5,92 59.6,87 64.9,87" />
+  </g>
+  <g id="wordmark" fill="#F8FAFC">
+    <path d="M130.5 34C139.7 34 145.1 38.4 145.5 45.5H136.3C135.8 42.6 133.6 41.2 130.3 41.2C126.9 41.2 124.9 42.8 124.9 45.4C124.9 48.4 127.9 49.6 133 50.8C141.7 52.8 146.5 56.4 146.5 63.2C146.5 71.2 140.3 76 130.7 76C120.7 76 115 71.4 114.5 64H123.9C124.4 67 127 68.8 130.9 68.8C134.7 68.8 136.9 67 136.9 64.2C136.9 61.1 133.9 59.9 128.7 58.7C120 56.7 115.5 53.1 115.5 46.2C115.5 38.6 121.3 34 130.5 34Z" />
+    <path fill-rule="evenodd" d="M170 34C181 34 188 42 188 54.5V58H161.8C162.4 64.4 165.8 68 170.8 68C174.6 68 177.4 66.2 178.8 63.2H187.6C185.8 71.2 179.4 76 170.5 76C159.5 76 152 67.5 152 55C152 42.5 159.5 34 170 34ZM161.8 50.5H178.4C177.8 45 174.6 41.8 170.1 41.8C165.6 41.8 162.4 45 161.8 50.5Z" />
+    <path fill-rule="evenodd" d="M209 34C214.3 34 217.9 36.4 219.5 40.2V35H229.5V75H219.5V69.8C217.9 73.6 214.3 76 209 76C199.9 76 193.5 67.4 193.5 55C193.5 42.6 199.9 34 209 34ZM211.5 42.2C216.3 42.2 219.7 47.4 219.7 55C219.7 62.6 216.3 67.8 211.5 67.8C206.7 67.8 203.3 62.6 203.3 55C203.3 47.4 206.7 42.2 211.5 42.2Z" />
+    <path d="M237 21H247V75H237Z" />
+    <path d="M257.3 19.5H261.7L264.5 22.3V26.7L261.7 29.5H257.3L254.5 26.7V22.3ZM254.5 35H264.5V75H254.5Z" />
+    <path d="M274 25H284V35H291V43H284V62.5C284 66.2 285.8 67.5 289.2 67.5H291V75.5C289.2 75.9 287.4 76 285.5 76C277.8 76 274 72 274 63.5V43H269V35H274Z" />
+  </g>
 </svg>
