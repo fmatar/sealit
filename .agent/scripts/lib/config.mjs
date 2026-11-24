@@ -627,7 +627,7 @@ export function isVendoredEnginePath(relPath = '') {
   return String(relPath || '').replace(/\\/g, '/').replace(/^\.\//, '').startsWith('.agent/scripts/');
 }
 
-export const ENGINE_OWNER_NAMES = Object.freeze(new Set(['sealit', '@fmatar/sealit', '@fmatar/agentic-sdlc']));
+export const ENGINE_OWNER_NAMES = Object.freeze(new Set(['@sealit/cli', 'sealit', '@fmatar/sealit', '@fmatar/agentic-sdlc']));
 
 export function isEngineOwnerRepo({ repoRoot = '.', baseSha = null } = {}) {
   if (baseSha === EMPTY_TREE_SHA) return false;

@@ -626,7 +626,7 @@ describe('Ring 0: lib/config.mjs', () => {
     assert.equal(isEngineOwnerRepo({ repoRoot: r.dir, baseSha: '4b825dc642cb6eb9a060e54bf8d69288fbee4904' }), false);
     assert.equal(isEngineOwnerRepo({ repoRoot: r.dir }), false);
 
-    for (const ownerName of ['sealit', '@fmatar/sealit', '@fmatar/agentic-sdlc']) {
+    for (const ownerName of ['@sealit/cli', 'sealit', '@fmatar/sealit', '@fmatar/agentic-sdlc']) {
       fs.writeFileSync(path.join(r.dir, 'package.json'), JSON.stringify({ name: ownerName }), 'utf8');
       assert.equal(isEngineOwnerRepo({ repoRoot: r.dir }), true, ownerName);
     }

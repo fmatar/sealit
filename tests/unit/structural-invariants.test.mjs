@@ -50,7 +50,8 @@ describe('sealit v0.0.1 Structural & Governance Invariants', () => {
 
   it('Invariant 2: Package metadata, Node >=22 floor, zero runtime deps, valid dogfood config, and Claude plugin packaging', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'));
-    assert.equal(pkg.name, 'sealit');
+    assert.equal(pkg.name, '@sealit/cli');
+    assert.equal(pkg.publishConfig?.access, 'public');
     assert.equal(pkg.version, '0.0.1');
     assert.equal(pkg.homepage, 'https://sealit.dev');
     assert.equal(readPackageVersion('/nonexistent/sealit-missing/scripts'), pkg.version);
@@ -170,10 +171,11 @@ describe('sealit v0.0.1 Structural & Governance Invariants', () => {
     assert.match(rel, /refs\/heads\/main/);
     assert.match(rel, /sealit-engine\.mjs verify/);
 
-    // Audit #10: Active docs/skills/specs never claim Audit Ledger is a Merkle tree
+    // Audit #10: Active docs/skills/specs never claim Audit Ledger is a Merkle tree or invoke unowned unscoped 'npx sealit'
     for (const docRel of ['README.md', 'PRODUCT.md', 'CONTRIBUTING.md', 'docs/PRD.md']) {
       const docTxt = fs.readFileSync(path.join(REPO_ROOT, docRel), 'utf8');
       assert.equal(/\bMerkle\b/i.test(docTxt), false, `Unexpected 'Merkle' terminology in ${docRel}`);
+      assert.equal(/\bnpx\s+(?:--yes\s+|-y\s+)?sealit(?:\s|$)/.test(docTxt), false, `Unowned unscoped 'npx sealit' in ${docRel}`);
     }
   });
 
