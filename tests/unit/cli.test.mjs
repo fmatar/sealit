@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createTempGitRepo, git, withoutReceiptEnv } from '../helpers/test-harness.mjs';
-import { runCLI, formatCLIResult, cliExitCode, readPackageVersion } from '../../.agent/scripts/sealit-engine.mjs';
+import { runCLI, runCliEntrypoint, formatCLIResult, cliExitCode, readPackageVersion } from '../../.agent/scripts/sealit-engine.mjs';
 
 const cleanups = [];
 afterEach(() => {
@@ -312,5 +312,56 @@ describe('Ring 3: sealit-engine.mjs CLI registry', () => {
         /\.agent\/\.receipt-key/
       );
     });
+  });
+
+  it('runCliEntrypoint routes stdout/stderr, --json mode, warnings, and thrown errors cleanly in-process', async () => {
+    const capture = async (argv, runnerOverride) => {
+      let out = '';
+      let err = '';
+      let code = null;
+      await runCliEntrypoint({
+        argv,
+        stdout: { write: (s) => { out += s; } },
+        stderr: { write: (s) => { err += s; } },
+        exit: (c) => { code = c; },
+        runner: runnerOverride
+      });
+      return { out, err, code };
+    };
+
+    const verRes = await capture(['--version']);
+    assert.equal(verRes.code, 0);
+    assert.equal(verRes.out.trim(), '0.0.1');
+    assert.equal(verRes.err, '');
+
+    const jsonRes = await capture(['config', 'check', '--json'], async (_argv, _cfg, _root, opts) => {
+      opts.onProgress?.('[gate] suppressed in json');
+      return { success: true, command: 'config', warnings: ['ignored in json'] };
+    });
+    assert.equal(jsonRes.code, 0);
+    assert.equal(JSON.parse(jsonRes.out).success, true);
+    assert.equal(jsonRes.err, '');
+
+    const badCmd = await capture(['unknown-subcmd']);
+    assert.equal(badCmd.code, 2);
+    assert.equal(badCmd.out, '');
+    assert.match(badCmd.err, /Unknown command/);
+
+    const warnRes = await capture(['status'], async (_argv, _cfg, _root, opts) => {
+      opts.onProgress?.('[gate] step');
+      return { success: true, command: 'config', warnings: ['minor note'] };
+    });
+    assert.equal(warnRes.code, 0);
+    assert.match(warnRes.err, /\[gate\] step/);
+    assert.match(warnRes.err, /Warning: minor note/);
+    assert.equal(warnRes.out, 'OK\n');
+
+    const thrownTxt = await capture(['status'], async () => { throw new Error('boom-txt'); });
+    assert.equal(thrownTxt.code, 1);
+    assert.equal(thrownTxt.err, 'Error: boom-txt\n');
+
+    const thrownJson = await capture(['status', '--json'], async () => { throw new Error('boom-json'); });
+    assert.equal(thrownJson.code, 1);
+    assert.deepEqual(JSON.parse(thrownJson.out), { success: false, error: 'boom-json' });
   });
 });

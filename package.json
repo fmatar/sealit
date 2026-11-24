@@ -16,7 +16,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/fmatar/sealit.git"
+    "url": "git+https://github.com/fmatar/sealit.git"
   },
   "homepage": "https://sealit.dev",
   "bugs": {
@@ -30,9 +30,10 @@
     "./package.json": "./package.json"
   },
   "bin": {
-    "sealit": "./.agent/scripts/sealit-engine.mjs"
+    "sealit": "bin/sealit.mjs"
   },
   "files": [
+    "bin",
     ".agent/skills/sealit",
     ".agent/skills/sealit-spec",
     ".agent/skills/sealit-adr",
@@ -41,13 +42,15 @@
     ".agent/skills/sealit-flow",
     ".agent/scripts",
     ".agent/schemas",
+    "docs/logo-dark.svg",
+    "docs/logo-light.svg",
     "docs/templates",
     "README.md",
     "LICENSE",
     "llms.txt"
   ],
   "scripts": {
-    "lint": "node --check .agent/scripts/sealit-engine.mjs .agent/scripts/lib/*.mjs tests/helpers/*.mjs tests/unit/*.mjs",
+    "lint": "node --check bin/sealit.mjs .agent/scripts/sealit-engine.mjs .agent/scripts/lib/*.mjs tests/helpers/*.mjs tests/unit/*.mjs",
     "test": "node --test --test-reporter=dot \"tests/**/*.test.mjs\"",
     "test:unit": "node --test --test-reporter=dot \"tests/unit/*.test.mjs\"",
     "test:affected": "node .agent/scripts/sealit-engine.mjs test --affected-only",
