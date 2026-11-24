@@ -1,6 +1,9 @@
 {
-  "name": "sealit",
+  "name": "@sealit/cli",
   "version": "0.0.1",
+  "publishConfig": {
+    "access": "public"
+  },
   "description": "Alignment and Proof Kernel for AI Coding Agents: Spec/ADR Drift Guard, Diff Coverage & Mutation Gate, and Cryptographic Merge Receipts",
   "keywords": [
     "sealit",

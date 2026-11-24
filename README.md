@@ -62,7 +62,7 @@ Requires **Node.js `>= 22`** and **Git `>= 2.38`**.
 ### 1. Initialize your repository (one-time)
 
 ```bash
-npx --yes github:fmatar/sealit init
+npx --yes @sealit/cli init
 ```
 
 The interactive setup detects your language stack, scaffolds `.agent/sealit-config.json`, installs Git hooks and `.github/workflows/sealit-quality-gate.yml`, configures skills for your selected coding agents, and generates `.agent/.receipt-key` (gitignored).
@@ -145,17 +145,17 @@ Open **Claude Code**, **Cursor**, **Codex**, **Antigravity**, or **GitHub Copilo
 
 ```bash
 # Start a feature branch & session
-npx sealit begin --title "add rate limiter" --type feat --checkout
+npx @sealit/cli begin --title "add rate limiter" --type feat --checkout
 
 # ... write tests and implementation ...
 
 # Run drift check, secret scan, lint, tests, diff coverage, and diff mutation
-npx sealit gate
+npx @sealit/cli gate
 
 # Record review approval, sign the merge receipt, commit, and verify
-npx sealit review record --verdict approve --reviewer "@you" --notes "LGTM"
+npx @sealit/cli review record --verdict approve --reviewer "@you" --notes "LGTM"
 git add docs/AUDIT_CHAIN.jsonl && git commit -m "chore: seal PR receipt"
-npx sealit verify
+npx @sealit/cli verify
 ```
 
 </details>
@@ -186,7 +186,7 @@ All 6 skills ship in `.agent/skills/` (with Codex `agents/openai.yaml` metadata 
 
 ---
 
-## Command Reference (`npx sealit <command>` or `/sealit <command>`)
+## Command Reference (`npx @sealit/cli <command>` or `/sealit <command>`)
 
 Every command supports `--json` for structured machine output. In Claude Code, read/measure commands are allowlisted while approval, signing, exemption, and setup commands always prompt a human.
 

@@ -49,4 +49,5 @@ Open-source Alignment and Proof Kernel for AI coding agents (`Antigravity`, `Cla
 | ADR-023 | First adoption passes the gate | `technical` | `accepted` | L-10 | CAP-04, CAP-06 |
 | ADR-024 | Two-track skill installation | `architectural` | `accepted` | L-11 | CAP-06 |
 | ADR-026 | Rebrand to sealit (sealit.dev) and reset version baseline to 0.0.1 | `architectural` | `accepted` | L-13 | CAP-01, CAP-02, CAP-03, CAP-04, CAP-05, CAP-06, ADR-024 |
+| ADR-027 | Adopt @sealit/cli scoped npm package name | `product` | `accepted` | L-17 | CAP-04, CAP-06, ADR-026 |
 <!-- ADR_INDEX_END -->
