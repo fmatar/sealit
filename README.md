@@ -145,17 +145,17 @@ Open **Claude Code**, **Cursor**, **Codex**, **Antigravity**, or **GitHub Copilo
 
 ```bash
 # Start a feature branch & session
-npx sealit begin --title "add rate limiter" --type feat --checkout
+npx @sealit/cli begin --title "add rate limiter" --type feat --checkout
 
 # ... write tests and implementation ...
 
 # Run drift check, secret scan, lint, tests, diff coverage, and diff mutation
-npx sealit gate
+npx @sealit/cli gate
 
 # Record review approval, sign the merge receipt, commit, and verify
-npx sealit review record --verdict approve --reviewer "@you" --notes "LGTM"
+npx @sealit/cli review record --verdict approve --reviewer "@you" --notes "LGTM"
 git add docs/AUDIT_CHAIN.jsonl && git commit -m "chore: seal PR receipt"
-npx sealit verify
+npx @sealit/cli verify
 ```
 
 </details>

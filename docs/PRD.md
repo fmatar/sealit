@@ -27,7 +27,7 @@
 - Bundling or modifying third-party skills outside the `sealit*` (and retired `sdlc*`) namespace.
 
 ## 4. Core User Flows
-1. **Onboarding (`sealit init`)**: `npx --yes github:fmatar/sealit init` (or `npx sealit init`) detects project stacks, generates `.agent/sealit-config.json` and `.archlens/policy.json`, installs SHA-256 verified Git hooks and `.github/workflows/sealit-quality-gate.yml`, and provisions selected agent skills.
+1. **Onboarding (`sealit init`)**: `npx --yes @sealit/cli init` (or `npx --yes github:fmatar/sealit init`) detects project stacks, generates `.agent/sealit-config.json` and `.archlens/policy.json`, installs SHA-256 verified Git hooks and `.github/workflows/sealit-quality-gate.yml`, and provisions selected agent skills.
 2. **Branch Delivery (`sealit-flow`)**: `sealit begin --checkout` -> `sealit-spec` / `sealit-adr` (`sealit drift`) -> `sealit-tdd` (`test`, `coverage`, `mutation`) -> `sealit-gate` (`gate`, independent review, `review record --verdict approve`, `verify`) -> `sealit end`.
 
 ## 5. Quality & Security Guardrails

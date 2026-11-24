@@ -171,10 +171,11 @@ describe('sealit v0.0.1 Structural & Governance Invariants', () => {
     assert.match(rel, /refs\/heads\/main/);
     assert.match(rel, /sealit-engine\.mjs verify/);
 
-    // Audit #10: Active docs/skills/specs never claim Audit Ledger is a Merkle tree
+    // Audit #10: Active docs/skills/specs never claim Audit Ledger is a Merkle tree or invoke unowned unscoped 'npx sealit'
     for (const docRel of ['README.md', 'PRODUCT.md', 'CONTRIBUTING.md', 'docs/PRD.md']) {
       const docTxt = fs.readFileSync(path.join(REPO_ROOT, docRel), 'utf8');
       assert.equal(/\bMerkle\b/i.test(docTxt), false, `Unexpected 'Merkle' terminology in ${docRel}`);
+      assert.equal(/\bnpx\s+(?:--yes\s+|-y\s+)?sealit(?:\s|$)/.test(docTxt), false, `Unowned unscoped 'npx sealit' in ${docRel}`);
     }
   });
 
