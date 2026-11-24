@@ -13,7 +13,7 @@ disable-model-invocation: true
 ## Kernel check
 Check whether `.agent/sealit-config.json` exists in the repository:
 - **Present**: run the mapped `node .agent/scripts/sealit-engine.mjs <command>` line below.
-- **Absent**: `/sealit init [flags]` and `/sealit doctor` execute via `npx --yes github:fmatar/sealit <init|doctor> [flags]`; any other subcommand stops and offers `/sealit init` to initialize the Proof Kernel in this repository.
+- **Absent**: `/sealit init [flags]` and `/sealit doctor` execute via `npx --yes @sealit/cli <init|doctor> [flags]`; any other subcommand stops and offers `/sealit init` to initialize the Proof Kernel in this repository.
 
 ## Command Mapping (`1:1` to `sealit-engine.mjs`)
 

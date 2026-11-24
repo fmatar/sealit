@@ -92,10 +92,10 @@ describe('Ring 2: lib/install.mjs', () => {
     assert.ok(badAudit.findings.some((f) => f.rule === 'RP1'));
     assert.ok(badAudit.findings.some((f) => f.rule === 'AS3'));
 
-    // Canonical sealit / @fmatar/sealit / github:fmatar/sealit specifiers produce zero RP1 findings while npx cowsay still triggers RP1
+    // Canonical @sealit/cli / sealit / @fmatar/sealit / github:fmatar/sealit specifiers produce zero RP1 findings while npx cowsay still triggers RP1
     fs.writeFileSync(
       path.join(srcDir, '.agent/skills/sealit/SKILL.md'),
-      '---\nname: sealit\ndescription: "Use when routing /sealit commands."\n---\nRun `npx --yes sealit init` and `npx @fmatar/sealit init` and `npx --yes github:fmatar/sealit init` and `npx @scope/pkg@1.2.3` and `npx github:fmatar/sealit#v0.0.1`.\n',
+      '---\nname: sealit\ndescription: "Use when routing /sealit commands."\n---\nRun `npx --yes @sealit/cli init` and `npx --yes sealit init` and `npx @fmatar/sealit init` and `npx --yes github:fmatar/sealit init` and `npx @scope/pkg@1.2.3` and `npx github:fmatar/sealit#v0.0.1`.\n',
       'utf8'
     );
     assert.equal(auditSkills(srcDir).findings.some((f) => f.rule === 'RP1'), false);

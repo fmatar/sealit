@@ -62,7 +62,7 @@ Requires **Node.js `>= 22`** and **Git `>= 2.38`**.
 ### 1. Initialize your repository (one-time)
 
 ```bash
-npx --yes github:fmatar/sealit init
+npx --yes @sealit/cli init
 ```
 
 The interactive setup detects your language stack, scaffolds `.agent/sealit-config.json`, installs Git hooks and `.github/workflows/sealit-quality-gate.yml`, configures skills for your selected coding agents, and generates `.agent/.receipt-key` (gitignored).
@@ -186,7 +186,7 @@ All 6 skills ship in `.agent/skills/` (with Codex `agents/openai.yaml` metadata 
 
 ---
 
-## Command Reference (`npx sealit <command>` or `/sealit <command>`)
+## Command Reference (`npx @sealit/cli <command>` or `/sealit <command>`)
 
 Every command supports `--json` for structured machine output. In Claude Code, read/measure commands are allowlisted while approval, signing, exemption, and setup commands always prompt a human.
 

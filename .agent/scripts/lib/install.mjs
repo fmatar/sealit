@@ -34,7 +34,7 @@ export const CLAUDE_SEALIT_ALLOW_RULES = Object.freeze([
 export const CLAUDE_SDLC_ALLOW_RULES = CLAUDE_SEALIT_ALLOW_RULES;
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
-const ALLOWED_NPX_SPECS = new Set(['sealit', '@fmatar/sealit', 'github:fmatar/sealit']);
+const ALLOWED_NPX_SPECS = new Set(['@sealit/cli', 'sealit', '@fmatar/sealit', 'github:fmatar/sealit']);
 
 function normalizeAgentList(rawAgents) {
   const items = Array.isArray(rawAgents) ? rawAgents : String(rawAgents || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
