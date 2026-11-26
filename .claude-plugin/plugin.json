@@ -1,6 +1,6 @@
 {
   "name": "sealit",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Sealit Alignment + Proof Kernel: 6 canonical skills for spec/ADR alignment, vertical TDD coverage/mutation gates, 2-axis cold review, and signed merge receipts",
   "skills": [
     "./.agent/skills/sealit",

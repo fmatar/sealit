@@ -66,8 +66,8 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
           GITHUB_HEAD_REF: ${{ github.head_ref }}
         run: |
-          if [ -z "$SEALIT_RECEIPT_KEY" ]; then
-            echo "::error::Missing SEALIT_RECEIPT_KEY secret: configure repository secret SEALIT_RECEIPT_KEY to verify Stage 7 gate receipts."
+          if [ -z "$SEALIT_RECEIPT_KEY" ] && ! git cat-file -e "origin/$BASE_REF:.agent/allowed_signers" 2>/dev/null; then
+            echo "::error::Missing SEALIT_RECEIPT_KEY secret (and no .agent/allowed_signers on base branch)."
             exit 1
           fi
           TRUSTED_DIR="${RUNNER_TEMP:-/tmp}/sealit-trusted-verifier"
@@ -98,15 +98,10 @@ jobs:
             npm install --no-audit --no-fund
           fi
 
-      - name: Verify Env-Isolated Test Suite
-        if: hashFiles('package.json') != ''
+      - name: Verify Universal Quality Gate & Hash-Chain Audit Ledger
         env:
           SEALIT_RECEIPT_KEY: ci-dummy-test-key
           SDLC_RECEIPT_KEY: ci-dummy-test-key
-        run: |
-          npm test
-
-      - name: Verify Universal Quality Gate & Hash-Chain Audit Ledger
         run: |
           if [ -f ".agent/scripts/sealit-engine.mjs" ]; then
             node .agent/scripts/sealit-engine.mjs config check

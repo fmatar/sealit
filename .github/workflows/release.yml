@@ -42,13 +42,26 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: false
 
       - name: Setup Node.js Runtime
         uses: actions/setup-node@v7
         with:
           node-version: "lts/*"
           registry-url: 'https://registry.npmjs.org'
+
+      - name: Pre-Install Receipt & Ledger Verification
+        env:
+          SEALIT_RECEIPT_KEY: ${{ secrets.SEALIT_RECEIPT_KEY || secrets.SDLC_RECEIPT_KEY }}
+          SDLC_RECEIPT_KEY: ${{ secrets.SEALIT_RECEIPT_KEY || secrets.SDLC_RECEIPT_KEY }}
+        run: |
+          node .agent/scripts/sealit-engine.mjs config check
+          node .agent/scripts/sealit-engine.mjs verify --chain-only
+          if [ -z "$SEALIT_RECEIPT_KEY" ] && [ ! -f ".agent/allowed_signers" ]; then
+            echo "::error::Missing SEALIT_RECEIPT_KEY secret (and no .agent/allowed_signers): production release requires verified Stage 7 receipt."
+            exit 1
+          fi
+          node .agent/scripts/sealit-engine.mjs verify
 
       - name: Install Dependencies
         run: |
@@ -58,19 +71,12 @@ jobs:
             npm install --no-audit --no-fund
           fi
 
-      - name: Verify Quality Gate & Signed Stage 7 Receipt
+      - name: Verify Quality Gate
         env:
-          SEALIT_RECEIPT_KEY: ${{ secrets.SEALIT_RECEIPT_KEY || secrets.SDLC_RECEIPT_KEY }}
-          SDLC_RECEIPT_KEY: ${{ secrets.SEALIT_RECEIPT_KEY || secrets.SDLC_RECEIPT_KEY }}
+          SEALIT_RECEIPT_KEY: ci-dummy-test-key
+          SDLC_RECEIPT_KEY: ci-dummy-test-key
         run: |
-          node .agent/scripts/sealit-engine.mjs config check
-          node .agent/scripts/sealit-engine.mjs verify --chain-only
           node .agent/scripts/sealit-engine.mjs gate --no-cache
-          if [ -z "$SEALIT_RECEIPT_KEY" ]; then
-            echo "::error::Missing SEALIT_RECEIPT_KEY secret: production release requires verified Stage 7 receipt."
-            exit 1
-          fi
-          node .agent/scripts/sealit-engine.mjs verify
 
       - name: Inspect Package Version & Release Tag
         id: version_check
@@ -165,7 +171,11 @@ jobs:
             git config --local user.name "github-actions[bot]"
             git config --local user.email "github-actions[bot]@users.noreply.github.com"
             git tag -a "$TAG" -m "Release $TAG"
-            git push origin "$TAG"
+            AUTH_HEADER=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\r\n')
+            GIT_CONFIG_COUNT=1 \
+              GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
+              GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${AUTH_HEADER}" \
+              git push origin "$TAG"
           fi
           if [ "${RELEASE_EXISTS}" = "false" ]; then
             if command -v gh >/dev/null 2>&1; then
@@ -225,7 +235,7 @@ jobs:
         run: |
           if [ -n "${NODE_AUTH_TOKEN}" ]; then
             echo "Publishing package to npm registry..."
-            npm publish --access public
+            npm publish --access public --provenance
           else
             echo "NPM_TOKEN secret is not set; skipping live npm publish."
             echo "Verifying package packing integrity via npm pack --dry-run..."

@@ -17,6 +17,7 @@ import {
   beginSession,
   buildPrSummary,
   buildReviewPlan,
+  commitAndVerifyAuditReceipt,
   endSession,
   getSessionStatus,
   installHooks,
@@ -29,7 +30,7 @@ import {
 import { auditSkills, installCIWorkflow, installFramework, runDoctor } from './lib/install.mjs';
 
 const ENGINE_FILE = fileURLToPath(import.meta.url);
-const ENGINE_VERSION = '0.0.1';
+const ENGINE_VERSION = '0.0.2';
 const ENGINE_DIR = path.dirname(ENGINE_FILE);
 
 export function readPackageVersion(engineDir = ENGINE_DIR) {
@@ -63,12 +64,12 @@ Branch & Alignment:
 Verification & Cryptographic Receipt:
   test [--affected-only]                                Run configured or diff-affected unit tests
   coverage [--no-cache]                                 Measure diff line coverage against threshold
-  mutation [--full] [--no-cache]                        Run diff-scoped or full mutation check
+  mutation [--full] [--force] [--no-cache]              Run diff-scoped or full mutation check
   exemption <add|list> [--mutant <id> --file <p> --reason "<why>"]
-  gate [--no-cache] [--online]                          Single verification path -> writes lastGate record
-  review <plan|record|pr-body> [--verdict <approve|request-changes>] [--reviewer <id>] [--pr <n>]
+  gate [--no-cache] [--force-mutation] [--online]       Single verification path -> writes lastGate record
+  review <plan|record|pr-body> [--verdict <approve|request-changes>] [--reviewer <id>] [--commit] [--pr <n>]
   pr-body [--base <branch>]                             Generate PR summary, measured proof & merge danger
-  receipt [--docs-only]                                 Sign HEAD + treeSha + specHash Stage 7 receipt
+  receipt [--docs-only] [--commit]                      Sign HEAD + treeSha + specHash Stage 7 receipt
   verify [--sha <sha>] [--branch <name>] [--chain-only] Verify AUDIT_CHAIN.jsonl & signed merge receipt
   end [--issue <id>]                                    Close active session after merge`;
 }
@@ -309,7 +310,7 @@ export async function runCLI(customArgs = null, customConfigPath = null, repoRoo
       }
       if (sub === 'create') {
         const p = parseFlags(subArgs, {
-          values: ['--title', '--scope', '--ticket', '--supersedes', '--context', '--decision', '--consequences']
+          values: ['--title', '--scope', '--ticket', '--supersedes', '--files', '--context', '--decision', '--consequences']
         });
         if (p.error) return failInvalid(result, p.error, p.exitCode);
         try {
@@ -318,6 +319,7 @@ export async function runCLI(customArgs = null, customConfigPath = null, repoRoo
             scope: p.flags['--scope'] || 'technical',
             ticket: p.flags['--ticket'] || null,
             supersedes: p.flags['--supersedes'] || [],
+            files: p.flags['--files'] ?? null,
             context: p.flags['--context'],
             decision: p.flags['--decision'],
             consequences: p.flags['--consequences'],
@@ -329,13 +331,14 @@ export async function runCLI(customArgs = null, customConfigPath = null, repoRoo
         return result;
       }
       if (sub === 'decide') {
-        const p = parseFlags(subArgs, { values: ['--id', '--status', '--by', '--reviewer', '--reason'] });
+        const p = parseFlags(subArgs, { values: ['--id', '--status', '--by', '--reviewer', '--reason', '--files'] });
         if (p.error) return failInvalid(result, p.error, p.exitCode);
         const decided = decideADR({
           adrId: p.flags['--id'] || p.positionals[0],
           status: p.flags['--status'] || p.positionals[1],
           reviewer: p.flags['--reviewer'] || p.flags['--by'] || '@reviewer',
           reason: p.flags['--reason'] || '',
+          files: p.flags['--files'] ?? null,
           repoRoot
         });
         result.adr = decided.adr || null;
@@ -388,7 +391,7 @@ export async function runCLI(customArgs = null, customConfigPath = null, repoRoo
     }
 
     case 'mutation': {
-      const p = parseFlags(cmdArgs, { bools: ['--full', '--no-cache'] });
+      const p = parseFlags(cmdArgs, { bools: ['--full', '--no-cache', '--force'] });
       if (p.error) return failInvalid(result, p.error, p.exitCode);
       const { config } = loadConfig(repoRoot, customConfigPath);
       const sessBase = readActiveSession(repoRoot)?.baseBranch || null;
@@ -396,7 +399,7 @@ export async function runCLI(customArgs = null, customConfigPath = null, repoRoo
         module: mod.name,
         ...measureModuleMutation(repoRoot, mod, {
           full: Boolean(p.flags['--full']),
-          noCache: Boolean(p.flags['--no-cache']),
+          forceMutation: Boolean(p.flags['--force']),
           verbose: verbose && !jsonMode,
           baseBranch: sessBase,
           onProgress: progressFn
@@ -432,13 +435,14 @@ export async function runCLI(customArgs = null, customConfigPath = null, repoRoo
 
     case 'gate': {
       const p = parseFlags(cmdArgs, {
-        bools: ['--no-cache', '--online'],
+        bools: ['--no-cache', '--force-mutation', '--online'],
         deprecatedBools: ['--strict', '--allow-offline']
       });
       if (p.error) return failInvalid(result, p.error, p.exitCode);
       result.warnings.push(...p.warnings);
       const gate = runGate(repoRoot, {
         noCache: Boolean(p.flags['--no-cache']),
+        forceMutation: Boolean(p.flags['--force-mutation']),
         online: Boolean(p.flags['--online']),
         verbose: verbose && !jsonMode,
         onProgress: progressFn
@@ -459,6 +463,7 @@ export async function runCLI(customArgs = null, customConfigPath = null, repoRoo
       }
       if (sub === 'record') {
         const p = parseFlags(subArgs, {
+          bools: ['--commit'],
           values: ['--verdict', '--reviewer', '--pr', '--notes', '--peer-review', '--arch-review']
         });
         if (p.error) return failInvalid(result, p.error, p.exitCode);
@@ -469,6 +474,7 @@ export async function runCLI(customArgs = null, customConfigPath = null, repoRoo
           notes: p.flags['--notes'] || '',
           peerReview: p.flags['--peer-review'] || '',
           archReview: p.flags['--arch-review'] || '',
+          commit: Boolean(p.flags['--commit']),
           repoRoot
         });
         result.review = rec;
@@ -494,9 +500,16 @@ export async function runCLI(customArgs = null, customConfigPath = null, repoRoo
     }
 
     case 'receipt': {
-      const p = parseFlags(cmdArgs, { bools: ['--docs-only'] });
+      const p = parseFlags(cmdArgs, { bools: ['--docs-only', '--commit'] });
       if (p.error) return failInvalid(result, p.error, p.exitCode);
       const issued = issueGateReceipt({ repoRoot, docsOnly: Boolean(p.flags['--docs-only']) });
+      if (issued.success && p.flags['--commit']) {
+        const committed = commitAndVerifyAuditReceipt({ receiptId: issued.receipt?.receiptId, branch: issued.receipt?.branch || null, repoRoot });
+        result.receipt = { ...issued, committed: committed.success, commitSha: committed.commitSha || null, verified: Boolean(committed.verify?.valid), prBody: committed.prBody || null };
+        result.success = committed.success;
+        if (!committed.success) result.error = committed.reason;
+        return result;
+      }
       result.receipt = issued;
       result.success = issued.success;
       if (!issued.success) result.error = issued.reason;
@@ -697,8 +710,14 @@ export function formatCLIResult(cmd, res = {}) {
       return res.tests?.mode === 'affected' ? 'OK (advisory: includes uncommitted changes)' : res.success ? 'OK' : 'Failed';
     case 'pr-body':
       return res.prBody?.markdown || '';
+    case 'review':
+      return res.review?.committed
+        ? `Sealed and verified Stage 7 receipt ${res.review.receipt?.receiptId} at ${res.review.commitSha?.slice(0, 8)}${res.review.prBody?.markdown ? `\n\n${res.review.prBody.markdown}` : ''}`
+        : res.success ? 'OK' : 'Failed';
     case 'receipt':
-      return `Issued Stage 7 receipt ${res.receipt?.receipt?.receiptId}`;
+      return res.receipt?.committed
+        ? `Sealed and verified Stage 7 receipt ${res.receipt.receipt?.receiptId} at ${res.receipt.commitSha?.slice(0, 8)}${res.receipt.prBody?.markdown ? `\n\n${res.receipt.prBody.markdown}` : ''}`
+        : `Issued Stage 7 receipt ${res.receipt?.receipt?.receiptId}`;
     case 'verify':
       return res.verify?.receipt
         ? `Verified Stage 7 receipt ${res.verify.receipt.receiptId} for ${res.verify.targetSha?.slice(0, 8)}`

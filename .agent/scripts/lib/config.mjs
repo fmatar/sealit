@@ -18,7 +18,7 @@ export const DEFAULT_QUALITY_THRESHOLDS = Object.freeze({
   mutationScore: null
 });
 
-export const DEFAULT_QUALITY_GATE_CHECK = 'Universal Quality Gate, Spec-Drift & Merkle Receipt Defense';
+export const DEFAULT_QUALITY_GATE_CHECK = 'Sealit Quality Gate & Merge Receipt Verification';
 export const DEFAULT_CI_RUNS_ON = "${{ vars.SEALIT_RUNS_ON || vars.SDLC_RUNS_ON || 'ubuntu-latest' }}";
 const LEGACY_CI_RUNS_ON = new Set(["${{ vars.SDLC_RUNS_ON || 'ubuntu-latest' }}", "${{ vars.SEALIT_RUNS_ON || 'ubuntu-latest' }}"]);
 export const STABLE_MUTANT_ID_RE = /^[A-Za-z0-9_-]+@\d+:\d+#[0-9a-f]{8}$/;
@@ -336,6 +336,13 @@ export function validateConfigFile(repoRoot = '.', customConfigPath = null) {
   };
 }
 
+function detectNodeTestGlobs(abs) {
+  const dirs = ['tests', 'test', '__tests__'].filter((d) => fileExists(path.join(abs, d)));
+  if (dirs.length > 0) return dirs.map((d) => `"${d}/**/*.test.*"`).join(' ');
+  if (fileExists(path.join(abs, 'src'))) return '"src/**/*.test.*"';
+  return '"tests/**/*.test.mjs"';
+}
+
 export function detectStack(repoRoot = '.') {
   const abs = path.resolve(repoRoot);
   const pkgPath = path.join(abs, 'package.json');
@@ -349,19 +356,44 @@ export function detectStack(repoRoot = '.') {
     const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
     const isTs = fileExists(path.join(abs, 'tsconfig.json')) || Boolean(deps.typescript);
     const hasStryker = Boolean(deps['@stryker-mutator/core']) || fileExists(path.join(abs, 'stryker.config.json'));
+    const pm = fileExists(path.join(abs, 'pnpm-lock.yaml'))
+      ? 'pnpm'
+      : fileExists(path.join(abs, 'yarn.lock'))
+        ? 'yarn'
+        : fileExists(path.join(abs, 'bun.lockb')) || fileExists(path.join(abs, 'bun.lock'))
+          ? 'bun'
+          : 'npm';
+    const runScript = (name, silent = false) => (pm === 'npm' ? (silent ? `npm run --silent ${name}` : `npm run ${name}`) : `${pm} run ${name}`);
+    const hasVitest = Boolean(deps.vitest);
+    const hasVitestCov = hasVitest && Boolean(deps['@vitest/coverage-v8'] || deps['@vitest/coverage-istanbul']);
+    const hasJest = Boolean(deps.jest);
+    const hasC8 = Boolean(deps.c8);
+    const nodeGlobs = detectNodeTestGlobs(abs);
 
-    const testCmd = scripts.test ? 'npm test' : 'node --test --test-reporter=dot "tests/**/*.test.mjs"';
+    const testCmd = scripts.test
+      ? `${pm} test`
+      : hasVitest
+        ? './node_modules/.bin/vitest run'
+        : hasJest
+          ? './node_modules/.bin/jest'
+          : `node --test --test-reporter=dot ${nodeGlobs}`;
     const covCmd = scripts['test:coverage']
-      ? 'npm run test:coverage'
-      : 'node --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info --test-reporter=dot --test-reporter-destination=stdout "tests/**/*.test.mjs"';
+      ? runScript('test:coverage')
+      : hasVitestCov
+        ? './node_modules/.bin/vitest run --coverage --coverage.reporter=lcov --coverage.reportsDirectory=coverage'
+        : hasJest
+          ? './node_modules/.bin/jest --coverage --coverageReporters=lcov --coverageDirectory=coverage'
+          : hasC8 && scripts.test
+            ? `./node_modules/.bin/c8 --reporter=lcov --reports-dir=coverage ${pm} test`
+            : `node --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info --test-reporter=dot --test-reporter-destination=stdout ${nodeGlobs}`;
 
     return {
       name: 'root',
       path: '.',
       language: isTs ? 'typescript' : 'javascript',
       commands: {
-        lint: scripts.lint ? 'npm run --silent lint' : null,
-        build: scripts.build ? 'npm run build' : null,
+        lint: scripts.lint ? runScript('lint', true) : null,
+        build: scripts.build ? runScript('build') : null,
         test: testCmd,
         coverage: covCmd,
         coverageFile: 'coverage/lcov.info',
@@ -629,13 +661,33 @@ export function isVendoredEnginePath(relPath = '') {
 
 export const ENGINE_OWNER_NAMES = Object.freeze(new Set(['@sealit/cli', 'sealit', '@fmatar/sealit', '@fmatar/agentic-sdlc']));
 
+function hasEngineOwnerManifest(pkg, markerExists) {
+  if (!ENGINE_OWNER_NAMES.has(pkg?.name)) return false;
+  return Boolean(
+    markerExists ||
+      pkg?.bin?.sealit === 'bin/sealit.mjs' ||
+      pkg?.main === './.agent/scripts/sealit-engine.mjs' ||
+      pkg?.main === './.agent/scripts/sdlc-engine.mjs'
+  );
+}
+
 export function isEngineOwnerRepo({ repoRoot = '.', baseSha = null } = {}) {
   if (baseSha === EMPTY_TREE_SHA) return false;
-  const raw = baseSha
-    ? readBlobs([`${baseSha}:package.json`], repoRoot).get(`${baseSha}:package.json`) ?? null
-    : (() => { try { return readFileSafe(resolveInsideRepo(repoRoot, 'package.json')); } catch { return null; } })();
+  if (baseSha) {
+    const blobs = readBlobs([`${baseSha}:package.json`, `${baseSha}:bin/sealit.mjs`, `${baseSha}:.claude-plugin/plugin.json`], repoRoot);
+    const parsed = parseJsonSafe(blobs.get(`${baseSha}:package.json`) ?? null);
+    if (!parsed.ok) return false;
+    const plugin = parseJsonSafe(blobs.get(`${baseSha}:.claude-plugin/plugin.json`) ?? null);
+    const marker = blobs.get(`${baseSha}:bin/sealit.mjs`) !== null || (plugin.ok && (plugin.value.name === 'sealit' || plugin.value.name === 'agentic-sdlc'));
+    return hasEngineOwnerManifest(parsed.value, marker);
+  }
+  const raw = (() => { try { return readFileSafe(resolveInsideRepo(repoRoot, 'package.json')); } catch { return null; } })();
   const parsed = parseJsonSafe(raw);
-  return parsed.ok && ENGINE_OWNER_NAMES.has(parsed.value.name);
+  if (!parsed.ok) return false;
+  const pluginRaw = (() => { try { return readFileSafe(resolveInsideRepo(repoRoot, '.claude-plugin/plugin.json')); } catch { return null; } })();
+  const plugin = parseJsonSafe(pluginRaw);
+  const marker = fileExists(path.resolve(repoRoot, 'bin/sealit.mjs')) || (plugin.ok && (plugin.value.name === 'sealit' || plugin.value.name === 'agentic-sdlc'));
+  return hasEngineOwnerManifest(parsed.value, marker);
 }
 
 export function loadEffectivePolicy({ repoRoot = '.', baseSha = null, headSha = null, changedPaths = null } = {}) {
@@ -771,13 +823,13 @@ export function loadEffectivePolicy({ repoRoot = '.', baseSha = null, headSha = 
     strykerByModule[mod.name] = strykerByDir.get(normModDir(mod.path)) ?? null;
   }
 
-  if (!isEngineOwnerRepo({ repoRoot, baseSha })) {
-    const diffPaths = Array.isArray(changedPaths)
-      ? changedPaths
-      : readChangeSet({ baseSha, headSha, source: headSha ? 'commit' : 'worktree', repoRoot }).paths;
-    for (const p of diffPaths) {
-      if (isVendoredEnginePath(p)) addTrigger(p);
-    }
+  const diffPaths = Array.isArray(changedPaths)
+    ? changedPaths
+    : readChangeSet({ baseSha, headSha, source: headSha ? 'commit' : 'worktree', repoRoot }).paths;
+  const isOwner = isEngineOwnerRepo({ repoRoot, baseSha });
+  for (const p of diffPaths) {
+    const normP = String(p || '').replace(/\\/g, '/').replace(/^\.\//, '');
+    if (normP === '.agent/allowed_signers' || (!isOwner && isVendoredEnginePath(normP))) addTrigger(normP);
   }
 
   return {

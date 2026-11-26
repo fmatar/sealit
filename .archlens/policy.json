@@ -15,6 +15,8 @@
       ".agent/scripts/lib/config.mjs"
     ],
     [
+      ".agent/scripts/lib/session.mjs",
+      ".agent/scripts/lib/parsers.mjs",
       ".agent/scripts/lib/receipt.mjs",
       ".agent/scripts/lib/drift.mjs"
     ],

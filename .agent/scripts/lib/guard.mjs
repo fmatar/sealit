@@ -193,6 +193,23 @@ export function getSessionStatus(repoRoot = '.') {
   return { active: Boolean(session), advisory: true, source: 'worktree', branch, headSha, dirty, mode, modifiedFiles, drift, session, readyForReceipt: Boolean(session && gateFresh && reviewOk && drift.passed) };
 }
 
+export function commitAndVerifyAuditReceipt({ receiptId = 'Stage 7', branch = null, repoRoot = '.' } = {}) {
+  const addRes = gitExec(['add', '--', 'docs/AUDIT_CHAIN.jsonl'], repoRoot);
+  if (addRes.error || addRes.status !== 0) {
+    return { success: false, reason: `Failed to stage docs/AUDIT_CHAIN.jsonl: ${addRes.stderr || addRes.error?.message}` };
+  }
+  const commitRes = gitExec(['commit', '-m', `chore(audit): seal Stage 7 receipt (${receiptId})`], repoRoot);
+  if (commitRes.error || commitRes.status !== 0) {
+    return { success: false, reason: `Failed to commit audit receipt: ${commitRes.stderr || commitRes.error?.message}` };
+  }
+  const newHead = (gitOutput(['rev-parse', '--verify', 'HEAD'], repoRoot) || '').trim() || null;
+  const ver = verifyGateReceipt({ headSha: newHead, branch, repoRoot });
+  if (!ver.valid) {
+    return { success: false, commitSha: newHead, verify: ver, reason: `Committed receipt failed verification: ${ver.reason}` };
+  }
+  return { success: true, commitSha: newHead, verify: ver, prBody: buildPrSummary(repoRoot) };
+}
+
 export function recordReviewVerdict({
   verdict,
   reviewer = '@sealit-gate',
@@ -200,6 +217,7 @@ export function recordReviewVerdict({
   notes = '',
   peerReview = '',
   archReview = '',
+  commit = false,
   repoRoot = '.',
   execFn = execFileSync
 } = {}) {
@@ -244,10 +262,17 @@ export function recordReviewVerdict({
   });
 
   let receiptRes = null;
+  let commitRes = null;
   if (normVerdict === 'approve') {
     receiptRes = issueGateReceipt({ repoRoot, reviewerOverride: reviewObj.reviewer });
     if (!receiptRes.success) {
       return { success: false, review: reviewObj, reason: receiptRes.reason };
+    }
+    if (commit) {
+      commitRes = commitAndVerifyAuditReceipt({ receiptId: receiptRes.receipt?.receiptId, branch, repoRoot });
+      if (!commitRes.success) {
+        return { success: false, review: reviewObj, receipt: receiptRes.receipt, reason: commitRes.reason };
+      }
     }
   }
 
@@ -276,6 +301,10 @@ export function recordReviewVerdict({
     success: true,
     review: reviewObj,
     receipt: receiptRes?.receipt || null,
+    committed: Boolean(commitRes?.success),
+    commitSha: commitRes?.commitSha || null,
+    verified: Boolean(commitRes?.verify?.valid),
+    prBody: commitRes?.prBody || null,
     prCommented
   };
 }

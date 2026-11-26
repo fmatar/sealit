@@ -1,6 +1,6 @@
 ---
 name: sealit-gate
-description: "Use when running 2-axis cold code review on a branch or PR, executing sealit gate, signing an HMAC-SHA256 merge receipt, or generating PR evidence."
+description: "Use when running 2-axis cold code review on a branch or PR, executing sealit gate, signing an SSHSIG or HMAC-SHA256 merge receipt, or generating PR evidence."
 ---
 
 # Two-Axis Cold Review, Single Gate & Signed Receipt (`sealit-gate`)
@@ -25,25 +25,24 @@ Run both reviewers in parallel with fresh contexts and **keep their findings sep
    ```bash
    node .agent/scripts/sealit-engine.mjs review plan --json
    ```
-   - In `docs-only` mode: run `sealit gate --no-cache` and `sealit receipt --docs-only`.
+   - In `docs-only` mode: run `sealit gate --no-cache` and `sealit receipt --docs-only --commit`.
    - In `code` mode: spawn two isolated read-only subagents (your harness's subagent tool, e.g. Claude Code's `Task`) in parallel for `reviewPlan.reviewers`, instructing each to return `verdict: approve | request-changes`, `blockers: []`, and `notes`.
 
 2. **Remediate Blockers & Commit Refactors Before Gating**:
    Fix every blocker (and any worthwhile smell refactors) with failing-first tests and **commit to clean `HEAD`** before running the gate, because merge receipts bind exact `headSha` and `treeSha`.
 
-3. **Run Single-Path Gate, Sign Receipt & Emit PR Proof**:
+3. **Run Single-Path Gate, Sign & Commit Receipt Atomically, and Emit PR Proof**:
    ```bash
    node .agent/scripts/sealit-engine.mjs gate --no-cache
 
+   # Atomically signs receipt, commits docs/AUDIT_CHAIN.jsonl through pre-commit,
+   # runs `sealit verify`, and returns the PR proof body (`prBody`):
    node .agent/scripts/sealit-engine.mjs review record \
      --verdict <approve|request-changes> \
      --reviewer "@sealit-gate" \
      --peer-review "<spec_axis_notes>" \
-     --arch-review "<arch_security_axis_notes>"
-
-   git add docs/AUDIT_CHAIN.jsonl && git commit -m "chore(audit): record gate receipt"
-   node .agent/scripts/sealit-engine.mjs verify
-   node .agent/scripts/sealit-engine.mjs pr-body
+     --arch-review "<arch_security_axis_notes>" \
+     --commit
    ```
 
 ## Confirm with user before

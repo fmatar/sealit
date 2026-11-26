@@ -331,7 +331,7 @@ describe('Ring 3: sealit-engine.mjs CLI registry', () => {
 
     const verRes = await capture(['--version']);
     assert.equal(verRes.code, 0);
-    assert.equal(verRes.out.trim(), '0.0.1');
+    assert.equal(verRes.out.trim(), '0.0.2');
     assert.equal(verRes.err, '');
 
     const jsonRes = await capture(['config', 'check', '--json'], async (_argv, _cfg, _root, opts) => {
@@ -363,5 +363,46 @@ describe('Ring 3: sealit-engine.mjs CLI registry', () => {
     const thrownJson = await capture(['status', '--json'], async () => { throw new Error('boom-json'); });
     assert.equal(thrownJson.code, 1);
     assert.deepEqual(JSON.parse(thrownJson.out), { success: false, error: 'boom-json' });
+  });
+
+  it('supports v0.0.2 CLI flags: adr create --files, gate --force-mutation, and receipt --docs-only --commit', async () => {
+    const { dir, cleanup } = createTempGitRepo();
+    cleanups.push(cleanup);
+
+    await withoutReceiptEnv(async () => {
+      fs.mkdirSync(path.join(dir, '.agent'), { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, '.agent/sealit-config.json'),
+        JSON.stringify({ version: '0.1.0', archlens: { enabled: false }, modules: [{ name: 'root', path: '.', commands: {}, thresholds: { diffCoverage: null, mutationScore: null } }] }),
+        'utf8'
+      );
+      git(dir, 'add', '.agent/sealit-config.json');
+      git(dir, 'commit', '-q', '-m', 'chore: config');
+      git(dir, 'branch', '-f', 'main', 'HEAD');
+
+      const begun = await runCLI(['begin', '--issue', '81', '--title', 'cli v002', '--checkout'], null, dir);
+      assert.equal(begun.success, true);
+
+      const adr = await runCLI(['adr', 'create', '--title', 'Explicit Files', '--scope', 'product', '--files', 'PRODUCT.md,docs/specs/*'], null, dir);
+      assert.equal(adr.success, true);
+      assert.deepEqual(adr.adr.files, ['PRODUCT.md', 'docs/specs/*']);
+      git(dir, 'checkout', '--', '.');
+      fs.rmSync(path.join(dir, adr.adr.file), { force: true });
+      fs.rmSync(path.join(dir, 'docs/AUDIT_CHAIN.jsonl'), { force: true });
+
+      fs.writeFileSync(path.join(dir, 'README.md'), '# Docs only\n', 'utf8');
+      git(dir, 'add', 'README.md');
+      git(dir, 'commit', '-q', '-m', 'docs: readme');
+
+      const gate = await runCLI(['gate', '--no-cache', '--force-mutation'], null, dir);
+      assert.equal(gate.success, true);
+
+      const rec = await runCLI(['receipt', '--docs-only', '--commit'], null, dir);
+      assert.equal(rec.success, true, rec.error || '');
+      assert.equal(rec.receipt.committed, true);
+      assert.equal(rec.receipt.verified, true);
+      assert.ok(rec.receipt.prBody?.markdown);
+      assert.match(formatCLIResult('receipt', rec), /Sealed and verified Stage 7 receipt/);
+    });
   });
 });
