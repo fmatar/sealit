@@ -148,6 +148,8 @@ function isPidAlive(pid) {
   }
 }
 
+const LOCK_WAIT_I32 = new Int32Array(new SharedArrayBuffer(4));
+
 export function withFileLock(lockPath, fn, { timeoutMs = 5000, staleMs = 30000 } = {}) {
   const absLock = path.resolve(lockPath);
   fs.mkdirSync(path.dirname(absLock), { recursive: true });
@@ -177,10 +179,7 @@ export function withFileLock(lockPath, fn, { timeoutMs = 5000, staleMs = 30000 }
           continue;
         }
       } catch {}
-      const sleepEnd = Date.now() + 15;
-      while (Date.now() < sleepEnd) {
-        // bounded spin on local file lock contention
-      }
+      Atomics.wait(LOCK_WAIT_I32, 0, 0, 15);
     }
   }
 

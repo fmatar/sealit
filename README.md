@@ -17,7 +17,7 @@
 
 ---
 
-`sealit` is a zero-dependency verification CLI and agent skill suite for **Claude Code**, **Cursor**, **Codex**, **Antigravity**, and **GitHub Copilot**. It wraps AI-authored pull requests in mechanical checks and seals every verified branch with an HMAC-SHA256 merge receipt that CI validates **before** `npm ci` or untrusted PR code ever runs.
+`sealit` is a zero-dependency verification CLI and agent skill suite for **Claude Code**, **Cursor**, **Codex**, **Antigravity**, and **GitHub Copilot**. It wraps AI-authored pull requests in mechanical checks and seals every verified branch with a cryptographic merge receipt (`HMAC-SHA256` or asymmetric OpenSSH `SSHSIG`) that CI validates **before** `npm ci` or untrusted PR code ever runs.
 
 ## What `sealit` Enforces
 
@@ -36,7 +36,7 @@ flowchart LR
     B -- "Yes" --> C["Human-approved ADR"]
     B -- "No" --> D["3. Measure Diff (sealit gate)"]
     C --> D
-    D --> E["4. 2-Axis Review + HMAC Receipt"]
+    D --> E["4. 2-Axis Review + Signed Receipt"]
     E --> F["5. CI Pre-Install Verify → Merge"]
 
     classDef step fill:#0f172a,stroke:#475569,stroke-width:1.5px,color:#f8fafc
@@ -50,7 +50,7 @@ flowchart LR
 1. **Isolate** — The agent starts an isolated branch or worktree session (`sealit begin`).
 2. **Align** — If specs, dependencies, or contracts changed, `sealit drift` pauses until a human approves an ADR (`sealit adr`).
 3. **Measure** — `sealit gate` runs secret scanning, lint, build, unit tests, diff line coverage, and diff-scoped mutation testing in a single pass.
-4. **Seal** — Two fresh-context reviewers audit Spec Fidelity and Architecture/Security, and `sealit` appends a signed HMAC-SHA256 receipt to `docs/AUDIT_CHAIN.jsonl`.
+4. **Seal** — Two fresh-context reviewers audit Spec Fidelity and Architecture/Security, and `sealit` appends a signed `SSHSIG` or `HMAC-SHA256` receipt to `docs/AUDIT_CHAIN.jsonl`.
 5. **Verify in CI** — GitHub Actions, GitLab CI, or any Git pipeline extracts the trusted verifier from the base branch and validates the receipt **before** installing dependencies or executing PR code.
 
 ---
@@ -70,9 +70,19 @@ The interactive setup detects your language stack, scaffolds `.agent/sealit-conf
 Upload the signing key to your CI secret store (`SEALIT_RECEIPT_KEY`) once so pipelines can verify receipts:
 
 ```bash
-# GitHub Actions
+# Standard mode (HMAC-SHA256 shared team secret on GitHub Actions)
 tr -d '\r\n' < .agent/.receipt-key | gh secret set SEALIT_RECEIPT_KEY
 ```
+
+Commit the initial scaffold on an onboarding branch (and whenever you later change `.agent/sealit-config.json` or `.archlens/policy.json`, record an approved architectural ADR with `sealit adr create` → `sealit adr decide --status approve`).
+
+<details>
+<summary><strong>Standard HMAC-SHA256 vs. Hardened Asymmetric OpenSSH <code>SSHSIG</code> (recommended for multi-developer / untrusted-agent threat models)</strong></summary>
+
+- **Standard mode (default, zero extra setup)**: Signs receipts with symmetric `HMAC-SHA256` using `.agent/.receipt-key` (gitignored, `0600`) and CI secret `SEALIT_RECEIPT_KEY`. Because the key is shared on the developer workstation, it protects against accidental agent shortcuts, stale claims, and CI tampering—not a malicious agent running in the same shell as `.agent/.receipt-key` (Claude Code installations add `.claude/settings.json` `permissions.deny` rules as accidental-edit friction).
+- **Hardened asymmetric mode (`.agent/allowed_signers`)**: Commit an OpenSSH [`allowed_signers`](https://man.openbsd.org/ssh-keygen#ALLOWED_SIGNERS) file at `.agent/allowed_signers` on your base branch (e.g. `@you ssh-ed25519 AAAA...`) and set `SEALIT_SIGNING_KEY` or `git config user.signingkey` to your personal SSH key (TouchID / Secretive / FIDO2-SK / `ssh-add -c`). Once `.agent/allowed_signers` exists on `origin/<base>`, `sealit` automatically switches to native `ssh-keygen -Y` (`SSHSIG`), cryptographically binds `reviewer` to the verified principal, requires no `SEALIT_RECEIPT_KEY` CI secret, and rejects HMAC downgrades or PR-injected keys.
+
+</details>
 
 <details>
 <summary><strong>Using GitLab CI, Bitbucket Pipelines, or self-hosted CI?</strong></summary>
@@ -152,10 +162,8 @@ npx @sealit/cli begin --title "add rate limiter" --type feat --checkout
 # Run drift check, secret scan, lint, tests, diff coverage, and diff mutation
 npx @sealit/cli gate
 
-# Record review approval, sign the merge receipt, commit, and verify
-npx @sealit/cli review record --verdict approve --reviewer "@you" --notes "LGTM"
-git add docs/AUDIT_CHAIN.jsonl && git commit -m "chore: seal PR receipt"
-npx @sealit/cli verify
+# Record review approval, sign, commit docs/AUDIT_CHAIN.jsonl, verify, and emit PR proof in one step
+npx @sealit/cli review record --verdict approve --reviewer "@you" --notes "LGTM" --commit
 ```
 
 </details>
@@ -206,7 +214,7 @@ Every command supports `--json` for structured machine output. In Claude Code, r
 | `begin` | Starts a tracked session and creates/checks out a feature, fix, or chore branch (or linked git worktree) | `--title`, `--type`, `--issue`, `--base`, `--checkout`, `--worktree` |
 | `status` | Shows active branch, session ticket, diff classification (`docs-only` vs `code`), drift status, and receipt readiness | `--json` |
 | `drift` | Verifies that changes to specs, manifests, schemas, contracts, or layer rules are covered by an approved ADR | `--base <branch>` |
-| `adr` | Lists ADRs (`adr list`), scaffolds a pending ADR (`adr create`), or records human approval/rejection (`adr decide`) | `--title`, `--scope`, `--id`, `--status approve\|reject`, `--reviewer` |
+| `adr` | Lists ADRs (`adr list`), scaffolds a pending ADR with explicit `files:` scope (`adr create`), or records approval/rejection (`adr decide`) | `--title`, `--scope`, `--files`, `--id`, `--status approve\|reject`, `--reviewer` |
 | `end` | Closes a completed session after merge and prunes clean linked worktrees without touching unsaved files | `--issue <id>` |
 
 ### Testing, Quality Gate & Signed Receipts
@@ -215,29 +223,29 @@ Every command supports `--json` for structured machine output. In Claude Code, r
 | :--- | :--- | :--- |
 | `test` | Runs configured module test suites, or only unit tests mapped to modified files | `--affected-only` |
 | `coverage` | Executes the coverage command and calculates line coverage strictly across changed diff hunks | `--no-cache` |
-| `mutation` | Runs diff-scoped mutation testing on modified lines (or the full module) and evaluates the kill score | `--full`, `--no-cache` |
+| `mutation` | Runs diff-scoped mutation testing on modified lines (or the full module) and evaluates the kill score | `--full`, `--force`, `--no-cache` |
 | `exemption` | Lists (`exemption list`) or records (`exemption add`) an audited waiver for an equivalent mutant (active only after merge) | `--mutant`, `--file`, `--reason` |
-| `gate` | Executes drift, secret scan, lint, build, tests, diff coverage, and diff mutation in one pass and updates session state | `--no-cache`, `--online` |
-| `review` | Emits 2-axis cold reviewer prompts (`review plan`) or records review sign-off and signs the receipt (`review record`) | `--verdict approve\|request-changes`, `--reviewer`, `--pr` |
+| `gate` | Executes drift, secret scan, lint, build, tests, diff coverage, and diff mutation in one pass and updates session state | `--no-cache`, `--force-mutation`, `--online` |
+| `review` | Emits 2-axis cold reviewer prompts (`review plan`) or records sign-off, signs receipt, and optionally commits/verifies (`review record`) | `--verdict approve\|request-changes`, `--reviewer`, `--commit`, `--pr` |
 | `pr-body` | Generates a structured PR description with measured coverage/mutation proof and One-Way vs. Two-Way door blast radius | `--base <branch>` |
-| `receipt` | Signs a standalone HMAC-SHA256 merge receipt into `docs/AUDIT_CHAIN.jsonl` (e.g., for `docs-only` branches) | `--docs-only` |
-| `verify` | Verifies `docs/AUDIT_CHAIN.jsonl` hash continuity and validates the HMAC-SHA256 merge receipt for `HEAD` or a target commit | `--sha`, `--branch`, `--chain-only` |
+| `receipt` | Signs a standalone `SSHSIG` or `HMAC-SHA256` merge receipt into `docs/AUDIT_CHAIN.jsonl` (e.g., for `docs-only` branches) | `--docs-only`, `--commit` |
+| `verify` | Verifies `docs/AUDIT_CHAIN.jsonl` hash continuity and validates the `SSHSIG` or `HMAC-SHA256` merge receipt for `HEAD` or a target commit | `--sha`, `--branch`, `--chain-only` |
 
 ---
 
 ## Language & Runner Support
 
-`sealit init` auto-detects your stack from repository manifests and parses native coverage and mutation reports with zero plugins:
+`sealit init` auto-detects your stack from repository manifests (including `vitest`, `jest`, `c8`, lockfile package managers, and `tests/`/`test/`/`__tests__`/`src/` roots for JS/TS) and parses native per-line diff coverage and mutation reports with zero plugins:
 
-| Ecosystem | Manifests Detected | Coverage Formats | Mutation Formats |
+| Ecosystem | Manifests Detected | Per-Line Diff Coverage Formats | Mutation Formats |
 | :--- | :--- | :--- | :--- |
-| **JavaScript / TypeScript** | `package.json`, `tsconfig.json` | LCOV (`lcov.info`), `coverage-summary.json` | Stryker (`mutation.json`) |
-| **Python** | `pyproject.toml`, `requirements.txt` | Cobertura (`coverage.xml`), `lcov.info` | `mutmut` (`.mutmut-results.json`, `.txt`) |
+| **JavaScript / TypeScript** | `package.json`, `tsconfig.json` | LCOV (`lcov.info` — summary-only `coverage-summary.json` fails closed on source diffs) | Stryker (`mutation.json`) |
+| **Python** | `pyproject.toml`, `requirements.txt` | Cobertura XML (`coverage.xml`), LCOV (`lcov.info`) | `mutmut` (`.mutmut-results.json`, `.txt`) |
 | **Go** | `go.mod` | `go test -coverprofile` (`cover.out`) | `go-mutesting` (`go-mutesting.txt`) |
-| **Rust** | `Cargo.toml` | LCOV (`lcov.info`), Cobertura XML | `cargo-mutants` (`outcomes.json`) |
-| **Java / Kotlin** | `pom.xml`, `build.gradle(.kts)` | JaCoCo (`jacoco.xml`, `jacoco.csv`) | PITest (`mutations.xml`) |
+| **Rust** | `Cargo.toml` | LCOV (`lcov.info`), Cobertura XML (`coverage.xml`) | `cargo-mutants` (`outcomes.json`) |
+| **Java / Kotlin** | `pom.xml`, `build.gradle(.kts)` | JaCoCo XML (`jacoco.xml` — summary-only `jacoco.csv` fails closed on source diffs) | PITest (`mutations.xml`) |
 
-**Monotonic PR policy**: Raising coverage or mutation thresholds in `.agent/sealit-config.json` takes effect immediately on that PR. Lowering thresholds, altering gate commands, narrowing mutation globs, or adding mutant exemptions is evaluated against the base branch's floor until reviewed and merged, preventing an agent from weakening its own gate. Optional architectural layer rules can also be configured in `.archlens/policy.json` when desired.
+**Monotonic PR policy**: Raising coverage or mutation thresholds in `.agent/sealit-config.json` takes effect immediately on that PR. Lowering thresholds, narrowing mutation globs, or adding mutant exemptions is evaluated against the base branch's floor until reviewed and merged, preventing an agent from weakening its own gate; changing `commands.*` runs the PR's updated commands (so test-runner migrations don't deadlock) while flagging `GATE_POLICY_DRIFT` requiring an approved architectural ADR. Optional JS/TS architectural layer rules can also be configured in `.archlens/policy.json` (use [Archlens](https://github.com/fmatar/archlens) for polyglot AST ring checks).
 
 ---
 

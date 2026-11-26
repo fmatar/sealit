@@ -14,6 +14,7 @@ import {
   SUPPORTED_AGENTS,
   SEALIT_GITIGNORE_ENTRIES,
   CLAUDE_SEALIT_ALLOW_RULES,
+  CLAUDE_SEALIT_DENY_RULES,
   buildQualityGateWorkflow,
   upsertGitignore,
   auditSkills,
@@ -22,7 +23,9 @@ import {
   runDoctor,
   installFramework
 } from '../../.agent/scripts/lib/install.mjs';
+import { fileURLToPath } from 'node:url';
 
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const ENGINE_CMD = 'node .agent/scripts/sealit-engine.mjs';
 
 // Claude Code Bash rule semantics: "Bash(X *)" matches X or X followed by a space; "Bash(X)" matches X exactly.
@@ -172,12 +175,21 @@ describe('Ring 2: lib/install.mjs', () => {
       // Legacy workflow upgraded to sealit-quality-gate.yml and sdlc-quality-gate.yml unlinked
       assert.equal(fs.existsSync(path.join(dir, '.github/workflows/sdlc-quality-gate.yml')), false);
       const wf = fs.readFileSync(path.join(dir, '.github/workflows/sealit-quality-gate.yml'), 'utf8');
-      assert.match(wf, /runner\.environment == 'github-hosted'/);
+      assert.doesNotMatch(wf, /runner\.environment == 'github-hosted'/, 'consumer workflow omits fmatar/sealit self-hosted guard (L4)');
+      assert.match(wf, /TRUSTED_GATE_DIR=/, 'consumer workflow freshly extracts origin/$BASE_REF engine after npm ci (S2)');
+      assert.match(wf, /node "\$GATE_BIN" skill-audit/, 'consumer workflow runs skill-audit via trusted base engine (S2)');
+      assert.match(wf, /if \[ -n "\$GATE_BIN" \]; then/, 'deleting .agent/scripts/sealit-engine.mjs in PR cannot bypass consumer gate');
+      assert.match(wf, /allowed_signers/, 'workflow supports SSHSIG allowed_signers verification (S1)');
+      assert.doesNotMatch(wf, /- name: Verify Env-Isolated Test Suite/, 'single-pass env-isolated CI removes duplicate test step');
+      assert.equal((wf.match(/SEALIT_RECEIPT_KEY: ci-dummy-test-key/g) || []).length, 1);
       assert.match(wf, /vars\.SEALIT_RUNS_ON \|\| vars\.SDLC_RUNS_ON/);
       assert.match(wf, /guard verify --sha "\$PR_HEAD_SHA" --branch "\$GITHUB_HEAD_REF"/);
       assert.match(wf, /guard verify --sha "\$PR_HEAD_SHA"$/m);
       assert.match(wf, /SEALIT_RECEIPT_KEY: ci-dummy-test-key/);
       assert.match(wf, /git archive "origin\/\$BASE_REF"/);
+      const ownerWf = buildQualityGateWorkflow({ repoRoot: REPO_ROOT });
+      assert.match(ownerWf, /runner\.environment == 'github-hosted'/, 'owner repo keeps self-hosted guard');
+      assert.doesNotMatch(ownerWf, /TRUSTED_GATE_DIR=/, 'owner repo dogfoods PR HEAD in Step 9');
 
       // Non-force installFramework on a v0.3.0 adopter repo migrates .agent/sdlc-config.json, granular Claude allow rules, and prunes legacy engine/schema files!
       const adopter = createTempGitRepo();
@@ -527,12 +539,13 @@ describe('Ring 2: lib/install.mjs', () => {
     const src = createSourceBundleFixture();
     cleanups.push(src.cleanup);
 
-    // Fresh repo: narrow allowlist written
+    // Fresh repo: narrow allowlist + deny friction rules written
     const fresh = createTempGitRepo();
     cleanups.push(fresh.cleanup);
     await installFramework({ targetDir: fresh.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
     const freshSettings = JSON.parse(fs.readFileSync(path.join(fresh.dir, '.claude/settings.json'), 'utf8'));
     assert.deepEqual(freshSettings.permissions.allow, [...CLAUDE_SEALIT_ALLOW_RULES]);
+    assert.deepEqual(freshSettings.permissions.deny, [...CLAUDE_SEALIT_DENY_RULES]);
 
     // Legacy wildcard (both sealit and sdlc-engine) is replaced; user entries and other keys preserved
     const legacy = createTempGitRepo();
@@ -546,7 +559,7 @@ describe('Ring 2: lib/install.mjs', () => {
     await installFramework({ targetDir: legacy.dir, sourceRoot: src.srcDir, agents: ['claude'], yes: true });
     const migrated = JSON.parse(fs.readFileSync(path.join(legacy.dir, '.claude/settings.json'), 'utf8'));
     assert.equal(migrated.model, 'opus');
-    assert.deepEqual(migrated.permissions.deny, ['Bash(rm -rf *)']);
+    assert.deepEqual(migrated.permissions.deny, ['Bash(rm -rf *)', ...CLAUDE_SEALIT_DENY_RULES]);
     assert.ok(migrated.permissions.allow.includes('Bash(npm test)'));
     assert.equal(migrated.permissions.allow.includes(`Bash(${ENGINE_CMD} *)`), false);
     assert.equal(migrated.permissions.allow.includes('Bash(node .agent/scripts/sdlc-engine.mjs *)'), false);

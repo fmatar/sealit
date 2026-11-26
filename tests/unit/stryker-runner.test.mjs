@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { execFileSync, spawn } from 'node:child_process';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { INSTRUMENTER_CONSTANTS } from '@stryker-mutator/api/core';
 import { SdlcNodeTestRunner } from '../helpers/stryker-node-runner.mjs';
 
@@ -14,25 +14,56 @@ afterEach(() => {
   while (cleanups.length > 0) cleanups.pop()();
 });
 
+function runParityShard(cfg, testFiles) {
+  return new Promise((resolve, reject) => {
+    const runnerUrl = pathToFileURL(path.join(REPO_ROOT, 'tests/helpers/stryker-node-runner.mjs')).href;
+    const shardCfg = { ...cfg, tap: { ...(cfg.tap || {}), testFiles } };
+    const script = [
+      `import { SdlcNodeTestRunner } from ${JSON.stringify(runnerUrl)};`,
+      `const runner = new SdlcNodeTestRunner(${JSON.stringify(shardCfg)}, console);`,
+      'await runner.init();',
+      'const dry = await runner.dryRun({ disableBail: true });',
+      'const failed = dry.tests.filter((t) => t.status !== "success" && t.status !== 0);',
+      'process.stdout.write(JSON.stringify({ count: dry.tests.length, failed }) + "\\n");'
+    ].join('\n');
+    const env = { ...process.env };
+    delete env.NODE_TEST_CONTEXT;
+    delete env.NODE_V8_COVERAGE;
+    const child = spawn(process.execPath, ['--input-type=module', '-e', script], { cwd: REPO_ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '';
+    let err = '';
+    child.stdout.on('data', (d) => { out += d; });
+    child.stderr.on('data', (d) => { err += d; });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code !== 0) return reject(new Error(`Shard [${testFiles.join(', ')}] exited ${code}: ${err || out}`));
+      const lines = out.trim().split('\n').filter(Boolean);
+      try {
+        resolve(JSON.parse(lines[lines.length - 1]));
+      } catch (e) {
+        reject(new Error(`Unparseable shard output for [${testFiles.join(', ')}]: ${out}\n${err}`));
+      }
+    });
+  });
+}
+
 describe('Stryker in-process node:test runner parity & configuration', () => {
   it('stryker.config.json omits Node-22-incompatible --test-isolation=none and passes full-suite parity under SdlcNodeTestRunner', { timeout: 240_000 }, async () => {
     const cfg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'stryker.config.json'), 'utf8'));
     assert.equal((cfg.tap?.nodeArgs || []).includes('--test-isolation=none'), false);
-    assert.equal((cfg.tap?.testFiles || []).length, 9);
+    const allFiles = cfg.tap?.testFiles || [];
+    assert.equal(allFiles.length, 11);
     assert.equal((cfg.mutator?.excludedMutations || []).includes('Regex'), false, 'Regex mutations must be enabled');
 
-    const prevCeiling = process.env.GIT_CEILING_DIRECTORIES;
-    try {
-      const runner = new SdlcNodeTestRunner(cfg, console);
-      await runner.init();
-      const dry = await runner.dryRun({ disableBail: true });
-      assert.ok(dry.tests.length >= 45, `Expected >=45 unit tests in Stryker suite, got ${dry.tests.length}`);
-      const failed = dry.tests.filter((t) => t.status !== 'success' && t.status !== 0);
-      assert.deepEqual(failed, []);
-    } finally {
-      if (prevCeiling === undefined) delete process.env.GIT_CEILING_DIRECTORIES;
-      else process.env.GIT_CEILING_DIRECTORIES = prevCeiling;
-    }
+    // Run every configured Stryker test file through SdlcNodeTestRunner.init() + dryRun() in parallel OS shards
+    const shardCount = Math.min(6, allFiles.length);
+    const shards = Array.from({ length: shardCount }, () => []);
+    allFiles.forEach((f, idx) => shards[idx % shardCount].push(f));
+    const results = await Promise.all(shards.map((s) => runParityShard(cfg, s)));
+    const totalCount = results.reduce((acc, r) => acc + r.count, 0);
+    const allFailed = results.flatMap((r) => r.failed);
+    assert.ok(totalCount >= 50, `Expected >=50 unit tests in Stryker suite, got ${totalCount}`);
+    assert.deepEqual(allFailed, []);
   });
 
   it('matches node --test semantics for suite-once before/after, 3-arg it(name, opts, fn), t context, skip/todo, idempotent init(), and cross-suite perTest kills', async () => {

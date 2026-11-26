@@ -1,42 +1,42 @@
-# Software Requirements Specification (SRS): `sealit` (v0.0.1)
+# Software Requirements Specification (SRS): `sealit` (v0.0.2)
 
 *Based on IEEE 29148 Standard*
 
 ## 1. Introduction
 ### 1.1 Purpose
-Defines the functional interfaces, 4-ring Concentric Clean Architecture boundaries, non-functional requirements, and capability traceability matrix for `sealit` v0.0.1 ([sealit.dev](https://sealit.dev)).
+Defines the functional interfaces, 4-ring Concentric Clean Architecture boundaries, non-functional requirements, and capability traceability matrix for `sealit` v0.0.2 ([sealit.dev](https://sealit.dev)).
 
 ### 1.2 Scope
-An 8-module, zero-dependency Node.js (`>= 22.0.0`) Alignment and Proof Kernel paired with 6 canonical `sealit*` agent skills enforcing Git Flow session locks, spec/ADR drift checks, [Archlens](https://github.com/fmatar/archlens) concentric ring boundaries, measured diff coverage and mutation gates, and HMAC-SHA256 Stage 7 merge receipts.
+A 10-module, zero-dependency Node.js (`>= 22.0.0`) Alignment and Proof Kernel paired with 6 canonical `sealit*` agent skills enforcing Git Flow session locks, explicit spec/ADR drift checks, [Archlens](https://github.com/fmatar/archlens) concentric ring boundaries, polyglot per-line diff coverage and mutation gates, and dual-mode `SSHSIG` / `HMAC-SHA256` Stage 7 merge receipts.
 
 ### 1.3 References & Traceability Matrix
 - **Product Constitution**: [`PRODUCT.md`](../PRODUCT.md)
 - **Product Requirements Document**: [`docs/PRD.md`](./PRD.md)
-- **Active Architectural Decisions**: [`docs/adr/ADR-019-v0-1-0-alignment-and-proof-kernel-simplification.md`](./adr/ADR-019-v0-1-0-alignment-and-proof-kernel-simplification.md), [`docs/adr/ADR-026-rebrand-to-sealit-sealit-dev-and-reset-version-b.md`](./adr/ADR-026-rebrand-to-sealit-sealit-dev-and-reset-version-b.md)
+- **Active Architectural Decisions**: [`docs/adr/ADR-019-v0-1-0-alignment-and-proof-kernel-simplification.md`](./adr/ADR-019-v0-1-0-alignment-and-proof-kernel-simplification.md), [`docs/adr/ADR-026-rebrand-to-sealit-sealit-dev-and-reset-version-b.md`](./adr/ADR-026-rebrand-to-sealit-sealit-dev-and-reset-version-b.md), [`docs/adr/ADR-028-v0-0-2-fast-cycle-dual-mode-sshsig-10-module-ker.md`](./adr/ADR-028-v0-0-2-fast-cycle-dual-mode-sshsig-10-module-ker.md)
 - **Clean Architecture Policy**: [`.archlens/policy.json`](../.archlens/policy.json)
 
 | Capability ID | Capability Title | Detailed Functional Spec | Governing Ring & Module | Status |
 | :--- | :--- | :--- | :--- | :--- |
 | `CAP-01` | Git Flow, Linked-Worktree Hygiene & 4-Layer Guard | [`docs/specs/cap-01-git-and-worktree-guard.md`](./specs/cap-01-git-and-worktree-guard.md) | Ring 0 `git.mjs`, Ring 2 `guard.mjs` | `ACTIVE (ADR-026)` |
-| `CAP-02` | Schema-Validated Configuration & Shell-Free Execution | [`docs/specs/cap-02-config-and-shell-free-execution.md`](./specs/cap-02-config-and-shell-free-execution.md) | Ring 0 `config.mjs`, `git.mjs` | `ACTIVE (ADR-026)` |
-| `CAP-03` | Spec, ADR & Concentric Ring Alignment | [`docs/specs/cap-03-spec-adr-and-ring-alignment.md`](./specs/cap-03-spec-adr-and-ring-alignment.md) | Ring 1 `drift.mjs` | `ACTIVE (ADR-026)` |
-| `CAP-04` | Single-Path Measured Quality Gate | [`docs/specs/cap-04-single-path-measured-gate.md`](./specs/cap-04-single-path-measured-gate.md) | Ring 2 `measure.mjs`, `guard.mjs` | `ACTIVE (ADR-026)` |
-| `CAP-05` | Cryptographic HMAC-SHA256 Merge Receipts & Audit Chain | [`docs/specs/cap-05-cryptographic-merge-receipts.md`](./specs/cap-05-cryptographic-merge-receipts.md) | Ring 1 `receipt.mjs` | `ACTIVE (ADR-026)` |
-| `CAP-06` | Canonical 6-Skill Suite, Multi-Agent Installer & Doctor | [`docs/specs/cap-06-canonical-skills-and-installer.md`](./specs/cap-06-canonical-skills-and-installer.md) | Ring 2 `install.mjs`, Ring 3 `sealit-engine.mjs` | `ACTIVE (ADR-026)` |
+| `CAP-02` | Schema-Validated Configuration & Shell-Free Execution | [`docs/specs/cap-02-config-and-shell-free-execution.md`](./specs/cap-02-config-and-shell-free-execution.md) | Ring 0 `config.mjs`, `git.mjs` | `ACTIVE (ADR-028)` |
+| `CAP-03` | Spec, ADR & Concentric Ring Alignment | [`docs/specs/cap-03-spec-adr-and-ring-alignment.md`](./specs/cap-03-spec-adr-and-ring-alignment.md) | Ring 1 `drift.mjs` | `ACTIVE (ADR-028)` |
+| `CAP-04` | Single-Path Measured Quality Gate | [`docs/specs/cap-04-single-path-measured-gate.md`](./specs/cap-04-single-path-measured-gate.md) | Ring 1 `parsers.mjs`, `session.mjs`, Ring 2 `measure.mjs`, `guard.mjs` | `ACTIVE (ADR-028)` |
+| `CAP-05` | Cryptographic SSHSIG / HMAC-SHA256 Merge Receipts & Audit Chain | [`docs/specs/cap-05-cryptographic-merge-receipts.md`](./specs/cap-05-cryptographic-merge-receipts.md) | Ring 1 `session.mjs`, `receipt.mjs` | `ACTIVE (ADR-028)` |
+| `CAP-06` | Canonical 6-Skill Suite, Multi-Agent Installer & Doctor | [`docs/specs/cap-06-canonical-skills-and-installer.md`](./specs/cap-06-canonical-skills-and-installer.md) | Ring 2 `install.mjs`, Ring 3 `sealit-engine.mjs` | `ACTIVE (ADR-028)` |
 
 ## 2. Overall Description & Concentric Ring Architecture
-### 2.1 System Architecture (4 Concentric Rings, 8 Modules)
+### 2.1 System Architecture (4 Concentric Rings, 10 Modules)
 ```mermaid
 flowchart TD
     Skills["6 Canonical Skills (.agent/skills/sealit*)"] --> CLI["Ring 3 (cli-entrypoints): sealit-engine.mjs"]
     CLI --> Adapters["Ring 2 (adapters-orchestrators): measure.mjs, guard.mjs, install.mjs"]
-    Adapters --> Governance["Ring 1 (governance-models): receipt.mjs, drift.mjs"]
+    Adapters --> Governance["Ring 1 (governance-models): session.mjs, parsers.mjs, receipt.mjs, drift.mjs"]
     Governance --> Core["Ring 0 (domain-core): git.mjs, config.mjs"]
 ```
 
 ### 2.2 Operating Environment & Constraints
 - **Runtime**: Node.js `>= 22.0.0` (ES Modules), Git `>= 2.38`.
-- **Persisted State**: Exactly 3 files: git-tracked `docs/AUDIT_CHAIN.jsonl`, gitignored `.agent/.sealit-session.json` (`0600`), and gitignored `.agent/.receipt-key` (`0600`).
+- **Persisted State**: Git-tracked `docs/AUDIT_CHAIN.jsonl` (plus optional `.agent/allowed_signers` for asymmetric `SSHSIG`), gitignored `.agent/.sealit-session.json` (`0600`), and gitignored `.agent/.receipt-key` (`0600`).
 - **Module Complexity Cap**: Every file under `.agent/scripts/` stays `<= 850` lines of code with zero outward ring imports and zero circular dependencies.
 
 ## 3. Specific Requirements (IEEE 29148)
@@ -48,7 +48,7 @@ flowchart TD
 - **INV-01**: Protected branch lock on `main` and `develop`; PRs to `main` originate exclusively from `develop`.
 - **INV-02**: Single-path measured verification (`docs-only` vs `code`) bound to `HEAD` (`headSha`, `treeSha`, `specHash`, `adrHashes`).
 - **INV-03**: Universal human approval (`accepted`) required for all spec, policy, dependency, schema, and OpenAPI drift ADRs.
-- **INV-04**: Shell-free `execFileSync` command execution (`parseCommandArgv` / `runConfiguredCommand`), symlink-safe installer writes, and timing-safe HMAC-SHA256 verification.
+- **INV-04**: Shell-free `execFileSync` command execution (`parseCommandArgv` / `runConfiguredCommand`), symlink-safe installer writes, and timing-safe `HMAC-SHA256` / OpenSSH `SSHSIG` verification.
 
 ## Compacted Architectural Decisions
 

@@ -937,10 +937,16 @@ describe('Ring 2: lib/measure.mjs', () => {
       const repo = createTempGitRepo();
       cleanups.push(repo.cleanup);
       fs.mkdirSync(path.join(repo.dir, 'src'), { recursive: true });
-      fs.writeFileSync(path.join(repo.dir, 'package.json'), JSON.stringify({ name: pkgName, version: '1.0.0' }), 'utf8');
+      const pkg = { name: pkgName, version: '1.0.0' };
+      if (pkgName === 'sealit') {
+        fs.mkdirSync(path.join(repo.dir, 'bin'), { recursive: true });
+        fs.writeFileSync(path.join(repo.dir, 'bin/sealit.mjs'), '#!/usr/bin/env node\n', 'utf8');
+        pkg.bin = { sealit: 'bin/sealit.mjs' };
+      }
+      fs.writeFileSync(path.join(repo.dir, 'package.json'), JSON.stringify(pkg), 'utf8');
       const legacyLines = Array.from({ length: 10 }, (_, i) => `export const l${i} = ${i};`).join('\n') + '\n';
       fs.writeFileSync(path.join(repo.dir, 'src/legacy.mjs'), legacyLines, 'utf8');
-      git(repo.dir, 'add', 'package.json', 'src/legacy.mjs');
+      git(repo.dir, 'add', '-A');
       git(repo.dir, 'commit', '-q', '-m', 'chore: base');
       git(repo.dir, 'checkout', '-q', '-b', 'feat/x', 'develop');
 
@@ -1024,5 +1030,11 @@ describe('Ring 2: lib/measure.mjs', () => {
     const ownerPlan = buildMutationPlan(ownerDir, { name: 'root', path: '.', commands: { mutation: 'npx stryker run' } });
     assert.equal(ownerPlan.status, 'diff-unmutated-sources');
     assert.ok(ownerPlan.unmutatedSources.includes('.agent/scripts/sealit-engine.mjs'));
+
+    // Decoupled forceMutation: noCache does not force Stryker --force; forceMutation: true adds --force explicitly
+    const planNoCache = buildMutationPlan(adoptDir, { name: 'root', path: '.', commands: { mutation: 'npx stryker run' } }, { noCache: true });
+    assert.equal(planNoCache.commandArgv.includes('--force'), false);
+    const planForced = buildMutationPlan(adoptDir, { name: 'root', path: '.', commands: { mutation: 'npx stryker run' } }, { forceMutation: true });
+    assert.equal(planForced.commandArgv.includes('--force'), true);
   });
 });

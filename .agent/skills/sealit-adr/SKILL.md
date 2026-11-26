@@ -32,17 +32,18 @@ For `architectural` or `contract` decisions with competing shapes, **design it t
 # 1. Inspect spec, policy, dependency, contract, and ring drift
 node .agent/scripts/sealit-engine.mjs drift
 
-# 2. Create a pending ADR in docs/adr/ (or inspect existing NNNN-slug.md via `adr list`)
+# 2. Create a pending ADR in docs/adr/ (auto-populates `files:` from active triggers, or pass `--files` explicitly; blanket `*`/`**` globs are rejected)
 node .agent/scripts/sealit-engine.mjs adr create \
   --title "<Short Decision Title>" \
   --scope <technical|architectural|product|contract> \
+  --files "PRODUCT.md,docs/specs/*" \
   --ticket <id> \
   --supersedes "<CAP-XX or ADR-00X>" \
   --context "<Trigger & options compared>" \
   --decision "<Chosen interface/design & constraints>" \
   --consequences "<Trade-offs, rejected option rationale & reversal criteria>"
 
-# 3. Present the ADR to the human; after explicit approval, record decision
+# 3. Present the ADR to the human; after explicit approval, record decision (stamps `files:` on MADR notes if omitted)
 node .agent/scripts/sealit-engine.mjs adr decide \
   --id ADR-00X \
   --status approve \

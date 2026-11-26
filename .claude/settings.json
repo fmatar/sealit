@@ -37,6 +37,13 @@
       "Bash(node .agent/scripts/sealit-engine.mjs begin *)",
       "Bash(node .agent/scripts/sealit-engine.mjs end)",
       "Bash(node .agent/scripts/sealit-engine.mjs end *)"
+    ],
+    "deny": [
+      "Read(.agent/.receipt-key)",
+      "Edit(.agent/.receipt-key)",
+      "Write(.agent/.receipt-key)",
+      "Edit(.agent/.sealit-session.json)",
+      "Write(.agent/.sealit-session.json)"
     ]
   }
 }

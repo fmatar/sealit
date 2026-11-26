@@ -760,6 +760,19 @@ describe('Ring 2: lib/guard.mjs', () => {
       const codePostRecPr = buildPrSummary(codeRepo.dir);
       assert.equal(codePostRecPr.mode, 'code');
       assert.match(codePostRecPr.markdown, /Diff Coverage `100\.0%`/);
+
+      // Single-command atomic Stage 7 seal via recordReviewVerdict({ commit: true })
+      fs.writeFileSync(path.join(codeRepo.dir, 'mod.mjs'), 'export const v = 2;\n', 'utf8');
+      git(codeRepo.dir, 'add', 'mod.mjs');
+      git(codeRepo.dir, 'commit', '-q', '-m', 'feat: update mod');
+      assert.equal(runGate(codeRepo.dir, { noCache: true }).passed, true);
+      const atomicSeal = recordReviewVerdict({ verdict: 'approve', reviewer: '@sealit-gate', commit: true, repoRoot: codeRepo.dir });
+      assert.equal(atomicSeal.success, true, atomicSeal.error);
+      assert.equal(atomicSeal.committed, true);
+      assert.equal(atomicSeal.verified, true);
+      assert.ok(atomicSeal.commitSha);
+      assert.match(atomicSeal.prBody.markdown, /Diff Coverage `100\.0%`/);
+      assert.equal(git(codeRepo.dir, 'status', '--porcelain').stdout.trim(), '');
     });
   });
 });

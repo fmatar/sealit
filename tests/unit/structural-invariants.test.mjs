@@ -20,7 +20,9 @@ const EXPECTED_RUNTIME_FILES = [
   '.agent/scripts/lib/guard.mjs',
   '.agent/scripts/lib/install.mjs',
   '.agent/scripts/lib/measure.mjs',
-  '.agent/scripts/lib/receipt.mjs'
+  '.agent/scripts/lib/parsers.mjs',
+  '.agent/scripts/lib/receipt.mjs',
+  '.agent/scripts/lib/session.mjs'
 ];
 
 function walkJsFiles(dir, base = dir) {
@@ -33,8 +35,8 @@ function walkJsFiles(dir, base = dir) {
   return out.sort();
 }
 
-describe('sealit v0.0.1 Structural & Governance Invariants', () => {
-  it('Invariant 1: Exact 8-file runtime kernel, every file <= 850 LOC, and 0 Archlens ring or cycle violations', () => {
+describe('sealit v0.0.2 Structural & Governance Invariants', () => {
+  it('Invariant 1: Exact 10-file runtime kernel, every file <= 850 LOC, and 0 Archlens ring or cycle violations', () => {
     const actualFiles = walkJsFiles(path.join(REPO_ROOT, '.agent/scripts'), REPO_ROOT);
     assert.deepEqual(actualFiles, [...EXPECTED_RUNTIME_FILES].sort());
     assert.equal(fs.existsSync(path.join(REPO_ROOT, '.agent/scripts/workbench-assets')), false);
@@ -52,7 +54,7 @@ describe('sealit v0.0.1 Structural & Governance Invariants', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'));
     assert.equal(pkg.name, '@sealit/cli');
     assert.equal(pkg.publishConfig?.access, 'public');
-    assert.equal(pkg.version, '0.0.1');
+    assert.equal(pkg.version, '0.0.2');
     assert.equal(pkg.homepage, 'https://sealit.dev');
     assert.equal(readPackageVersion('/nonexistent/sealit-missing/scripts'), pkg.version);
     assert.equal(pkg.engines?.node, '>=22.0.0');
@@ -84,7 +86,7 @@ describe('sealit v0.0.1 Structural & Governance Invariants', () => {
 
     const pluginJson = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, '.claude-plugin/plugin.json'), 'utf8'));
     assert.equal(pluginJson.name, 'sealit');
-    assert.equal(pluginJson.version, '0.0.1');
+    assert.equal(pluginJson.version, '0.0.2');
     assert.deepEqual(pluginJson.skills, CANONICAL_SKILLS.map((s) => `./.agent/skills/${s}`));
     for (const s of CANONICAL_SKILLS) {
       assert.equal(fs.existsSync(path.join(REPO_ROOT, `.agent/skills/${s}/agents/openai.yaml`)), true, `Missing openai.yaml for ${s}`);
@@ -162,6 +164,9 @@ describe('sealit v0.0.1 Structural & Governance Invariants', () => {
     assert.match(qg, /--branch "\$GITHUB_HEAD_REF"/);
     assert.match(qg, /SEALIT_RECEIPT_KEY: ci-dummy-test-key/);
     assert.match(qg, /git archive "origin\/\$BASE_REF"/);
+    assert.match(qg, /allowed_signers/);
+    assert.doesNotMatch(qg, /- name: Verify Env-Isolated Test Suite/);
+    assert.equal((qg.match(/SEALIT_RECEIPT_KEY: ci-dummy-test-key/g) || []).length, 1);
     const { buildQualityGateWorkflow } = await import('../../.agent/scripts/lib/install.mjs');
     assert.equal(qg, buildQualityGateWorkflow({ runsOn: cfg.ci.runsOn, checkName: cfg.ci.checkName, repoRoot: REPO_ROOT }), 'repo workflow must equal the generator output');
 
@@ -170,6 +175,9 @@ describe('sealit v0.0.1 Structural & Governance Invariants', () => {
     assert.match(rel, /runner\.environment == 'github-hosted'/);
     assert.match(rel, /refs\/heads\/main/);
     assert.match(rel, /sealit-engine\.mjs verify/);
+    assert.match(rel, /persist-credentials: false/);
+    assert.match(rel, /npm publish --access public --provenance/);
+    assert.ok(rel.indexOf('Pre-Install Receipt & Ledger Verification') > -1 && rel.indexOf('Pre-Install Receipt & Ledger Verification') < rel.indexOf('Install Dependencies'));
 
     // Audit #10: Active docs/skills/specs never claim Audit Ledger is a Merkle tree or invoke unowned unscoped 'npx sealit'
     for (const docRel of ['README.md', 'PRODUCT.md', 'CONTRIBUTING.md', 'docs/PRD.md']) {
