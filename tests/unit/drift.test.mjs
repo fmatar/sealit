@@ -150,7 +150,7 @@ describe('Ring 1: lib/drift.mjs', () => {
     fs.writeFileSync(path.join(dir, 'docs/openapi.json'), '{ invalid json', 'utf8');
 
     // Even with an accepted ADR, malformed OpenAPI JSON fails closed!
-    const adr = createADR({ title: 'API Contract', scope: 'contract', ticket: '91', repoRoot: dir });
+    const adr = createADR({ title: 'API Contract', scope: 'contract', ticket: '91', files: ['docs/openapi.*'], repoRoot: dir });
     decideADR({ adrId: adr.id, status: 'approve', reviewer: '@rev', reason: 'ok', repoRoot: dir });
 
     const badJsonDrift = checkSpecDrift({ ticketId: '91', repoRoot: dir });
@@ -712,5 +712,51 @@ describe('Ring 1: lib/drift.mjs', () => {
     const raw7 = fs.readFileSync(path.join(dir, 'docs/adr/0007-body-status.md'), 'utf8');
     assert.match(raw7, /\nstatus: keep-this-prose-line\n/, 'body status line must not be overwritten');
     assert.equal((raw7.match(/# Body Status Guard/g) || []).length, 1, "$' in reason/reviewer must not duplicate body into frontmatter");
+  });
+
+  it('enforces explicit ADR files: trigger coverage, rejects blanket globs, requires architectural scope for policy drift, and honors supersedes: (S2)', () => {
+    const { dir, cleanup } = createTempGitRepo();
+    cleanups.push(cleanup);
+
+    fs.mkdirSync(path.join(dir, 'docs/adr'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'docs/adr/ADR-001-base.md'),
+      '---\nid: ADR-001\ntitle: Original\nstatus: accepted\nscope: architectural\nticket: "1"\n---\n\n# ADR-001\n',
+      'utf8'
+    );
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'chore: base adr');
+    git(dir, 'checkout', '-q', '-b', 'feat/adr-binding', 'develop');
+
+    // Blanket wildcards (including ***, **.*, *.*, **/*.*) and frontmatter injection are rejected by createADR
+    for (const badPat of ['**', '*', '***', '**.*', '*.*', '**/*.*', 'PRODUCT.md\nstatus: accepted']) {
+      assert.throws(() => createADR({ title: 'Bad Files', scope: 'product', files: [badPat], repoRoot: dir }), /Invalid ADR files entry/i, badPat);
+    }
+
+    // An ADR explicitly scoped to docs/specs/a.md does NOT cover a change to PRODUCT.md
+    fs.writeFileSync(path.join(dir, 'PRODUCT.md'), '# Updated\n', 'utf8');
+    const wrongAdr = createADR({ title: 'Only Spec A', scope: 'product', files: ['docs/specs/a.md'], ticket: '50', repoRoot: dir });
+    decideADR({ adrId: wrongAdr.id, status: 'approve', reviewer: '@arch', reason: 'ok', repoRoot: dir });
+    const uncovered = checkSpecDrift({ ticketId: '50', repoRoot: dir });
+    assert.equal(uncovered.passed, false);
+    assert.ok(uncovered.uncoveredTriggers.some((t) => t.file === 'PRODUCT.md'));
+
+    // Adding an accepted ADR covering PRODUCT.md passes; decideADR also validates --files and fills empty files: []
+    const rightAdr = createADR({ title: 'Update Product', scope: 'product', ticket: '50', repoRoot: dir });
+    assert.ok(rightAdr.files.includes('PRODUCT.md'), 'createADR must auto-populate active trigger files');
+    assert.equal(decideADR({ adrId: rightAdr.id, status: 'approve', files: ['**.*'], repoRoot: dir }).success, false);
+    decideADR({ adrId: rightAdr.id, status: 'approve', reviewer: '@arch', reason: 'ok', repoRoot: dir });
+    assert.equal(checkSpecDrift({ ticketId: '50', repoRoot: dir }).passed, true);
+
+    // Superseding a base accepted ADR requires scope: architectural (technical scope with supersedes: MUST fail)
+    const baseAdrPath = path.join(dir, 'docs/adr/ADR-001-base.md');
+    fs.writeFileSync(baseAdrPath, fs.readFileSync(baseAdrPath, 'utf8').replace('status: accepted', 'status: superseded'), 'utf8');
+    assert.equal(checkSpecDrift({ ticketId: '50', repoRoot: dir }).passed, false);
+    const techSup = createADR({ title: 'Tech Supersede', scope: 'technical', supersedes: ['ADR-001'], files: ['PRODUCT.md'], ticket: '50', repoRoot: dir });
+    decideADR({ adrId: techSup.id, status: 'approve', reviewer: '@arch', reason: 'wrong scope', repoRoot: dir });
+    assert.equal(checkSpecDrift({ ticketId: '50', repoRoot: dir }).passed, false, 'non-architectural supersedes: must not bypass ADR_MUTATION');
+    const supAdr = createADR({ title: 'Supersede Base', scope: 'architectural', supersedes: ['ADR-001'], files: ['PRODUCT.md'], ticket: '50', repoRoot: dir });
+    decideADR({ adrId: supAdr.id, status: 'approve', reviewer: '@arch', reason: 'superseded', repoRoot: dir });
+    assert.equal(checkSpecDrift({ ticketId: '50', repoRoot: dir }).passed, true);
   });
 });

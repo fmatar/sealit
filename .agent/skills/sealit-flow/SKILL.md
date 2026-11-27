@@ -32,14 +32,12 @@ node .agent/scripts/sealit-engine.mjs begin --issue <id> --title "<short-desc>" 
 node .agent/scripts/sealit-engine.mjs drift
 node .agent/scripts/sealit-engine.mjs test --affected-only
 
-# 3. Run 2-axis cold review, commit any refactors, run single gate & sign receipt on clean HEAD (sealit-gate)
+# 3. Run 2-axis cold review, commit any refactors, run single gate & seal receipt atomically on clean HEAD (sealit-gate)
 node .agent/scripts/sealit-engine.mjs gate --no-cache
-# (docs-only: node .agent/scripts/sealit-engine.mjs receipt --docs-only)
-# (code mode: run sealit-gate review plan -> review record --verdict approve)
+# (docs-only: node .agent/scripts/sealit-engine.mjs receipt --docs-only --commit)
+# (code mode: run sealit-gate review plan -> review record --verdict approve --commit)
 
-# 4. Commit docs/AUDIT_CHAIN.jsonl, verify receipt, generate PR body -> open PR -> after merge, close session
-node .agent/scripts/sealit-engine.mjs verify
-node .agent/scripts/sealit-engine.mjs pr-body
+# 4. Open PR using the returned prBody -> after merge, close session
 node .agent/scripts/sealit-engine.mjs end --issue <id>
 ```
 

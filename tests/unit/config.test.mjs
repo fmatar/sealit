@@ -41,7 +41,7 @@ describe('Ring 0: lib/config.mjs', () => {
   it('exposes canonical defaults and validates valid v0.1.0 configuration', () => {
     assert.equal(DEFAULT_QUALITY_THRESHOLDS.diffCoverage, 85);
     assert.equal(DEFAULT_QUALITY_THRESHOLDS.mutationScore, null);
-    assert.equal(DEFAULT_QUALITY_GATE_CHECK, 'Universal Quality Gate, Spec-Drift & Merkle Receipt Defense');
+    assert.equal(DEFAULT_QUALITY_GATE_CHECK, 'Sealit Quality Gate & Merge Receipt Verification');
     assert.equal(DEFAULT_CI_RUNS_ON, "${{ vars.SEALIT_RUNS_ON || vars.SDLC_RUNS_ON || 'ubuntu-latest' }}");
 
     const dir = makeTempDir();
@@ -590,21 +590,23 @@ describe('Ring 0: lib/config.mjs', () => {
     assert.ok(evilPol.policyTriggers.some((t) => t.file === 'packages/api/stryker.config.json'));
   });
 
-  it('isEngineOwnerRepo reads the base package.json name across sealit and legacy monikers and loadEffectivePolicy bridges legacy sdlc-config.json', () => {
+  it('isEngineOwnerRepo requires both owner name and engine marker, allowed_signers raises GATE_POLICY_DRIFT, and detectStack handles vitest/jest/c8/test-roots (S1, S7, L1)', () => {
     const r = createTempGitRepo();
     cleanups.push(r.cleanup);
     fs.mkdirSync(path.join(r.dir, '.agent'), { recursive: true });
-    fs.writeFileSync(path.join(r.dir, 'package.json'), JSON.stringify({ name: 'sealit', version: '0.0.1' }), 'utf8');
+    fs.mkdirSync(path.join(r.dir, 'bin'), { recursive: true });
+    fs.writeFileSync(path.join(r.dir, 'bin/sealit.mjs'), '#!/usr/bin/env node\n', 'utf8');
+    fs.writeFileSync(path.join(r.dir, 'package.json'), JSON.stringify({ name: 'sealit', version: '0.0.2', bin: { sealit: 'bin/sealit.mjs' } }), 'utf8');
     fs.writeFileSync(
       path.join(r.dir, '.agent/sdlc-config.json'),
       JSON.stringify({ version: '0.1.0', modules: [{ name: 'root', path: '.', commands: { coverage: 'npm run cov' }, thresholds: { diffCoverage: 85, mutationScore: null } }] }),
       'utf8'
     );
-    git(r.dir, 'add', 'package.json', '.agent/sdlc-config.json');
+    git(r.dir, 'add', 'package.json', 'bin/sealit.mjs', '.agent/sdlc-config.json');
     git(r.dir, 'commit', '-q', '-m', 'chore: owner pkg and legacy config');
     const sha1 = git(r.dir, 'rev-parse', 'HEAD').stdout.trim();
 
-    git(r.dir, 'rm', '-q', '.agent/sdlc-config.json');
+    git(r.dir, 'rm', '-q', '.agent/sdlc-config.json', 'bin/sealit.mjs');
     fs.mkdirSync(path.join(r.dir, '.agent'), { recursive: true });
     fs.writeFileSync(path.join(r.dir, 'package.json'), JSON.stringify({ name: 'demo', version: '1.0.0' }), 'utf8');
     fs.writeFileSync(
@@ -612,20 +614,28 @@ describe('Ring 0: lib/config.mjs', () => {
       JSON.stringify({ version: '0.0.1', modules: [{ name: 'root', path: '.', commands: { coverage: 'npm run cov' }, thresholds: { diffCoverage: 40, mutationScore: null } }] }),
       'utf8'
     );
-    git(r.dir, 'add', 'package.json', '.agent/sealit-config.json');
+    fs.writeFileSync(path.join(r.dir, '.agent/allowed_signers'), '@alice ssh-ed25519 AAAA\n', 'utf8');
+    git(r.dir, 'add', 'package.json', '.agent/sealit-config.json', '.agent/allowed_signers');
     git(r.dir, 'commit', '-q', '-m', 'chore: demo pkg and lowered sealit config');
     const sha2 = git(r.dir, 'rev-parse', 'HEAD').stdout.trim();
 
-    const bridged = loadEffectivePolicy({ repoRoot: r.dir, baseSha: sha1, headSha: sha2 });
+    const bridged = loadEffectivePolicy({ repoRoot: r.dir, baseSha: sha1, headSha: sha2, changedPaths: ['.agent/allowed_signers', '.agent/sealit-config.json'] });
     assert.equal(bridged.policySource, 'base+head');
     assert.equal(bridged.config.modules[0].thresholds.diffCoverage, 85, 'legacy base sdlc-config.json floor must still hold across rename');
     assert.ok(bridged.policyTriggers.some((t) => t.file === '.agent/sealit-config.json'));
+    assert.ok(bridged.policyTriggers.some((t) => t.file === '.agent/allowed_signers' && t.type === 'GATE_POLICY_DRIFT'));
 
     assert.equal(isEngineOwnerRepo({ repoRoot: r.dir, baseSha: sha1 }), true);
     assert.equal(isEngineOwnerRepo({ repoRoot: r.dir, baseSha: sha2 }), false);
     assert.equal(isEngineOwnerRepo({ repoRoot: r.dir, baseSha: '4b825dc642cb6eb9a060e54bf8d69288fbee4904' }), false);
     assert.equal(isEngineOwnerRepo({ repoRoot: r.dir }), false);
 
+    // S7: A consumer repo merely named 'sealit' without engine marker files is NOT treated as the owner repo
+    fs.writeFileSync(path.join(r.dir, 'package.json'), JSON.stringify({ name: 'sealit' }), 'utf8');
+    assert.equal(isEngineOwnerRepo({ repoRoot: r.dir }), false);
+
+    fs.mkdirSync(path.join(r.dir, 'bin'), { recursive: true });
+    fs.writeFileSync(path.join(r.dir, 'bin/sealit.mjs'), '#!/usr/bin/env node\n', 'utf8');
     for (const ownerName of ['@sealit/cli', 'sealit', '@fmatar/sealit', '@fmatar/agentic-sdlc']) {
       fs.writeFileSync(path.join(r.dir, 'package.json'), JSON.stringify({ name: ownerName }), 'utf8');
       assert.equal(isEngineOwnerRepo({ repoRoot: r.dir }), true, ownerName);
@@ -640,5 +650,32 @@ describe('Ring 0: lib/config.mjs', () => {
     assert.equal(isVendoredEnginePath('.\\.agent\\scripts\\lib\\git.mjs'), true);
     assert.equal(isVendoredEnginePath('packages/api/.agent/scripts/worker.mjs'), false);
     assert.equal(isVendoredEnginePath(''), false);
+
+    // L1: Smart JS/TS stack discovery (vitest + coverage, jest, c8 + pnpm, test/ root)
+    const vitestDir = makeTempDir();
+    fs.writeFileSync(path.join(vitestDir, 'package.json'), JSON.stringify({ name: 'v', devDependencies: { vitest: '^2.0.0', '@vitest/coverage-v8': '^2.0.0' } }), 'utf8');
+    const vStack = detectStack(vitestDir);
+    assert.match(vStack.commands.test, /\.\/node_modules\/\.bin\/vitest run/);
+    assert.match(vStack.commands.coverage, /\.\/node_modules\/\.bin\/vitest run --coverage --coverage\.reporter=lcov/);
+
+    const jestDir = makeTempDir();
+    fs.writeFileSync(path.join(jestDir, 'package.json'), JSON.stringify({ name: 'j', devDependencies: { jest: '^29.0.0' } }), 'utf8');
+    const jStack = detectStack(jestDir);
+    assert.match(jStack.commands.test, /\.\/node_modules\/\.bin\/jest/);
+    assert.match(jStack.commands.coverage, /\.\/node_modules\/\.bin\/jest --coverage --coverageReporters=lcov/);
+
+    const c8Dir = makeTempDir();
+    fs.writeFileSync(path.join(c8Dir, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n', 'utf8');
+    fs.writeFileSync(path.join(c8Dir, 'package.json'), JSON.stringify({ name: 'c', scripts: { test: 'node --test' }, devDependencies: { c8: '^10.0.0' } }), 'utf8');
+    const c8Stack = detectStack(c8Dir);
+    assert.equal(c8Stack.commands.test, 'pnpm test');
+    assert.equal(c8Stack.commands.coverage, './node_modules/.bin/c8 --reporter=lcov --reports-dir=coverage pnpm test');
+
+    const testRootDir = makeTempDir();
+    fs.mkdirSync(path.join(testRootDir, 'test'), { recursive: true });
+    fs.writeFileSync(path.join(testRootDir, 'package.json'), JSON.stringify({ name: 't' }), 'utf8');
+    const trStack = detectStack(testRootDir);
+    assert.match(trStack.commands.test, /"test\/\*\*\/\*\.test\.\*"/);
+    assert.match(trStack.commands.coverage, /"test\/\*\*\/\*\.test\.\*"/);
   });
 });

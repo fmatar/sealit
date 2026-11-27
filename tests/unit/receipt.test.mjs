@@ -10,6 +10,7 @@ import {
   RECEIPT_KEY_FILE,
   calculateRecordHash,
   signReceiptPayload,
+  signReceiptSsh,
   verifyReceiptSignature,
   verifyAuditChainContent,
   readSessionStore,
@@ -462,7 +463,7 @@ describe('Ring 1: lib/receipt.mjs', () => {
       assert.match(issueGateReceipt({ repoRoot: dir }).reason, /mutation score/i);
       writeActiveSession(dir, (s) => { s.sessions['42'].lastGate.mutationPct = 66; return s; });
 
-      // 2. Stale lastGate.headSha and mismatched peerReview.headSha are refused
+      // 2. Stale lastGate.headSha, stale lastGate.treeSha (S1), and mismatched peerReview.headSha are refused
       fs.writeFileSync(path.join(dir, 'app.mjs'), 'export const k = 2;\n', 'utf8');
       git(dir, 'add', 'app.mjs');
       git(dir, 'commit', '-q', '-m', 'feat: post-gate edit');
@@ -470,6 +471,9 @@ describe('Ring 1: lib/receipt.mjs', () => {
       assert.match(issueGateReceipt({ repoRoot: dir }).reason, /lastGate measurement/i);
 
       writeActiveSession(dir, (s) => { s.sessions['42'].lastGate.headSha = sha2; return s; });
+      assert.match(issueGateReceipt({ repoRoot: dir }).reason, /treeSha/i);
+
+      writeActiveSession(dir, (s) => { s.sessions['42'].lastGate.treeSha = computeContentTreeSha(sha2, dir); return s; });
       assert.match(issueGateReceipt({ repoRoot: dir }).reason, /peer review was recorded for/i);
 
       // 3. Valid receipt signs -> wrong branch rejected -> forged HMAC (even with recalculated SHA-256 chain hash) rejected
@@ -691,6 +695,174 @@ describe('Ring 1: lib/receipt.mjs', () => {
     withoutReceiptEnv(() => {
       assert.throws(() => loadReceiptKey(wtDir, { create: true }), /symlink/i);
       assert.equal(fs.existsSync(path.join(outsideAgent, '.receipt-key')), false);
+    });
+  });
+
+  it('supports dual-mode native OpenSSH SSHSIG receipts against baseCommit:.agent/allowed_signers and blocks HMAC downgrade or PR-injected keys (S1)', async () => {
+    const { execFileSync } = await import('node:child_process');
+    const keyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sealit-ssh-keys-'));
+    cleanups.push(() => fs.rmSync(keyDir, { recursive: true, force: true }));
+    const aliceKey = path.join(keyDir, 'alice_ed25519');
+    const evilKey = path.join(keyDir, 'evil_ed25519');
+    execFileSync('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-f', aliceKey]);
+    execFileSync('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-f', evilKey]);
+    const alicePub = fs.readFileSync(`${aliceKey}.pub`, 'utf8').trim();
+    const evilPub = fs.readFileSync(`${evilKey}.pub`, 'utf8').trim();
+
+    const { dir, cleanup } = createTempGitRepo();
+    cleanups.push(cleanup);
+
+    fs.mkdirSync(path.join(dir, '.agent'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.agent/allowed_signers'), `@alice ${alicePub}\n`, 'utf8');
+    fs.writeFileSync(
+      path.join(dir, '.agent/sealit-config.json'),
+      JSON.stringify({ version: '0.1.0', modules: [{ name: 'root', path: '.', commands: {}, thresholds: { diffCoverage: null, mutationScore: null } }] }),
+      'utf8'
+    );
+    git(dir, 'add', '.agent/allowed_signers', '.agent/sealit-config.json');
+    git(dir, 'commit', '-q', '-m', 'chore: trust @alice in allowed_signers');
+    git(dir, 'branch', '-f', 'main', 'HEAD');
+
+    git(dir, 'checkout', '-q', '-b', 'feat/sshsig', 'develop');
+    fs.writeFileSync(path.join(dir, 'app.mjs'), 'export const signed = true;\n', 'utf8');
+    git(dir, 'add', 'app.mjs');
+    git(dir, 'commit', '-q', '-m', 'feat: sshsig change');
+    const sha = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+    seedPassingSession(dir, 'feat/sshsig', sha, 'code');
+
+    const prevKeyEnv = process.env.SEALIT_SIGNING_KEY;
+    withoutReceiptEnv(() => {
+      try {
+        // 1. Valid SSHSIG signing binds reviewer to verified principal @alice and verifies with ZERO HMAC key
+        process.env.SEALIT_SIGNING_KEY = aliceKey;
+        const issued = issueGateReceipt({ repoRoot: dir });
+        assert.equal(issued.success, true, issued.reason);
+        assert.equal(issued.receipt.signature.alg, 'SSHSIG');
+        assert.equal(issued.receipt.signature.principal, '@alice');
+        assert.equal(issued.receipt.reviewer, '@alice');
+
+        git(dir, 'add', 'docs/AUDIT_CHAIN.jsonl');
+        git(dir, 'commit', '-q', '-m', 'chore(audit): seal sshsig receipt');
+        const sealedSha = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+        const ver = verifyGateReceipt({ headSha: sealedSha, branch: 'feat/sshsig', repoRoot: dir });
+        assert.equal(ver.valid, true, ver.reason);
+        assert.equal(ver.receipt.signature.alg, 'SSHSIG');
+
+        // 2. Tampering metadata (even with recalculated hash-chain and committed HEAD) invalidates SSHSIG verification
+        const ledgerPath = path.join(dir, 'docs/AUDIT_CHAIN.jsonl');
+        const origLedger = fs.readFileSync(ledgerPath, 'utf8');
+        const recs = origLedger.trim().split('\n').map((l) => JSON.parse(l));
+        recs[recs.length - 1].metadata.reviewer = '@spoofed';
+        recs[recs.length - 1].currentHash = calculateRecordHash(recs[recs.length - 1]);
+        fs.writeFileSync(ledgerPath, recs.map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf8');
+        git(dir, 'add', 'docs/AUDIT_CHAIN.jsonl');
+        git(dir, 'commit', '--amend', '-q', '--no-edit');
+        const tamperedSha = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+        assert.equal(verifyGateReceipt({ headSha: tamperedSha, branch: 'feat/sshsig', repoRoot: dir }).valid, false);
+
+        // 3. HMAC downgrade attack is rejected when baseCommit defines .agent/allowed_signers
+        process.env.SEALIT_RECEIPT_KEY = '0123456789abcdef0123456789abcdef';
+        const hmacRecs = origLedger.trim().split('\n').map((l) => JSON.parse(l));
+        const payload = { ...hmacRecs[hmacRecs.length - 1].metadata };
+        delete payload.signature;
+        hmacRecs[hmacRecs.length - 1].metadata = {
+          ...payload,
+          signature: { alg: 'HMAC-SHA256', keyId: 'deadbeef', value: signReceiptPayload(payload, Buffer.from(process.env.SEALIT_RECEIPT_KEY, 'utf8')) }
+        };
+        hmacRecs[hmacRecs.length - 1].currentHash = calculateRecordHash(hmacRecs[hmacRecs.length - 1]);
+        fs.writeFileSync(ledgerPath, hmacRecs.map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf8');
+        git(dir, 'add', 'docs/AUDIT_CHAIN.jsonl');
+        git(dir, 'commit', '--amend', '-q', '--no-edit');
+        const downgradedSha = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+        const downgraded = verifyGateReceipt({ headSha: downgradedSha, branch: 'feat/sshsig', repoRoot: dir });
+        assert.equal(downgraded.valid, false);
+        delete process.env.SEALIT_RECEIPT_KEY;
+        fs.writeFileSync(ledgerPath, origLedger, 'utf8');
+        git(dir, 'add', 'docs/AUDIT_CHAIN.jsonl');
+        git(dir, 'commit', '--amend', '-q', '--no-edit');
+
+        // 4. PR-injected allowed_signers key attack is rejected by BOTH issueGateReceipt and verifyGateReceipt against baseTip:.agent/allowed_signers
+        git(dir, 'checkout', '-q', '-b', 'feat/evil-signer', 'develop');
+        fs.appendFileSync(path.join(dir, '.agent/allowed_signers'), `@evil ${evilPub}\n`, 'utf8');
+        git(dir, 'add', '.agent/allowed_signers');
+        git(dir, 'commit', '-q', '-m', 'evil: inject attacker key into PR allowed_signers');
+        const evilSha = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+        seedPassingSession(dir, 'feat/evil-signer', evilSha, 'code');
+        process.env.SEALIT_SIGNING_KEY = evilKey;
+        const evilIssued = issueGateReceipt({ repoRoot: dir });
+        assert.equal(evilIssued.success, false, 'issueGateReceipt must refuse PR-injected key not present on baseTip');
+        const evilPayload = {
+          receiptId: `GATE-RECEIPT-#42-${evilSha.slice(0, 8)}`, version: '0.1.0', issueId: 42,
+          branch: 'feat/evil-signer', headSha: evilSha, treeSha: computeContentTreeSha(evilSha, dir),
+          mode: 'code', peerReviewApproved: true, reviewer: '@evil', driftPassed: true, driftCheckPassed: true, archPassed: true,
+          issuedAt: new Date().toISOString()
+        };
+        const evilDirectSig = signReceiptSsh(evilPayload, evilKey, `@evil ${evilPub}\n`);
+        appendAuditRecord({ event: 'STAGE_7_GATE_RECEIPT_SIGNED', metadata: { ...evilPayload, signature: evilDirectSig }, repoRoot: dir });
+        git(dir, 'add', 'docs/AUDIT_CHAIN.jsonl');
+        git(dir, 'commit', '-q', '-m', 'evil: commit attacker receipt');
+        const evilSealed = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+        const evilVer = verifyGateReceipt({ headSha: evilSealed, branch: 'feat/evil-signer', repoRoot: dir });
+        assert.equal(evilVer.valid, false, 'PR-injected key must be rejected against baseTip:.agent/allowed_signers');
+
+        // 5. Historical ancestor & orphan-branch bootstrap bypass attempts on an existing SSHSIG repo are rejected against baseTip
+        const preSshBaseSha = git(dir, 'rev-parse', 'develop~1').stdout.trim();
+        git(dir, 'checkout', '-q', '-b', 'feat/old-ancestor-bypass', preSshBaseSha);
+        fs.mkdirSync(path.join(dir, '.agent'), { recursive: true });
+        fs.writeFileSync(path.join(dir, '.agent/allowed_signers'), `@evil ${evilPub}\n`, 'utf8');
+        git(dir, 'add', '.agent/allowed_signers');
+        git(dir, 'commit', '-q', '-m', 'evil: branch from pre-sshsig ancestor and inject allowed_signers');
+        const oldBypassHead = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+        seedPassingSession(dir, 'feat/old-ancestor-bypass', oldBypassHead, 'code');
+        process.env.SEALIT_SIGNING_KEY = evilKey;
+        const oldIssued = issueGateReceipt({ repoRoot: dir });
+        assert.equal(oldIssued.success, false, 'issueGateReceipt must anchor allowed_signers on baseTip, rejecting unauthorized key');
+
+        // Also test direct verification of an attacker-forged SSHSIG receipt committed on that pre-sshsig ancestor branch
+        const forgedPayload = {
+          receiptId: `GATE-RECEIPT-#42-${oldBypassHead.slice(0, 8)}`, version: '0.1.0', issueId: 42,
+          branch: 'feat/old-ancestor-bypass', headSha: oldBypassHead, treeSha: computeContentTreeSha(oldBypassHead, dir),
+          mode: 'code', peerReviewApproved: true, reviewer: '@evil', driftPassed: true, driftCheckPassed: true, archPassed: true,
+          issuedAt: new Date().toISOString()
+        };
+        const evilSig = signReceiptSsh(forgedPayload, evilKey, `@evil ${evilPub}\n`);
+        appendAuditRecord({ event: 'STAGE_7_GATE_RECEIPT_SIGNED', metadata: { ...forgedPayload, signature: evilSig }, repoRoot: dir });
+        git(dir, 'add', 'docs/AUDIT_CHAIN.jsonl');
+        git(dir, 'commit', '-q', '-m', 'evil: commit historical-ancestor forged sshsig receipt');
+        const forgedSha = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+        assert.equal(verifyGateReceipt({ headSha: forgedSha, branch: 'feat/old-ancestor-bypass', repoRoot: dir }).valid, false);
+
+        // 6. Existing HMAC-SHA256 repo opening a PR to adopt .agent/allowed_signers seals & verifies cleanly via HMAC-SHA256 (zero migration deadlock!)
+        const migRepo = createTempGitRepo();
+        cleanups.push(migRepo.cleanup);
+        fs.mkdirSync(path.join(migRepo.dir, '.agent'), { recursive: true });
+        fs.writeFileSync(
+          path.join(migRepo.dir, '.agent/sealit-config.json'),
+          JSON.stringify({ version: '0.1.0', modules: [{ name: 'root', path: '.', commands: {}, thresholds: { diffCoverage: null, mutationScore: null } }] }),
+          'utf8'
+        );
+        git(migRepo.dir, 'add', '.agent/sealit-config.json');
+        git(migRepo.dir, 'commit', '-q', '-m', 'chore: base hmac repo');
+        git(migRepo.dir, 'branch', '-f', 'main', 'HEAD');
+        git(migRepo.dir, 'checkout', '-q', '-b', 'feat/adopt-sshsig', 'develop');
+        fs.writeFileSync(path.join(migRepo.dir, '.agent/allowed_signers'), `@alice ${alicePub}\n`, 'utf8');
+        git(migRepo.dir, 'add', '.agent/allowed_signers');
+        git(migRepo.dir, 'commit', '-q', '-m', 'chore: add allowed_signers');
+        const migSha = git(migRepo.dir, 'rev-parse', 'HEAD').stdout.trim();
+        seedPassingSession(migRepo.dir, 'feat/adopt-sshsig', migSha, 'code');
+        process.env.SEALIT_RECEIPT_KEY = '0123456789abcdef0123456789abcdef';
+        const migIssued = issueGateReceipt({ repoRoot: migRepo.dir });
+        assert.equal(migIssued.success, true, migIssued.reason);
+        assert.equal(migIssued.receipt.signature.alg, 'HMAC-SHA256', 'adoption PR must sign HMAC-SHA256 until allowed_signers lands on base');
+        git(migRepo.dir, 'add', 'docs/AUDIT_CHAIN.jsonl');
+        git(migRepo.dir, 'commit', '-q', '-m', 'chore(audit): seal adoption PR');
+        const migSealed = git(migRepo.dir, 'rev-parse', 'HEAD').stdout.trim();
+        assert.equal(verifyGateReceipt({ headSha: migSealed, branch: 'feat/adopt-sshsig', repoRoot: migRepo.dir }).valid, true);
+        delete process.env.SEALIT_RECEIPT_KEY;
+      } finally {
+        if (prevKeyEnv === undefined) delete process.env.SEALIT_SIGNING_KEY;
+        else process.env.SEALIT_SIGNING_KEY = prevKeyEnv;
+      }
     });
   });
 });
